@@ -216,7 +216,7 @@ const Users = () => {
                     {isAdmin ? (
                       <Select
                         value={roles[profile.id] || 'employee'}
-                        onValueChange={(value) => updateUserRole(profile.id, value)}
+                        onValueChange={(value) => updateUserRole(profile.id, value as 'admin' | 'moderator' | 'employee')}
                       >
                         <SelectTrigger className="w-[140px]">
                           <SelectValue />
@@ -259,7 +259,7 @@ const Users = () => {
                     {isAdmin ? (
                       <Select
                         value={profile.status}
-                        onValueChange={(value) => updateUserStatus(profile.id, value)}
+                        onValueChange={(value) => updateUserStatus(profile.id, value as 'active' | 'trial' | 'limited' | 'blocked')}
                       >
                         <SelectTrigger className="w-[130px]">
                           <SelectValue />

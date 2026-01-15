@@ -29,6 +29,7 @@ import { Button } from '@/components/ui/button';
 
 const mainMenuItems = [
   { title: 'Дашборд', url: '/', icon: LayoutDashboard },
+  { title: 'Тест чата', url: '/test-chat', icon: MessageSquare },
   { title: 'Пользователи', url: '/users', icon: Users, roles: ['admin', 'moderator'] },
   { title: 'Отделы', url: '/departments', icon: Building2 },
   { title: 'AI Провайдеры', url: '/providers', icon: Bot, roles: ['admin'] },

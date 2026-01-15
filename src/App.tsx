@@ -12,6 +12,9 @@ import Unauthorized from "./pages/Unauthorized";
 import Dashboard from "./pages/Dashboard";
 import Users from "./pages/Users";
 import Departments from "./pages/Departments";
+import Providers from "./pages/Providers";
+import Prompts from "./pages/Prompts";
+import TestChat from "./pages/TestChat";
 import NotFound from "./pages/NotFound";
 
 const queryClient = new QueryClient();
@@ -40,6 +43,21 @@ const App = () => (
             <Route path="/departments" element={
               <ProtectedRoute>
                 <AdminLayout><Departments /></AdminLayout>
+              </ProtectedRoute>
+            } />
+            <Route path="/providers" element={
+              <ProtectedRoute allowedRoles={['admin']}>
+                <AdminLayout><Providers /></AdminLayout>
+              </ProtectedRoute>
+            } />
+            <Route path="/prompts" element={
+              <ProtectedRoute allowedRoles={['admin']}>
+                <AdminLayout><Prompts /></AdminLayout>
+              </ProtectedRoute>
+            } />
+            <Route path="/test-chat" element={
+              <ProtectedRoute>
+                <AdminLayout><TestChat /></AdminLayout>
               </ProtectedRoute>
             } />
             <Route path="*" element={<NotFound />} />
