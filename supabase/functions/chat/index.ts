@@ -85,15 +85,39 @@ serve(async (req) => {
     if (folderIds.length > 0) {
       console.log(`Searching in folders: ${folderIds.join(', ')}`);
       
-      const { data: chunks } = await supabase
-        .from('document_chunks')
-        .select('content, document_id, documents!inner(folder_id)')
-        .in('documents.folder_id', folderIds)
-        .limit(5);
+      // Сначала находим документы в указанных папках
+      const { data: docs, error: docsError } = await supabase
+        .from('documents')
+        .select('id')
+        .in('folder_id', folderIds)
+        .eq('status', 'ready');
 
-      if (chunks && chunks.length > 0) {
-        ragContext = chunks.map(c => c.content);
-        console.log(`Found ${ragContext.length} relevant chunks`);
+      if (docsError) {
+        console.error('Error fetching documents:', docsError);
+      }
+
+      if (docs && docs.length > 0) {
+        const docIds = docs.map(d => d.id);
+        console.log(`Found ${docIds.length} documents in folders`);
+
+        // Затем ищем chunks для этих документов
+        const { data: chunks, error: chunksError } = await supabase
+          .from('document_chunks')
+          .select('content, chunk_index, document_id')
+          .in('document_id', docIds)
+          .order('chunk_index')
+          .limit(5);
+
+        if (chunksError) {
+          console.error('Error fetching chunks:', chunksError);
+        }
+
+        if (chunks && chunks.length > 0) {
+          ragContext = chunks.map(c => c.content);
+          console.log(`Found ${ragContext.length} relevant chunks`);
+        }
+      } else {
+        console.log('No ready documents found in specified folders');
       }
     }
 
