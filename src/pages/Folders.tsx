@@ -393,17 +393,17 @@ export default function Folders() {
 
               <div className="space-y-2">
                 <Label htmlFor="parent_id">Родительская папка</Label>
-                <Select
-                  value={formData.parent_id}
+              <Select
+                  value={formData.parent_id || "_root"}
                   onValueChange={(value) =>
-                    setFormData((prev) => ({ ...prev, parent_id: value }))
+                    setFormData((prev) => ({ ...prev, parent_id: value === "_root" ? "" : value }))
                   }
                 >
                   <SelectTrigger>
                     <SelectValue placeholder="Корневая папка" />
                   </SelectTrigger>
                   <SelectContent>
-                    <SelectItem value="">Корневая папка</SelectItem>
+                    <SelectItem value="_root">Корневая папка</SelectItem>
                     {folders
                       .filter((f) => f.id !== editingFolder?.id)
                       .map((folder) => (
@@ -417,17 +417,17 @@ export default function Folders() {
 
               <div className="space-y-2">
                 <Label htmlFor="department_id">Отдел</Label>
-                <Select
-                  value={formData.department_id}
+              <Select
+                  value={formData.department_id || "_all"}
                   onValueChange={(value) =>
-                    setFormData((prev) => ({ ...prev, department_id: value }))
+                    setFormData((prev) => ({ ...prev, department_id: value === "_all" ? "" : value }))
                   }
                 >
                   <SelectTrigger>
                     <SelectValue placeholder="Все отделы" />
                   </SelectTrigger>
                   <SelectContent>
-                    <SelectItem value="">Все отделы</SelectItem>
+                    <SelectItem value="_all">Все отделы</SelectItem>
                     {departments.map((dept) => (
                       <SelectItem key={dept.id} value={dept.id}>
                         {dept.name}
