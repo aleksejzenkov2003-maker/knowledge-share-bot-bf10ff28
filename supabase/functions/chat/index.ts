@@ -22,6 +22,8 @@ serve(async (req) => {
 
   try {
     const PERPLEXITY_API_KEY = Deno.env.get('PERPLEXITY_API_KEY');
+    const LOVABLE_API_KEY = Deno.env.get('LOVABLE_API_KEY');
+    
     if (!PERPLEXITY_API_KEY) {
       throw new Error('PERPLEXITY_API_KEY is not configured');
     }
@@ -80,44 +82,82 @@ serve(async (req) => {
       }
     }
 
-    // RAG: Search documents in specified folders
+    // RAG: Semantic search in documents
     let ragContext: string[] = [];
+    let usedSemanticSearch = false;
+
     if (folderIds.length > 0) {
       console.log(`Searching in folders: ${folderIds.join(', ')}`);
       
-      // Сначала находим документы в указанных папках
-      const { data: docs, error: docsError } = await supabase
-        .from('documents')
-        .select('id')
-        .in('folder_id', folderIds)
-        .eq('status', 'ready');
+      // Try semantic search first if we have Lovable AI
+      if (LOVABLE_API_KEY) {
+        try {
+          console.log('Generating query embedding for semantic search...');
+          const queryEmbedding = await generateQueryEmbedding(message, LOVABLE_API_KEY);
+          
+          if (queryEmbedding && queryEmbedding.length === 1536) {
+            // Use the match_document_chunks function for semantic search
+            const { data: semanticChunks, error: semanticError } = await supabase.rpc(
+              'match_document_chunks',
+              {
+                query_embedding: `[${queryEmbedding.join(',')}]`,
+                match_threshold: 0.5,
+                match_count: 5,
+                folder_ids: folderIds
+              }
+            );
 
-      if (docsError) {
-        console.error('Error fetching documents:', docsError);
+            if (!semanticError && semanticChunks && semanticChunks.length > 0) {
+              ragContext = semanticChunks.map((c: any) => c.content);
+              usedSemanticSearch = true;
+              console.log(`Found ${ragContext.length} chunks via semantic search`);
+            } else if (semanticError) {
+              console.error('Semantic search error:', semanticError);
+            }
+          }
+        } catch (embError) {
+          console.error('Error in semantic search:', embError);
+        }
       }
 
-      if (docs && docs.length > 0) {
-        const docIds = docs.map(d => d.id);
-        console.log(`Found ${docIds.length} documents in folders`);
+      // Fallback to regular search if semantic search didn't work
+      if (ragContext.length === 0) {
+        console.log('Falling back to regular chunk search...');
+        
+        // Get documents in specified folders
+        const { data: docs, error: docsError } = await supabase
+          .from('documents')
+          .select('id')
+          .in('folder_id', folderIds)
+          .eq('status', 'ready');
 
-        // Затем ищем chunks для этих документов
-        const { data: chunks, error: chunksError } = await supabase
-          .from('document_chunks')
-          .select('content, chunk_index, document_id')
-          .in('document_id', docIds)
-          .order('chunk_index')
-          .limit(5);
-
-        if (chunksError) {
-          console.error('Error fetching chunks:', chunksError);
+        if (docsError) {
+          console.error('Error fetching documents:', docsError);
         }
 
-        if (chunks && chunks.length > 0) {
-          ragContext = chunks.map(c => c.content);
-          console.log(`Found ${ragContext.length} relevant chunks`);
+        if (docs && docs.length > 0) {
+          const docIds = docs.map(d => d.id);
+          console.log(`Found ${docIds.length} documents in folders`);
+
+          // Get chunks for these documents
+          const { data: chunks, error: chunksError } = await supabase
+            .from('document_chunks')
+            .select('content, chunk_index, document_id')
+            .in('document_id', docIds)
+            .order('chunk_index')
+            .limit(5);
+
+          if (chunksError) {
+            console.error('Error fetching chunks:', chunksError);
+          }
+
+          if (chunks && chunks.length > 0) {
+            ragContext = chunks.map(c => c.content);
+            console.log(`Found ${ragContext.length} relevant chunks (fallback)`);
+          }
+        } else {
+          console.log('No ready documents found in specified folders');
         }
-      } else {
-        console.log('No ready documents found in specified folders');
       }
     }
 
@@ -127,7 +167,7 @@ serve(async (req) => {
       finalPrompt = `Context from documents:\n${ragContext.join('\n\n')}\n\nUser question: ${message}`;
     }
 
-    console.log(`Calling Perplexity API with model: ${model}`);
+    console.log(`Calling Perplexity API with model: ${model}, RAG chunks: ${ragContext.length}, semantic: ${usedSemanticSearch}`);
     const perplexityResponse = await fetch('https://api.perplexity.ai/chat/completions', {
       method: 'POST',
       headers: {
@@ -165,7 +205,12 @@ serve(async (req) => {
       completion_tokens: usage.completion_tokens || 0,
       total_tokens: usage.total_tokens || 0,
       response_time_ms: responseTimeMs,
-      metadata: { model, role_id, rag_chunks: ragContext.length },
+      metadata: { 
+        model, 
+        role_id, 
+        rag_chunks: ragContext.length,
+        semantic_search: usedSemanticSearch
+      },
     });
 
     return new Response(
@@ -175,6 +220,7 @@ serve(async (req) => {
         model,
         response_time_ms: responseTimeMs,
         rag_context: ragContext.length > 0 ? ragContext : undefined,
+        semantic_search: usedSemanticSearch,
       }),
       { headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
     );
@@ -187,3 +233,83 @@ serve(async (req) => {
     );
   }
 });
+
+// Generate query embedding using Lovable AI
+async function generateQueryEmbedding(text: string, apiKey: string): Promise<number[]> {
+  const response = await fetch('https://ai.gateway.lovable.dev/v1/chat/completions', {
+    method: 'POST',
+    headers: {
+      'Authorization': `Bearer ${apiKey}`,
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({
+      model: 'google/gemini-2.5-flash-lite',
+      messages: [
+        {
+          role: 'system',
+          content: `You are a text embedding generator. Analyze the given text and generate a semantic embedding.
+For the given text, output ONLY a JSON array of exactly 1536 floating point numbers between -1 and 1.
+These numbers should represent the semantic meaning of the text.
+Output ONLY the JSON array, nothing else. Example: [0.1, -0.2, 0.3, ...]`
+        },
+        {
+          role: 'user',
+          content: `Generate embedding for: "${text.substring(0, 500)}"`
+        }
+      ],
+      temperature: 0,
+      max_tokens: 8000,
+    }),
+  });
+
+  if (!response.ok) {
+    const errorText = await response.text();
+    console.error('Lovable AI embedding error:', response.status, errorText);
+    throw new Error(`Failed to generate query embedding: ${response.status}`);
+  }
+
+  const data = await response.json();
+  const content = data.choices?.[0]?.message?.content || '';
+  
+  try {
+    const jsonMatch = content.match(/\[[\d\s,.\-e]+\]/);
+    if (jsonMatch) {
+      const embedding = JSON.parse(jsonMatch[0]);
+      if (Array.isArray(embedding) && embedding.length > 0) {
+        while (embedding.length < 1536) {
+          embedding.push(0);
+        }
+        return embedding.slice(0, 1536);
+      }
+    }
+  } catch (parseError) {
+    console.error('Failed to parse query embedding:', parseError);
+  }
+  
+  // Fallback
+  return createSimpleEmbedding(text);
+}
+
+// Fallback simple embedding
+function createSimpleEmbedding(text: string): number[] {
+  const embedding = new Array(1536).fill(0);
+  const words = text.toLowerCase().split(/\s+/);
+  
+  for (let i = 0; i < words.length; i++) {
+    const word = words[i];
+    for (let j = 0; j < word.length; j++) {
+      const charCode = word.charCodeAt(j);
+      const index = (charCode * (i + 1) * (j + 1)) % 1536;
+      embedding[index] += 0.1 / (1 + Math.sqrt(i));
+    }
+  }
+  
+  const magnitude = Math.sqrt(embedding.reduce((sum, val) => sum + val * val, 0));
+  if (magnitude > 0) {
+    for (let i = 0; i < embedding.length; i++) {
+      embedding[i] /= magnitude;
+    }
+  }
+  
+  return embedding;
+}
