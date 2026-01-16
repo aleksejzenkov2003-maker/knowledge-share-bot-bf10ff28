@@ -76,23 +76,63 @@ serve(async (req) => {
       if (fileType.includes('text') || doc.file_name?.endsWith('.txt') || doc.file_name?.endsWith('.md')) {
         text = await fileData.text();
       } else if (fileType.includes('pdf')) {
-        const arrayBuffer = await fileData.arrayBuffer();
-        const uint8Array = new Uint8Array(arrayBuffer);
-        
-        let decoder = new TextDecoder('utf-8', { fatal: false });
-        let rawText = decoder.decode(uint8Array);
-        
-        // Extract text between parentheses (common PDF text encoding)
-        const textMatches = rawText.match(/\((.*?)\)/g);
-        if (textMatches) {
-          text = textMatches
-            .map(m => m.slice(1, -1))
-            .filter(t => t.length > 1 && !/^[\x00-\x1F]+$/.test(t))
-            .join(' ');
-        }
-        
-        if (!text.trim()) {
-          text = `[PDF Document: ${doc.file_name}] - Content extraction requires additional processing.`;
+        // Use Lovable AI to extract text from PDF
+        if (LOVABLE_API_KEY) {
+          const arrayBuffer = await fileData.arrayBuffer();
+          const bytes = new Uint8Array(arrayBuffer);
+          
+          // Convert to base64 in chunks to avoid call stack issues
+          let base64 = '';
+          const chunkSize = 32768;
+          for (let i = 0; i < bytes.length; i += chunkSize) {
+            const chunk = bytes.subarray(i, i + chunkSize);
+            base64 += String.fromCharCode.apply(null, Array.from(chunk));
+          }
+          base64 = btoa(base64);
+          
+          console.log('Extracting text from PDF using AI...');
+          
+          // Use AI to extract and OCR the PDF content
+          const extractResponse = await fetch('https://ai.gateway.lovable.dev/v1/chat/completions', {
+            method: 'POST',
+            headers: {
+              'Authorization': `Bearer ${LOVABLE_API_KEY}`,
+              'Content-Type': 'application/json',
+            },
+            body: JSON.stringify({
+              model: 'google/gemini-2.5-flash',
+              messages: [
+                {
+                  role: 'user',
+                  content: [
+                    {
+                      type: 'text',
+                      text: `Extract ALL text content from this PDF document. Output ONLY the extracted text, preserving the structure and formatting as much as possible. Do not add any commentary or explanations - just the document text.`
+                    },
+                    {
+                      type: 'image_url',
+                      image_url: {
+                        url: `data:application/pdf;base64,${base64}`
+                      }
+                    }
+                  ]
+                }
+              ],
+              max_tokens: 16000,
+            }),
+          });
+
+          if (extractResponse.ok) {
+            const extractData = await extractResponse.json();
+            text = extractData.choices?.[0]?.message?.content || '';
+            console.log(`AI extracted ${text.length} characters from PDF`);
+          } else {
+            const errorText = await extractResponse.text();
+            console.error('PDF extraction error:', errorText);
+            text = `[PDF Document: ${doc.file_name}] - Failed to extract text.`;
+          }
+        } else {
+          text = `[PDF Document: ${doc.file_name}] - API key required for PDF extraction.`;
         }
       } else {
         try {
@@ -293,38 +333,29 @@ function createSimpleEmbedding(text: string): number[] {
 
 // Sanitize text to remove problematic Unicode escape sequences
 function sanitizeText(text: string): string {
-  // First pass: remove obvious control characters
   let result = '';
   for (let i = 0; i < text.length; i++) {
     const code = text.charCodeAt(i);
-    // Skip null bytes, control chars (except newline, tab, carriage return)
     if (code === 0) continue;
     if (code < 32 && code !== 9 && code !== 10 && code !== 13) continue;
-    // Skip DEL character
     if (code === 127) continue;
-    // Skip BOM and special Unicode chars
     if (code === 0xFFFE || code === 0xFFFF) continue;
-    // Skip lone surrogates
     if (code >= 0xD800 && code <= 0xDFFF) {
-      // Check if it's a valid surrogate pair
       if (code >= 0xD800 && code <= 0xDBFF && i + 1 < text.length) {
         const next = text.charCodeAt(i + 1);
         if (next >= 0xDC00 && next <= 0xDFFF) {
-          // Valid pair - include both
           result += text[i] + text[i + 1];
           i++;
           continue;
         }
       }
-      // Lone surrogate - skip
       continue;
     }
     result += text[i];
   }
   
-  // Second pass: escape or remove problematic backslash sequences
   result = result
-    .replace(/\\/g, ' ') // Just replace all backslashes with spaces for safety
+    .replace(/\\/g, ' ')
     .replace(/\s+/g, ' ')
     .trim();
   
@@ -347,7 +378,6 @@ function chunkText(text: string, chunkSize: number, overlap: number): string[] {
   let currentChunk = '';
   
   for (const sentence of sentences) {
-    // Sanitize each sentence before adding
     const cleanSentence = sanitizeText(sentence);
     if (!cleanSentence) continue;
     
