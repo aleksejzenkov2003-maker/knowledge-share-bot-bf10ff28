@@ -210,14 +210,14 @@ const Prompts = () => {
                 <div className="space-y-2">
                   <Label htmlFor="department">Отдел (пространство)</Label>
                   <Select
-                    value={formData.department_id}
-                    onValueChange={(value) => setFormData({ ...formData, department_id: value })}
+                    value={formData.department_id || "all"}
+                    onValueChange={(value) => setFormData({ ...formData, department_id: value === "all" ? "" : value })}
                   >
                     <SelectTrigger>
                       <SelectValue placeholder="Выберите отдел" />
                     </SelectTrigger>
                     <SelectContent>
-                      <SelectItem value="">Общий (все отделы)</SelectItem>
+                      <SelectItem value="all">Общий (все отделы)</SelectItem>
                       {departments.map((dept) => (
                         <SelectItem key={dept.id} value={dept.id}>
                           {dept.name}
