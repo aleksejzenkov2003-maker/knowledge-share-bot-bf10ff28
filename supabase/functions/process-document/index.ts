@@ -11,16 +11,16 @@ interface ProcessRequest {
 }
 
 serve(async (req) => {
-  // Handle CORS preflight
   if (req.method === 'OPTIONS') {
     return new Response(null, { headers: corsHeaders });
   }
 
-  try {
-    const supabaseUrl = Deno.env.get('SUPABASE_URL')!;
-    const supabaseKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!;
-    const supabase = createClient(supabaseUrl, supabaseKey);
+  const supabaseUrl = Deno.env.get('SUPABASE_URL')!;
+  const supabaseKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!;
+  const supabase = createClient(supabaseUrl, supabaseKey);
+  const LOVABLE_API_KEY = Deno.env.get('LOVABLE_API_KEY');
 
+  try {
     const { document_id }: ProcessRequest = await req.json();
 
     if (!document_id) {
@@ -32,7 +32,7 @@ serve(async (req) => {
 
     console.log(`Processing document: ${document_id}`);
 
-    // Get document
+    // Get document info
     const { data: doc, error: docError } = await supabase
       .from('documents')
       .select('*')
@@ -74,20 +74,16 @@ serve(async (req) => {
       const fileType = doc.file_type || '';
 
       if (fileType.includes('text') || doc.file_name?.endsWith('.txt') || doc.file_name?.endsWith('.md')) {
-        // Plain text files
         text = await fileData.text();
       } else if (fileType.includes('pdf')) {
-        // For PDF, we'll just extract what we can (basic approach)
-        // In production, you'd use a PDF parsing library
         const arrayBuffer = await fileData.arrayBuffer();
         const uint8Array = new Uint8Array(arrayBuffer);
         
-        // Try to find text content in PDF (very basic)
         let decoder = new TextDecoder('utf-8', { fatal: false });
         let rawText = decoder.decode(uint8Array);
         
         // Extract text between parentheses (common PDF text encoding)
-        const textMatches = rawText.match(/\\((.*?)\\)/g);
+        const textMatches = rawText.match(/\((.*?)\)/g);
         if (textMatches) {
           text = textMatches
             .map(m => m.slice(1, -1))
@@ -95,13 +91,10 @@ serve(async (req) => {
             .join(' ');
         }
         
-        // If no text found, use placeholder
         if (!text.trim()) {
-          text = `[PDF Document: ${doc.file_name}] - Content extraction requires additional processing. ` +
-                 `This document has been uploaded and is ready for enhanced PDF processing.`;
+          text = `[PDF Document: ${doc.file_name}] - Content extraction requires additional processing.`;
         }
       } else {
-        // For other file types, try to read as text
         try {
           text = await fileData.text();
         } catch {
@@ -121,7 +114,7 @@ serve(async (req) => {
         .delete()
         .eq('document_id', document_id);
 
-      // Insert new chunks
+      // Insert new chunks (without embeddings first)
       if (chunks.length > 0) {
         const chunkRecords = chunks.map((content, index) => ({
           document_id,
@@ -133,12 +126,46 @@ serve(async (req) => {
           },
         }));
 
-        const { error: insertError } = await supabase
+        const { data: insertedChunks, error: insertError } = await supabase
           .from('document_chunks')
-          .insert(chunkRecords);
+          .insert(chunkRecords)
+          .select('id, content');
 
         if (insertError) {
           throw new Error(`Failed to insert chunks: ${insertError.message}`);
+        }
+
+        console.log(`Inserted ${insertedChunks?.length || 0} chunks`);
+
+        // Generate embeddings for each chunk using Lovable AI
+        if (LOVABLE_API_KEY && insertedChunks && insertedChunks.length > 0) {
+          console.log('Generating embeddings...');
+          let embeddingsGenerated = 0;
+          
+          for (const chunk of insertedChunks) {
+            try {
+              const embedding = await generateEmbedding(chunk.content, LOVABLE_API_KEY);
+              
+              if (embedding && embedding.length === 1536) {
+                const { error: updateError } = await supabase
+                  .from('document_chunks')
+                  .update({ embedding: `[${embedding.join(',')}]` })
+                  .eq('id', chunk.id);
+                
+                if (!updateError) {
+                  embeddingsGenerated++;
+                } else {
+                  console.error(`Failed to update embedding for chunk ${chunk.id}:`, updateError);
+                }
+              }
+            } catch (embError) {
+              console.error(`Error generating embedding for chunk ${chunk.id}:`, embError);
+            }
+          }
+          
+          console.log(`Generated ${embeddingsGenerated}/${insertedChunks.length} embeddings`);
+        } else {
+          console.log('LOVABLE_API_KEY not configured, skipping embeddings');
         }
       }
 
@@ -165,7 +192,6 @@ serve(async (req) => {
     } catch (processError) {
       console.error('Processing error:', processError);
 
-      // Update status to error
       await supabase
         .from('documents')
         .update({ status: 'error' })
@@ -183,11 +209,90 @@ serve(async (req) => {
   }
 });
 
+// Generate embedding using Lovable AI
+async function generateEmbedding(text: string, apiKey: string): Promise<number[]> {
+  const response = await fetch('https://ai.gateway.lovable.dev/v1/chat/completions', {
+    method: 'POST',
+    headers: {
+      'Authorization': `Bearer ${apiKey}`,
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({
+      model: 'google/gemini-2.5-flash-lite',
+      messages: [
+        {
+          role: 'system',
+          content: `You are a text embedding generator. Analyze the given text and generate a semantic embedding.
+Output ONLY a JSON array of exactly 1536 floating point numbers between -1 and 1.
+These numbers should represent the semantic meaning of the text.
+Output ONLY the JSON array, nothing else.`
+        },
+        {
+          role: 'user',
+          content: `Generate embedding for: "${text.substring(0, 500)}"`
+        }
+      ],
+      temperature: 0,
+      max_tokens: 8000,
+    }),
+  });
+
+  if (!response.ok) {
+    const errorText = await response.text();
+    console.error('Lovable AI error:', response.status, errorText);
+    // Return fallback embedding
+    return createSimpleEmbedding(text);
+  }
+
+  const data = await response.json();
+  const content = data.choices?.[0]?.message?.content || '';
+  
+  try {
+    const jsonMatch = content.match(/\[[\d\s,.\-e]+\]/);
+    if (jsonMatch) {
+      const embedding = JSON.parse(jsonMatch[0]);
+      if (Array.isArray(embedding) && embedding.length > 0) {
+        while (embedding.length < 1536) {
+          embedding.push(0);
+        }
+        return embedding.slice(0, 1536);
+      }
+    }
+  } catch (parseError) {
+    console.error('Failed to parse embedding:', parseError);
+  }
+  
+  return createSimpleEmbedding(text);
+}
+
+// Fallback simple embedding based on text hash
+function createSimpleEmbedding(text: string): number[] {
+  const embedding = new Array(1536).fill(0);
+  const words = text.toLowerCase().split(/\s+/);
+  
+  for (let i = 0; i < words.length; i++) {
+    const word = words[i];
+    for (let j = 0; j < word.length; j++) {
+      const charCode = word.charCodeAt(j);
+      const index = (charCode * (i + 1) * (j + 1)) % 1536;
+      embedding[index] += 0.1 / (1 + Math.sqrt(i));
+    }
+  }
+  
+  const magnitude = Math.sqrt(embedding.reduce((sum, val) => sum + val * val, 0));
+  if (magnitude > 0) {
+    for (let i = 0; i < embedding.length; i++) {
+      embedding[i] /= magnitude;
+    }
+  }
+  
+  return embedding;
+}
+
 // Text chunking function with overlap
 function chunkText(text: string, chunkSize: number, overlap: number): string[] {
   const chunks: string[] = [];
   
-  // Clean and normalize text
   const cleanText = text
     .replace(/\r\n/g, '\n')
     .replace(/\s+/g, ' ')
@@ -195,7 +300,6 @@ function chunkText(text: string, chunkSize: number, overlap: number): string[] {
 
   if (!cleanText) return [];
 
-  // Split by sentences for better context
   const sentences = cleanText.split(/(?<=[.!?])\s+/);
   
   let currentChunk = '';
@@ -204,9 +308,8 @@ function chunkText(text: string, chunkSize: number, overlap: number): string[] {
     if ((currentChunk + ' ' + sentence).length > chunkSize && currentChunk) {
       chunks.push(currentChunk.trim());
       
-      // Keep overlap from the end of previous chunk
       const words = currentChunk.split(' ');
-      const overlapWords = Math.ceil(overlap / 5); // Approximate words for overlap
+      const overlapWords = Math.ceil(overlap / 5);
       currentChunk = words.slice(-overlapWords).join(' ') + ' ' + sentence;
     } else {
       currentChunk = currentChunk ? currentChunk + ' ' + sentence : sentence;
