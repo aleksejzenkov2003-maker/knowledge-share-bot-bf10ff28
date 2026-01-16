@@ -123,6 +123,66 @@ export type Database = {
           },
         ]
       }
+      chat_roles: {
+        Row: {
+          created_at: string
+          department_id: string | null
+          description: string | null
+          folder_ids: string[] | null
+          id: string
+          is_active: boolean
+          is_project_mode: boolean
+          model_config: Json | null
+          name: string
+          slug: string
+          system_prompt_id: string | null
+          updated_at: string
+        }
+        Insert: {
+          created_at?: string
+          department_id?: string | null
+          description?: string | null
+          folder_ids?: string[] | null
+          id?: string
+          is_active?: boolean
+          is_project_mode?: boolean
+          model_config?: Json | null
+          name: string
+          slug: string
+          system_prompt_id?: string | null
+          updated_at?: string
+        }
+        Update: {
+          created_at?: string
+          department_id?: string | null
+          description?: string | null
+          folder_ids?: string[] | null
+          id?: string
+          is_active?: boolean
+          is_project_mode?: boolean
+          model_config?: Json | null
+          name?: string
+          slug?: string
+          system_prompt_id?: string | null
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "chat_roles_department_id_fkey"
+            columns: ["department_id"]
+            isOneToOne: false
+            referencedRelation: "departments"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "chat_roles_system_prompt_id_fkey"
+            columns: ["system_prompt_id"]
+            isOneToOne: false
+            referencedRelation: "system_prompts"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       departments: {
         Row: {
           created_at: string
@@ -188,6 +248,57 @@ export type Database = {
           },
         ]
       }
+      document_folders: {
+        Row: {
+          created_at: string
+          department_id: string | null
+          description: string | null
+          folder_type: string
+          id: string
+          name: string
+          parent_id: string | null
+          slug: string
+          updated_at: string
+        }
+        Insert: {
+          created_at?: string
+          department_id?: string | null
+          description?: string | null
+          folder_type?: string
+          id?: string
+          name: string
+          parent_id?: string | null
+          slug: string
+          updated_at?: string
+        }
+        Update: {
+          created_at?: string
+          department_id?: string | null
+          description?: string | null
+          folder_type?: string
+          id?: string
+          name?: string
+          parent_id?: string | null
+          slug?: string
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "document_folders_department_id_fkey"
+            columns: ["department_id"]
+            isOneToOne: false
+            referencedRelation: "departments"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "document_folders_parent_id_fkey"
+            columns: ["parent_id"]
+            isOneToOne: false
+            referencedRelation: "document_folders"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       documents: {
         Row: {
           chunk_count: number | null
@@ -197,6 +308,7 @@ export type Database = {
           file_name: string | null
           file_size: number | null
           file_type: string | null
+          folder_id: string | null
           id: string
           name: string
           status: string
@@ -211,6 +323,7 @@ export type Database = {
           file_name?: string | null
           file_size?: number | null
           file_type?: string | null
+          folder_id?: string | null
           id?: string
           name: string
           status?: string
@@ -225,6 +338,7 @@ export type Database = {
           file_name?: string | null
           file_size?: number | null
           file_type?: string | null
+          folder_id?: string | null
           id?: string
           name?: string
           status?: string
@@ -237,6 +351,13 @@ export type Database = {
             columns: ["department_id"]
             isOneToOne: false
             referencedRelation: "departments"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "documents_folder_id_fkey"
+            columns: ["folder_id"]
+            isOneToOne: false
+            referencedRelation: "document_folders"
             referencedColumns: ["id"]
           },
         ]

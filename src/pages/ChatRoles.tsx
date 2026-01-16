@@ -1,0 +1,529 @@
+import { useState, useEffect } from "react";
+import { supabase } from "@/integrations/supabase/client";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import { Textarea } from "@/components/ui/textarea";
+import { Switch } from "@/components/ui/switch";
+import { Checkbox } from "@/components/ui/checkbox";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+  DialogTrigger,
+} from "@/components/ui/dialog";
+import {
+  Card,
+  CardContent,
+  CardDescription,
+  CardHeader,
+  CardTitle,
+} from "@/components/ui/card";
+import {
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
+} from "@/components/ui/table";
+import { Badge } from "@/components/ui/badge";
+import { toast } from "sonner";
+import { Plus, Bot, Pencil, Trash2, FolderOpen } from "lucide-react";
+
+interface Department {
+  id: string;
+  name: string;
+}
+
+interface SystemPrompt {
+  id: string;
+  name: string;
+  department_id: string | null;
+}
+
+interface DocumentFolder {
+  id: string;
+  name: string;
+  slug: string;
+}
+
+interface ChatRole {
+  id: string;
+  name: string;
+  slug: string;
+  description: string | null;
+  department_id: string | null;
+  system_prompt_id: string | null;
+  folder_ids: string[];
+  model_config: unknown;
+  is_project_mode: boolean;
+  is_active: boolean;
+  created_at: string;
+  department?: { name: string } | null;
+  system_prompt?: { name: string } | null;
+}
+
+export default function ChatRoles() {
+  const [roles, setRoles] = useState<ChatRole[]>([]);
+  const [departments, setDepartments] = useState<Department[]>([]);
+  const [prompts, setPrompts] = useState<SystemPrompt[]>([]);
+  const [folders, setFolders] = useState<DocumentFolder[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [dialogOpen, setDialogOpen] = useState(false);
+  const [editingRole, setEditingRole] = useState<ChatRole | null>(null);
+
+  const [formData, setFormData] = useState({
+    name: "",
+    slug: "",
+    description: "",
+    department_id: "",
+    system_prompt_id: "",
+    folder_ids: [] as string[],
+    is_project_mode: false,
+    is_active: true,
+  });
+
+  useEffect(() => {
+    fetchData();
+  }, []);
+
+  const fetchData = async () => {
+    setLoading(true);
+    try {
+      const [rolesRes, deptsRes, promptsRes, foldersRes] = await Promise.all([
+        supabase
+          .from("chat_roles")
+          .select("*, department:departments(name), system_prompt:system_prompts(name)")
+          .order("name"),
+        supabase.from("departments").select("id, name").order("name"),
+        supabase.from("system_prompts").select("id, name, department_id").order("name"),
+        supabase.from("document_folders").select("id, name, slug").order("name"),
+      ]);
+
+      if (rolesRes.error) throw rolesRes.error;
+      if (deptsRes.error) throw deptsRes.error;
+      if (promptsRes.error) throw promptsRes.error;
+      if (foldersRes.error) throw foldersRes.error;
+
+      setRoles(rolesRes.data || []);
+      setDepartments(deptsRes.data || []);
+      setPrompts(promptsRes.data || []);
+      setFolders(foldersRes.data || []);
+    } catch (error) {
+      console.error("Error fetching data:", error);
+      toast.error("Ошибка загрузки данных");
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const generateSlug = (name: string) => {
+    return name
+      .toLowerCase()
+      .replace(/[а-яё]/g, (char) => {
+        const map: Record<string, string> = {
+          а: "a", б: "b", в: "v", г: "g", д: "d", е: "e", ё: "yo",
+          ж: "zh", з: "z", и: "i", й: "y", к: "k", л: "l", м: "m",
+          н: "n", о: "o", п: "p", р: "r", с: "s", т: "t", у: "u",
+          ф: "f", х: "h", ц: "ts", ч: "ch", ш: "sh", щ: "sch", ъ: "",
+          ы: "y", ь: "", э: "e", ю: "yu", я: "ya",
+        };
+        return map[char] || char;
+      })
+      .replace(/[^a-z0-9]+/g, "-")
+      .replace(/^-|-$/g, "");
+  };
+
+  const handleNameChange = (name: string) => {
+    setFormData((prev) => ({
+      ...prev,
+      name,
+      slug: editingRole ? prev.slug : generateSlug(name),
+    }));
+  };
+
+  const resetForm = () => {
+    setFormData({
+      name: "",
+      slug: "",
+      description: "",
+      department_id: "",
+      system_prompt_id: "",
+      folder_ids: [],
+      is_project_mode: false,
+      is_active: true,
+    });
+    setEditingRole(null);
+  };
+
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+
+    const payload = {
+      name: formData.name,
+      slug: formData.slug,
+      description: formData.description || null,
+      department_id: formData.department_id || null,
+      system_prompt_id: formData.system_prompt_id || null,
+      folder_ids: formData.folder_ids,
+      is_project_mode: formData.is_project_mode,
+      is_active: formData.is_active,
+    };
+
+    try {
+      if (editingRole) {
+        const { error } = await supabase
+          .from("chat_roles")
+          .update(payload)
+          .eq("id", editingRole.id);
+        if (error) throw error;
+        toast.success("Роль обновлена");
+      } else {
+        const { error } = await supabase.from("chat_roles").insert(payload);
+        if (error) throw error;
+        toast.success("Роль создана");
+      }
+
+      setDialogOpen(false);
+      resetForm();
+      fetchData();
+    } catch (error: any) {
+      console.error("Error saving role:", error);
+      toast.error(error.message || "Ошибка сохранения");
+    }
+  };
+
+  const handleEdit = (role: ChatRole) => {
+    setEditingRole(role);
+    setFormData({
+      name: role.name,
+      slug: role.slug,
+      description: role.description || "",
+      department_id: role.department_id || "",
+      system_prompt_id: role.system_prompt_id || "",
+      folder_ids: role.folder_ids || [],
+      is_project_mode: role.is_project_mode,
+      is_active: role.is_active,
+    });
+    setDialogOpen(true);
+  };
+
+  const handleDelete = async (role: ChatRole) => {
+    if (!confirm(`Удалить роль "${role.name}"?`)) return;
+
+    try {
+      const { error } = await supabase.from("chat_roles").delete().eq("id", role.id);
+      if (error) throw error;
+      toast.success("Роль удалена");
+      fetchData();
+    } catch (error: any) {
+      console.error("Error deleting role:", error);
+      toast.error(error.message || "Ошибка удаления");
+    }
+  };
+
+  const toggleFolderSelection = (folderId: string) => {
+    setFormData((prev) => ({
+      ...prev,
+      folder_ids: prev.folder_ids.includes(folderId)
+        ? prev.folder_ids.filter((id) => id !== folderId)
+        : [...prev.folder_ids, folderId],
+    }));
+  };
+
+  const getFolderNames = (folderIds: string[]) => {
+    return folderIds
+      .map((id) => folders.find((f) => f.id === id)?.name)
+      .filter(Boolean)
+      .join(", ");
+  };
+
+  if (loading) {
+    return (
+      <div className="flex items-center justify-center h-64">
+        <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary"></div>
+      </div>
+    );
+  }
+
+  return (
+    <div className="space-y-6">
+      <div className="flex items-center justify-between">
+        <div>
+          <h1 className="text-3xl font-bold">Роли чатов</h1>
+          <p className="text-muted-foreground">
+            Настройка AI-ассистентов с привязкой к папкам документов
+          </p>
+        </div>
+
+        <Dialog open={dialogOpen} onOpenChange={(open) => {
+          setDialogOpen(open);
+          if (!open) resetForm();
+        }}>
+          <DialogTrigger asChild>
+            <Button>
+              <Plus className="h-4 w-4 mr-2" />
+              Создать роль
+            </Button>
+          </DialogTrigger>
+          <DialogContent className="max-w-lg max-h-[90vh] overflow-y-auto">
+            <DialogHeader>
+              <DialogTitle>
+                {editingRole ? "Редактировать роль" : "Новая роль"}
+              </DialogTitle>
+            </DialogHeader>
+            <form onSubmit={handleSubmit} className="space-y-4">
+              <div className="space-y-2">
+                <Label htmlFor="name">Название</Label>
+                <Input
+                  id="name"
+                  value={formData.name}
+                  onChange={(e) => handleNameChange(e.target.value)}
+                  placeholder="Помощник по патентам"
+                  required
+                />
+              </div>
+
+              <div className="space-y-2">
+                <Label htmlFor="slug">Slug</Label>
+                <Input
+                  id="slug"
+                  value={formData.slug}
+                  onChange={(e) =>
+                    setFormData((prev) => ({ ...prev, slug: e.target.value }))
+                  }
+                  placeholder="patent-helper"
+                  required
+                />
+              </div>
+
+              <div className="space-y-2">
+                <Label htmlFor="description">Описание</Label>
+                <Textarea
+                  id="description"
+                  value={formData.description}
+                  onChange={(e) =>
+                    setFormData((prev) => ({ ...prev, description: e.target.value }))
+                  }
+                  placeholder="Описание роли..."
+                />
+              </div>
+
+              <div className="space-y-2">
+                <Label htmlFor="department_id">Отдел</Label>
+                <Select
+                  value={formData.department_id}
+                  onValueChange={(value) =>
+                    setFormData((prev) => ({ ...prev, department_id: value }))
+                  }
+                >
+                  <SelectTrigger>
+                    <SelectValue placeholder="Все отделы" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="">Все отделы</SelectItem>
+                    {departments.map((dept) => (
+                      <SelectItem key={dept.id} value={dept.id}>
+                        {dept.name}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+
+              <div className="space-y-2">
+                <Label htmlFor="system_prompt_id">Системный промпт</Label>
+                <Select
+                  value={formData.system_prompt_id}
+                  onValueChange={(value) =>
+                    setFormData((prev) => ({ ...prev, system_prompt_id: value }))
+                  }
+                >
+                  <SelectTrigger>
+                    <SelectValue placeholder="Выберите промпт" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="">Без промпта</SelectItem>
+                    {prompts.map((prompt) => (
+                      <SelectItem key={prompt.id} value={prompt.id}>
+                        {prompt.name}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+
+              <div className="space-y-2">
+                <Label>Папки для поиска (RAG)</Label>
+                <div className="border rounded-md p-3 max-h-48 overflow-y-auto space-y-2">
+                  {folders.length === 0 ? (
+                    <p className="text-sm text-muted-foreground">
+                      Папки не созданы
+                    </p>
+                  ) : (
+                    folders.map((folder) => (
+                      <div key={folder.id} className="flex items-center gap-2">
+                        <Checkbox
+                          id={`folder-${folder.id}`}
+                          checked={formData.folder_ids.includes(folder.id)}
+                          onCheckedChange={() => toggleFolderSelection(folder.id)}
+                        />
+                        <label
+                          htmlFor={`folder-${folder.id}`}
+                          className="text-sm cursor-pointer flex-1"
+                        >
+                          {folder.name}
+                        </label>
+                      </div>
+                    ))
+                  )}
+                </div>
+                <p className="text-xs text-muted-foreground">
+                  Выбрано папок: {formData.folder_ids.length}
+                </p>
+              </div>
+
+              <div className="flex items-center justify-between">
+                <Label htmlFor="is_project_mode">Проектный режим</Label>
+                <Switch
+                  id="is_project_mode"
+                  checked={formData.is_project_mode}
+                  onCheckedChange={(checked) =>
+                    setFormData((prev) => ({ ...prev, is_project_mode: checked }))
+                  }
+                />
+              </div>
+
+              <div className="flex items-center justify-between">
+                <Label htmlFor="is_active">Активна</Label>
+                <Switch
+                  id="is_active"
+                  checked={formData.is_active}
+                  onCheckedChange={(checked) =>
+                    setFormData((prev) => ({ ...prev, is_active: checked }))
+                  }
+                />
+              </div>
+
+              <div className="flex justify-end gap-2">
+                <Button
+                  type="button"
+                  variant="outline"
+                  onClick={() => setDialogOpen(false)}
+                >
+                  Отмена
+                </Button>
+                <Button type="submit">
+                  {editingRole ? "Сохранить" : "Создать"}
+                </Button>
+              </div>
+            </form>
+          </DialogContent>
+        </Dialog>
+      </div>
+
+      <Card>
+        <CardHeader>
+          <CardTitle>Список ролей</CardTitle>
+          <CardDescription>
+            Роли определяют поведение AI-ассистента и источники данных
+          </CardDescription>
+        </CardHeader>
+        <CardContent>
+          {roles.length === 0 ? (
+            <div className="text-center py-8 text-muted-foreground">
+              Роли не созданы
+            </div>
+          ) : (
+            <Table>
+              <TableHeader>
+                <TableRow>
+                  <TableHead>Название</TableHead>
+                  <TableHead>Отдел</TableHead>
+                  <TableHead>Промпт</TableHead>
+                  <TableHead>Папки</TableHead>
+                  <TableHead>Режим</TableHead>
+                  <TableHead>Статус</TableHead>
+                  <TableHead className="w-24">Действия</TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {roles.map((role) => (
+                  <TableRow key={role.id}>
+                    <TableCell className="font-medium">
+                      <div className="flex items-center gap-2">
+                        <Bot className="h-4 w-4 text-muted-foreground" />
+                        {role.name}
+                      </div>
+                    </TableCell>
+                    <TableCell>
+                      {role.department?.name || (
+                        <span className="text-muted-foreground">Все</span>
+                      )}
+                    </TableCell>
+                    <TableCell>
+                      {role.system_prompt?.name || (
+                        <span className="text-muted-foreground">-</span>
+                      )}
+                    </TableCell>
+                    <TableCell>
+                      {role.folder_ids?.length > 0 ? (
+                        <div className="flex items-center gap-1">
+                          <FolderOpen className="h-4 w-4 text-muted-foreground" />
+                          <span className="text-sm truncate max-w-32">
+                            {getFolderNames(role.folder_ids)}
+                          </span>
+                        </div>
+                      ) : (
+                        <span className="text-muted-foreground">-</span>
+                      )}
+                    </TableCell>
+                    <TableCell>
+                      <Badge variant={role.is_project_mode ? "default" : "outline"}>
+                        {role.is_project_mode ? "Проект" : "Чат"}
+                      </Badge>
+                    </TableCell>
+                    <TableCell>
+                      <Badge variant={role.is_active ? "default" : "secondary"}>
+                        {role.is_active ? "Активна" : "Неактивна"}
+                      </Badge>
+                    </TableCell>
+                    <TableCell>
+                      <div className="flex gap-1">
+                        <Button
+                          variant="ghost"
+                          size="icon"
+                          className="h-8 w-8"
+                          onClick={() => handleEdit(role)}
+                        >
+                          <Pencil className="h-4 w-4" />
+                        </Button>
+                        <Button
+                          variant="ghost"
+                          size="icon"
+                          className="h-8 w-8 text-destructive"
+                          onClick={() => handleDelete(role)}
+                        >
+                          <Trash2 className="h-4 w-4" />
+                        </Button>
+                      </div>
+                    </TableCell>
+                  </TableRow>
+                ))}
+              </TableBody>
+            </Table>
+          )}
+        </CardContent>
+      </Card>
+    </div>
+  );
+}
