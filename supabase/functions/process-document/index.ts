@@ -102,6 +102,8 @@ serve(async (req) => {
         }
       }
 
+      // Sanitize text to remove problematic Unicode sequences
+      text = sanitizeText(text);
       console.log(`Extracted text length: ${text.length}`);
 
       // Chunk the text
@@ -289,6 +291,26 @@ function createSimpleEmbedding(text: string): number[] {
   return embedding;
 }
 
+// Sanitize text to remove problematic Unicode escape sequences
+function sanitizeText(text: string): string {
+  return text
+    // Remove null bytes and control characters
+    .replace(/\x00/g, '')
+    .replace(/[\x00-\x08\x0B\x0C\x0E-\x1F\x7F]/g, '')
+    // Remove invalid Unicode escape sequences
+    .replace(/\\u[0-9a-fA-F]{0,3}(?![0-9a-fA-F])/g, '')
+    // Replace backslash sequences that might cause issues
+    .replace(/\\(?![nrt"\\])/g, '\\\\')
+    // Remove surrogate pairs that are incomplete
+    .replace(/[\uD800-\uDBFF](?![\uDC00-\uDFFF])/g, '')
+    .replace(/(?<![\uD800-\uDBFF])[\uDC00-\uDFFF]/g, '')
+    // Replace problematic characters with space
+    .replace(/[\uFFFE\uFFFF]/g, ' ')
+    // Normalize whitespace
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
 // Text chunking function with overlap
 function chunkText(text: string, chunkSize: number, overlap: number): string[] {
   const chunks: string[] = [];
@@ -305,14 +327,18 @@ function chunkText(text: string, chunkSize: number, overlap: number): string[] {
   let currentChunk = '';
   
   for (const sentence of sentences) {
-    if ((currentChunk + ' ' + sentence).length > chunkSize && currentChunk) {
+    // Sanitize each sentence before adding
+    const cleanSentence = sanitizeText(sentence);
+    if (!cleanSentence) continue;
+    
+    if ((currentChunk + ' ' + cleanSentence).length > chunkSize && currentChunk) {
       chunks.push(currentChunk.trim());
       
       const words = currentChunk.split(' ');
       const overlapWords = Math.ceil(overlap / 5);
-      currentChunk = words.slice(-overlapWords).join(' ') + ' ' + sentence;
+      currentChunk = words.slice(-overlapWords).join(' ') + ' ' + cleanSentence;
     } else {
-      currentChunk = currentChunk ? currentChunk + ' ' + sentence : sentence;
+      currentChunk = currentChunk ? currentChunk + ' ' + cleanSentence : cleanSentence;
     }
   }
   
