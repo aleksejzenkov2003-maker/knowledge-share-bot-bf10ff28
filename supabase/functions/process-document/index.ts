@@ -293,22 +293,42 @@ function createSimpleEmbedding(text: string): number[] {
 
 // Sanitize text to remove problematic Unicode escape sequences
 function sanitizeText(text: string): string {
-  return text
-    // Remove null bytes and control characters
-    .replace(/\x00/g, '')
-    .replace(/[\x00-\x08\x0B\x0C\x0E-\x1F\x7F]/g, '')
-    // Remove invalid Unicode escape sequences
-    .replace(/\\u[0-9a-fA-F]{0,3}(?![0-9a-fA-F])/g, '')
-    // Replace backslash sequences that might cause issues
-    .replace(/\\(?![nrt"\\])/g, '\\\\')
-    // Remove surrogate pairs that are incomplete
-    .replace(/[\uD800-\uDBFF](?![\uDC00-\uDFFF])/g, '')
-    .replace(/(?<![\uD800-\uDBFF])[\uDC00-\uDFFF]/g, '')
-    // Replace problematic characters with space
-    .replace(/[\uFFFE\uFFFF]/g, ' ')
-    // Normalize whitespace
+  // First pass: remove obvious control characters
+  let result = '';
+  for (let i = 0; i < text.length; i++) {
+    const code = text.charCodeAt(i);
+    // Skip null bytes, control chars (except newline, tab, carriage return)
+    if (code === 0) continue;
+    if (code < 32 && code !== 9 && code !== 10 && code !== 13) continue;
+    // Skip DEL character
+    if (code === 127) continue;
+    // Skip BOM and special Unicode chars
+    if (code === 0xFFFE || code === 0xFFFF) continue;
+    // Skip lone surrogates
+    if (code >= 0xD800 && code <= 0xDFFF) {
+      // Check if it's a valid surrogate pair
+      if (code >= 0xD800 && code <= 0xDBFF && i + 1 < text.length) {
+        const next = text.charCodeAt(i + 1);
+        if (next >= 0xDC00 && next <= 0xDFFF) {
+          // Valid pair - include both
+          result += text[i] + text[i + 1];
+          i++;
+          continue;
+        }
+      }
+      // Lone surrogate - skip
+      continue;
+    }
+    result += text[i];
+  }
+  
+  // Second pass: escape or remove problematic backslash sequences
+  result = result
+    .replace(/\\/g, ' ') // Just replace all backslashes with spaces for safety
     .replace(/\s+/g, ' ')
     .trim();
+  
+  return result;
 }
 
 // Text chunking function with overlap
