@@ -251,29 +251,35 @@ const TestChat = () => {
           <CardContent className="space-y-4">
             <div className="space-y-2">
               <Label htmlFor="role">Роль чата</Label>
-              <Select
-                value={selectedRoleId}
-                onValueChange={setSelectedRoleId}
-              >
-                <SelectTrigger>
-                  <SelectValue placeholder="Выберите роль" />
-                </SelectTrigger>
-                <SelectContent>
-                  {roles.map((role) => (
-                    <SelectItem key={role.id} value={role.id}>
-                      <div className="flex items-center gap-2">
-                        <Bot className="h-4 w-4" />
-                        {role.name}
-                        {role.department && (
-                          <span className="text-muted-foreground">
-                            ({role.department.name})
-                          </span>
-                        )}
-                      </div>
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
+              {roles.length > 0 ? (
+                <Select
+                  value={selectedRoleId}
+                  onValueChange={setSelectedRoleId}
+                >
+                  <SelectTrigger>
+                    <SelectValue placeholder="Выберите роль" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {roles.map((role) => (
+                      <SelectItem key={role.id} value={role.id || `role-${role.slug}`}>
+                        <div className="flex items-center gap-2">
+                          <Bot className="h-4 w-4" />
+                          {role.name}
+                          {role.department && (
+                            <span className="text-muted-foreground">
+                              ({role.department.name})
+                            </span>
+                          )}
+                        </div>
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              ) : (
+                <div className="rounded-md border border-dashed p-4 text-center text-sm text-muted-foreground">
+                  Нет доступных ролей. Создайте роль в разделе "Роли чатов".
+                </div>
+              )}
             </div>
 
             {/* Role Info */}
