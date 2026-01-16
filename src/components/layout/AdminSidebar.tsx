@@ -31,7 +31,8 @@ import { Button } from '@/components/ui/button';
 
 const mainMenuItems = [
   { title: 'Дашборд', url: '/', icon: LayoutDashboard },
-  { title: 'Тест чата', url: '/test-chat', icon: MessageSquare },
+  { title: 'Чат', url: '/chat', icon: MessageSquare },
+  { title: 'Тест чата', url: '/test-chat', icon: MessageSquare, roles: ['admin'] },
   { title: 'Роли чатов', url: '/chat-roles', icon: UserCircle, roles: ['admin'] },
   { title: 'Папки', url: '/folders', icon: FolderTree, roles: ['admin'] },
   { title: 'Документы', url: '/documents', icon: FileText, roles: ['admin'] },
