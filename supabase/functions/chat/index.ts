@@ -8,12 +8,12 @@ const corsHeaders = {
 
 interface ChatRequest {
   message: string;
-  department_id: string;
+  role_id?: string;
+  department_id?: string;
   model?: string;
 }
 
 serve(async (req) => {
-  // Handle CORS preflight
   if (req.method === 'OPTIONS') {
     return new Response(null, { headers: corsHeaders });
   }
@@ -23,7 +23,6 @@ serve(async (req) => {
   try {
     const PERPLEXITY_API_KEY = Deno.env.get('PERPLEXITY_API_KEY');
     if (!PERPLEXITY_API_KEY) {
-      console.error('PERPLEXITY_API_KEY not configured');
       throw new Error('PERPLEXITY_API_KEY is not configured');
     }
 
@@ -31,62 +30,80 @@ serve(async (req) => {
     const supabaseKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!;
     const supabase = createClient(supabaseUrl, supabaseKey);
 
-    // Get user from auth header
     const authHeader = req.headers.get('Authorization');
     let userId: string | null = null;
-    
     if (authHeader) {
       const token = authHeader.replace('Bearer ', '');
       const { data: { user } } = await supabase.auth.getUser(token);
       userId = user?.id || null;
     }
 
-    const { message, department_id, model = 'sonar' }: ChatRequest = await req.json();
+    const { message, role_id, department_id, model = 'sonar' }: ChatRequest = await req.json();
 
-    if (!message || !department_id) {
+    if (!message) {
       return new Response(
-        JSON.stringify({ error: 'message and department_id are required' }),
+        JSON.stringify({ error: 'message is required' }),
         { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
       );
     }
 
-    console.log(`Chat request for department: ${department_id}, model: ${model}`);
+    let systemPrompt = 'You are a helpful AI assistant.';
+    let folderIds: string[] = [];
+    let deptId = department_id;
 
-    // Get system prompt for the department
-    const { data: promptData, error: promptError } = await supabase
-      .from('system_prompts')
-      .select('prompt_text')
-      .eq('department_id', department_id)
-      .eq('is_active', true)
-      .limit(1)
-      .maybeSingle();
+    // Get role config if role_id provided
+    if (role_id) {
+      const { data: role } = await supabase
+        .from('chat_roles')
+        .select('*, system_prompt:system_prompts(prompt_text)')
+        .eq('id', role_id)
+        .single();
 
-    // Fallback to general prompt if no department-specific prompt
-    let systemPrompt = 'You are a helpful AI assistant. Answer questions accurately and provide sources when possible.';
-    
-    if (promptData?.prompt_text) {
-      systemPrompt = promptData.prompt_text;
-      console.log('Using department-specific prompt');
-    } else {
-      // Try to get a general prompt (no department)
-      const { data: generalPrompt } = await supabase
+      if (role) {
+        deptId = role.department_id;
+        folderIds = role.folder_ids || [];
+        if (role.system_prompt?.prompt_text) {
+          systemPrompt = role.system_prompt.prompt_text;
+        }
+      }
+    } else if (department_id) {
+      const { data: promptData } = await supabase
         .from('system_prompts')
         .select('prompt_text')
-        .is('department_id', null)
+        .eq('department_id', department_id)
         .eq('is_active', true)
         .limit(1)
         .maybeSingle();
       
-      if (generalPrompt?.prompt_text) {
-        systemPrompt = generalPrompt.prompt_text;
-        console.log('Using general prompt');
-      } else {
-        console.log('Using default prompt');
+      if (promptData?.prompt_text) {
+        systemPrompt = promptData.prompt_text;
       }
     }
 
-    // Call Perplexity API
-    console.log('Calling Perplexity API...');
+    // RAG: Search documents in specified folders
+    let ragContext: string[] = [];
+    if (folderIds.length > 0) {
+      console.log(`Searching in folders: ${folderIds.join(', ')}`);
+      
+      const { data: chunks } = await supabase
+        .from('document_chunks')
+        .select('content, document_id, documents!inner(folder_id)')
+        .in('documents.folder_id', folderIds)
+        .limit(5);
+
+      if (chunks && chunks.length > 0) {
+        ragContext = chunks.map(c => c.content);
+        console.log(`Found ${ragContext.length} relevant chunks`);
+      }
+    }
+
+    // Augment prompt with RAG context
+    let finalPrompt = message;
+    if (ragContext.length > 0) {
+      finalPrompt = `Context from documents:\n${ragContext.join('\n\n')}\n\nUser question: ${message}`;
+    }
+
+    console.log(`Calling Perplexity API with model: ${model}`);
     const perplexityResponse = await fetch('https://api.perplexity.ai/chat/completions', {
       method: 'POST',
       headers: {
@@ -94,10 +111,10 @@ serve(async (req) => {
         'Content-Type': 'application/json',
       },
       body: JSON.stringify({
-        model: model,
+        model,
         messages: [
           { role: 'system', content: systemPrompt },
-          { role: 'user', content: message }
+          { role: 'user', content: finalPrompt }
         ],
       }),
     });
@@ -109,43 +126,32 @@ serve(async (req) => {
     }
 
     const perplexityData = await perplexityResponse.json();
-    console.log('Perplexity response received');
-
     const content = perplexityData.choices?.[0]?.message?.content || '';
     const citations = perplexityData.citations || [];
     const usage = perplexityData.usage || {};
-
     const responseTimeMs = Date.now() - startTime;
 
-    // Log the chat
-    const { error: logError } = await supabase.from('chat_logs').insert({
+    // Log chat
+    await supabase.from('chat_logs').insert({
       user_id: userId,
-      department_id: department_id,
+      department_id: deptId,
       prompt: message,
       response: content,
       prompt_tokens: usage.prompt_tokens || 0,
       completion_tokens: usage.completion_tokens || 0,
       total_tokens: usage.total_tokens || 0,
       response_time_ms: responseTimeMs,
-      metadata: {
-        model: model,
-        citations_count: citations.length,
-      },
+      metadata: { model, role_id, rag_chunks: ragContext.length },
     });
 
-    if (logError) {
-      console.error('Error logging chat:', logError);
-    }
-
-    const responseData = {
-      content,
-      citations,
-      model,
-      response_time_ms: responseTimeMs,
-    };
-
     return new Response(
-      JSON.stringify(responseData),
+      JSON.stringify({
+        content,
+        citations,
+        model,
+        response_time_ms: responseTimeMs,
+        rag_context: ragContext.length > 0 ? ragContext : undefined,
+      }),
       { headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
     );
 
