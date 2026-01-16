@@ -34,7 +34,7 @@ import {
 } from "@/components/ui/table";
 import { Badge } from "@/components/ui/badge";
 import { toast } from "sonner";
-import { Plus, Upload, FileText, Trash2, Eye, Loader2 } from "lucide-react";
+import { Plus, Upload, FileText, Trash2, Eye, Loader2, RefreshCw } from "lucide-react";
 
 interface DocumentFolder {
   id: string;
@@ -235,6 +235,29 @@ export default function Documents() {
     }
   };
 
+  const handleReprocess = async (doc: Document) => {
+    try {
+      await supabase
+        .from("documents")
+        .update({ status: "pending" })
+        .eq("id", doc.id);
+
+      const { error: processError } = await supabase.functions.invoke("process-document", {
+        body: { document_id: doc.id },
+      });
+
+      if (processError) {
+        throw new Error(processError.message);
+      }
+
+      toast.success("Переобработка запущена");
+      fetchData();
+    } catch (error: any) {
+      console.error("Error reprocessing document:", error);
+      toast.error(error.message || "Ошибка переобработки");
+    }
+  };
+
   const formatFileSize = (bytes: number | null) => {
     if (!bytes) return "-";
     if (bytes < 1024) return `${bytes} B`;
@@ -413,6 +436,17 @@ export default function Documents() {
                       </TableCell>
                       <TableCell>
                         <div className="flex gap-1">
+                          {doc.status === "error" && (
+                            <Button
+                              variant="ghost"
+                              size="icon"
+                              className="h-8 w-8 text-amber-500"
+                              onClick={() => handleReprocess(doc)}
+                              title="Переобработать"
+                            >
+                              <RefreshCw className="h-4 w-4" />
+                            </Button>
+                          )}
                           <Button
                             variant="ghost"
                             size="icon"
