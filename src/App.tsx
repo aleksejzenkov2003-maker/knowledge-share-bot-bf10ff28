@@ -18,6 +18,7 @@ import TestChat from "./pages/TestChat";
 import Folders from "./pages/Folders";
 import Documents from "./pages/Documents";
 import ChatRoles from "./pages/ChatRoles";
+import ChatLogs from "./pages/ChatLogs";
 import NotFound from "./pages/NotFound";
 
 const queryClient = new QueryClient();
@@ -76,6 +77,11 @@ const App = () => (
             <Route path="/chat-roles" element={
               <ProtectedRoute allowedRoles={['admin']}>
                 <AdminLayout><ChatRoles /></AdminLayout>
+              </ProtectedRoute>
+            } />
+            <Route path="/chat-logs" element={
+              <ProtectedRoute allowedRoles={['admin', 'moderator']}>
+                <AdminLayout><ChatLogs /></AdminLayout>
               </ProtectedRoute>
             } />
             <Route path="*" element={<NotFound />} />

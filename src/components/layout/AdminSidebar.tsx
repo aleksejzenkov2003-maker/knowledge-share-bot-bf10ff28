@@ -39,7 +39,7 @@ const mainMenuItems = [
   { title: 'Отделы', url: '/departments', icon: Building2 },
   { title: 'AI Провайдеры', url: '/providers', icon: Bot, roles: ['admin'] },
   { title: 'Промпты', url: '/prompts', icon: MessageSquare, roles: ['admin'] },
-  { title: 'Логи', url: '/logs', icon: ClipboardList, roles: ['admin', 'moderator'] },
+  { title: 'Логи чатов', url: '/chat-logs', icon: ClipboardList, roles: ['admin', 'moderator'] },
 ];
 
 const settingsItems = [

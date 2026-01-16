@@ -303,16 +303,16 @@ export default function Documents() {
               <div className="space-y-2">
                 <Label htmlFor="folder_id">Папка</Label>
                 <Select
-                  value={formData.folder_id}
+                  value={formData.folder_id || "_none"}
                   onValueChange={(value) =>
-                    setFormData((prev) => ({ ...prev, folder_id: value }))
+                    setFormData((prev) => ({ ...prev, folder_id: value === "_none" ? "" : value }))
                   }
                 >
                   <SelectTrigger>
                     <SelectValue placeholder="Выберите папку" />
                   </SelectTrigger>
                   <SelectContent>
-                    <SelectItem value="">Без папки</SelectItem>
+                    <SelectItem value="_none">Без папки</SelectItem>
                     {folders.map((folder) => (
                       <SelectItem key={folder.id} value={folder.id}>
                         {folder.name}
@@ -349,12 +349,15 @@ export default function Documents() {
                 Всего документов: {documents.length}
               </CardDescription>
             </div>
-            <Select value={filterFolder} onValueChange={setFilterFolder}>
+            <Select 
+              value={filterFolder || "_all"} 
+              onValueChange={(value) => setFilterFolder(value === "_all" ? "" : value)}
+            >
               <SelectTrigger className="w-48">
                 <SelectValue placeholder="Все папки" />
               </SelectTrigger>
               <SelectContent>
-                <SelectItem value="">Все папки</SelectItem>
+                <SelectItem value="_all">Все папки</SelectItem>
                 {folders.map((folder) => (
                   <SelectItem key={folder.id} value={folder.id}>
                     {folder.name}
