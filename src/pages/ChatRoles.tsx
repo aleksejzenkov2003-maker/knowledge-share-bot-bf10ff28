@@ -320,17 +320,17 @@ export default function ChatRoles() {
 
               <div className="space-y-2">
                 <Label htmlFor="department_id">Отдел</Label>
-                <Select
-                  value={formData.department_id}
+              <Select
+                  value={formData.department_id || "_all"}
                   onValueChange={(value) =>
-                    setFormData((prev) => ({ ...prev, department_id: value }))
+                    setFormData((prev) => ({ ...prev, department_id: value === "_all" ? "" : value }))
                   }
                 >
                   <SelectTrigger>
                     <SelectValue placeholder="Все отделы" />
                   </SelectTrigger>
                   <SelectContent>
-                    <SelectItem value="">Все отделы</SelectItem>
+                    <SelectItem value="_all">Все отделы</SelectItem>
                     {departments.map((dept) => (
                       <SelectItem key={dept.id} value={dept.id}>
                         {dept.name}
@@ -342,17 +342,17 @@ export default function ChatRoles() {
 
               <div className="space-y-2">
                 <Label htmlFor="system_prompt_id">Системный промпт</Label>
-                <Select
-                  value={formData.system_prompt_id}
+              <Select
+                  value={formData.system_prompt_id || "_none"}
                   onValueChange={(value) =>
-                    setFormData((prev) => ({ ...prev, system_prompt_id: value }))
+                    setFormData((prev) => ({ ...prev, system_prompt_id: value === "_none" ? "" : value }))
                   }
                 >
                   <SelectTrigger>
                     <SelectValue placeholder="Выберите промпт" />
                   </SelectTrigger>
                   <SelectContent>
-                    <SelectItem value="">Без промпта</SelectItem>
+                    <SelectItem value="_none">Без промпта</SelectItem>
                     {prompts.map((prompt) => (
                       <SelectItem key={prompt.id} value={prompt.id}>
                         {prompt.name}
