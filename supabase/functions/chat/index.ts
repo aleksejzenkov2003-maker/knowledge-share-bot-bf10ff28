@@ -12,6 +12,8 @@ interface ChatRequest {
   department_id?: string;
   model?: string;
   provider_id?: string;
+  conversation_id?: string;
+  message_history?: { role: string; content: string }[];
 }
 
 interface ProviderConfig {
@@ -26,8 +28,20 @@ async function callPerplexity(
   apiKey: string,
   model: string,
   systemPrompt: string,
-  userMessage: string
+  userMessage: string,
+  messageHistory?: { role: string; content: string }[]
 ): Promise<{ content: string; citations?: string[]; usage?: any }> {
+  // Build messages array
+  const messages: { role: string; content: string }[] = [
+    { role: 'system', content: systemPrompt }
+  ];
+  
+  if (messageHistory && messageHistory.length > 0) {
+    messages.push(...messageHistory);
+  } else {
+    messages.push({ role: 'user', content: userMessage });
+  }
+
   const response = await fetch('https://api.perplexity.ai/chat/completions', {
     method: 'POST',
     headers: {
@@ -36,10 +50,7 @@ async function callPerplexity(
     },
     body: JSON.stringify({
       model,
-      messages: [
-        { role: 'system', content: systemPrompt },
-        { role: 'user', content: userMessage }
-      ],
+      messages,
     }),
   });
 
@@ -61,8 +72,21 @@ async function callAnthropic(
   apiKey: string,
   model: string,
   systemPrompt: string,
-  userMessage: string
+  userMessage: string,
+  messageHistory?: { role: string; content: string }[]
 ): Promise<{ content: string; usage?: any }> {
+  // Build messages array for Anthropic (doesn't use system in messages array)
+  let messages: { role: string; content: string }[];
+  
+  if (messageHistory && messageHistory.length > 0) {
+    messages = messageHistory.map(m => ({
+      role: m.role === 'assistant' ? 'assistant' : 'user',
+      content: m.content
+    }));
+  } else {
+    messages = [{ role: 'user', content: userMessage }];
+  }
+
   const response = await fetch('https://api.anthropic.com/v1/messages', {
     method: 'POST',
     headers: {
@@ -74,9 +98,7 @@ async function callAnthropic(
       model,
       max_tokens: 4096,
       system: systemPrompt,
-      messages: [
-        { role: 'user', content: userMessage }
-      ],
+      messages,
     }),
   });
 
@@ -103,8 +125,20 @@ async function callOpenAI(
   model: string,
   systemPrompt: string,
   userMessage: string,
-  baseUrl: string = 'https://api.openai.com/v1'
+  baseUrl: string = 'https://api.openai.com/v1',
+  messageHistory?: { role: string; content: string }[]
 ): Promise<{ content: string; usage?: any }> {
+  // Build messages array
+  const messages: { role: string; content: string }[] = [
+    { role: 'system', content: systemPrompt }
+  ];
+  
+  if (messageHistory && messageHistory.length > 0) {
+    messages.push(...messageHistory);
+  } else {
+    messages.push({ role: 'user', content: userMessage });
+  }
+
   const response = await fetch(`${baseUrl}/chat/completions`, {
     method: 'POST',
     headers: {
@@ -113,10 +147,7 @@ async function callOpenAI(
     },
     body: JSON.stringify({
       model,
-      messages: [
-        { role: 'system', content: systemPrompt },
-        { role: 'user', content: userMessage }
-      ],
+      messages,
     }),
   });
 
@@ -137,8 +168,20 @@ async function callLovableAI(
   apiKey: string,
   model: string,
   systemPrompt: string,
-  userMessage: string
+  userMessage: string,
+  messageHistory?: { role: string; content: string }[]
 ): Promise<{ content: string; usage?: any }> {
+  // Build messages array
+  const messages: { role: string; content: string }[] = [
+    { role: 'system', content: systemPrompt }
+  ];
+  
+  if (messageHistory && messageHistory.length > 0) {
+    messages.push(...messageHistory);
+  } else {
+    messages.push({ role: 'user', content: userMessage });
+  }
+
   const response = await fetch('https://ai.gateway.lovable.dev/v1/chat/completions', {
     method: 'POST',
     headers: {
@@ -147,10 +190,7 @@ async function callLovableAI(
     },
     body: JSON.stringify({
       model,
-      messages: [
-        { role: 'system', content: systemPrompt },
-        { role: 'user', content: userMessage }
-      ],
+      messages,
     }),
   });
 
@@ -191,7 +231,7 @@ serve(async (req) => {
       userId = user?.id || null;
     }
 
-    const { message, role_id, department_id, model, provider_id }: ChatRequest = await req.json();
+    const { message, role_id, department_id, model, provider_id, conversation_id, message_history }: ChatRequest = await req.json();
 
     if (!message) {
       return new Response(
@@ -205,6 +245,7 @@ serve(async (req) => {
     let deptId = department_id;
     let selectedModel = model;
     let selectedProviderId = provider_id;
+    let isProjectMode = false;
 
     // Get role config if role_id provided
     if (role_id) {
@@ -217,6 +258,7 @@ serve(async (req) => {
       if (role) {
         deptId = role.department_id;
         folderIds = role.folder_ids || [];
+        isProjectMode = role.is_project_mode || false;
         if (role.system_prompt?.prompt_text) {
           systemPrompt = role.system_prompt.prompt_text;
         }
@@ -399,7 +441,24 @@ serve(async (req) => {
       finalPrompt = `Context from documents:\n${ragContext.join('\n\n')}\n\nUser question: ${message}`;
     }
 
-    console.log(`Calling ${providerConfig.provider_type} API with model: ${finalModel}, RAG chunks: ${ragContext.length}, semantic: ${usedSemanticSearch}`);
+    // Build message history for project mode
+    let finalMessageHistory: { role: string; content: string }[] | undefined;
+    
+    if (isProjectMode && message_history && message_history.length > 0) {
+      // In project mode, use the full message history but augment the last user message with RAG context
+      finalMessageHistory = message_history.map((msg, idx) => {
+        if (idx === message_history.length - 1 && msg.role === 'user' && ragContext.length > 0) {
+          return {
+            role: msg.role,
+            content: `Context from documents:\n${ragContext.join('\n\n')}\n\nUser question: ${msg.content}`
+          };
+        }
+        return msg;
+      });
+      console.log(`Project mode: using ${finalMessageHistory.length} messages from history`);
+    }
+
+    console.log(`Calling ${providerConfig.provider_type} API with model: ${finalModel}, RAG chunks: ${ragContext.length}, semantic: ${usedSemanticSearch}, project_mode: ${isProjectMode}`);
     
     // Call appropriate provider
     let response: { content: string; citations?: string[]; usage?: any };
@@ -410,7 +469,8 @@ serve(async (req) => {
           providerConfig.api_key || ANTHROPIC_API_KEY || '',
           finalModel,
           systemPrompt,
-          finalPrompt
+          finalPrompt,
+          finalMessageHistory
         );
         break;
       case 'openai':
@@ -419,7 +479,8 @@ serve(async (req) => {
           finalModel,
           systemPrompt,
           finalPrompt,
-          providerConfig.base_url
+          providerConfig.base_url,
+          finalMessageHistory
         );
         break;
       case 'lovable':
@@ -427,7 +488,8 @@ serve(async (req) => {
           LOVABLE_API_KEY || providerConfig.api_key,
           finalModel,
           systemPrompt,
-          finalPrompt
+          finalPrompt,
+          finalMessageHistory
         );
         break;
       case 'perplexity':
@@ -436,7 +498,8 @@ serve(async (req) => {
           providerConfig.api_key || PERPLEXITY_API_KEY || '',
           finalModel,
           systemPrompt,
-          finalPrompt
+          finalPrompt,
+          finalMessageHistory
         );
         break;
     }
