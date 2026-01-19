@@ -2,3 +2,12 @@ project_id = "eidesurdreoxroarympm"
 
 [functions.chat]
 verify_jwt = false
+
+[functions.chat-stream]
+verify_jwt = false
+
+[functions.process-document]
+verify_jwt = false
+
+[functions.init-system]
+verify_jwt = false
