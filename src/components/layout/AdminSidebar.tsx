@@ -32,14 +32,19 @@ import { Button } from '@/components/ui/button';
 const mainMenuItems = [
   { title: 'Дашборд', url: '/', icon: LayoutDashboard },
   { title: 'Чат', url: '/chat', icon: MessageSquare },
-  { title: 'Тест чата', url: '/test-chat', icon: MessageSquare, roles: ['admin'] },
+];
+
+const managementItems = [
   { title: 'Роли чатов', url: '/chat-roles', icon: UserCircle, roles: ['admin'] },
   { title: 'Папки', url: '/folders', icon: FolderTree, roles: ['admin'] },
   { title: 'Документы', url: '/documents', icon: FileText, roles: ['admin'] },
+  { title: 'Промпты', url: '/prompts', icon: MessageSquare, roles: ['admin'] },
+  { title: 'AI Провайдеры', url: '/providers', icon: Bot, roles: ['admin'] },
+];
+
+const adminItems = [
   { title: 'Пользователи', url: '/users', icon: Users, roles: ['admin', 'moderator'] },
   { title: 'Отделы', url: '/departments', icon: Building2 },
-  { title: 'AI Провайдеры', url: '/providers', icon: Bot, roles: ['admin'] },
-  { title: 'Промпты', url: '/prompts', icon: MessageSquare, roles: ['admin'] },
   { title: 'Логи чатов', url: '/chat-logs', icon: ClipboardList, roles: ['admin', 'moderator'] },
 ];
 
@@ -60,7 +65,9 @@ export const AdminSidebar = () => {
     return role && itemRoles.includes(role);
   };
 
-  const filteredMainItems = mainMenuItems.filter(item => canAccess(item.roles));
+  const filteredMainItems = mainMenuItems.filter(item => canAccess((item as any).roles));
+  const filteredManagementItems = managementItems.filter(item => canAccess(item.roles));
+  const filteredAdminItems = adminItems.filter(item => canAccess(item.roles));
   const filteredSettingsItems = settingsItems.filter(item => canAccess(item.roles));
 
   return (
@@ -97,6 +104,46 @@ export const AdminSidebar = () => {
             </SidebarMenu>
           </SidebarGroupContent>
         </SidebarGroup>
+
+        {filteredManagementItems.length > 0 && (
+          <SidebarGroup>
+            <SidebarGroupLabel>Управление</SidebarGroupLabel>
+            <SidebarGroupContent>
+              <SidebarMenu>
+                {filteredManagementItems.map((item) => (
+                  <SidebarMenuItem key={item.title}>
+                    <SidebarMenuButton asChild isActive={isActive(item.url)}>
+                      <NavLink to={item.url} end className="hover:bg-muted/50" activeClassName="bg-muted text-primary font-medium">
+                        <item.icon className="h-4 w-4" />
+                        {!collapsed && <span>{item.title}</span>}
+                      </NavLink>
+                    </SidebarMenuButton>
+                  </SidebarMenuItem>
+                ))}
+              </SidebarMenu>
+            </SidebarGroupContent>
+          </SidebarGroup>
+        )}
+
+        {filteredAdminItems.length > 0 && (
+          <SidebarGroup>
+            <SidebarGroupLabel>Администрирование</SidebarGroupLabel>
+            <SidebarGroupContent>
+              <SidebarMenu>
+                {filteredAdminItems.map((item) => (
+                  <SidebarMenuItem key={item.title}>
+                    <SidebarMenuButton asChild isActive={isActive(item.url)}>
+                      <NavLink to={item.url} end className="hover:bg-muted/50" activeClassName="bg-muted text-primary font-medium">
+                        <item.icon className="h-4 w-4" />
+                        {!collapsed && <span>{item.title}</span>}
+                      </NavLink>
+                    </SidebarMenuButton>
+                  </SidebarMenuItem>
+                ))}
+              </SidebarMenu>
+            </SidebarGroupContent>
+          </SidebarGroup>
+        )}
 
         {filteredSettingsItems.length > 0 && (
           <SidebarGroup>
