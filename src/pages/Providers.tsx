@@ -11,7 +11,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { Switch } from '@/components/ui/switch';
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle, DialogTrigger } from '@/components/ui/dialog';
 import { useToast } from '@/hooks/use-toast';
-import { Loader2, Bot, Plus, Star, Trash2 } from 'lucide-react';
+import { Loader2, Bot, Plus, Star, Trash2, Key, Eye, EyeOff } from 'lucide-react';
 
 interface AIProvider {
   id: string;
@@ -20,36 +20,80 @@ interface AIProvider {
   default_model: string | null;
   is_active: boolean;
   is_default: boolean;
+  api_key_masked?: string;
   created_at: string;
 }
 
-const providerModels: Record<string, string[]> = {
-  perplexity: ['sonar', 'sonar-pro', 'sonar-reasoning', 'sonar-reasoning-pro'],
-  openai: ['gpt-4o', 'gpt-4o-mini', 'gpt-4-turbo'],
-  anthropic: ['claude-3-opus', 'claude-3-sonnet', 'claude-3-haiku'],
+const providerModels: Record<string, { value: string; label: string }[]> = {
+  perplexity: [
+    { value: 'sonar', label: 'Sonar' },
+    { value: 'sonar-pro', label: 'Sonar Pro' },
+    { value: 'sonar-reasoning', label: 'Sonar Reasoning' },
+    { value: 'sonar-reasoning-pro', label: 'Sonar Reasoning Pro' },
+  ],
+  openai: [
+    { value: 'gpt-4o', label: 'GPT-4o' },
+    { value: 'gpt-4o-mini', label: 'GPT-4o Mini' },
+    { value: 'gpt-4-turbo', label: 'GPT-4 Turbo' },
+    { value: 'o1', label: 'O1' },
+    { value: 'o1-mini', label: 'O1 Mini' },
+  ],
+  anthropic: [
+    { value: 'claude-sonnet-4-20250514', label: 'Claude Sonnet 4' },
+    { value: 'claude-3-7-sonnet-20250219', label: 'Claude 3.7 Sonnet' },
+    { value: 'claude-3-5-sonnet-20241022', label: 'Claude 3.5 Sonnet' },
+    { value: 'claude-3-5-haiku-20241022', label: 'Claude 3.5 Haiku' },
+    { value: 'claude-3-opus-20240229', label: 'Claude 3 Opus' },
+  ],
+  lovable: [
+    { value: 'google/gemini-2.5-flash', label: 'Gemini 2.5 Flash' },
+    { value: 'google/gemini-2.5-pro', label: 'Gemini 2.5 Pro' },
+    { value: 'google/gemini-2.5-flash-lite', label: 'Gemini 2.5 Flash Lite' },
+    { value: 'openai/gpt-5', label: 'GPT-5' },
+    { value: 'openai/gpt-5-mini', label: 'GPT-5 Mini' },
+  ],
+};
+
+const providerLabels: Record<string, string> = {
+  perplexity: 'Perplexity',
+  openai: 'OpenAI',
+  anthropic: 'Anthropic',
+  lovable: 'Lovable AI',
 };
 
 const Providers = () => {
   const [providers, setProviders] = useState<AIProvider[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [isDialogOpen, setIsDialogOpen] = useState(false);
+  const [showApiKey, setShowApiKey] = useState(false);
   const [newProvider, setNewProvider] = useState({
     name: '',
     provider_type: 'perplexity',
     default_model: 'sonar',
+    api_key: '',
   });
   const { isAdmin } = useAuth();
   const { toast } = useToast();
 
   const fetchProviders = async () => {
     try {
+      // Use safe_ai_providers view that masks API keys
       const { data, error } = await supabase
-        .from('ai_providers')
+        .from('safe_ai_providers')
         .select('*')
         .order('created_at', { ascending: false });
 
       if (error) throw error;
-      setProviders(data || []);
+      setProviders((data || []).map(p => ({
+        id: p.id!,
+        name: p.name!,
+        provider_type: p.provider_type!,
+        default_model: p.default_model,
+        is_active: p.is_active!,
+        is_default: p.is_default!,
+        api_key_masked: p.api_key_masked || undefined,
+        created_at: p.created_at!,
+      })));
     } catch (error) {
       console.error('Error fetching providers:', error);
     } finally {
@@ -71,10 +115,21 @@ const Providers = () => {
       return;
     }
 
+    // For Lovable AI, API key is not required (uses LOVABLE_API_KEY from env)
+    if (newProvider.provider_type !== 'lovable' && !newProvider.api_key.trim()) {
+      toast({
+        title: 'Ошибка',
+        description: 'Введите API ключ',
+        variant: 'destructive',
+      });
+      return;
+    }
+
     const { error } = await supabase.from('ai_providers').insert({
       name: newProvider.name,
       provider_type: newProvider.provider_type,
       default_model: newProvider.default_model,
+      api_key: newProvider.provider_type === 'lovable' ? null : newProvider.api_key,
     });
 
     if (error) {
@@ -89,7 +144,8 @@ const Providers = () => {
         description: 'Провайдер создан',
       });
       setIsDialogOpen(false);
-      setNewProvider({ name: '', provider_type: 'perplexity', default_model: 'sonar' });
+      setNewProvider({ name: '', provider_type: 'perplexity', default_model: 'sonar', api_key: '' });
+      setShowApiKey(false);
       fetchProviders();
     }
   };
@@ -154,6 +210,16 @@ const Providers = () => {
     }
   };
 
+  const handleProviderTypeChange = (value: string) => {
+    const firstModel = providerModels[value]?.[0]?.value || '';
+    setNewProvider({
+      ...newProvider,
+      provider_type: value,
+      default_model: firstModel,
+      api_key: value === 'lovable' ? '' : newProvider.api_key,
+    });
+  };
+
   if (isLoading) {
     return (
       <div className="flex items-center justify-center py-12">
@@ -172,7 +238,13 @@ const Providers = () => {
           </p>
         </div>
         {isAdmin && (
-          <Dialog open={isDialogOpen} onOpenChange={setIsDialogOpen}>
+          <Dialog open={isDialogOpen} onOpenChange={(open) => {
+            setIsDialogOpen(open);
+            if (!open) {
+              setNewProvider({ name: '', provider_type: 'perplexity', default_model: 'sonar', api_key: '' });
+              setShowApiKey(false);
+            }
+          }}>
             <DialogTrigger asChild>
               <Button>
                 <Plus className="mr-2 h-4 w-4" />
@@ -191,7 +263,7 @@ const Providers = () => {
                   <Label htmlFor="name">Название</Label>
                   <Input
                     id="name"
-                    placeholder="Например: Perplexity для патентов"
+                    placeholder="Например: Claude для аналитики"
                     value={newProvider.name}
                     onChange={(e) => setNewProvider({ ...newProvider, name: e.target.value })}
                   />
@@ -200,22 +272,62 @@ const Providers = () => {
                   <Label htmlFor="type">Тип провайдера</Label>
                   <Select
                     value={newProvider.provider_type}
-                    onValueChange={(value) => setNewProvider({ 
-                      ...newProvider, 
-                      provider_type: value,
-                      default_model: providerModels[value]?.[0] || ''
-                    })}
+                    onValueChange={handleProviderTypeChange}
                   >
                     <SelectTrigger>
                       <SelectValue />
                     </SelectTrigger>
                     <SelectContent>
                       <SelectItem value="perplexity">Perplexity</SelectItem>
+                      <SelectItem value="anthropic">Anthropic (Claude)</SelectItem>
                       <SelectItem value="openai">OpenAI</SelectItem>
-                      <SelectItem value="anthropic">Anthropic</SelectItem>
+                      <SelectItem value="lovable">Lovable AI (без API ключа)</SelectItem>
                     </SelectContent>
                   </Select>
                 </div>
+                
+                {newProvider.provider_type !== 'lovable' && (
+                  <div className="space-y-2">
+                    <Label htmlFor="api_key">API Ключ</Label>
+                    <div className="relative">
+                      <Input
+                        id="api_key"
+                        type={showApiKey ? 'text' : 'password'}
+                        placeholder={
+                          newProvider.provider_type === 'anthropic' 
+                            ? 'sk-ant-...' 
+                            : newProvider.provider_type === 'openai'
+                            ? 'sk-...'
+                            : 'pplx-...'
+                        }
+                        value={newProvider.api_key}
+                        onChange={(e) => setNewProvider({ ...newProvider, api_key: e.target.value })}
+                        className="pr-10"
+                      />
+                      <Button
+                        type="button"
+                        variant="ghost"
+                        size="icon"
+                        className="absolute right-0 top-0 h-full px-3"
+                        onClick={() => setShowApiKey(!showApiKey)}
+                      >
+                        {showApiKey ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+                      </Button>
+                    </div>
+                    <p className="text-xs text-muted-foreground">
+                      Ключ будет храниться в зашифрованном виде
+                    </p>
+                  </div>
+                )}
+
+                {newProvider.provider_type === 'lovable' && (
+                  <div className="rounded-md bg-muted p-3">
+                    <p className="text-sm text-muted-foreground">
+                      Lovable AI использует встроенный API ключ и не требует дополнительной настройки.
+                    </p>
+                  </div>
+                )}
+
                 <div className="space-y-2">
                   <Label htmlFor="model">Модель по умолчанию</Label>
                   <Select
@@ -227,8 +339,8 @@ const Providers = () => {
                     </SelectTrigger>
                     <SelectContent>
                       {providerModels[newProvider.provider_type]?.map((model) => (
-                        <SelectItem key={model} value={model}>
-                          {model}
+                        <SelectItem key={model.value} value={model.value}>
+                          {model.label}
                         </SelectItem>
                       ))}
                     </SelectContent>
@@ -268,6 +380,7 @@ const Providers = () => {
                   <TableHead>Название</TableHead>
                   <TableHead>Тип</TableHead>
                   <TableHead>Модель</TableHead>
+                  <TableHead>API Ключ</TableHead>
                   <TableHead>Статус</TableHead>
                   <TableHead>По умолчанию</TableHead>
                   <TableHead>Действия</TableHead>
@@ -278,9 +391,25 @@ const Providers = () => {
                   <TableRow key={provider.id}>
                     <TableCell className="font-medium">{provider.name}</TableCell>
                     <TableCell>
-                      <Badge variant="outline">{provider.provider_type}</Badge>
+                      <Badge variant="outline">
+                        {providerLabels[provider.provider_type] || provider.provider_type}
+                      </Badge>
                     </TableCell>
-                    <TableCell>{provider.default_model || '—'}</TableCell>
+                    <TableCell className="font-mono text-sm">
+                      {provider.default_model || '—'}
+                    </TableCell>
+                    <TableCell>
+                      {provider.api_key_masked ? (
+                        <span className="flex items-center gap-1 text-sm text-muted-foreground">
+                          <Key className="h-3 w-3" />
+                          {provider.api_key_masked}
+                        </span>
+                      ) : provider.provider_type === 'lovable' ? (
+                        <span className="text-sm text-muted-foreground">Встроенный</span>
+                      ) : (
+                        <span className="text-sm text-muted-foreground">—</span>
+                      )}
+                    </TableCell>
                     <TableCell>
                       <Switch
                         checked={provider.is_active}

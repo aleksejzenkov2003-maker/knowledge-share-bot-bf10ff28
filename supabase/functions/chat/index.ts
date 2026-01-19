@@ -11,6 +11,160 @@ interface ChatRequest {
   role_id?: string;
   department_id?: string;
   model?: string;
+  provider_id?: string;
+}
+
+interface ProviderConfig {
+  provider_type: string;
+  api_key: string;
+  default_model: string;
+  base_url?: string;
+}
+
+// Provider adapters for different API formats
+async function callPerplexity(
+  apiKey: string,
+  model: string,
+  systemPrompt: string,
+  userMessage: string
+): Promise<{ content: string; citations?: string[]; usage?: any }> {
+  const response = await fetch('https://api.perplexity.ai/chat/completions', {
+    method: 'POST',
+    headers: {
+      'Authorization': `Bearer ${apiKey}`,
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({
+      model,
+      messages: [
+        { role: 'system', content: systemPrompt },
+        { role: 'user', content: userMessage }
+      ],
+    }),
+  });
+
+  if (!response.ok) {
+    const errorText = await response.text();
+    console.error('Perplexity API error:', response.status, errorText);
+    throw new Error(`Perplexity API error: ${response.status}`);
+  }
+
+  const data = await response.json();
+  return {
+    content: data.choices?.[0]?.message?.content || '',
+    citations: data.citations || [],
+    usage: data.usage,
+  };
+}
+
+async function callAnthropic(
+  apiKey: string,
+  model: string,
+  systemPrompt: string,
+  userMessage: string
+): Promise<{ content: string; usage?: any }> {
+  const response = await fetch('https://api.anthropic.com/v1/messages', {
+    method: 'POST',
+    headers: {
+      'x-api-key': apiKey,
+      'anthropic-version': '2023-06-01',
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({
+      model,
+      max_tokens: 4096,
+      system: systemPrompt,
+      messages: [
+        { role: 'user', content: userMessage }
+      ],
+    }),
+  });
+
+  if (!response.ok) {
+    const errorText = await response.text();
+    console.error('Anthropic API error:', response.status, errorText);
+    throw new Error(`Anthropic API error: ${response.status}`);
+  }
+
+  const data = await response.json();
+  const content = data.content?.[0]?.text || '';
+  return {
+    content,
+    usage: {
+      prompt_tokens: data.usage?.input_tokens || 0,
+      completion_tokens: data.usage?.output_tokens || 0,
+      total_tokens: (data.usage?.input_tokens || 0) + (data.usage?.output_tokens || 0),
+    },
+  };
+}
+
+async function callOpenAI(
+  apiKey: string,
+  model: string,
+  systemPrompt: string,
+  userMessage: string,
+  baseUrl: string = 'https://api.openai.com/v1'
+): Promise<{ content: string; usage?: any }> {
+  const response = await fetch(`${baseUrl}/chat/completions`, {
+    method: 'POST',
+    headers: {
+      'Authorization': `Bearer ${apiKey}`,
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({
+      model,
+      messages: [
+        { role: 'system', content: systemPrompt },
+        { role: 'user', content: userMessage }
+      ],
+    }),
+  });
+
+  if (!response.ok) {
+    const errorText = await response.text();
+    console.error('OpenAI API error:', response.status, errorText);
+    throw new Error(`OpenAI API error: ${response.status}`);
+  }
+
+  const data = await response.json();
+  return {
+    content: data.choices?.[0]?.message?.content || '',
+    usage: data.usage,
+  };
+}
+
+async function callLovableAI(
+  apiKey: string,
+  model: string,
+  systemPrompt: string,
+  userMessage: string
+): Promise<{ content: string; usage?: any }> {
+  const response = await fetch('https://ai.gateway.lovable.dev/v1/chat/completions', {
+    method: 'POST',
+    headers: {
+      'Authorization': `Bearer ${apiKey}`,
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({
+      model,
+      messages: [
+        { role: 'system', content: systemPrompt },
+        { role: 'user', content: userMessage }
+      ],
+    }),
+  });
+
+  if (!response.ok) {
+    const errorText = await response.text();
+    console.error('Lovable AI error:', response.status, errorText);
+    throw new Error(`Lovable AI error: ${response.status}`);
+  }
+
+  const data = await response.json();
+  return {
+    content: data.choices?.[0]?.message?.content || '',
+    usage: data.usage,
+  };
 }
 
 serve(async (req) => {
@@ -22,11 +176,8 @@ serve(async (req) => {
 
   try {
     const PERPLEXITY_API_KEY = Deno.env.get('PERPLEXITY_API_KEY');
+    const ANTHROPIC_API_KEY = Deno.env.get('ANTHROPIC_API_KEY');
     const LOVABLE_API_KEY = Deno.env.get('LOVABLE_API_KEY');
-    
-    if (!PERPLEXITY_API_KEY) {
-      throw new Error('PERPLEXITY_API_KEY is not configured');
-    }
 
     const supabaseUrl = Deno.env.get('SUPABASE_URL')!;
     const supabaseKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!;
@@ -40,7 +191,7 @@ serve(async (req) => {
       userId = user?.id || null;
     }
 
-    const { message, role_id, department_id, model = 'sonar' }: ChatRequest = await req.json();
+    const { message, role_id, department_id, model, provider_id }: ChatRequest = await req.json();
 
     if (!message) {
       return new Response(
@@ -52,6 +203,8 @@ serve(async (req) => {
     let systemPrompt = 'You are a helpful AI assistant.';
     let folderIds: string[] = [];
     let deptId = department_id;
+    let selectedModel = model;
+    let selectedProviderId = provider_id;
 
     // Get role config if role_id provided
     if (role_id) {
@@ -66,6 +219,16 @@ serve(async (req) => {
         folderIds = role.folder_ids || [];
         if (role.system_prompt?.prompt_text) {
           systemPrompt = role.system_prompt.prompt_text;
+        }
+        // Get model config from role if available
+        const modelConfig = role.model_config as { provider_id?: string; model?: string } | null;
+        if (modelConfig) {
+          if (!selectedProviderId && modelConfig.provider_id) {
+            selectedProviderId = modelConfig.provider_id;
+          }
+          if (!selectedModel && modelConfig.model) {
+            selectedModel = modelConfig.model;
+          }
         }
       }
     } else if (department_id) {
@@ -82,6 +245,78 @@ serve(async (req) => {
       }
     }
 
+    // Get provider configuration
+    let providerConfig: ProviderConfig | null = null;
+    
+    if (selectedProviderId) {
+      // Get specific provider
+      const { data: provider } = await supabase
+        .from('ai_providers')
+        .select('*')
+        .eq('id', selectedProviderId)
+        .eq('is_active', true)
+        .single();
+      
+      if (provider) {
+        providerConfig = {
+          provider_type: provider.provider_type,
+          api_key: provider.api_key || '',
+          default_model: provider.default_model || '',
+          base_url: provider.base_url || undefined,
+        };
+      }
+    }
+    
+    if (!providerConfig) {
+      // Get default provider
+      const { data: defaultProvider } = await supabase
+        .from('ai_providers')
+        .select('*')
+        .eq('is_default', true)
+        .eq('is_active', true)
+        .single();
+      
+      if (defaultProvider) {
+        providerConfig = {
+          provider_type: defaultProvider.provider_type,
+          api_key: defaultProvider.api_key || '',
+          default_model: defaultProvider.default_model || '',
+          base_url: defaultProvider.base_url || undefined,
+        };
+        selectedProviderId = defaultProvider.id;
+      }
+    }
+
+    // Fallback to environment-based providers
+    if (!providerConfig) {
+      if (PERPLEXITY_API_KEY) {
+        providerConfig = {
+          provider_type: 'perplexity',
+          api_key: PERPLEXITY_API_KEY,
+          default_model: 'sonar',
+        };
+      } else if (ANTHROPIC_API_KEY) {
+        providerConfig = {
+          provider_type: 'anthropic',
+          api_key: ANTHROPIC_API_KEY,
+          default_model: 'claude-sonnet-4-20250514',
+        };
+      } else if (LOVABLE_API_KEY) {
+        providerConfig = {
+          provider_type: 'lovable',
+          api_key: LOVABLE_API_KEY,
+          default_model: 'google/gemini-2.5-flash',
+        };
+      }
+    }
+
+    if (!providerConfig) {
+      throw new Error('No AI provider configured. Please add an API key or configure a provider.');
+    }
+
+    // Use selected model or fallback to provider default
+    const finalModel = selectedModel || providerConfig.default_model;
+
     // RAG: Semantic search in documents
     let ragContext: string[] = [];
     let usedSemanticSearch = false;
@@ -96,7 +331,6 @@ serve(async (req) => {
           const queryEmbedding = await generateQueryEmbedding(message, LOVABLE_API_KEY);
           
           if (queryEmbedding && queryEmbedding.length === 1536) {
-            // Use the match_document_chunks function for semantic search
             const { data: semanticChunks, error: semanticError } = await supabase.rpc(
               'match_document_chunks',
               {
@@ -124,7 +358,6 @@ serve(async (req) => {
       if (ragContext.length === 0) {
         console.log('Falling back to regular chunk search...');
         
-        // Get documents in specified folders
         const { data: docs, error: docsError } = await supabase
           .from('documents')
           .select('id')
@@ -139,7 +372,6 @@ serve(async (req) => {
           const docIds = docs.map(d => d.id);
           console.log(`Found ${docIds.length} documents in folders`);
 
-          // Get chunks for these documents
           const { data: chunks, error: chunksError } = await supabase
             .from('document_chunks')
             .select('content, chunk_index, document_id')
@@ -167,46 +399,65 @@ serve(async (req) => {
       finalPrompt = `Context from documents:\n${ragContext.join('\n\n')}\n\nUser question: ${message}`;
     }
 
-    console.log(`Calling Perplexity API with model: ${model}, RAG chunks: ${ragContext.length}, semantic: ${usedSemanticSearch}`);
-    const perplexityResponse = await fetch('https://api.perplexity.ai/chat/completions', {
-      method: 'POST',
-      headers: {
-        'Authorization': `Bearer ${PERPLEXITY_API_KEY}`,
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify({
-        model,
-        messages: [
-          { role: 'system', content: systemPrompt },
-          { role: 'user', content: finalPrompt }
-        ],
-      }),
-    });
-
-    if (!perplexityResponse.ok) {
-      const errorText = await perplexityResponse.text();
-      console.error('Perplexity API error:', perplexityResponse.status, errorText);
-      throw new Error(`Perplexity API error: ${perplexityResponse.status}`);
+    console.log(`Calling ${providerConfig.provider_type} API with model: ${finalModel}, RAG chunks: ${ragContext.length}, semantic: ${usedSemanticSearch}`);
+    
+    // Call appropriate provider
+    let response: { content: string; citations?: string[]; usage?: any };
+    
+    switch (providerConfig.provider_type) {
+      case 'anthropic':
+        response = await callAnthropic(
+          providerConfig.api_key || ANTHROPIC_API_KEY || '',
+          finalModel,
+          systemPrompt,
+          finalPrompt
+        );
+        break;
+      case 'openai':
+        response = await callOpenAI(
+          providerConfig.api_key,
+          finalModel,
+          systemPrompt,
+          finalPrompt,
+          providerConfig.base_url
+        );
+        break;
+      case 'lovable':
+        response = await callLovableAI(
+          LOVABLE_API_KEY || providerConfig.api_key,
+          finalModel,
+          systemPrompt,
+          finalPrompt
+        );
+        break;
+      case 'perplexity':
+      default:
+        response = await callPerplexity(
+          providerConfig.api_key || PERPLEXITY_API_KEY || '',
+          finalModel,
+          systemPrompt,
+          finalPrompt
+        );
+        break;
     }
 
-    const perplexityData = await perplexityResponse.json();
-    const content = perplexityData.choices?.[0]?.message?.content || '';
-    const citations = perplexityData.citations || [];
-    const usage = perplexityData.usage || {};
     const responseTimeMs = Date.now() - startTime;
+    const usage = response.usage || {};
 
     // Log chat
     await supabase.from('chat_logs').insert({
       user_id: userId,
       department_id: deptId,
+      provider_id: selectedProviderId || null,
       prompt: message,
-      response: content,
+      response: response.content,
       prompt_tokens: usage.prompt_tokens || 0,
       completion_tokens: usage.completion_tokens || 0,
       total_tokens: usage.total_tokens || 0,
       response_time_ms: responseTimeMs,
       metadata: { 
-        model, 
+        model: finalModel,
+        provider_type: providerConfig.provider_type,
         role_id, 
         rag_chunks: ragContext.length,
         semantic_search: usedSemanticSearch
@@ -215,9 +466,10 @@ serve(async (req) => {
 
     return new Response(
       JSON.stringify({
-        content,
-        citations,
-        model,
+        content: response.content,
+        citations: response.citations,
+        model: finalModel,
+        provider_type: providerConfig.provider_type,
         response_time_ms: responseTimeMs,
         rag_context: ragContext.length > 0 ? ragContext : undefined,
         semantic_search: usedSemanticSearch,
@@ -286,7 +538,6 @@ Output ONLY the JSON array, nothing else. Example: [0.1, -0.2, 0.3, ...]`
     console.error('Failed to parse query embedding:', parseError);
   }
   
-  // Fallback
   return createSimpleEmbedding(text);
 }
 

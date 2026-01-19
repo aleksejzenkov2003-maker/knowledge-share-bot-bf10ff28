@@ -37,7 +37,7 @@ import {
 } from "@/components/ui/table";
 import { Badge } from "@/components/ui/badge";
 import { toast } from "sonner";
-import { Plus, Bot, Pencil, Trash2, FolderOpen } from "lucide-react";
+import { Plus, Bot, Pencil, Trash2, FolderOpen, Cpu } from "lucide-react";
 
 interface Department {
   id: string;
@@ -56,6 +56,14 @@ interface DocumentFolder {
   slug: string;
 }
 
+interface AIProvider {
+  id: string;
+  name: string;
+  provider_type: string;
+  default_model: string | null;
+  is_active: boolean;
+}
+
 interface ChatRole {
   id: string;
   name: string;
@@ -72,11 +80,42 @@ interface ChatRole {
   system_prompt?: { name: string } | null;
 }
 
+const providerModels: Record<string, { value: string; label: string }[]> = {
+  perplexity: [
+    { value: 'sonar', label: 'Sonar' },
+    { value: 'sonar-pro', label: 'Sonar Pro' },
+    { value: 'sonar-reasoning', label: 'Sonar Reasoning' },
+    { value: 'sonar-reasoning-pro', label: 'Sonar Reasoning Pro' },
+  ],
+  openai: [
+    { value: 'gpt-4o', label: 'GPT-4o' },
+    { value: 'gpt-4o-mini', label: 'GPT-4o Mini' },
+    { value: 'gpt-4-turbo', label: 'GPT-4 Turbo' },
+    { value: 'o1', label: 'O1' },
+    { value: 'o1-mini', label: 'O1 Mini' },
+  ],
+  anthropic: [
+    { value: 'claude-sonnet-4-20250514', label: 'Claude Sonnet 4' },
+    { value: 'claude-3-7-sonnet-20250219', label: 'Claude 3.7 Sonnet' },
+    { value: 'claude-3-5-sonnet-20241022', label: 'Claude 3.5 Sonnet' },
+    { value: 'claude-3-5-haiku-20241022', label: 'Claude 3.5 Haiku' },
+    { value: 'claude-3-opus-20240229', label: 'Claude 3 Opus' },
+  ],
+  lovable: [
+    { value: 'google/gemini-2.5-flash', label: 'Gemini 2.5 Flash' },
+    { value: 'google/gemini-2.5-pro', label: 'Gemini 2.5 Pro' },
+    { value: 'google/gemini-2.5-flash-lite', label: 'Gemini 2.5 Flash Lite' },
+    { value: 'openai/gpt-5', label: 'GPT-5' },
+    { value: 'openai/gpt-5-mini', label: 'GPT-5 Mini' },
+  ],
+};
+
 export default function ChatRoles() {
   const [roles, setRoles] = useState<ChatRole[]>([]);
   const [departments, setDepartments] = useState<Department[]>([]);
   const [prompts, setPrompts] = useState<SystemPrompt[]>([]);
   const [folders, setFolders] = useState<DocumentFolder[]>([]);
+  const [providers, setProviders] = useState<AIProvider[]>([]);
   const [loading, setLoading] = useState(true);
   const [dialogOpen, setDialogOpen] = useState(false);
   const [editingRole, setEditingRole] = useState<ChatRole | null>(null);
@@ -88,6 +127,8 @@ export default function ChatRoles() {
     department_id: "",
     system_prompt_id: "",
     folder_ids: [] as string[],
+    provider_id: "",
+    model: "",
     is_project_mode: false,
     is_active: true,
   });
@@ -99,7 +140,7 @@ export default function ChatRoles() {
   const fetchData = async () => {
     setLoading(true);
     try {
-      const [rolesRes, deptsRes, promptsRes, foldersRes] = await Promise.all([
+      const [rolesRes, deptsRes, promptsRes, foldersRes, providersRes] = await Promise.all([
         supabase
           .from("chat_roles")
           .select("*, department:departments(name), system_prompt:system_prompts(name)")
@@ -107,17 +148,26 @@ export default function ChatRoles() {
         supabase.from("departments").select("id, name").order("name"),
         supabase.from("system_prompts").select("id, name, department_id").order("name"),
         supabase.from("document_folders").select("id, name, slug").order("name"),
+        supabase.from("safe_ai_providers").select("id, name, provider_type, default_model, is_active").eq("is_active", true).order("name"),
       ]);
 
       if (rolesRes.error) throw rolesRes.error;
       if (deptsRes.error) throw deptsRes.error;
       if (promptsRes.error) throw promptsRes.error;
       if (foldersRes.error) throw foldersRes.error;
+      if (providersRes.error) throw providersRes.error;
 
       setRoles(rolesRes.data || []);
       setDepartments(deptsRes.data || []);
       setPrompts(promptsRes.data || []);
       setFolders(foldersRes.data || []);
+      setProviders((providersRes.data || []).map(p => ({
+        id: p.id!,
+        name: p.name!,
+        provider_type: p.provider_type!,
+        default_model: p.default_model,
+        is_active: p.is_active!,
+      })));
     } catch (error) {
       console.error("Error fetching data:", error);
       toast.error("Ошибка загрузки данных");
@@ -151,6 +201,25 @@ export default function ChatRoles() {
     }));
   };
 
+  const handleProviderChange = (providerId: string) => {
+    const provider = providers.find(p => p.id === providerId);
+    setFormData((prev) => ({
+      ...prev,
+      provider_id: providerId,
+      model: provider?.default_model || "",
+    }));
+  };
+
+  const getSelectedProviderType = () => {
+    const provider = providers.find(p => p.id === formData.provider_id);
+    return provider?.provider_type || "";
+  };
+
+  const getAvailableModels = () => {
+    const providerType = getSelectedProviderType();
+    return providerModels[providerType] || [];
+  };
+
   const resetForm = () => {
     setFormData({
       name: "",
@@ -159,6 +228,8 @@ export default function ChatRoles() {
       department_id: "",
       system_prompt_id: "",
       folder_ids: [],
+      provider_id: "",
+      model: "",
       is_project_mode: false,
       is_active: true,
     });
@@ -168,6 +239,10 @@ export default function ChatRoles() {
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
 
+    const modelConfig = formData.provider_id 
+      ? { provider_id: formData.provider_id, model: formData.model || undefined }
+      : null;
+
     const payload = {
       name: formData.name,
       slug: formData.slug,
@@ -175,6 +250,7 @@ export default function ChatRoles() {
       department_id: formData.department_id || null,
       system_prompt_id: formData.system_prompt_id || null,
       folder_ids: formData.folder_ids,
+      model_config: modelConfig,
       is_project_mode: formData.is_project_mode,
       is_active: formData.is_active,
     };
@@ -204,6 +280,7 @@ export default function ChatRoles() {
 
   const handleEdit = (role: ChatRole) => {
     setEditingRole(role);
+    const modelConfig = role.model_config as { provider_id?: string; model?: string } | null;
     setFormData({
       name: role.name,
       slug: role.slug,
@@ -211,6 +288,8 @@ export default function ChatRoles() {
       department_id: role.department_id || "",
       system_prompt_id: role.system_prompt_id || "",
       folder_ids: role.folder_ids || [],
+      provider_id: modelConfig?.provider_id || "",
+      model: modelConfig?.model || "",
       is_project_mode: role.is_project_mode,
       is_active: role.is_active,
     });
@@ -245,6 +324,19 @@ export default function ChatRoles() {
       .map((id) => folders.find((f) => f.id === id)?.name)
       .filter(Boolean)
       .join(", ");
+  };
+
+  const getProviderName = (modelConfig: unknown) => {
+    const config = modelConfig as { provider_id?: string; model?: string } | null;
+    if (!config?.provider_id) return null;
+    const provider = providers.find(p => p.id === config.provider_id);
+    return provider?.name;
+  };
+
+  const getModelLabel = (modelConfig: unknown) => {
+    const config = modelConfig as { provider_id?: string; model?: string } | null;
+    if (!config?.model) return null;
+    return config.model;
   };
 
   if (loading) {
@@ -362,6 +454,54 @@ export default function ChatRoles() {
                 </Select>
               </div>
 
+              {/* AI Provider Selection */}
+              <div className="space-y-2 pt-2 border-t">
+                <Label className="flex items-center gap-2">
+                  <Cpu className="h-4 w-4" />
+                  AI Провайдер
+                </Label>
+                <Select
+                  value={formData.provider_id || "_default"}
+                  onValueChange={(value) => handleProviderChange(value === "_default" ? "" : value)}
+                >
+                  <SelectTrigger>
+                    <SelectValue placeholder="По умолчанию" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="_default">По умолчанию (системный)</SelectItem>
+                    {providers.map((provider) => (
+                      <SelectItem key={provider.id} value={provider.id}>
+                        {provider.name}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+
+              {formData.provider_id && getAvailableModels().length > 0 && (
+                <div className="space-y-2">
+                  <Label>Модель</Label>
+                  <Select
+                    value={formData.model || "_default"}
+                    onValueChange={(value) =>
+                      setFormData((prev) => ({ ...prev, model: value === "_default" ? "" : value }))
+                    }
+                  >
+                    <SelectTrigger>
+                      <SelectValue placeholder="По умолчанию провайдера" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="_default">По умолчанию провайдера</SelectItem>
+                      {getAvailableModels().map((model) => (
+                        <SelectItem key={model.value} value={model.value}>
+                          {model.label}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+              )}
+
               <div className="space-y-2">
                 <Label>Папки для поиска (RAG)</Label>
                 <div className="border rounded-md p-3 max-h-48 overflow-y-auto space-y-2">
@@ -448,8 +588,8 @@ export default function ChatRoles() {
               <TableHeader>
                 <TableRow>
                   <TableHead>Название</TableHead>
+                  <TableHead>Провайдер / Модель</TableHead>
                   <TableHead>Отдел</TableHead>
-                  <TableHead>Промпт</TableHead>
                   <TableHead>Папки</TableHead>
                   <TableHead>Режим</TableHead>
                   <TableHead>Статус</TableHead>
@@ -462,17 +602,36 @@ export default function ChatRoles() {
                     <TableCell className="font-medium">
                       <div className="flex items-center gap-2">
                         <Bot className="h-4 w-4 text-muted-foreground" />
-                        {role.name}
+                        <div>
+                          <div>{role.name}</div>
+                          {role.system_prompt?.name && (
+                            <div className="text-xs text-muted-foreground">
+                              {role.system_prompt.name}
+                            </div>
+                          )}
+                        </div>
                       </div>
+                    </TableCell>
+                    <TableCell>
+                      {getProviderName(role.model_config) ? (
+                        <div className="flex flex-col gap-1">
+                          <Badge variant="outline" className="w-fit">
+                            <Cpu className="h-3 w-3 mr-1" />
+                            {getProviderName(role.model_config)}
+                          </Badge>
+                          {getModelLabel(role.model_config) && (
+                            <span className="text-xs text-muted-foreground font-mono">
+                              {getModelLabel(role.model_config)}
+                            </span>
+                          )}
+                        </div>
+                      ) : (
+                        <span className="text-muted-foreground text-sm">По умолчанию</span>
+                      )}
                     </TableCell>
                     <TableCell>
                       {role.department?.name || (
                         <span className="text-muted-foreground">Все</span>
-                      )}
-                    </TableCell>
-                    <TableCell>
-                      {role.system_prompt?.name || (
-                        <span className="text-muted-foreground">-</span>
                       )}
                     </TableCell>
                     <TableCell>
@@ -498,11 +657,10 @@ export default function ChatRoles() {
                       </Badge>
                     </TableCell>
                     <TableCell>
-                      <div className="flex gap-1">
+                      <div className="flex items-center gap-1">
                         <Button
                           variant="ghost"
                           size="icon"
-                          className="h-8 w-8"
                           onClick={() => handleEdit(role)}
                         >
                           <Pencil className="h-4 w-4" />
@@ -510,10 +668,9 @@ export default function ChatRoles() {
                         <Button
                           variant="ghost"
                           size="icon"
-                          className="h-8 w-8 text-destructive"
                           onClick={() => handleDelete(role)}
                         >
-                          <Trash2 className="h-4 w-4" />
+                          <Trash2 className="h-4 w-4 text-destructive" />
                         </Button>
                       </div>
                     </TableCell>
