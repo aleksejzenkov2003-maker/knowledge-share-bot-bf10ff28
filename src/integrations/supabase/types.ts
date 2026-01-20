@@ -243,31 +243,43 @@ export type Database = {
       }
       document_chunks: {
         Row: {
+          article_number: string | null
           chunk_index: number
+          chunk_type: string | null
           content: string
+          content_tsv: unknown
           created_at: string
           document_id: string
           embedding: string | null
           id: string
           metadata: Json | null
+          section_title: string | null
         }
         Insert: {
+          article_number?: string | null
           chunk_index: number
+          chunk_type?: string | null
           content: string
+          content_tsv?: unknown
           created_at?: string
           document_id: string
           embedding?: string | null
           id?: string
           metadata?: Json | null
+          section_title?: string | null
         }
         Update: {
+          article_number?: string | null
           chunk_index?: number
+          chunk_type?: string | null
           content?: string
+          content_tsv?: unknown
           created_at?: string
           document_id?: string
           embedding?: string | null
           id?: string
           metadata?: Json | null
+          section_title?: string | null
         }
         Relationships: [
           {
@@ -587,6 +599,24 @@ export type Database = {
         Returns: boolean
       }
       is_admin: { Args: never; Returns: boolean }
+      keyword_search: {
+        Args: {
+          keywords: string[]
+          match_count?: number
+          p_folder_ids?: string[]
+        }
+        Returns: {
+          article_number: string
+          chunk_index: number
+          chunk_type: string
+          content: string
+          document_id: string
+          document_name: string
+          id: string
+          keyword_matches: number
+          section_title: string
+        }[]
+      }
       match_document_chunks: {
         Args: {
           folder_ids?: string[]
@@ -600,6 +630,24 @@ export type Database = {
           document_id: string
           id: string
           similarity: number
+        }[]
+      }
+      smart_fts_search: {
+        Args: {
+          match_count?: number
+          p_folder_ids?: string[]
+          query_text: string
+        }
+        Returns: {
+          article_number: string
+          chunk_index: number
+          chunk_type: string
+          content: string
+          document_id: string
+          document_name: string
+          fts_rank: number
+          id: string
+          section_title: string
         }[]
       }
     }

@@ -17,6 +17,14 @@ export interface Conversation {
   updated_at: string;
 }
 
+export interface Citation {
+  index: number;
+  document: string;
+  section?: string;
+  article?: string;
+  relevance: number;
+}
+
 export interface Message {
   id: string;
   conversation_id?: string;
@@ -25,7 +33,8 @@ export interface Message {
   timestamp: Date;
   responseTime?: number;
   ragContext?: string[];
-  semanticSearch?: boolean;
+  citations?: Citation[];
+  smartSearch?: boolean;
   isStreaming?: boolean;
 }
 
@@ -37,17 +46,18 @@ export interface DBMessage {
   metadata: {
     response_time_ms?: number;
     rag_context?: string[];
-    semantic_search?: boolean;
+    citations?: Citation[];
+    smart_search?: boolean;
   } | null;
   created_at: string;
 }
 
 export interface ChatResponse {
   content: string;
-  citations?: string[];
+  citations?: Citation[];
   model?: string;
   provider_type?: string;
   response_time_ms?: number;
   rag_context?: string[];
-  semantic_search?: boolean;
+  smart_search?: boolean;
 }

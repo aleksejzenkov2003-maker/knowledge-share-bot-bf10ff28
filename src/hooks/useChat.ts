@@ -92,15 +92,16 @@ export function useChat(userId: string | undefined) {
 
       if (error) throw error;
 
-      const loadedMessages: Message[] = (data || []).map((msg: DBMessage) => ({
+      const loadedMessages: Message[] = (data || []).map((msg) => ({
         id: msg.id,
         conversation_id: msg.conversation_id,
         role: msg.role as "user" | "assistant",
         content: msg.content,
         timestamp: new Date(msg.created_at),
-        responseTime: msg.metadata?.response_time_ms,
-        ragContext: msg.metadata?.rag_context,
-        semanticSearch: msg.metadata?.semantic_search,
+        responseTime: (msg.metadata as DBMessage['metadata'])?.response_time_ms,
+        ragContext: (msg.metadata as DBMessage['metadata'])?.rag_context,
+        citations: (msg.metadata as DBMessage['metadata'])?.citations,
+        smartSearch: (msg.metadata as DBMessage['metadata'])?.smart_search,
       }));
 
       setMessages(loadedMessages);
@@ -340,7 +341,7 @@ export function useChat(userId: string | undefined) {
         const reader = response.body?.getReader();
         const decoder = new TextDecoder();
         let fullContent = "";
-        let metadata: { response_time_ms?: number; rag_context?: string[]; semantic_search?: boolean } = {};
+        let metadata: { response_time_ms?: number; rag_context?: string[]; citations?: { index: number; document: string; section?: string; article?: string; relevance: number }[]; smart_search?: boolean } = {};
 
         if (reader) {
           while (true) {
@@ -371,7 +372,8 @@ export function useChat(userId: string | undefined) {
                     metadata = {
                       response_time_ms: parsed.response_time_ms,
                       rag_context: parsed.rag_context,
-                      semantic_search: parsed.semantic_search,
+                      citations: parsed.citations,
+                      smart_search: parsed.smart_search,
                     };
                   }
                 } catch {
@@ -390,7 +392,10 @@ export function useChat(userId: string | undefined) {
                   ...m,
                   content: fullContent || "Нет ответа",
                   isStreaming: false,
-                  ...metadata,
+                  responseTime: metadata.response_time_ms,
+                  ragContext: metadata.rag_context,
+                  citations: metadata.citations,
+                  smartSearch: metadata.smart_search,
                 }
               : m
           )

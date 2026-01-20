@@ -1,9 +1,14 @@
 import ReactMarkdown from "react-markdown";
 import { Card } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
-import { Bot, User, Clock, FileText, Loader2 } from "lucide-react";
+import { Bot, User, Clock, FileText, Loader2, BookOpen } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { Message } from "@/types/chat";
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger,
+} from "@/components/ui/tooltip";
 
 interface ChatMessageProps {
   message: Message;
@@ -87,7 +92,7 @@ export function ChatMessage({ message }: ChatMessageProps) {
         </div>
         
         {message.role === "assistant" && !message.isStreaming && (
-          <div className="flex items-center gap-2 mt-3 pt-2 border-t border-border/50 text-xs text-muted-foreground">
+          <div className="flex flex-wrap items-center gap-2 mt-3 pt-2 border-t border-border/50 text-xs text-muted-foreground">
             {message.responseTime && (
               <span className="flex items-center gap-1">
                 <Clock className="h-3 w-3" />
@@ -97,9 +102,37 @@ export function ChatMessage({ message }: ChatMessageProps) {
             {message.ragContext && message.ragContext.length > 0 && (
               <Badge variant="outline" className="text-xs">
                 <FileText className="h-3 w-3 mr-1" />
-                {message.ragContext.length} документов
-                {message.semanticSearch && " (семантика)"}
+                {message.ragContext.length} источников
+                {message.smartSearch && " (Claude re-rank)"}
               </Badge>
+            )}
+            {message.citations && message.citations.length > 0 && (
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <Badge variant="secondary" className="text-xs cursor-help">
+                    <BookOpen className="h-3 w-3 mr-1" />
+                    {message.citations.length} цитат
+                  </Badge>
+                </TooltipTrigger>
+                <TooltipContent side="top" className="max-w-sm">
+                  <div className="text-xs space-y-1">
+                    {message.citations.slice(0, 5).map((citation) => (
+                      <div key={citation.index} className="flex items-start gap-1">
+                        <span className="font-medium">[{citation.index}]</span>
+                        <span className="truncate">
+                          {citation.document}
+                          {citation.article && `, ст. ${citation.article}`}
+                        </span>
+                      </div>
+                    ))}
+                    {message.citations.length > 5 && (
+                      <div className="text-muted-foreground">
+                        ...и ещё {message.citations.length - 5}
+                      </div>
+                    )}
+                  </div>
+                </TooltipContent>
+              </Tooltip>
             )}
           </div>
         )}

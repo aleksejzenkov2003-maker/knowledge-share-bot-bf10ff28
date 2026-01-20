@@ -11,3 +11,6 @@ verify_jwt = false
 
 [functions.init-system]
 verify_jwt = false
+
+[functions.rerank-chunks]
+verify_jwt = false
