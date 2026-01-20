@@ -16,6 +16,7 @@ import Providers from "./pages/Providers";
 import Prompts from "./pages/Prompts";
 import TestChat from "./pages/TestChat";
 import Chat from "./pages/Chat";
+import DepartmentChat from "./pages/DepartmentChat";
 import Folders from "./pages/Folders";
 import Documents from "./pages/Documents";
 import ChatRoles from "./pages/ChatRoles";
@@ -68,6 +69,11 @@ const App = () => (
             <Route path="/chat" element={
               <ProtectedRoute>
                 <AdminLayout><Chat /></AdminLayout>
+              </ProtectedRoute>
+            } />
+            <Route path="/department-chat" element={
+              <ProtectedRoute>
+                <AdminLayout><DepartmentChat /></AdminLayout>
               </ProtectedRoute>
             } />
             <Route path="/folders" element={

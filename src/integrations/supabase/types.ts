@@ -132,6 +132,7 @@ export type Database = {
           id: string
           is_active: boolean
           is_project_mode: boolean
+          mention_trigger: string | null
           model_config: Json | null
           name: string
           slug: string
@@ -146,6 +147,7 @@ export type Database = {
           id?: string
           is_active?: boolean
           is_project_mode?: boolean
+          mention_trigger?: string | null
           model_config?: Json | null
           name: string
           slug: string
@@ -160,6 +162,7 @@ export type Database = {
           id?: string
           is_active?: boolean
           is_project_mode?: boolean
+          mention_trigger?: string | null
           model_config?: Json | null
           name?: string
           slug?: string
@@ -210,6 +213,89 @@ export type Database = {
             columns: ["role_id"]
             isOneToOne: false
             referencedRelation: "chat_roles"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      department_chat_messages: {
+        Row: {
+          chat_id: string
+          content: string
+          created_at: string | null
+          id: string
+          message_role: string
+          metadata: Json | null
+          role_id: string | null
+          user_id: string
+        }
+        Insert: {
+          chat_id: string
+          content: string
+          created_at?: string | null
+          id?: string
+          message_role: string
+          metadata?: Json | null
+          role_id?: string | null
+          user_id: string
+        }
+        Update: {
+          chat_id?: string
+          content?: string
+          created_at?: string | null
+          id?: string
+          message_role?: string
+          metadata?: Json | null
+          role_id?: string | null
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "department_chat_messages_chat_id_fkey"
+            columns: ["chat_id"]
+            isOneToOne: false
+            referencedRelation: "department_chats"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "department_chat_messages_role_id_fkey"
+            columns: ["role_id"]
+            isOneToOne: false
+            referencedRelation: "chat_roles"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      department_chats: {
+        Row: {
+          created_at: string | null
+          department_id: string
+          id: string
+          is_active: boolean | null
+          title: string
+          updated_at: string | null
+        }
+        Insert: {
+          created_at?: string | null
+          department_id: string
+          id?: string
+          is_active?: boolean | null
+          title?: string
+          updated_at?: string | null
+        }
+        Update: {
+          created_at?: string | null
+          department_id?: string
+          id?: string
+          is_active?: boolean | null
+          title?: string
+          updated_at?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "department_chats_department_id_fkey"
+            columns: ["department_id"]
+            isOneToOne: false
+            referencedRelation: "departments"
             referencedColumns: ["id"]
           },
         ]
