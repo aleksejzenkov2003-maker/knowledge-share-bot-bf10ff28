@@ -130,6 +130,37 @@ export default function Documents() {
     }));
   };
 
+  // Sanitize filename for storage (remove special chars, transliterate)
+  const sanitizeFileName = (name: string): string => {
+    // Transliteration map for Cyrillic
+    const cyrillicToLatin: Record<string, string> = {
+      'а': 'a', 'б': 'b', 'в': 'v', 'г': 'g', 'д': 'd', 'е': 'e', 'ё': 'yo',
+      'ж': 'zh', 'з': 'z', 'и': 'i', 'й': 'y', 'к': 'k', 'л': 'l', 'м': 'm',
+      'н': 'n', 'о': 'o', 'п': 'p', 'р': 'r', 'с': 's', 'т': 't', 'у': 'u',
+      'ф': 'f', 'х': 'h', 'ц': 'ts', 'ч': 'ch', 'ш': 'sh', 'щ': 'sch', 'ъ': '',
+      'ы': 'y', 'ь': '', 'э': 'e', 'ю': 'yu', 'я': 'ya',
+      'А': 'A', 'Б': 'B', 'В': 'V', 'Г': 'G', 'Д': 'D', 'Е': 'E', 'Ё': 'Yo',
+      'Ж': 'Zh', 'З': 'Z', 'И': 'I', 'Й': 'Y', 'К': 'K', 'Л': 'L', 'М': 'M',
+      'Н': 'N', 'О': 'O', 'П': 'P', 'Р': 'R', 'С': 'S', 'Т': 'T', 'У': 'U',
+      'Ф': 'F', 'Х': 'H', 'Ц': 'Ts', 'Ч': 'Ch', 'Ш': 'Sh', 'Щ': 'Sch', 'Ъ': '',
+      'Ы': 'Y', 'Ь': '', 'Э': 'E', 'Ю': 'Yu', 'Я': 'Ya'
+    };
+    
+    // Transliterate Cyrillic
+    let result = name.split('').map(char => cyrillicToLatin[char] || char).join('');
+    
+    // Replace special characters with underscores, keep only alphanumeric, dots, dashes, underscores
+    result = result.replace(/[^a-zA-Z0-9._-]/g, '_');
+    
+    // Remove multiple consecutive underscores
+    result = result.replace(/_+/g, '_');
+    
+    // Remove leading/trailing underscores
+    result = result.replace(/^_+|_+$/g, '');
+    
+    return result || 'document';
+  };
+
   const handleUpload = async (e: React.FormEvent) => {
     e.preventDefault();
 
@@ -142,8 +173,9 @@ export default function Documents() {
     setUploading(true);
 
     try {
-      // Upload file to storage
-      const fileName = `${Date.now()}-${file.name}`;
+      // Upload file to storage with sanitized filename
+      const sanitizedName = sanitizeFileName(file.name);
+      const fileName = `${Date.now()}-${sanitizedName}`;
       const { error: uploadError } = await supabase.storage
         .from("rag-documents")
         .upload(fileName, file);
