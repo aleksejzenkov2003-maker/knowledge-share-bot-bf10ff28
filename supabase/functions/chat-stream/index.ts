@@ -180,9 +180,10 @@ serve(async (req) => {
 
     const finalModel = selectedModel || providerConfig.default_model;
 
-    // RAG context - load ALL documents from selected folders
+    // RAG context - use semantic search to find relevant chunks
     let ragContext: string[] = [];
     let usedSemanticSearch = false;
+    const MAX_RAG_CHUNKS = 20; // Limit to prevent token overflow
 
     if (folderIds.length > 0) {
       const { data: docs } = await supabase
@@ -193,35 +194,83 @@ serve(async (req) => {
 
       if (docs && docs.length > 0) {
         const docIds = docs.map(d => d.id);
+        const docNameMap = Object.fromEntries(docs.map(d => [d.id, d.name]));
         
-        // Load ALL chunks from all documents in selected folders
-        const { data: chunks } = await supabase
-          .from('document_chunks')
-          .select('content, chunk_index, document_id')
-          .in('document_id', docIds)
-          .order('document_id')
-          .order('chunk_index');
-
-        if (chunks && chunks.length > 0) {
-          // Group chunks by document and combine them
-          const documentContents: Record<string, { name: string; chunks: string[] }> = {};
-          
-          for (const doc of docs) {
-            documentContents[doc.id] = { name: doc.name, chunks: [] };
-          }
-          
-          for (const chunk of chunks) {
-            if (documentContents[chunk.document_id]) {
-              documentContents[chunk.document_id].chunks[chunk.chunk_index] = chunk.content;
+        // Try semantic search first using the match_document_chunks function
+        try {
+          // Generate query embedding using Lovable AI
+          const embeddingApiKey = LOVABLE_API_KEY || '';
+          if (embeddingApiKey) {
+            const embeddingResponse = await fetch('https://ai.gateway.lovable.dev/v1/embeddings', {
+              method: 'POST',
+              headers: {
+                'Authorization': `Bearer ${embeddingApiKey}`,
+                'Content-Type': 'application/json',
+              },
+              body: JSON.stringify({
+                model: 'text-embedding-3-small',
+                input: message,
+              }),
+            });
+            
+            if (embeddingResponse.ok) {
+              const embeddingData = await embeddingResponse.json();
+              const queryEmbedding = embeddingData.data?.[0]?.embedding;
+              
+              if (queryEmbedding) {
+                // Use the database function for semantic search
+                const { data: matchedChunks } = await supabase.rpc('match_document_chunks', {
+                  query_embedding: JSON.stringify(queryEmbedding),
+                  folder_ids: folderIds,
+                  match_count: MAX_RAG_CHUNKS,
+                  match_threshold: 0.3,
+                });
+                
+                if (matchedChunks && matchedChunks.length > 0) {
+                  usedSemanticSearch = true;
+                  ragContext = matchedChunks.map((chunk: { document_id: string; content: string; similarity: number }) => 
+                    `[${docNameMap[chunk.document_id] || 'Документ'}] (релевантность: ${(chunk.similarity * 100).toFixed(0)}%)\n${chunk.content}`
+                  );
+                  console.log(`RAG: Semantic search found ${ragContext.length} relevant chunks`);
+                }
+              }
             }
           }
+        } catch (err) {
+          console.log('Semantic search failed, falling back to keyword search:', err);
+        }
+        
+        // Fallback: simple keyword-based chunk selection
+        if (ragContext.length === 0) {
+          // Get chunks that contain keywords from the query
+          const keywords = message.toLowerCase().split(/\s+/).filter(w => w.length > 3);
           
-          // Build full document context
-          ragContext = Object.entries(documentContents)
-            .filter(([_, doc]) => doc.chunks.length > 0)
-            .map(([_, doc]) => `=== Документ: ${doc.name} ===\n${doc.chunks.filter(Boolean).join('\n')}`);
+          const { data: chunks } = await supabase
+            .from('document_chunks')
+            .select('content, document_id')
+            .in('document_id', docIds)
+            .limit(MAX_RAG_CHUNKS * 3); // Get more, then filter
           
-          console.log(`RAG: Loaded ${ragContext.length} documents with ${chunks.length} total chunks`);
+          if (chunks && chunks.length > 0) {
+            // Score chunks by keyword matches
+            const scoredChunks = chunks.map(chunk => {
+              const contentLower = chunk.content.toLowerCase();
+              const score = keywords.reduce((acc, kw) => 
+                acc + (contentLower.includes(kw) ? 1 : 0), 0);
+              return { ...chunk, score };
+            });
+            
+            // Sort by score and take top chunks
+            const topChunks = scoredChunks
+              .sort((a, b) => b.score - a.score)
+              .slice(0, MAX_RAG_CHUNKS);
+            
+            ragContext = topChunks.map(chunk => 
+              `[${docNameMap[chunk.document_id] || 'Документ'}]\n${chunk.content}`
+            );
+            
+            console.log(`RAG: Keyword search found ${ragContext.length} chunks`);
+          }
         }
       }
     }
