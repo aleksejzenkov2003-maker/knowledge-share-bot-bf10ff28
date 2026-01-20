@@ -8,6 +8,7 @@ interface AuthContextType {
   user: User | null;
   session: Session | null;
   role: AppRole | null;
+  departmentId: string | null;
   isLoading: boolean;
   isAdmin: boolean;
   isModerator: boolean;
@@ -30,6 +31,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const [user, setUser] = useState<User | null>(null);
   const [session, setSession] = useState<Session | null>(null);
   const [role, setRole] = useState<AppRole | null>(null);
+  const [departmentId, setDepartmentId] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(true);
 
   const fetchUserRole = async (userId: string) => {
@@ -51,6 +53,25 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     }
   };
 
+  const fetchUserDepartment = async (userId: string) => {
+    try {
+      const { data, error } = await supabase
+        .from('profiles')
+        .select('department_id')
+        .eq('id', userId)
+        .single();
+      
+      if (error) {
+        console.error('Error fetching user department:', error);
+        return null;
+      }
+      return data?.department_id as string | null;
+    } catch (error) {
+      console.error('Error fetching user department:', error);
+      return null;
+    }
+  };
+
   useEffect(() => {
     // Set up auth state listener
     const { data: { subscription } } = supabase.auth.onAuthStateChange(
@@ -59,14 +80,19 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         setUser(session?.user ?? null);
         
         if (session?.user) {
-          // Defer role fetch to avoid blocking
+          // Defer role and department fetch to avoid blocking
           setTimeout(async () => {
-            const userRole = await fetchUserRole(session.user.id);
+            const [userRole, userDepartment] = await Promise.all([
+              fetchUserRole(session.user.id),
+              fetchUserDepartment(session.user.id)
+            ]);
             setRole(userRole);
+            setDepartmentId(userDepartment);
             setIsLoading(false);
           }, 0);
         } else {
           setRole(null);
+          setDepartmentId(null);
           setIsLoading(false);
         }
       }
@@ -78,8 +104,12 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       setUser(session?.user ?? null);
       
       if (session?.user) {
-        fetchUserRole(session.user.id).then((userRole) => {
+        Promise.all([
+          fetchUserRole(session.user.id),
+          fetchUserDepartment(session.user.id)
+        ]).then(([userRole, userDepartment]) => {
           setRole(userRole);
+          setDepartmentId(userDepartment);
           setIsLoading(false);
         });
       } else {
@@ -113,12 +143,14 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     setUser(null);
     setSession(null);
     setRole(null);
+    setDepartmentId(null);
   };
 
   const value: AuthContextType = {
     user,
     session,
     role,
+    departmentId,
     isLoading,
     isAdmin: role === 'admin',
     isModerator: role === 'moderator',

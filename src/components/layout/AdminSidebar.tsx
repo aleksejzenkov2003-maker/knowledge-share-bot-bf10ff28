@@ -26,12 +26,14 @@ import {
   LogOut,
   FolderTree,
   UserCircle,
+  MessagesSquare,
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 
 const mainMenuItems = [
   { title: 'Дашборд', url: '/', icon: LayoutDashboard },
   { title: 'Чат', url: '/chat', icon: MessageSquare },
+  { title: 'Чат отдела', url: '/department-chat', icon: MessagesSquare },
 ];
 
 const managementItems = [
