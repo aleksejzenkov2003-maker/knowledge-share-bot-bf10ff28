@@ -69,14 +69,13 @@ interface ChatRole {
   name: string;
   slug: string;
   description: string | null;
-  department_id: string | null;
+  department_ids: string[];
   system_prompt_id: string | null;
   folder_ids: string[];
   model_config: unknown;
   is_project_mode: boolean;
   is_active: boolean;
   created_at: string;
-  department?: { name: string } | null;
   system_prompt?: { name: string } | null;
 }
 
@@ -130,7 +129,7 @@ export default function ChatRoles() {
     name: "",
     slug: "",
     description: "",
-    department_id: "",
+    department_ids: [] as string[],
     system_prompt_id: "",
     folder_ids: [] as string[],
     provider_id: "",
@@ -149,7 +148,7 @@ export default function ChatRoles() {
       const [rolesRes, deptsRes, promptsRes, foldersRes, providersRes] = await Promise.all([
         supabase
           .from("chat_roles")
-          .select("*, department:departments(name), system_prompt:system_prompts(name)")
+          .select("*, system_prompt:system_prompts(name)")
           .order("name"),
         supabase.from("departments").select("id, name").order("name"),
         supabase.from("system_prompts").select("id, name, department_id").order("name"),
@@ -231,7 +230,7 @@ export default function ChatRoles() {
       name: "",
       slug: "",
       description: "",
-      department_id: "",
+      department_ids: [],
       system_prompt_id: "",
       folder_ids: [],
       provider_id: "",
@@ -253,7 +252,7 @@ export default function ChatRoles() {
       name: formData.name,
       slug: formData.slug,
       description: formData.description || null,
-      department_id: formData.department_id || null,
+      department_ids: formData.department_ids.length > 0 ? formData.department_ids : [],
       system_prompt_id: formData.system_prompt_id || null,
       folder_ids: formData.folder_ids,
       model_config: modelConfig,
@@ -291,7 +290,7 @@ export default function ChatRoles() {
       name: role.name,
       slug: role.slug,
       description: role.description || "",
-      department_id: role.department_id || "",
+      department_ids: role.department_ids || [],
       system_prompt_id: role.system_prompt_id || "",
       folder_ids: role.folder_ids || [],
       provider_id: modelConfig?.provider_id || "",
@@ -323,6 +322,23 @@ export default function ChatRoles() {
         ? prev.folder_ids.filter((id) => id !== folderId)
         : [...prev.folder_ids, folderId],
     }));
+  };
+
+  const toggleDepartmentSelection = (departmentId: string) => {
+    setFormData((prev) => ({
+      ...prev,
+      department_ids: prev.department_ids.includes(departmentId)
+        ? prev.department_ids.filter((id) => id !== departmentId)
+        : [...prev.department_ids, departmentId],
+    }));
+  };
+
+  const getDepartmentNames = (departmentIds: string[]) => {
+    if (!departmentIds || departmentIds.length === 0) return "Все отделы";
+    return departmentIds
+      .map((id) => departments.find((d) => d.id === id)?.name)
+      .filter(Boolean)
+      .join(", ");
   };
 
   const getFolderNames = (folderIds: string[]) => {
@@ -417,25 +433,33 @@ export default function ChatRoles() {
               </div>
 
               <div className="space-y-2">
-                <Label htmlFor="department_id">Отдел</Label>
-              <Select
-                  value={formData.department_id || "_all"}
-                  onValueChange={(value) =>
-                    setFormData((prev) => ({ ...prev, department_id: value === "_all" ? "" : value }))
-                  }
-                >
-                  <SelectTrigger>
-                    <SelectValue placeholder="Все отделы" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="_all">Все отделы</SelectItem>
-                    {departments.map((dept) => (
-                      <SelectItem key={dept.id} value={dept.id}>
-                        {dept.name}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
+                <Label>Отделы (мультивыбор)</Label>
+                <div className="border rounded-md p-3 max-h-48 overflow-y-auto space-y-2">
+                  {departments.length === 0 ? (
+                    <p className="text-sm text-muted-foreground">
+                      Отделы не созданы
+                    </p>
+                  ) : (
+                    departments.map((dept) => (
+                      <div key={dept.id} className="flex items-center gap-2">
+                        <Checkbox
+                          id={`dept-${dept.id}`}
+                          checked={formData.department_ids.includes(dept.id)}
+                          onCheckedChange={() => toggleDepartmentSelection(dept.id)}
+                        />
+                        <label
+                          htmlFor={`dept-${dept.id}`}
+                          className="text-sm cursor-pointer flex-1"
+                        >
+                          {dept.name}
+                        </label>
+                      </div>
+                    ))
+                  )}
+                </div>
+                <p className="text-xs text-muted-foreground">
+                  {formData.department_ids.length === 0 ? "Доступна всем отделам" : `Выбрано: ${formData.department_ids.length}`}
+                </p>
               </div>
 
               <div className="space-y-2">
@@ -636,9 +660,9 @@ export default function ChatRoles() {
                       )}
                     </TableCell>
                     <TableCell>
-                      {role.department?.name || (
-                        <span className="text-muted-foreground">Все</span>
-                      )}
+                      <span className={role.department_ids?.length > 0 ? "" : "text-muted-foreground"}>
+                        {getDepartmentNames(role.department_ids || [])}
+                      </span>
                     </TableCell>
                     <TableCell>
                       {role.folder_ids?.length > 0 ? (

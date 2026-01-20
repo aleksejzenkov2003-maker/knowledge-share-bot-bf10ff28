@@ -126,7 +126,7 @@ export type Database = {
       chat_roles: {
         Row: {
           created_at: string
-          department_id: string | null
+          department_ids: string[] | null
           description: string | null
           folder_ids: string[] | null
           id: string
@@ -140,7 +140,7 @@ export type Database = {
         }
         Insert: {
           created_at?: string
-          department_id?: string | null
+          department_ids?: string[] | null
           description?: string | null
           folder_ids?: string[] | null
           id?: string
@@ -154,7 +154,7 @@ export type Database = {
         }
         Update: {
           created_at?: string
-          department_id?: string | null
+          department_ids?: string[] | null
           description?: string | null
           folder_ids?: string[] | null
           id?: string
@@ -167,13 +167,6 @@ export type Database = {
           updated_at?: string
         }
         Relationships: [
-          {
-            foreignKeyName: "chat_roles_department_id_fkey"
-            columns: ["department_id"]
-            isOneToOne: false
-            referencedRelation: "departments"
-            referencedColumns: ["id"]
-          },
           {
             foreignKeyName: "chat_roles_system_prompt_id_fkey"
             columns: ["system_prompt_id"]
