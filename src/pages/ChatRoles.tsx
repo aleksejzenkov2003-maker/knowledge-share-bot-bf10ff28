@@ -69,6 +69,7 @@ interface ChatRole {
   name: string;
   slug: string;
   description: string | null;
+  mention_trigger: string | null;
   department_ids: string[];
   system_prompt_id: string | null;
   folder_ids: string[];
@@ -129,6 +130,7 @@ export default function ChatRoles() {
     name: "",
     slug: "",
     description: "",
+    mention_trigger: "",
     department_ids: [] as string[],
     system_prompt_id: "",
     folder_ids: [] as string[],
@@ -230,6 +232,7 @@ export default function ChatRoles() {
       name: "",
       slug: "",
       description: "",
+      mention_trigger: "",
       department_ids: [],
       system_prompt_id: "",
       folder_ids: [],
@@ -252,6 +255,7 @@ export default function ChatRoles() {
       name: formData.name,
       slug: formData.slug,
       description: formData.description || null,
+      mention_trigger: formData.mention_trigger || null,
       department_ids: formData.department_ids.length > 0 ? formData.department_ids : [],
       system_prompt_id: formData.system_prompt_id || null,
       folder_ids: formData.folder_ids,
@@ -290,6 +294,7 @@ export default function ChatRoles() {
       name: role.name,
       slug: role.slug,
       description: role.description || "",
+      mention_trigger: role.mention_trigger || "",
       department_ids: role.department_ids || [],
       system_prompt_id: role.system_prompt_id || "",
       folder_ids: role.folder_ids || [],
@@ -430,6 +435,21 @@ export default function ChatRoles() {
                   }
                   placeholder="Описание роли..."
                 />
+              </div>
+
+              <div className="space-y-2">
+                <Label htmlFor="mention_trigger">@Упоминание (для чата отдела)</Label>
+                <Input
+                  id="mention_trigger"
+                  value={formData.mention_trigger}
+                  onChange={(e) =>
+                    setFormData((prev) => ({ ...prev, mention_trigger: e.target.value }))
+                  }
+                  placeholder="@юрист"
+                />
+                <p className="text-xs text-muted-foreground">
+                  Триггер для вызова агента в чате отдела. Если не указан, используется @slug
+                </p>
               </div>
 
               <div className="space-y-2">
