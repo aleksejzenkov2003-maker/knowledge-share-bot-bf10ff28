@@ -1,7 +1,7 @@
 import { useState, useCallback, useRef } from "react";
 import { supabase } from "@/integrations/supabase/client";
 import { toast } from "sonner";
-import { Message, Conversation, ChatRole, DBMessage } from "@/types/chat";
+import { Message, Conversation, ChatRole, DBMessage, Attachment } from "@/types/chat";
 
 export function useChat(userId: string | undefined) {
   const [roles, setRoles] = useState<ChatRole[]>([]);
@@ -12,6 +12,7 @@ export function useChat(userId: string | undefined) {
   const [isLoading, setIsLoading] = useState(false);
   const [rolesLoading, setRolesLoading] = useState(true);
   const [conversationsLoading, setConversationsLoading] = useState(true);
+  const [attachments, setAttachments] = useState<Attachment[]>([]);
   const abortControllerRef = useRef<AbortController | null>(null);
 
   const fetchRoles = useCallback(async () => {
@@ -102,6 +103,14 @@ export function useChat(userId: string | undefined) {
         ragContext: (msg.metadata as DBMessage['metadata'])?.rag_context,
         citations: (msg.metadata as DBMessage['metadata'])?.citations,
         smartSearch: (msg.metadata as DBMessage['metadata'])?.smart_search,
+        attachments: (msg.metadata as DBMessage['metadata'])?.attachments?.map((a, idx) => ({
+          id: `${msg.id}-${idx}`,
+          file_path: a.file_path,
+          file_name: a.file_name,
+          file_type: a.file_type,
+          file_size: a.file_size,
+          status: 'uploaded' as const,
+        })),
       }));
 
       setMessages(loadedMessages);
@@ -162,7 +171,12 @@ export function useChat(userId: string | undefined) {
     conversationId: string,
     role: "user" | "assistant",
     content: string,
-    metadata?: { response_time_ms?: number; rag_context?: string[]; semantic_search?: boolean }
+    metadata?: { 
+      response_time_ms?: number; 
+      rag_context?: string[]; 
+      semantic_search?: boolean;
+      attachments?: { file_path: string; file_name: string; file_type: string; file_size: number }[];
+    }
   ) => {
     try {
       const { data, error } = await supabase
@@ -183,6 +197,73 @@ export function useChat(userId: string | undefined) {
       return null;
     }
   }, []);
+
+  // Attachment management
+  const addAttachments = useCallback((files: File[]) => {
+    const newAttachments: Attachment[] = files.map(file => ({
+      id: crypto.randomUUID(),
+      file,
+      file_name: file.name,
+      file_type: file.type,
+      file_size: file.size,
+      preview_url: file.type.startsWith('image/') ? URL.createObjectURL(file) : undefined,
+      status: 'pending' as const,
+    }));
+    setAttachments(prev => [...prev, ...newAttachments]);
+  }, []);
+
+  const removeAttachment = useCallback((id: string) => {
+    setAttachments(prev => {
+      const attachment = prev.find(a => a.id === id);
+      if (attachment?.preview_url) {
+        URL.revokeObjectURL(attachment.preview_url);
+      }
+      return prev.filter(a => a.id !== id);
+    });
+  }, []);
+
+  const clearAttachments = useCallback(() => {
+    setAttachments(prev => {
+      prev.forEach(a => {
+        if (a.preview_url) URL.revokeObjectURL(a.preview_url);
+      });
+      return [];
+    });
+  }, []);
+
+  const uploadAttachment = useCallback(async (
+    attachment: Attachment, 
+    conversationId: string
+  ): Promise<string | null> => {
+    if (!attachment.file || !userId) return null;
+    
+    const filePath = `${userId}/${conversationId}/${Date.now()}_${attachment.file_name}`;
+    
+    setAttachments(prev => prev.map(a => 
+      a.id === attachment.id ? { ...a, status: 'uploading' as const } : a
+    ));
+    
+    try {
+      const { error } = await supabase.storage
+        .from('chat-attachments')
+        .upload(filePath, attachment.file);
+        
+      if (error) throw error;
+      
+      setAttachments(prev => prev.map(a => 
+        a.id === attachment.id ? { ...a, status: 'uploaded' as const, file_path: filePath } : a
+      ));
+      
+      return filePath;
+    } catch (error) {
+      console.error('Error uploading file:', error);
+      setAttachments(prev => prev.map(a => 
+        a.id === attachment.id ? { ...a, status: 'error' as const } : a
+      ));
+      toast.error(`Ошибка загрузки ${attachment.file_name}`);
+      return null;
+    }
+  }, [userId]);
 
   const deleteConversation = useCallback(async (conversationId: string) => {
     try {
@@ -226,7 +307,10 @@ export function useChat(userId: string | undefined) {
     isProjectMode: boolean
   ) => {
     const trimmedInput = inputValue.trim();
-    if (!trimmedInput || isLoading) return;
+    const hasAttachments = attachments.length > 0;
+    
+    if (!trimmedInput && !hasAttachments) return;
+    if (isLoading) return;
 
     let conversationId = activeConversationId;
     
@@ -236,18 +320,39 @@ export function useChat(userId: string | undefined) {
       setActiveConversationId(conversationId);
     }
 
+    // Upload attachments first
+    const uploadedAttachments: { file_path: string; file_name: string; file_type: string; file_size: number }[] = [];
+    
+    for (const attachment of attachments) {
+      const filePath = await uploadAttachment(attachment, conversationId);
+      if (filePath) {
+        uploadedAttachments.push({
+          file_path: filePath,
+          file_name: attachment.file_name,
+          file_type: attachment.file_type,
+          file_size: attachment.file_size,
+        });
+      }
+    }
+
     const userMessage: Message = {
       id: crypto.randomUUID(),
       conversation_id: conversationId,
       role: "user",
       content: trimmedInput,
       timestamp: new Date(),
+      attachments: attachments.map(a => ({
+        ...a,
+        status: 'uploaded' as const,
+      })),
     };
 
     setMessages((prev) => [...prev, userMessage]);
     setIsLoading(true);
 
-    await saveMessage(conversationId, "user", trimmedInput);
+    await saveMessage(conversationId, "user", trimmedInput, {
+      attachments: uploadedAttachments.length > 0 ? uploadedAttachments : undefined,
+    });
 
     const currentMessages = messages;
     if (currentMessages.length === 0) {
@@ -296,11 +401,11 @@ export function useChat(userId: string | undefined) {
             role_id: selectedRoleId || undefined,
             conversation_id: conversationId,
             message_history: messageHistory,
+            attachments: uploadedAttachments.length > 0 ? uploadedAttachments : undefined,
           }),
           signal: abortControllerRef.current.signal,
         }
       );
-
       if (!response.ok) {
         // Fallback to non-streaming if stream endpoint fails
         const fallbackResponse = await supabase.functions.invoke("chat", {
@@ -436,12 +541,14 @@ export function useChat(userId: string | undefined) {
     }
   }, [
     activeConversationId,
+    attachments,
     createNewConversation,
     isLoading,
     messages,
     saveMessage,
     selectedRoleId,
     updateConversationTitle,
+    uploadAttachment,
   ]);
 
   const handleNewChat = useCallback(() => {
@@ -482,5 +589,10 @@ export function useChat(userId: string | undefined) {
     deleteConversation,
     renameConversation,
     stopGeneration,
+    // Attachment management
+    attachments,
+    addAttachments,
+    removeAttachment,
+    clearAttachments,
   };
 }

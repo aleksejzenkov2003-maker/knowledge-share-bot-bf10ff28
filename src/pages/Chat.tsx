@@ -51,6 +51,10 @@ export default function Chat() {
     deleteConversation,
     renameConversation,
     stopGeneration,
+    attachments,
+    addAttachments,
+    removeAttachment,
+    clearAttachments,
   } = useChat(user?.id);
 
   useEffect(() => {
@@ -79,6 +83,7 @@ export default function Chat() {
   const handleSend = () => {
     sendMessage(inputValue, isProjectMode);
     setInputValue("");
+    clearAttachments();
   };
 
   const handleClearChat = () => {
@@ -212,6 +217,9 @@ export default function Chat() {
           onChange={setInputValue}
           onSend={handleSend}
           isLoading={isLoading}
+          attachments={attachments}
+          onAttach={addAttachments}
+          onRemoveAttachment={removeAttachment}
         />
       </div>
     </div>

@@ -9,6 +9,13 @@ const corsHeaders = {
   'Connection': 'keep-alive',
 };
 
+interface AttachmentInput {
+  file_path: string;
+  file_name: string;
+  file_type: string;
+  file_size: number;
+}
+
 interface ChatRequest {
   message: string;
   role_id?: string;
@@ -17,6 +24,7 @@ interface ChatRequest {
   provider_id?: string;
   conversation_id?: string;
   message_history?: { role: string; content: string }[];
+  attachments?: AttachmentInput[];
 }
 
 interface ProviderConfig {
@@ -60,11 +68,11 @@ serve(async (req) => {
       userId = user?.id || null;
     }
 
-    const { message, role_id, department_id, model, provider_id, message_history }: ChatRequest = await req.json();
+    const { message, role_id, department_id, model, provider_id, message_history, attachments }: ChatRequest = await req.json();
 
-    if (!message) {
+    if (!message && (!attachments || attachments.length === 0)) {
       return new Response(
-        JSON.stringify({ error: 'message is required' }),
+        JSON.stringify({ error: 'message or attachments required' }),
         { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
       );
     }
@@ -340,30 +348,109 @@ serve(async (req) => {
     console.log(`RAG: Final context has ${ragContext.length} chunks, smart search: ${usedSmartSearch}`);
 
     // Build messages with context
-    let finalPrompt = message;
+    let finalPrompt = message || '';
     if (ragContext.length > 0) {
-      finalPrompt = `КОНТЕКСТ ИЗ ДОКУМЕНТОВ:\n${ragContext.join('\n\n---\n\n')}\n\n---\n\nВОПРОС ПОЛЬЗОВАТЕЛЯ: ${message}`;
+      finalPrompt = `КОНТЕКСТ ИЗ ДОКУМЕНТОВ:\n${ragContext.join('\n\n---\n\n')}\n\n---\n\nВОПРОС ПОЛЬЗОВАТЕЛЯ: ${message || 'Проанализируй прикрепленные файлы'}`;
     }
 
-    let messages: { role: string; content: string }[];
+    // Load attachments and build multimodal content for Anthropic
+    type MultimodalContentPart = 
+      | { type: 'text'; text: string }
+      | { type: 'image'; source: { type: 'base64'; media_type: string; data: string } }
+      | { type: 'document'; source: { type: 'base64'; media_type: string; data: string } };
+    
+    const attachmentParts: MultimodalContentPart[] = [];
+    
+    if (attachments && attachments.length > 0) {
+      console.log(`Processing ${attachments.length} attachments`);
+      
+      for (const attachment of attachments) {
+        try {
+          const { data: fileData, error: downloadError } = await supabase.storage
+            .from('chat-attachments')
+            .download(attachment.file_path);
+            
+          if (downloadError) {
+            console.error(`Error downloading ${attachment.file_name}:`, downloadError);
+            continue;
+          }
+          
+          const buffer = await fileData.arrayBuffer();
+          const base64 = btoa(String.fromCharCode(...new Uint8Array(buffer)));
+          
+          if (attachment.file_type.startsWith('image/')) {
+            attachmentParts.push({
+              type: 'image',
+              source: {
+                type: 'base64',
+                media_type: attachment.file_type,
+                data: base64,
+              },
+            });
+            console.log(`Added image: ${attachment.file_name}`);
+          } else if (attachment.file_type === 'application/pdf') {
+            attachmentParts.push({
+              type: 'document',
+              source: {
+                type: 'base64',
+                media_type: 'application/pdf',
+                data: base64,
+              },
+            });
+            console.log(`Added PDF: ${attachment.file_name}`);
+          }
+        } catch (err) {
+          console.error(`Error processing attachment ${attachment.file_name}:`, err);
+        }
+      }
+    }
+
+    const hasAttachments = attachmentParts.length > 0;
+
+    // Build messages array - handle multimodal for Anthropic
+    type SimpleMessage = { role: string; content: string };
+    type AnthropicMessage = { role: string; content: string | MultimodalContentPart[] };
+    
+    let simpleMessages: SimpleMessage[];
     
     if (isProjectMode && message_history && message_history.length > 0) {
-      messages = message_history.map((msg, idx) => {
+      simpleMessages = message_history.map((msg, idx) => {
         if (idx === message_history.length - 1 && msg.role === 'user' && ragContext.length > 0) {
           return { role: msg.role, content: `КОНТЕКСТ ИЗ ДОКУМЕНТОВ:\n${ragContext.join('\n\n---\n\n')}\n\n---\n\nВОПРОС ПОЛЬЗОВАТЕЛЯ: ${msg.content}` };
         }
         return msg;
       });
     } else {
-      messages = [{ role: 'user', content: finalPrompt }];
+      simpleMessages = [{ role: 'user', content: finalPrompt }];
+    }
+
+    // Build Anthropic-specific messages with multimodal content
+    let anthropicMessages: AnthropicMessage[];
+    if (hasAttachments) {
+      anthropicMessages = simpleMessages.map((msg, idx) => {
+        if (idx === simpleMessages.length - 1 && msg.role === 'user') {
+          const content: MultimodalContentPart[] = [
+            ...attachmentParts,
+            { type: 'text', text: msg.content || 'Проанализируй прикрепленные файлы' },
+          ];
+          return { role: 'user', content };
+        }
+        return msg;
+      });
+    } else {
+      anthropicMessages = simpleMessages;
     }
 
     // Update system prompt to include citation instructions
-    const enhancedSystemPrompt = ragContext.length > 0 
+    let enhancedSystemPrompt = ragContext.length > 0 
       ? `${systemPrompt}\n\nВАЖНО: При ответе на вопрос используй информацию из предоставленного контекста. Указывай источники в формате [1], [2] и т.д., ссылаясь на номера фрагментов из контекста. Если информации в контексте недостаточно, честно об этом скажи.`
       : systemPrompt;
+    
+    if (hasAttachments) {
+      enhancedSystemPrompt += '\n\nПользователь прикрепил файлы к сообщению. Проанализируй их содержимое и ответь на вопрос пользователя, учитывая информацию из файлов.';
+    }
 
-    console.log(`Streaming from ${providerConfig.provider_type} with model: ${finalModel}`);
+    console.log(`Streaming from ${providerConfig.provider_type} with model: ${finalModel}, attachments: ${hasAttachments}`);
 
     // Create streaming response based on provider
     let streamResponse: Response;
@@ -375,13 +462,14 @@ serve(async (req) => {
           headers: {
             'x-api-key': providerConfig.api_key || ANTHROPIC_API_KEY || '',
             'anthropic-version': '2023-06-01',
+            'anthropic-beta': 'pdfs-2024-09-25',
             'Content-Type': 'application/json',
           },
           body: JSON.stringify({
             model: finalModel,
             max_tokens: 4096,
             system: enhancedSystemPrompt,
-            messages: messages.map(m => ({ role: m.role === 'assistant' ? 'assistant' : 'user', content: m.content })),
+            messages: anthropicMessages.map(m => ({ role: m.role === 'assistant' ? 'assistant' : 'user', content: m.content })),
             stream: true,
           }),
         });
@@ -396,7 +484,7 @@ serve(async (req) => {
           },
           body: JSON.stringify({
             model: finalModel,
-            messages: [{ role: 'system', content: enhancedSystemPrompt }, ...messages],
+            messages: [{ role: 'system', content: enhancedSystemPrompt }, ...simpleMessages],
             stream: true,
           }),
         });
@@ -411,7 +499,7 @@ serve(async (req) => {
           },
           body: JSON.stringify({
             model: finalModel,
-            messages: [{ role: 'system', content: enhancedSystemPrompt }, ...messages],
+            messages: [{ role: 'system', content: enhancedSystemPrompt }, ...simpleMessages],
             stream: true,
           }),
         });
@@ -427,7 +515,7 @@ serve(async (req) => {
           },
           body: JSON.stringify({
             model: finalModel,
-            messages: [{ role: 'system', content: enhancedSystemPrompt }, ...messages],
+            messages: [{ role: 'system', content: enhancedSystemPrompt }, ...simpleMessages],
             stream: true,
           }),
         });

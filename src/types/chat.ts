@@ -25,6 +25,17 @@ export interface Citation {
   relevance: number;
 }
 
+export interface Attachment {
+  id: string;
+  file?: File;
+  file_path?: string;
+  file_name: string;
+  file_type: string;
+  file_size: number;
+  preview_url?: string;
+  status: 'pending' | 'uploading' | 'uploaded' | 'error';
+}
+
 export interface Message {
   id: string;
   conversation_id?: string;
@@ -36,6 +47,7 @@ export interface Message {
   citations?: Citation[];
   smartSearch?: boolean;
   isStreaming?: boolean;
+  attachments?: Attachment[];
 }
 
 export interface DBMessage {
@@ -48,6 +60,7 @@ export interface DBMessage {
     rag_context?: string[];
     citations?: Citation[];
     smart_search?: boolean;
+    attachments?: { file_path: string; file_name: string; file_type: string; file_size: number }[];
   } | null;
   created_at: string;
 }

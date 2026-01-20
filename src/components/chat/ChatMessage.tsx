@@ -1,7 +1,7 @@
 import ReactMarkdown from "react-markdown";
 import { Card } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
-import { Bot, User, Clock, FileText, Loader2, BookOpen } from "lucide-react";
+import { Bot, User, Clock, FileText, Loader2, BookOpen, Image } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { Message } from "@/types/chat";
 import {
@@ -87,7 +87,27 @@ export function ChatMessage({ message }: ChatMessageProps) {
               )}
             </>
           ) : (
-            <p className="whitespace-pre-wrap">{message.content}</p>
+            <div className="space-y-2">
+              {/* Display attachments for user messages */}
+              {message.attachments && message.attachments.length > 0 && (
+                <div className="flex flex-wrap gap-2 mb-2">
+                  {message.attachments.map((attachment) => (
+                    <div
+                      key={attachment.id}
+                      className="flex items-center gap-2 px-2 py-1 rounded bg-primary-foreground/10 text-xs"
+                    >
+                      {attachment.file_type.startsWith('image/') ? (
+                        <Image className="h-3 w-3" />
+                      ) : (
+                        <FileText className="h-3 w-3" />
+                      )}
+                      <span className="truncate max-w-[100px]">{attachment.file_name}</span>
+                    </div>
+                  ))}
+                </div>
+              )}
+              <p className="whitespace-pre-wrap">{message.content}</p>
+            </div>
           )}
         </div>
         
