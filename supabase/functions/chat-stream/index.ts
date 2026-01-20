@@ -180,28 +180,48 @@ serve(async (req) => {
 
     const finalModel = selectedModel || providerConfig.default_model;
 
-    // RAG context (simplified for streaming)
+    // RAG context - load ALL documents from selected folders
     let ragContext: string[] = [];
     let usedSemanticSearch = false;
 
     if (folderIds.length > 0) {
       const { data: docs } = await supabase
         .from('documents')
-        .select('id')
+        .select('id, name')
         .in('folder_id', folderIds)
         .eq('status', 'ready');
 
       if (docs && docs.length > 0) {
         const docIds = docs.map(d => d.id);
+        
+        // Load ALL chunks from all documents in selected folders
         const { data: chunks } = await supabase
           .from('document_chunks')
-          .select('content')
+          .select('content, chunk_index, document_id')
           .in('document_id', docIds)
-          .order('chunk_index')
-          .limit(5);
+          .order('document_id')
+          .order('chunk_index');
 
-        if (chunks) {
-          ragContext = chunks.map(c => c.content);
+        if (chunks && chunks.length > 0) {
+          // Group chunks by document and combine them
+          const documentContents: Record<string, { name: string; chunks: string[] }> = {};
+          
+          for (const doc of docs) {
+            documentContents[doc.id] = { name: doc.name, chunks: [] };
+          }
+          
+          for (const chunk of chunks) {
+            if (documentContents[chunk.document_id]) {
+              documentContents[chunk.document_id].chunks[chunk.chunk_index] = chunk.content;
+            }
+          }
+          
+          // Build full document context
+          ragContext = Object.entries(documentContents)
+            .filter(([_, doc]) => doc.chunks.length > 0)
+            .map(([_, doc]) => `=== Документ: ${doc.name} ===\n${doc.chunks.filter(Boolean).join('\n')}`);
+          
+          console.log(`RAG: Loaded ${ragContext.length} documents with ${chunks.length} total chunks`);
         }
       }
     }

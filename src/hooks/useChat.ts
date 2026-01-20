@@ -16,17 +16,43 @@ export function useChat(userId: string | undefined) {
 
   const fetchRoles = useCallback(async () => {
     try {
+      // First get user's department
+      let userDepartmentId: string | null = null;
+      let isAdmin = false;
+      
+      if (userId) {
+        const [profileRes, roleRes] = await Promise.all([
+          supabase.from("profiles").select("department_id").eq("id", userId).single(),
+          supabase.from("user_roles").select("role").eq("user_id", userId).single(),
+        ]);
+        
+        userDepartmentId = profileRes.data?.department_id || null;
+        isAdmin = roleRes.data?.role === "admin" || roleRes.data?.role === "moderator";
+      }
+
+      // Fetch all active roles
       const { data, error } = await supabase
         .from("chat_roles")
-        .select("id, name, description, slug, is_active, is_project_mode")
+        .select("id, name, description, slug, is_active, is_project_mode, department_ids")
         .eq("is_active", true)
         .order("name");
 
       if (error) throw error;
 
-      setRoles(data || []);
-      if (data && data.length > 0) {
-        setSelectedRoleId(data[0].id);
+      // Filter roles based on user's department (admins see all)
+      let filteredRoles = data || [];
+      if (!isAdmin && userDepartmentId) {
+        filteredRoles = filteredRoles.filter((role: { department_ids?: string[] }) => {
+          // If no departments specified, available to all
+          if (!role.department_ids || role.department_ids.length === 0) return true;
+          // If user's department is in the list
+          return role.department_ids.includes(userDepartmentId!);
+        });
+      }
+
+      setRoles(filteredRoles);
+      if (filteredRoles.length > 0) {
+        setSelectedRoleId(filteredRoles[0].id);
       }
     } catch (error) {
       console.error("Error fetching roles:", error);
@@ -34,7 +60,7 @@ export function useChat(userId: string | undefined) {
     } finally {
       setRolesLoading(false);
     }
-  }, []);
+  }, [userId]);
 
   const fetchConversations = useCallback(async () => {
     if (!userId) return;
