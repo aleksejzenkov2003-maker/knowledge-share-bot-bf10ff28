@@ -32,8 +32,24 @@ const STRUCTURE_PATTERNS = {
   paragraph: /^§\s*(\d+)(?:\s*[.\-:]?\s*(.+)?)?$/im,
 };
 
+// ============= STRUCTURE PATTERNS FOR BUSINESS DOCUMENTS =============
+
+const BUSINESS_PATTERNS = {
+  // Главные разделы: "1. ВВЕДЕНИЕ", "2. ОПИСАНИЕ ПРОЕКТА", "3. ТИПЫ ПОТОКОВ"
+  mainSection: /^(\d+)\.\s+([A-ZА-ЯЁ][A-ZА-ЯЁ\s\(\)]+)$/m,
+  
+  // Подразделы: "3.1 Start Flow", "4.2 Growing Flow", "3.1 Начальный поток"
+  subSection: /^(\d+\.\d+)\s+(.+)$/m,
+  
+  // Под-подразделы: "3.1.1 Детали", "4.2.1 Подробности"
+  subSubSection: /^(\d+\.\d+\.\d+)\s+(.+)$/m,
+  
+  // Маркированные списки: "• пункт", "- пункт", "* пункт"
+  bulletPoint: /^[•\-\*]\s+(.+)$/m,
+};
+
 // Типы чанков для метаданных
-type ChunkType = 'header' | 'article' | 'paragraph' | 'point' | 'general';
+type ChunkType = 'header' | 'article' | 'paragraph' | 'point' | 'section' | 'general';
 
 interface StructuredChunk {
   content: string;
@@ -50,10 +66,17 @@ interface DocumentStructure {
   currentArticle: string | null;
 }
 
+interface BusinessDocumentStructure {
+  currentMainSection: string | null;
+  currentMainSectionNumber: string | null;
+  currentSubSection: string | null;
+  currentSubSectionNumber: string | null;
+}
+
 // ============= DOCUMENT TYPE DETECTION =============
 
-function detectDocumentType(text: string): 'legal' | 'contract' | 'article' | 'general' {
-  const lowerText = text.toLowerCase().slice(0, 10000); // Анализируем первые 10к символов
+function detectDocumentType(text: string): 'legal' | 'contract' | 'business' | 'article' | 'general' {
+  const textSample = text.slice(0, 15000); // Анализируем первые 15к символов
   
   // Ключевые слова для юридических документов
   const legalPatterns = [
@@ -80,14 +103,15 @@ function detectDocumentType(text: string): 'legal' | 'contract' | 'article' | 'g
   
   let legalScore = 0;
   let contractScore = 0;
+  let businessScore = 0;
   
   for (const pattern of legalPatterns) {
-    const matches = lowerText.match(pattern);
+    const matches = textSample.match(pattern);
     if (matches) legalScore += matches.length;
   }
   
   for (const pattern of contractPatterns) {
-    const matches = lowerText.match(pattern);
+    const matches = textSample.match(pattern);
     if (matches) contractScore += matches.length;
   }
   
@@ -97,10 +121,18 @@ function detectDocumentType(text: string): 'legal' | 'contract' | 'article' | 'g
     legalScore += 10;
   }
   
-  console.log(`Document type detection - Legal: ${legalScore}, Contract: ${contractScore}`);
+  // Проверяем бизнес-структуру: "1. НАЗВАНИЕ", "2.1 Подраздел"
+  const mainSectionMatches = textSample.match(/^\d+\.\s+[A-ZА-ЯЁ][A-ZА-ЯЁ\s\(\)]+$/gm);
+  const subSectionMatches = textSample.match(/^\d+\.\d+\s+.+$/gm);
+  
+  if (mainSectionMatches) businessScore += mainSectionMatches.length * 2;
+  if (subSectionMatches) businessScore += subSectionMatches.length;
+  
+  console.log(`Document type detection - Legal: ${legalScore}, Contract: ${contractScore}, Business: ${businessScore}`);
   
   if (legalScore >= 5) return 'legal';
   if (contractScore >= 3) return 'contract';
+  if (businessScore >= 4) return 'business';
   
   return 'general';
 }
@@ -353,6 +385,104 @@ function splitByPoints(
   return chunks;
 }
 
+// ============= BUSINESS DOCUMENT PARSER =============
+
+function parseBusinessDocument(text: string): StructuredChunk[] {
+  const chunks: StructuredChunk[] = [];
+  const lines = text.split(/\n/);
+  
+  const structure: BusinessDocumentStructure = {
+    currentMainSection: null,
+    currentMainSectionNumber: null,
+    currentSubSection: null,
+    currentSubSectionNumber: null,
+  };
+  
+  let currentChunkContent: string[] = [];
+  let currentChunkType: ChunkType = 'general';
+  let currentSectionTitle: string | null = null;
+  let currentArticleNumber: string | null = null;
+  
+  const buildBusinessContext = (): string => {
+    const parts: string[] = ['Документ'];
+    if (structure.currentMainSection) parts.push(structure.currentMainSection);
+    if (structure.currentSubSection) parts.push(structure.currentSubSection);
+    return parts.join(' > ');
+  };
+  
+  const flushChunk = () => {
+    const content = currentChunkContent.join('\n').trim();
+    if (content.length > 50) {
+      chunks.push({
+        content,
+        section_title: currentSectionTitle,
+        article_number: currentArticleNumber,
+        chunk_type: currentChunkType,
+        parent_context: buildBusinessContext(),
+      });
+    }
+    currentChunkContent = [];
+  };
+  
+  for (let i = 0; i < lines.length; i++) {
+    const line = lines[i];
+    const trimmedLine = line.trim();
+    
+    // Проверяем под-подразделы первыми (3.1.1)
+    const subSubMatch = trimmedLine.match(BUSINESS_PATTERNS.subSubSection);
+    if (subSubMatch) {
+      flushChunk();
+      currentArticleNumber = subSubMatch[1];
+      currentSectionTitle = `${subSubMatch[1]} ${subSubMatch[2]}`;
+      currentChunkType = 'section';
+      currentChunkContent.push(line);
+      continue;
+    }
+    
+    // Проверяем подразделы (3.1, 4.2)
+    const subMatch = trimmedLine.match(BUSINESS_PATTERNS.subSection);
+    if (subMatch) {
+      flushChunk();
+      structure.currentSubSection = `${subMatch[1]} ${subMatch[2]}`;
+      structure.currentSubSectionNumber = subMatch[1];
+      currentArticleNumber = subMatch[1];
+      currentSectionTitle = `${subMatch[1]} ${subMatch[2]}`;
+      currentChunkType = 'section';
+      currentChunkContent.push(line);
+      continue;
+    }
+    
+    // Проверяем главные разделы (1. НАЗВАНИЕ)
+    const mainMatch = trimmedLine.match(BUSINESS_PATTERNS.mainSection);
+    if (mainMatch) {
+      flushChunk();
+      structure.currentMainSection = `${mainMatch[1]}. ${mainMatch[2]}`;
+      structure.currentMainSectionNumber = mainMatch[1];
+      structure.currentSubSection = null;
+      structure.currentSubSectionNumber = null;
+      currentArticleNumber = mainMatch[1];
+      currentSectionTitle = `${mainMatch[1]}. ${mainMatch[2]}`;
+      currentChunkType = 'header';
+      currentChunkContent.push(line);
+      continue;
+    }
+    
+    // Обычная строка
+    currentChunkContent.push(line);
+    
+    // Если чанк слишком большой, сбрасываем
+    const currentLength = currentChunkContent.join('\n').length;
+    if (currentLength > 2500) {
+      flushChunk();
+      currentChunkType = 'paragraph';
+    }
+  }
+  
+  flushChunk();
+  
+  return chunks;
+}
+
 // ============= FALLBACK: SIMPLE CHUNKING FOR GENERAL DOCUMENTS =============
 
 function chunkTextSimple(text: string, chunkSize: number = 2000): StructuredChunk[] {
@@ -442,6 +572,15 @@ function processDocumentText(text: string, fileName: string): StructuredChunk[] 
       console.log('Structured parsing yielded few results, falling back to simple chunking');
       chunks = chunkTextSimple(text);
     }
+  } else if (docType === 'business') {
+    chunks = parseBusinessDocument(text);
+    console.log(`Parsed ${chunks.length} structured chunks from business document`);
+    
+    // Fallback если бизнес-парсинг дал мало результатов
+    if (chunks.length < 3 && text.length > 1000) {
+      console.log('Business parsing yielded few results, falling back to simple chunking');
+      chunks = chunkTextSimple(text);
+    }
   } else {
     chunks = chunkTextSimple(text);
     console.log(`Created ${chunks.length} simple chunks`);
@@ -450,8 +589,9 @@ function processDocumentText(text: string, fileName: string): StructuredChunk[] 
   // Логируем статистику
   const articleChunks = chunks.filter(c => c.chunk_type === 'article').length;
   const headerChunks = chunks.filter(c => c.chunk_type === 'header').length;
+  const sectionChunks = chunks.filter(c => c.chunk_type === 'section').length;
   const pointChunks = chunks.filter(c => c.chunk_type === 'point').length;
-  console.log(`Chunk types: articles=${articleChunks}, headers=${headerChunks}, points=${pointChunks}`);
+  console.log(`Chunk types: articles=${articleChunks}, headers=${headerChunks}, sections=${sectionChunks}, points=${pointChunks}`);
   
   return chunks;
 }
