@@ -3,6 +3,30 @@ import { supabase } from "@/integrations/supabase/client";
 import { toast } from "sonner";
 import { Message, Conversation, ChatRole, DBMessage, Attachment } from "@/types/chat";
 
+// Sanitize filename for storage (remove special chars, transliterate)
+// Placed outside hook to avoid changing hook count
+const sanitizeFileName = (name: string): string => {
+  const cyrillicToLatin: Record<string, string> = {
+    'а': 'a', 'б': 'b', 'в': 'v', 'г': 'g', 'д': 'd', 'е': 'e', 'ё': 'yo',
+    'ж': 'zh', 'з': 'z', 'и': 'i', 'й': 'y', 'к': 'k', 'л': 'l', 'м': 'm',
+    'н': 'n', 'о': 'o', 'п': 'p', 'р': 'r', 'с': 's', 'т': 't', 'у': 'u',
+    'ф': 'f', 'х': 'h', 'ц': 'ts', 'ч': 'ch', 'ш': 'sh', 'щ': 'sch', 'ъ': '',
+    'ы': 'y', 'ь': '', 'э': 'e', 'ю': 'yu', 'я': 'ya',
+    'А': 'A', 'Б': 'B', 'В': 'V', 'Г': 'G', 'Д': 'D', 'Е': 'E', 'Ё': 'Yo',
+    'Ж': 'Zh', 'З': 'Z', 'И': 'I', 'Й': 'Y', 'К': 'K', 'Л': 'L', 'М': 'M',
+    'Н': 'N', 'О': 'O', 'П': 'P', 'Р': 'R', 'С': 'S', 'Т': 'T', 'У': 'U',
+    'Ф': 'F', 'Х': 'H', 'Ц': 'Ts', 'Ч': 'Ch', 'Ш': 'Sh', 'Щ': 'Sch', 'Ъ': '',
+    'Ы': 'Y', 'Ь': '', 'Э': 'E', 'Ю': 'Yu', 'Я': 'Ya'
+  };
+  
+  let result = name.split('').map(char => cyrillicToLatin[char] || char).join('');
+  result = result.replace(/[^a-zA-Z0-9._-]/g, '_');
+  result = result.replace(/_+/g, '_');
+  result = result.replace(/^_+|_+$/g, '');
+  
+  return result || 'file';
+};
+
 export function useChat(userId: string | undefined) {
   const [roles, setRoles] = useState<ChatRole[]>([]);
   const [selectedRoleId, setSelectedRoleId] = useState<string>("");
@@ -231,30 +255,6 @@ export function useChat(userId: string | undefined) {
     });
   }, []);
 
-  // Sanitize filename for storage (remove special chars, transliterate)
-  const sanitizeFileName = useCallback((name: string): string => {
-    // Transliteration map for Cyrillic
-    const cyrillicToLatin: Record<string, string> = {
-      'а': 'a', 'б': 'b', 'в': 'v', 'г': 'g', 'д': 'd', 'е': 'e', 'ё': 'yo',
-      'ж': 'zh', 'з': 'z', 'и': 'i', 'й': 'y', 'к': 'k', 'л': 'l', 'м': 'm',
-      'н': 'n', 'о': 'o', 'п': 'p', 'р': 'r', 'с': 's', 'т': 't', 'у': 'u',
-      'ф': 'f', 'х': 'h', 'ц': 'ts', 'ч': 'ch', 'ш': 'sh', 'щ': 'sch', 'ъ': '',
-      'ы': 'y', 'ь': '', 'э': 'e', 'ю': 'yu', 'я': 'ya',
-      'А': 'A', 'Б': 'B', 'В': 'V', 'Г': 'G', 'Д': 'D', 'Е': 'E', 'Ё': 'Yo',
-      'Ж': 'Zh', 'З': 'Z', 'И': 'I', 'Й': 'Y', 'К': 'K', 'Л': 'L', 'М': 'M',
-      'Н': 'N', 'О': 'O', 'П': 'P', 'Р': 'R', 'С': 'S', 'Т': 'T', 'У': 'U',
-      'Ф': 'F', 'Х': 'H', 'Ц': 'Ts', 'Ч': 'Ch', 'Ш': 'Sh', 'Щ': 'Sch', 'Ъ': '',
-      'Ы': 'Y', 'Ь': '', 'Э': 'E', 'Ю': 'Yu', 'Я': 'Ya'
-    };
-    
-    let result = name.split('').map(char => cyrillicToLatin[char] || char).join('');
-    result = result.replace(/[^a-zA-Z0-9._-]/g, '_');
-    result = result.replace(/_+/g, '_');
-    result = result.replace(/^_+|_+$/g, '');
-    
-    return result || 'file';
-  }, []);
-
   const uploadAttachment = useCallback(async (
     attachment: Attachment, 
     conversationId: string
@@ -288,7 +288,7 @@ export function useChat(userId: string | undefined) {
       toast.error(`Ошибка загрузки ${attachment.file_name}`);
       return null;
     }
-  }, [userId, sanitizeFileName]);
+  }, [userId]);
 
   const deleteConversation = useCallback(async (conversationId: string) => {
     try {
