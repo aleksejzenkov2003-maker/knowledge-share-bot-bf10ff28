@@ -96,6 +96,22 @@ serve(async (req) => {
     // Get provider configuration
     let providerConfig: ProviderConfig | null = null;
     
+    // Helper function to get effective API key (fallback to env if not in provider)
+    const getEffectiveApiKey = (providerType: string, providerApiKey: string | null): string => {
+      if (providerApiKey) return providerApiKey;
+      
+      switch (providerType) {
+        case 'perplexity':
+          return PERPLEXITY_API_KEY || '';
+        case 'anthropic':
+          return ANTHROPIC_API_KEY || '';
+        case 'lovable':
+          return LOVABLE_API_KEY || '';
+        default:
+          return '';
+      }
+    };
+    
     if (selectedProviderId) {
       const { data: provider } = await supabase
         .from('ai_providers')
@@ -105,9 +121,10 @@ serve(async (req) => {
         .single();
       
       if (provider) {
+        const effectiveApiKey = getEffectiveApiKey(provider.provider_type, provider.api_key);
         providerConfig = {
           provider_type: provider.provider_type,
-          api_key: provider.api_key || '',
+          api_key: effectiveApiKey,
           default_model: provider.default_model || '',
           base_url: provider.base_url || undefined,
         };
@@ -123,9 +140,10 @@ serve(async (req) => {
         .single();
       
       if (defaultProvider) {
+        const effectiveApiKey = getEffectiveApiKey(defaultProvider.provider_type, defaultProvider.api_key);
         providerConfig = {
           provider_type: defaultProvider.provider_type,
-          api_key: defaultProvider.api_key || '',
+          api_key: effectiveApiKey,
           default_model: defaultProvider.default_model || '',
           base_url: defaultProvider.base_url || undefined,
         };
@@ -133,12 +151,13 @@ serve(async (req) => {
       }
     }
 
+    // Fallback to env-configured providers if no provider in DB
     if (!providerConfig) {
-      if (LOVABLE_API_KEY) {
+      if (PERPLEXITY_API_KEY) {
         providerConfig = {
-          provider_type: 'lovable',
-          api_key: LOVABLE_API_KEY,
-          default_model: 'google/gemini-2.5-flash',
+          provider_type: 'perplexity',
+          api_key: PERPLEXITY_API_KEY,
+          default_model: 'sonar-pro',
         };
       } else if (ANTHROPIC_API_KEY) {
         providerConfig = {
@@ -146,17 +165,17 @@ serve(async (req) => {
           api_key: ANTHROPIC_API_KEY,
           default_model: 'claude-sonnet-4-20250514',
         };
-      } else if (PERPLEXITY_API_KEY) {
+      } else if (LOVABLE_API_KEY) {
         providerConfig = {
-          provider_type: 'perplexity',
-          api_key: PERPLEXITY_API_KEY,
-          default_model: 'sonar',
+          provider_type: 'lovable',
+          api_key: LOVABLE_API_KEY,
+          default_model: 'google/gemini-2.5-flash',
         };
       }
     }
 
-    if (!providerConfig) {
-      throw new Error('No AI provider configured');
+    if (!providerConfig || !providerConfig.api_key) {
+      throw new Error('No AI provider configured or API key missing');
     }
 
     const finalModel = selectedModel || providerConfig.default_model;
