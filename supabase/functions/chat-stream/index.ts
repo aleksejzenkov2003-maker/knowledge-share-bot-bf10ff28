@@ -26,6 +26,16 @@ interface ProviderConfig {
   base_url?: string;
 }
 
+interface RankedChunk {
+  id: string;
+  content: string;
+  document_name: string;
+  section_title?: string;
+  article_number?: string;
+  relevance_score: number;
+  relevance_reason: string;
+}
+
 serve(async (req) => {
   if (req.method === 'OPTIONS') {
     return new Response(null, { headers: corsHeaders });
@@ -153,17 +163,17 @@ serve(async (req) => {
 
     // Fallback to env-configured providers if no provider in DB
     if (!providerConfig) {
-      if (PERPLEXITY_API_KEY) {
-        providerConfig = {
-          provider_type: 'perplexity',
-          api_key: PERPLEXITY_API_KEY,
-          default_model: 'sonar-pro',
-        };
-      } else if (ANTHROPIC_API_KEY) {
+      if (ANTHROPIC_API_KEY) {
         providerConfig = {
           provider_type: 'anthropic',
           api_key: ANTHROPIC_API_KEY,
           default_model: 'claude-sonnet-4-20250514',
+        };
+      } else if (PERPLEXITY_API_KEY) {
+        providerConfig = {
+          provider_type: 'perplexity',
+          api_key: PERPLEXITY_API_KEY,
+          default_model: 'sonar-pro',
         };
       } else if (LOVABLE_API_KEY) {
         providerConfig = {
@@ -180,105 +190,159 @@ serve(async (req) => {
 
     const finalModel = selectedModel || providerConfig.default_model;
 
-    // RAG context - use semantic search to find relevant chunks
+    // =====================================================
+    // "SMART LIBRARIAN" RAG - Hybrid Search with Claude Re-ranking
+    // =====================================================
     let ragContext: string[] = [];
-    let usedSemanticSearch = false;
-    const MAX_RAG_CHUNKS = 20; // Limit to prevent token overflow
+    let rankedChunks: RankedChunk[] = [];
+    let usedSmartSearch = false;
+    const FTS_CANDIDATES = 50; // Get more candidates for re-ranking
+    const TOP_K_FINAL = 10;    // Final chunks after re-ranking
 
     if (folderIds.length > 0) {
-      const { data: docs } = await supabase
-        .from('documents')
-        .select('id, name')
-        .in('folder_id', folderIds)
-        .eq('status', 'ready');
+      console.log(`RAG: Starting Smart Librarian search for folders: ${folderIds.join(', ')}`);
+      
+      // STEP 1: Full-Text Search (PostgreSQL) - Get candidates
+      try {
+        const { data: ftsResults, error: ftsError } = await supabase.rpc('smart_fts_search', {
+          query_text: message,
+          p_folder_ids: folderIds,
+          match_count: FTS_CANDIDATES,
+        });
 
-      if (docs && docs.length > 0) {
-        const docIds = docs.map(d => d.id);
-        const docNameMap = Object.fromEntries(docs.map(d => [d.id, d.name]));
-        
-        // Try semantic search first using the match_document_chunks function
-        try {
-          // Generate query embedding using Lovable AI
-          const embeddingApiKey = LOVABLE_API_KEY || '';
-          if (embeddingApiKey) {
-            const embeddingResponse = await fetch('https://ai.gateway.lovable.dev/v1/embeddings', {
-              method: 'POST',
-              headers: {
-                'Authorization': `Bearer ${embeddingApiKey}`,
-                'Content-Type': 'application/json',
-              },
-              body: JSON.stringify({
-                model: 'text-embedding-3-small',
-                input: message,
-              }),
-            });
-            
-            if (embeddingResponse.ok) {
-              const embeddingData = await embeddingResponse.json();
-              const queryEmbedding = embeddingData.data?.[0]?.embedding;
-              
-              if (queryEmbedding) {
-                // Use the database function for semantic search
-                const { data: matchedChunks } = await supabase.rpc('match_document_chunks', {
-                  query_embedding: JSON.stringify(queryEmbedding),
-                  folder_ids: folderIds,
-                  match_count: MAX_RAG_CHUNKS,
-                  match_threshold: 0.3,
-                });
-                
-                if (matchedChunks && matchedChunks.length > 0) {
-                  usedSemanticSearch = true;
-                  ragContext = matchedChunks.map((chunk: { document_id: string; content: string; similarity: number }) => 
-                    `[${docNameMap[chunk.document_id] || 'Документ'}] (релевантность: ${(chunk.similarity * 100).toFixed(0)}%)\n${chunk.content}`
-                  );
-                  console.log(`RAG: Semantic search found ${ragContext.length} relevant chunks`);
+        if (ftsError) {
+          console.error('FTS search error:', ftsError);
+        }
+
+        if (ftsResults && ftsResults.length > 0) {
+          console.log(`RAG: FTS found ${ftsResults.length} candidates`);
+          
+          // STEP 2: Re-ranking with Claude Sonnet 4.5
+          if (ANTHROPIC_API_KEY && ftsResults.length > TOP_K_FINAL) {
+            try {
+              const chunksForRerank = ftsResults.map((chunk: {
+                id: string;
+                content: string;
+                document_name: string;
+                section_title?: string;
+                article_number?: string;
+                fts_rank?: number;
+              }) => ({
+                id: chunk.id,
+                content: chunk.content,
+                document_name: chunk.document_name,
+                section_title: chunk.section_title,
+                article_number: chunk.article_number,
+                fts_rank: chunk.fts_rank,
+              }));
+
+              // Call rerank-chunks edge function
+              const rerankResponse = await fetch(`${supabaseUrl}/functions/v1/rerank-chunks`, {
+                method: 'POST',
+                headers: {
+                  'Content-Type': 'application/json',
+                  'Authorization': `Bearer ${supabaseKey}`,
+                },
+                body: JSON.stringify({
+                  query: message,
+                  chunks: chunksForRerank,
+                  top_k: TOP_K_FINAL,
+                }),
+              });
+
+              if (rerankResponse.ok) {
+                const rerankData = await rerankResponse.json();
+                if (rerankData.ranked_chunks && rerankData.ranked_chunks.length > 0) {
+                  rankedChunks = rerankData.ranked_chunks;
+                  usedSmartSearch = true;
+                  console.log(`RAG: Claude re-ranked to ${rankedChunks.length} top chunks`);
                 }
+              } else {
+                console.error('Rerank failed:', await rerankResponse.text());
               }
+            } catch (rerankError) {
+              console.error('Rerank error:', rerankError);
             }
           }
-        } catch (err) {
-          console.log('Semantic search failed, falling back to keyword search:', err);
+
+          // Fallback: Use FTS results directly if re-ranking failed
+          if (rankedChunks.length === 0) {
+            rankedChunks = ftsResults.slice(0, TOP_K_FINAL).map((chunk: {
+              id: string;
+              content: string;
+              document_name: string;
+              section_title?: string;
+              article_number?: string;
+              fts_rank: number;
+            }) => ({
+              id: chunk.id,
+              content: chunk.content,
+              document_name: chunk.document_name,
+              section_title: chunk.section_title,
+              article_number: chunk.article_number,
+              relevance_score: chunk.fts_rank * 10, // Normalize FTS rank
+              relevance_reason: 'FTS match',
+            }));
+            console.log(`RAG: Using FTS results directly (${rankedChunks.length} chunks)`);
+          }
         }
+      } catch (ftsErr) {
+        console.error('FTS search failed:', ftsErr);
+      }
+
+      // STEP 3: Fallback to keyword search if FTS returned nothing
+      if (rankedChunks.length === 0) {
+        console.log('RAG: FTS returned no results, trying keyword fallback');
         
-        // Fallback: simple keyword-based chunk selection
-        if (ragContext.length === 0) {
-          // Get chunks that contain keywords from the query
-          const keywords = message.toLowerCase().split(/\s+/).filter(w => w.length > 3);
-          
-          const { data: chunks } = await supabase
-            .from('document_chunks')
-            .select('content, document_id')
-            .in('document_id', docIds)
-            .limit(MAX_RAG_CHUNKS * 3); // Get more, then filter
-          
-          if (chunks && chunks.length > 0) {
-            // Score chunks by keyword matches
-            const scoredChunks = chunks.map(chunk => {
-              const contentLower = chunk.content.toLowerCase();
-              const score = keywords.reduce((acc, kw) => 
-                acc + (contentLower.includes(kw) ? 1 : 0), 0);
-              return { ...chunk, score };
-            });
-            
-            // Sort by score and take top chunks
-            const topChunks = scoredChunks
-              .sort((a, b) => b.score - a.score)
-              .slice(0, MAX_RAG_CHUNKS);
-            
-            ragContext = topChunks.map(chunk => 
-              `[${docNameMap[chunk.document_id] || 'Документ'}]\n${chunk.content}`
-            );
-            
-            console.log(`RAG: Keyword search found ${ragContext.length} chunks`);
+        const keywords = message.toLowerCase().split(/\s+/).filter(w => w.length > 3);
+        
+        if (keywords.length > 0) {
+          const { data: keywordResults } = await supabase.rpc('keyword_search', {
+            keywords: keywords,
+            p_folder_ids: folderIds,
+            match_count: TOP_K_FINAL,
+          });
+
+          if (keywordResults && keywordResults.length > 0) {
+            rankedChunks = keywordResults.map((chunk: {
+              id: string;
+              content: string;
+              document_name: string;
+              section_title?: string;
+              article_number?: string;
+              keyword_matches: number;
+            }) => ({
+              id: chunk.id,
+              content: chunk.content,
+              document_name: chunk.document_name,
+              section_title: chunk.section_title,
+              article_number: chunk.article_number,
+              relevance_score: chunk.keyword_matches,
+              relevance_reason: `${chunk.keyword_matches} keyword matches`,
+            }));
+            console.log(`RAG: Keyword search found ${rankedChunks.length} chunks`);
           }
         }
       }
+
+      // Build RAG context with citations
+      if (rankedChunks.length > 0) {
+        ragContext = rankedChunks.map((chunk, idx) => {
+          let citation = `[${idx + 1}] ${chunk.document_name}`;
+          if (chunk.section_title) citation += ` | ${chunk.section_title}`;
+          if (chunk.article_number) citation += ` | Статья ${chunk.article_number}`;
+          citation += ` (релевантность: ${chunk.relevance_score.toFixed(1)})`;
+          return `${citation}\n${chunk.content}`;
+        });
+      }
     }
 
-    // Build messages
+    console.log(`RAG: Final context has ${ragContext.length} chunks, smart search: ${usedSmartSearch}`);
+
+    // Build messages with context
     let finalPrompt = message;
     if (ragContext.length > 0) {
-      finalPrompt = `Context from documents:\n${ragContext.join('\n\n')}\n\nUser question: ${message}`;
+      finalPrompt = `КОНТЕКСТ ИЗ ДОКУМЕНТОВ:\n${ragContext.join('\n\n---\n\n')}\n\n---\n\nВОПРОС ПОЛЬЗОВАТЕЛЯ: ${message}`;
     }
 
     let messages: { role: string; content: string }[];
@@ -286,13 +350,18 @@ serve(async (req) => {
     if (isProjectMode && message_history && message_history.length > 0) {
       messages = message_history.map((msg, idx) => {
         if (idx === message_history.length - 1 && msg.role === 'user' && ragContext.length > 0) {
-          return { role: msg.role, content: `Context from documents:\n${ragContext.join('\n\n')}\n\nUser question: ${msg.content}` };
+          return { role: msg.role, content: `КОНТЕКСТ ИЗ ДОКУМЕНТОВ:\n${ragContext.join('\n\n---\n\n')}\n\n---\n\nВОПРОС ПОЛЬЗОВАТЕЛЯ: ${msg.content}` };
         }
         return msg;
       });
     } else {
       messages = [{ role: 'user', content: finalPrompt }];
     }
+
+    // Update system prompt to include citation instructions
+    const enhancedSystemPrompt = ragContext.length > 0 
+      ? `${systemPrompt}\n\nВАЖНО: При ответе на вопрос используй информацию из предоставленного контекста. Указывай источники в формате [1], [2] и т.д., ссылаясь на номера фрагментов из контекста. Если информации в контексте недостаточно, честно об этом скажи.`
+      : systemPrompt;
 
     console.log(`Streaming from ${providerConfig.provider_type} with model: ${finalModel}`);
 
@@ -311,7 +380,7 @@ serve(async (req) => {
           body: JSON.stringify({
             model: finalModel,
             max_tokens: 4096,
-            system: systemPrompt,
+            system: enhancedSystemPrompt,
             messages: messages.map(m => ({ role: m.role === 'assistant' ? 'assistant' : 'user', content: m.content })),
             stream: true,
           }),
@@ -327,7 +396,7 @@ serve(async (req) => {
           },
           body: JSON.stringify({
             model: finalModel,
-            messages: [{ role: 'system', content: systemPrompt }, ...messages],
+            messages: [{ role: 'system', content: enhancedSystemPrompt }, ...messages],
             stream: true,
           }),
         });
@@ -342,7 +411,7 @@ serve(async (req) => {
           },
           body: JSON.stringify({
             model: finalModel,
-            messages: [{ role: 'system', content: systemPrompt }, ...messages],
+            messages: [{ role: 'system', content: enhancedSystemPrompt }, ...messages],
             stream: true,
           }),
         });
@@ -358,7 +427,7 @@ serve(async (req) => {
           },
           body: JSON.stringify({
             model: finalModel,
-            messages: [{ role: 'system', content: systemPrompt }, ...messages],
+            messages: [{ role: 'system', content: enhancedSystemPrompt }, ...messages],
             stream: true,
           }),
         });
@@ -421,13 +490,22 @@ serve(async (req) => {
             }
           }
 
-          // Send metadata at the end
+          // Send metadata at the end with citations
           const responseTimeMs = Date.now() - startTime;
+          const citations = rankedChunks.map((chunk, idx) => ({
+            index: idx + 1,
+            document: chunk.document_name,
+            section: chunk.section_title,
+            article: chunk.article_number,
+            relevance: chunk.relevance_score,
+          }));
+
           controller.enqueue(encoder.encode(`data: ${JSON.stringify({
             type: 'metadata',
             response_time_ms: responseTimeMs,
             rag_context: ragContext.length > 0 ? ragContext : undefined,
-            semantic_search: usedSemanticSearch,
+            citations: citations.length > 0 ? citations : undefined,
+            smart_search: usedSmartSearch,
           })}\n\n`));
 
           controller.enqueue(encoder.encode('data: [DONE]\n\n'));
@@ -446,6 +524,7 @@ serve(async (req) => {
               provider_type: providerConfig!.provider_type,
               role_id,
               rag_chunks: ragContext.length,
+              smart_search: usedSmartSearch,
               streaming: true,
             },
           });
