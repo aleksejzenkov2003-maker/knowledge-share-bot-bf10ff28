@@ -82,31 +82,37 @@ interface ChatRole {
 
 const providerModels: Record<string, { value: string; label: string }[]> = {
   perplexity: [
-    { value: 'sonar', label: 'Sonar' },
-    { value: 'sonar-pro', label: 'Sonar Pro' },
-    { value: 'sonar-reasoning', label: 'Sonar Reasoning' },
-    { value: 'sonar-reasoning-pro', label: 'Sonar Reasoning Pro' },
+    { value: 'sonar', label: 'Sonar (быстрый)' },
+    { value: 'sonar-pro', label: 'Sonar Pro (точный, 2x цитат)' },
+    { value: 'sonar-reasoning', label: 'Sonar Reasoning (рассуждения)' },
+    { value: 'sonar-reasoning-pro', label: 'Sonar Reasoning Pro (DeepSeek R1)' },
+    { value: 'sonar-deep-research', label: 'Sonar Deep Research (глубокий анализ)' },
   ],
   openai: [
     { value: 'gpt-4o', label: 'GPT-4o' },
     { value: 'gpt-4o-mini', label: 'GPT-4o Mini' },
     { value: 'gpt-4-turbo', label: 'GPT-4 Turbo' },
-    { value: 'o1', label: 'O1' },
+    { value: 'o1', label: 'O1 (рассуждения)' },
     { value: 'o1-mini', label: 'O1 Mini' },
+    { value: 'o3-mini', label: 'O3 Mini (новый)' },
   ],
   anthropic: [
-    { value: 'claude-sonnet-4-20250514', label: 'Claude Sonnet 4' },
+    { value: 'claude-sonnet-4-20250514', label: 'Claude Sonnet 4 (новейший)' },
+    { value: 'claude-4-5-sonnet-20250514', label: 'Claude 4.5 Sonnet (премиум)' },
     { value: 'claude-3-7-sonnet-20250219', label: 'Claude 3.7 Sonnet' },
     { value: 'claude-3-5-sonnet-20241022', label: 'Claude 3.5 Sonnet' },
-    { value: 'claude-3-5-haiku-20241022', label: 'Claude 3.5 Haiku' },
-    { value: 'claude-3-opus-20240229', label: 'Claude 3 Opus' },
+    { value: 'claude-3-5-haiku-20241022', label: 'Claude 3.5 Haiku (быстрый)' },
+    { value: 'claude-3-opus-20240229', label: 'Claude 3 Opus (мощный)' },
   ],
   lovable: [
     { value: 'google/gemini-2.5-flash', label: 'Gemini 2.5 Flash' },
     { value: 'google/gemini-2.5-pro', label: 'Gemini 2.5 Pro' },
+    { value: 'google/gemini-3-flash-preview', label: 'Gemini 3 Flash Preview' },
+    { value: 'google/gemini-3-pro-preview', label: 'Gemini 3 Pro Preview' },
     { value: 'google/gemini-2.5-flash-lite', label: 'Gemini 2.5 Flash Lite' },
     { value: 'openai/gpt-5', label: 'GPT-5' },
     { value: 'openai/gpt-5-mini', label: 'GPT-5 Mini' },
+    { value: 'openai/gpt-5.2', label: 'GPT-5.2 (новейший)' },
   ],
 };
 

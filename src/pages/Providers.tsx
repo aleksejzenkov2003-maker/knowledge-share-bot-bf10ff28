@@ -26,33 +26,42 @@ interface AIProvider {
 
 const providerModels: Record<string, { value: string; label: string }[]> = {
   perplexity: [
-    { value: 'sonar', label: 'Sonar' },
-    { value: 'sonar-pro', label: 'Sonar Pro' },
-    { value: 'sonar-reasoning', label: 'Sonar Reasoning' },
-    { value: 'sonar-reasoning-pro', label: 'Sonar Reasoning Pro' },
+    { value: 'sonar', label: 'Sonar (быстрый)' },
+    { value: 'sonar-pro', label: 'Sonar Pro (точный, 2x цитат)' },
+    { value: 'sonar-reasoning', label: 'Sonar Reasoning (рассуждения)' },
+    { value: 'sonar-reasoning-pro', label: 'Sonar Reasoning Pro (DeepSeek R1)' },
+    { value: 'sonar-deep-research', label: 'Sonar Deep Research (глубокий анализ)' },
   ],
   openai: [
     { value: 'gpt-4o', label: 'GPT-4o' },
     { value: 'gpt-4o-mini', label: 'GPT-4o Mini' },
     { value: 'gpt-4-turbo', label: 'GPT-4 Turbo' },
-    { value: 'o1', label: 'O1' },
+    { value: 'o1', label: 'O1 (рассуждения)' },
     { value: 'o1-mini', label: 'O1 Mini' },
+    { value: 'o3-mini', label: 'O3 Mini (новый)' },
   ],
   anthropic: [
-    { value: 'claude-sonnet-4-20250514', label: 'Claude Sonnet 4' },
+    { value: 'claude-sonnet-4-20250514', label: 'Claude Sonnet 4 (новейший)' },
+    { value: 'claude-4-5-sonnet-20250514', label: 'Claude 4.5 Sonnet (премиум)' },
     { value: 'claude-3-7-sonnet-20250219', label: 'Claude 3.7 Sonnet' },
     { value: 'claude-3-5-sonnet-20241022', label: 'Claude 3.5 Sonnet' },
-    { value: 'claude-3-5-haiku-20241022', label: 'Claude 3.5 Haiku' },
-    { value: 'claude-3-opus-20240229', label: 'Claude 3 Opus' },
+    { value: 'claude-3-5-haiku-20241022', label: 'Claude 3.5 Haiku (быстрый)' },
+    { value: 'claude-3-opus-20240229', label: 'Claude 3 Opus (мощный)' },
   ],
   lovable: [
     { value: 'google/gemini-2.5-flash', label: 'Gemini 2.5 Flash' },
     { value: 'google/gemini-2.5-pro', label: 'Gemini 2.5 Pro' },
+    { value: 'google/gemini-3-flash-preview', label: 'Gemini 3 Flash Preview' },
+    { value: 'google/gemini-3-pro-preview', label: 'Gemini 3 Pro Preview' },
     { value: 'google/gemini-2.5-flash-lite', label: 'Gemini 2.5 Flash Lite' },
     { value: 'openai/gpt-5', label: 'GPT-5' },
     { value: 'openai/gpt-5-mini', label: 'GPT-5 Mini' },
+    { value: 'openai/gpt-5.2', label: 'GPT-5.2 (новейший)' },
   ],
 };
+
+// Проверка наличия API ключей из env (для подсказок в UI)
+const envConfiguredProviders = ['perplexity', 'anthropic', 'lovable'];
 
 const providerLabels: Record<string, string> = {
   perplexity: 'Perplexity',
@@ -115,8 +124,9 @@ const Providers = () => {
       return;
     }
 
-    // For Lovable AI, API key is not required (uses LOVABLE_API_KEY from env)
-    if (newProvider.provider_type !== 'lovable' && !newProvider.api_key.trim()) {
+    // API key is optional for providers with pre-configured env keys (perplexity, anthropic, lovable)
+    const isEnvConfigured = envConfiguredProviders.includes(newProvider.provider_type);
+    if (!isEnvConfigured && !newProvider.api_key.trim()) {
       toast({
         title: 'Ошибка',
         description: 'Введите API ключ',
@@ -125,11 +135,14 @@ const Providers = () => {
       return;
     }
 
+    // If API key is empty but provider is env-configured, store null (will use env key)
+    const apiKeyToStore = newProvider.api_key.trim() || null;
+    
     const { error } = await supabase.from('ai_providers').insert({
       name: newProvider.name,
       provider_type: newProvider.provider_type,
       default_model: newProvider.default_model,
-      api_key: newProvider.provider_type === 'lovable' ? null : newProvider.api_key,
+      api_key: apiKeyToStore,
     });
 
     if (error) {
@@ -286,47 +299,58 @@ const Providers = () => {
                   </Select>
                 </div>
                 
-                {newProvider.provider_type !== 'lovable' && (
-                  <div className="space-y-2">
-                    <Label htmlFor="api_key">API Ключ</Label>
-                    <div className="relative">
-                      <Input
-                        id="api_key"
-                        type={showApiKey ? 'text' : 'password'}
-                        placeholder={
-                          newProvider.provider_type === 'anthropic' 
-                            ? 'sk-ant-...' 
-                            : newProvider.provider_type === 'openai'
-                            ? 'sk-...'
-                            : 'pplx-...'
-                        }
-                        value={newProvider.api_key}
-                        onChange={(e) => setNewProvider({ ...newProvider, api_key: e.target.value })}
-                        className="pr-10"
-                      />
-                      <Button
-                        type="button"
-                        variant="ghost"
-                        size="icon"
-                        className="absolute right-0 top-0 h-full px-3"
-                        onClick={() => setShowApiKey(!showApiKey)}
-                      >
-                        {showApiKey ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
-                      </Button>
-                    </div>
-                    <p className="text-xs text-muted-foreground">
-                      Ключ будет храниться в зашифрованном виде
+                {/* Show env-configured notice for supported providers */}
+                {envConfiguredProviders.includes(newProvider.provider_type) && (
+                  <div className="rounded-md bg-blue-50 dark:bg-blue-950 border border-blue-200 dark:border-blue-800 p-3">
+                    <p className="text-sm text-blue-800 dark:text-blue-200">
+                      ✓ API ключ {providerLabels[newProvider.provider_type]} уже настроен в системе.
+                    </p>
+                    <p className="text-xs text-blue-600 dark:text-blue-400 mt-1">
+                      Вы можете оставить поле пустым или ввести свой ключ.
                     </p>
                   </div>
                 )}
 
-                {newProvider.provider_type === 'lovable' && (
-                  <div className="rounded-md bg-muted p-3">
-                    <p className="text-sm text-muted-foreground">
-                      Lovable AI использует встроенный API ключ и не требует дополнительной настройки.
-                    </p>
+                {/* API Key input - always show, but optional for env-configured providers */}
+                <div className="space-y-2">
+                  <Label htmlFor="api_key">
+                    API Ключ {envConfiguredProviders.includes(newProvider.provider_type) && (
+                      <span className="text-muted-foreground text-xs">(опционально)</span>
+                    )}
+                  </Label>
+                  <div className="relative">
+                    <Input
+                      id="api_key"
+                      type={showApiKey ? 'text' : 'password'}
+                      placeholder={
+                        newProvider.provider_type === 'anthropic' 
+                          ? 'sk-ant-... (опционально)' 
+                          : newProvider.provider_type === 'openai'
+                          ? 'sk-...'
+                          : newProvider.provider_type === 'perplexity'
+                          ? 'pplx-... (опционально)'
+                          : 'Оставьте пустым для использования системного ключа'
+                      }
+                      value={newProvider.api_key}
+                      onChange={(e) => setNewProvider({ ...newProvider, api_key: e.target.value })}
+                      className="pr-10"
+                    />
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="icon"
+                      className="absolute right-0 top-0 h-full px-3"
+                      onClick={() => setShowApiKey(!showApiKey)}
+                    >
+                      {showApiKey ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+                    </Button>
                   </div>
-                )}
+                  <p className="text-xs text-muted-foreground">
+                    {envConfiguredProviders.includes(newProvider.provider_type) 
+                      ? 'Если пусто — будет использован системный ключ' 
+                      : 'Ключ будет храниться в зашифрованном виде'}
+                  </p>
+                </div>
 
                 <div className="space-y-2">
                   <Label htmlFor="model">Модель по умолчанию</Label>
@@ -404,8 +428,10 @@ const Providers = () => {
                           <Key className="h-3 w-3" />
                           {provider.api_key_masked}
                         </span>
-                      ) : provider.provider_type === 'lovable' ? (
-                        <span className="text-sm text-muted-foreground">Встроенный</span>
+                      ) : envConfiguredProviders.includes(provider.provider_type) ? (
+                        <Badge variant="outline" className="text-xs bg-blue-50 dark:bg-blue-950 text-blue-700 dark:text-blue-300 border-blue-200 dark:border-blue-800">
+                          Системный
+                        </Badge>
                       ) : (
                         <span className="text-sm text-muted-foreground">—</span>
                       )}
