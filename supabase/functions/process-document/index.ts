@@ -720,21 +720,57 @@ serve(async (req) => {
       if (fileType.includes('text') || doc.file_name?.endsWith('.txt') || doc.file_name?.endsWith('.md')) {
         text = await fileData.text();
       } else if (fileType.includes('pdf')) {
-        const arrayBuffer = await fileData.arrayBuffer();
-        const bytes = new Uint8Array(arrayBuffer);
-        const decoder = new TextDecoder('utf-8', { fatal: false });
-        const rawText = decoder.decode(bytes);
+        console.log('Processing PDF with unpdf library...');
         
-        const textMatches = rawText.match(/\((.*?)\)/g);
-        if (textMatches) {
-          text = textMatches
-            .map(m => m.slice(1, -1))
-            .filter(t => t.length > 2 && /[a-zA-Zа-яА-Я]/.test(t))
-            .join(' ');
+        try {
+          // Dynamic import of unpdf for proper PDF text extraction
+          const unpdf = await import("https://esm.sh/unpdf@0.12.1");
+          
+          const arrayBuffer = await fileData.arrayBuffer();
+          const pdfData = new Uint8Array(arrayBuffer);
+          
+          console.log(`PDF file size: ${pdfData.length} bytes`);
+          
+          const pdf = await unpdf.getDocumentProxy(pdfData);
+          const result = await unpdf.extractText(pdf, { 
+            mergePages: true 
+          });
+          
+          const extractedText = typeof result === 'string' ? result : (result.text || '');
+          const totalPages = typeof result === 'object' && result.totalPages ? result.totalPages : 'unknown';
+          
+          console.log(`Extracted text from ${totalPages} PDF pages, raw length: ${extractedText.length}`);
+          
+          // Clean up PDF extraction artifacts
+          text = extractedText
+            .replace(/\x00/g, '')           // Remove null bytes
+            .replace(/[\uFFFD]/g, '')       // Remove replacement characters
+            .replace(/\s{3,}/g, '\n\n')     // Convert multiple spaces to paragraphs
+            .trim();
+            
+          console.log(`Cleaned text length: ${text.length}`);
+          
+        } catch (pdfError) {
+          console.error('PDF extraction with unpdf failed:', pdfError);
+          console.log('Falling back to basic PDF extraction...');
+          
+          // Fallback to old method for compatibility
+          const arrayBuffer = await fileData.arrayBuffer();
+          const bytes = new Uint8Array(arrayBuffer);
+          const decoder = new TextDecoder('utf-8', { fatal: false });
+          const rawText = decoder.decode(bytes);
+          
+          const textMatches = rawText.match(/\((.*?)\)/g);
+          if (textMatches) {
+            text = textMatches
+              .map(m => m.slice(1, -1))
+              .filter(t => t.length > 2 && /[a-zA-Zа-яА-Я]/.test(t))
+              .join(' ');
+          }
         }
         
         if (text.length < 100) {
-          text = `[PDF Document: ${doc.file_name}] - Please upload a text version of this document for better results.`;
+          text = `[PDF Document: ${doc.file_name}] - Не удалось извлечь текст из PDF. Попробуйте загрузить текстовую версию документа.`;
         }
       } else {
         try {
