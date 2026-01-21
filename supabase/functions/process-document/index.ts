@@ -48,6 +48,28 @@ const BUSINESS_PATTERNS = {
   bulletPoint: /^[•\-\*]\s+(.+)$/m,
 };
 
+// ============= STRUCTURE PATTERNS FOR COURT DOCUMENTS =============
+
+const COURT_PATTERNS = {
+  // Заголовок решения: "РЕШЕНИЕ", "ОПРЕДЕЛЕНИЕ", "ПОСТАНОВЛЕНИЕ"
+  decision: /^(РЕШЕНИЕ|ОПРЕДЕЛЕНИЕ|ПОСТАНОВЛЕНИЕ|ПРИГОВОР)$/im,
+  
+  // Секции судебного решения: "установил:", "УСТАНОВИЛ:", "решил:", "РЕШИЛ:"
+  section: /^(УСТАНОВИЛ|РЕШИЛ|ПОСТАНОВИЛ|ОПРЕДЕЛИЛ)\s*:?\s*$/im,
+  
+  // Резолютивная часть
+  resolutive: /^(На основании изложенного|Руководствуясь|С учетом изложенного)/im,
+  
+  // Ссылки на нормы права: "пункт 1 статьи 1486 ГК РФ", "статьи 110, 167-170 АПК РФ"
+  lawReference: /(?:пункт(?:а|ов|у|ом|е|ами)?\s+\d+(?:\s*,\s*\d+)*\s+)?статьи?\s+\d+(?:\.\d+)?(?:\s*,\s*\d+(?:\.\d+)?)*\s+[A-ZА-ЯЁ]+\s+РФ/gi,
+  
+  // Даты: "5 ноября 2025 года", "от 12.01.2025"
+  date: /(\d{1,2}\s+(?:января|февраля|марта|апреля|мая|июня|июля|августа|сентября|октября|ноября|декабря)\s+\d{4}\s*года?|\d{2}\.\d{2}\.\d{4})/gi,
+  
+  // Номер дела: "Дело № СИП-833/2024", "дело № А40-12345/2024"  
+  caseNumber: /Дело\s*№?\s*([A-ZА-ЯЁ0-9\-\/]+)/gi,
+};
+
 // Типы чанков для метаданных
 type ChunkType = 'header' | 'article' | 'paragraph' | 'point' | 'section' | 'general';
 
@@ -75,19 +97,35 @@ interface BusinessDocumentStructure {
 
 // ============= DOCUMENT TYPE DETECTION =============
 
-function detectDocumentType(text: string): 'legal' | 'contract' | 'business' | 'article' | 'general' {
+function detectDocumentType(text: string): 'legal' | 'contract' | 'business' | 'court' | 'article' | 'general' {
   const textSample = text.slice(0, 15000); // Анализируем первые 15к символов
   
-  // Ключевые слова для юридических документов
+  // Ключевые слова для судебных документов
+  const courtPatterns = [
+    /\bРЕШЕНИЕ\b/g,
+    /\bОПРЕДЕЛЕНИЕ\b/g,
+    /\bПОСТАНОВЛЕНИЕ\b/g,
+    /\bУСТАНОВИЛ\s*:/gi,
+    /\bРЕШИЛ\s*:/gi,
+    /суд\s+по\s+интеллектуальным\s+правам/gi,
+    /арбитражн\w+\s+суд/gi,
+    /именем\s+российской\s+федерации/gi,
+    /истец/gi,
+    /ответчик/gi,
+    /правообладател/gi,
+    /товарн\w+\s+знак/gi,
+    /правовая\s+охрана/gi,
+    /ГК\s+РФ/gi,
+    /АПК\s+РФ/gi,
+    /Дело\s*№/gi,
+  ];
+  
+  // Ключевые слова для юридических документов (законы, кодексы)
   const legalPatterns = [
-    /статья\s+\d+/gi,
+    /^Статья\s+\d+/gim,  // Статьи в начале строки - сильный сигнал
     /глава\s+\d+/gi,
     /кодекс/gi,
     /федеральн\w+\s+закон/gi,
-    /гражданск\w+\s+кодекс/gi,
-    /трудов\w+\s+кодекс/gi,
-    /уголовн\w+\s+кодекс/gi,
-    /налогов\w+\s+кодекс/gi,
     /раздел\s+[ivx\d]+/gi,
   ];
   
@@ -101,9 +139,15 @@ function detectDocumentType(text: string): 'legal' | 'contract' | 'business' | '
     /подрядчик/gi,
   ];
   
+  let courtScore = 0;
   let legalScore = 0;
   let contractScore = 0;
   let businessScore = 0;
+  
+  for (const pattern of courtPatterns) {
+    const matches = textSample.match(pattern);
+    if (matches) courtScore += matches.length;
+  }
   
   for (const pattern of legalPatterns) {
     const matches = textSample.match(pattern);
@@ -115,7 +159,7 @@ function detectDocumentType(text: string): 'legal' | 'contract' | 'business' | '
     if (matches) contractScore += matches.length;
   }
   
-  // Проверяем наличие структуры статей
+  // Проверяем наличие структуры статей В НАЧАЛЕ СТРОКИ (для кодексов)
   const articleMatches = text.match(/^Статья\s+\d+/gim);
   if (articleMatches && articleMatches.length >= 3) {
     legalScore += 10;
@@ -128,11 +172,14 @@ function detectDocumentType(text: string): 'legal' | 'contract' | 'business' | '
   if (mainSectionMatches) businessScore += mainSectionMatches.length * 2;
   if (subSectionMatches) businessScore += subSectionMatches.length;
   
-  console.log(`Document type detection - Legal: ${legalScore}, Contract: ${contractScore}, Business: ${businessScore}`);
+  console.log(`Document type detection - Court: ${courtScore}, Legal: ${legalScore}, Contract: ${contractScore}, Business: ${businessScore}`);
   
-  if (legalScore >= 5) return 'legal';
+  // Судебные документы имеют приоритет над legal (т.к. содержат ссылки на статьи, но это не кодекс)
+  if (courtScore >= 8) return 'court';
+  if (legalScore >= 10 && articleMatches && articleMatches.length >= 3) return 'legal';
   if (contractScore >= 3) return 'contract';
   if (businessScore >= 4) return 'business';
+  if (courtScore >= 4) return 'court'; // Более мягкий порог для судебных документов
   
   return 'general';
 }
@@ -483,6 +530,215 @@ function parseBusinessDocument(text: string): StructuredChunk[] {
   return chunks;
 }
 
+// ============= COURT DOCUMENT PARSER =============
+
+interface CourtDocumentStructure {
+  caseNumber: string | null;
+  court: string | null;
+  currentSection: string | null;
+}
+
+function parseCourtDocument(text: string): StructuredChunk[] {
+  const chunks: StructuredChunk[] = [];
+  
+  // Извлекаем номер дела
+  const caseMatch = text.match(/Дело\s*№?\s*([A-ZА-ЯЁ0-9\-\/]+)/i);
+  const caseNumber = caseMatch ? caseMatch[1] : null;
+  
+  // Определяем суд
+  const courtMatch = text.match(/(Суд\s+по\s+интеллектуальным\s+правам|Арбитражн\w+\s+суд\s+[^\n,]+)/i);
+  const court = courtMatch ? courtMatch[1].trim() : null;
+  
+  const structure: CourtDocumentStructure = {
+    caseNumber,
+    court,
+    currentSection: 'Вводная часть',
+  };
+  
+  // Разбиваем по секциям судебного решения
+  const sections: { name: string; content: string }[] = [];
+  
+  // Паттерны секций
+  const sectionPatterns = [
+    { pattern: /УСТАНОВИЛ\s*:/i, name: 'Описательная часть (УСТАНОВИЛ)' },
+    { pattern: /РЕШИЛ\s*:/i, name: 'Резолютивная часть (РЕШИЛ)' },
+    { pattern: /ПОСТАНОВИЛ\s*:/i, name: 'Резолютивная часть (ПОСТАНОВИЛ)' },
+    { pattern: /ОПРЕДЕЛИЛ\s*:/i, name: 'Резолютивная часть (ОПРЕДЕЛИЛ)' },
+    { pattern: /На основании изложенного/i, name: 'Резолютивная часть' },
+    { pattern: /Руководствуясь статьями?/i, name: 'Правовое обоснование' },
+  ];
+  
+  // Разбиваем текст на части
+  let remainingText = text;
+  let introEnd = text.length;
+  
+  for (const { pattern, name } of sectionPatterns) {
+    const match = remainingText.match(pattern);
+    if (match && match.index !== undefined) {
+      introEnd = Math.min(introEnd, match.index);
+    }
+  }
+  
+  // Вводная часть
+  const intro = text.slice(0, introEnd).trim();
+  if (intro.length > 100) {
+    sections.push({ name: 'Вводная часть', content: intro });
+  }
+  
+  // Находим все секции
+  let lastEnd = introEnd;
+  const sectionMatches: { index: number; name: string; pattern: RegExp }[] = [];
+  
+  for (const { pattern, name } of sectionPatterns) {
+    const match = text.match(pattern);
+    if (match && match.index !== undefined) {
+      sectionMatches.push({ index: match.index, name, pattern });
+    }
+  }
+  
+  // Сортируем по позиции
+  sectionMatches.sort((a, b) => a.index - b.index);
+  
+  for (let i = 0; i < sectionMatches.length; i++) {
+    const current = sectionMatches[i];
+    const next = sectionMatches[i + 1];
+    const endIndex = next ? next.index : text.length;
+    const sectionContent = text.slice(current.index, endIndex).trim();
+    
+    if (sectionContent.length > 100) {
+      sections.push({ name: current.name, content: sectionContent });
+    }
+  }
+  
+  // Если секций мало, разбиваем по ссылкам на нормы права
+  if (sections.length < 2) {
+    // Fallback: разбиваем по абзацам с извлечением ссылок на нормы
+    return parseCourtDocumentByReferences(text, caseNumber, court);
+  }
+  
+  // Создаём чанки из секций
+  for (const section of sections) {
+    // Если секция большая, разбиваем на подчанки
+    if (section.content.length > 3000) {
+      const subChunks = splitCourtSectionByParagraphs(section.content, section.name, caseNumber, court);
+      chunks.push(...subChunks);
+    } else {
+      chunks.push({
+        content: section.content,
+        section_title: section.name,
+        article_number: caseNumber,
+        chunk_type: 'section',
+        parent_context: court ? `${court} > Дело ${caseNumber}` : `Дело ${caseNumber}`,
+      });
+    }
+  }
+  
+  return chunks;
+}
+
+function splitCourtSectionByParagraphs(
+  content: string,
+  sectionName: string,
+  caseNumber: string | null,
+  court: string | null
+): StructuredChunk[] {
+  const chunks: StructuredChunk[] = [];
+  const parentContext = court ? `${court} > Дело ${caseNumber}` : `Дело ${caseNumber}`;
+  
+  // Разбиваем по абзацам (двойной перенос строки)
+  const paragraphs = content.split(/\n\s*\n/).filter(p => p.trim().length > 50);
+  
+  let currentChunk = '';
+  let chunkIndex = 1;
+  
+  for (const para of paragraphs) {
+    if ((currentChunk + '\n\n' + para).length > 2500 && currentChunk.length > 200) {
+      // Извлекаем ссылки на нормы из чанка
+      const lawRefs = currentChunk.match(COURT_PATTERNS.lawReference);
+      const lawRefsStr = lawRefs ? lawRefs.slice(0, 3).join(', ') : null;
+      
+      chunks.push({
+        content: currentChunk.trim(),
+        section_title: lawRefsStr ? `${sectionName} (${lawRefsStr})` : sectionName,
+        article_number: caseNumber,
+        chunk_type: 'paragraph',
+        parent_context: `${parentContext} > ${sectionName} > Часть ${chunkIndex}`,
+      });
+      currentChunk = para;
+      chunkIndex++;
+    } else {
+      currentChunk = currentChunk ? currentChunk + '\n\n' + para : para;
+    }
+  }
+  
+  // Последний чанк
+  if (currentChunk.trim().length > 100) {
+    const lawRefs = currentChunk.match(COURT_PATTERNS.lawReference);
+    const lawRefsStr = lawRefs ? lawRefs.slice(0, 3).join(', ') : null;
+    
+    chunks.push({
+      content: currentChunk.trim(),
+      section_title: lawRefsStr ? `${sectionName} (${lawRefsStr})` : sectionName,
+      article_number: caseNumber,
+      chunk_type: 'paragraph',
+      parent_context: `${parentContext} > ${sectionName} > Часть ${chunkIndex}`,
+    });
+  }
+  
+  return chunks;
+}
+
+function parseCourtDocumentByReferences(
+  text: string,
+  caseNumber: string | null,
+  court: string | null
+): StructuredChunk[] {
+  const chunks: StructuredChunk[] = [];
+  const parentContext = court ? `${court} > Дело ${caseNumber}` : `Дело ${caseNumber}`;
+  
+  // Разбиваем по абзацам
+  const paragraphs = text.split(/\n\s*\n/).filter(p => p.trim().length > 50);
+  
+  let currentChunk = '';
+  let chunkIndex = 1;
+  
+  for (const para of paragraphs) {
+    if ((currentChunk + '\n\n' + para).length > 2500 && currentChunk.length > 200) {
+      // Извлекаем ссылки на нормы из чанка
+      const lawRefs = currentChunk.match(COURT_PATTERNS.lawReference);
+      const lawRefsStr = lawRefs ? lawRefs.slice(0, 3).join(', ') : null;
+      
+      chunks.push({
+        content: currentChunk.trim(),
+        section_title: lawRefsStr || 'Судебное решение',
+        article_number: caseNumber,
+        chunk_type: 'paragraph',
+        parent_context: `${parentContext} > Часть ${chunkIndex}`,
+      });
+      currentChunk = para;
+      chunkIndex++;
+    } else {
+      currentChunk = currentChunk ? currentChunk + '\n\n' + para : para;
+    }
+  }
+  
+  // Последний чанк
+  if (currentChunk.trim().length > 100) {
+    const lawRefs = currentChunk.match(COURT_PATTERNS.lawReference);
+    const lawRefsStr = lawRefs ? lawRefs.slice(0, 3).join(', ') : null;
+    
+    chunks.push({
+      content: currentChunk.trim(),
+      section_title: lawRefsStr || 'Судебное решение',
+      article_number: caseNumber,
+      chunk_type: 'paragraph',
+      parent_context: `${parentContext} > Часть ${chunkIndex}`,
+    });
+  }
+  
+  return chunks;
+}
+
 // ============= FALLBACK: SIMPLE CHUNKING FOR GENERAL DOCUMENTS =============
 
 function chunkTextSimple(text: string, chunkSize: number = 2000): StructuredChunk[] {
@@ -563,7 +819,16 @@ function processDocumentText(text: string, fileName: string): StructuredChunk[] 
   
   let chunks: StructuredChunk[];
   
-  if (docType === 'legal') {
+  if (docType === 'court') {
+    chunks = parseCourtDocument(text);
+    console.log(`Parsed ${chunks.length} structured chunks from court document`);
+    
+    // Fallback если парсинг судебного документа дал мало результатов
+    if (chunks.length < 3 && text.length > 1000) {
+      console.log('Court parsing yielded few results, falling back to simple chunking');
+      chunks = chunkTextSimple(text);
+    }
+  } else if (docType === 'legal') {
     chunks = parseStructuredDocument(text);
     console.log(`Parsed ${chunks.length} structured chunks from legal document`);
     
