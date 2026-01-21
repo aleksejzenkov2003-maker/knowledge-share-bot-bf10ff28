@@ -24,6 +24,7 @@ export interface DepartmentChatMessage {
       article?: string;
       relevance: number;
     }>;
+    perplexity_citations?: string[]; // URLs from Perplexity API
     smart_search?: boolean;
     user_name?: string;
     agent_name?: string;
