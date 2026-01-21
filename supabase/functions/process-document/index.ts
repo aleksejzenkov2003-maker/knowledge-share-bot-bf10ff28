@@ -71,7 +71,10 @@ const COURT_PATTERNS = {
 };
 
 // Типы чанков для метаданных
-type ChunkType = 'header' | 'article' | 'paragraph' | 'point' | 'section' | 'general';
+type ChunkType = 'header' | 'article' | 'paragraph' | 'point' | 'section' | 'general' | 'registration';
+
+// Типы документов (включая ручные)
+type DocumentType = 'legal' | 'contract' | 'business' | 'court' | 'article' | 'general' | 'registration_decision' | 'auto';
 
 interface StructuredChunk {
   content: string;
@@ -809,17 +812,142 @@ function chunkTextSimple(text: string, chunkSize: number = 2000): StructuredChun
   return finalChunks;
 }
 
+// ============= REGISTRATION DECISION PARSER (Роспатент) =============
+
+function parseRegistrationDecision(text: string): StructuredChunk[] {
+  const chunks: StructuredChunk[] = [];
+  
+  // Паттерны для решений Роспатента
+  const headerPatterns = {
+    decision: /^(РЕШЕНИЕ|УВЕДОМЛЕНИЕ|ЗАКЛЮЧЕНИЕ|ОТКАЗ)/im,
+    registration: /регистрации?\s*(?:№|номер)?\s*(\d+)/i,
+    application: /заявк\w*\s*(?:№|номер)?\s*([\d\-]+)/i,
+    trademark: /товарн\w+\s+знак/i,
+  };
+  
+  // Секции документа
+  const sectionMarkers = [
+    { pattern: /^(РЕЗОЛЮТИВНАЯ ЧАСТЬ|РЕШЕНИЕ ПО ЗАЯВКЕ)/im, name: 'Резолютивная часть' },
+    { pattern: /^(ОПИСАНИЕ ТОВАРНОГО ЗНАКА|ОПИСАНИЕ ОБОЗНАЧЕНИЯ)/im, name: 'Описание товарного знака' },
+    { pattern: /^(ПЕРЕЧЕНЬ ТОВАРОВ И УСЛУГ|КЛАССЫ МКТУ)/im, name: 'Товары и услуги' },
+    { pattern: /^(ПРАВОВОЕ ОБОСНОВАНИЕ|ОБОСНОВАНИЕ)/im, name: 'Правовое обоснование' },
+    { pattern: /^(ЗАКЛЮЧЕНИЕ ЭКСПЕРТА|ЭКСПЕРТИЗА)/im, name: 'Заключение эксперта' },
+    { pattern: /(на основании|руководствуясь).+?(ГК\s+РФ|гражданского\s+кодекса)/im, name: 'Правовые основания' },
+  ];
+  
+  const lines = text.split('\n');
+  let currentSection = 'Общие сведения';
+  let currentContent: string[] = [];
+  let registrationNumber: string | null = null;
+  let applicationNumber: string | null = null;
+  
+  // Извлекаем номера
+  const regMatch = text.match(headerPatterns.registration);
+  if (regMatch) registrationNumber = regMatch[1];
+  
+  const appMatch = text.match(headerPatterns.application);
+  if (appMatch) applicationNumber = appMatch[1];
+  
+  for (let i = 0; i < lines.length; i++) {
+    const line = lines[i].trim();
+    if (!line) continue;
+    
+    // Проверяем, является ли строка началом новой секции
+    let isNewSection = false;
+    let newSectionName = '';
+    
+    for (const marker of sectionMarkers) {
+      if (marker.pattern.test(line)) {
+        isNewSection = true;
+        newSectionName = marker.name;
+        break;
+      }
+    }
+    
+    if (isNewSection) {
+      // Сохраняем предыдущую секцию
+      if (currentContent.length > 0) {
+        const content = currentContent.join('\n').trim();
+        if (content.length > 50) {
+          chunks.push({
+            content,
+            section_title: currentSection,
+            article_number: registrationNumber || applicationNumber,
+            chunk_type: 'registration',
+            parent_context: `Решение Роспатента${registrationNumber ? ` №${registrationNumber}` : ''}`,
+          });
+        }
+      }
+      currentSection = newSectionName;
+      currentContent = [line];
+    } else {
+      currentContent.push(line);
+    }
+  }
+  
+  // Сохраняем последнюю секцию
+  if (currentContent.length > 0) {
+    const content = currentContent.join('\n').trim();
+    if (content.length > 50) {
+      chunks.push({
+        content,
+        section_title: currentSection,
+        article_number: registrationNumber || applicationNumber,
+        chunk_type: 'registration',
+        parent_context: `Решение Роспатента${registrationNumber ? ` №${registrationNumber}` : ''}`,
+      });
+    }
+  }
+  
+  // Если структурный парсинг не дал результатов, разбиваем по абзацам
+  if (chunks.length < 2) {
+    const paragraphs = text.split(/\n{2,}/);
+    let chunkIndex = 0;
+    
+    for (const para of paragraphs) {
+      const trimmed = para.trim();
+      if (trimmed.length > 100) {
+        chunks.push({
+          content: trimmed,
+          section_title: `Раздел ${++chunkIndex}`,
+          article_number: registrationNumber || applicationNumber,
+          chunk_type: 'registration',
+          parent_context: `Решение Роспатента${registrationNumber ? ` №${registrationNumber}` : ''}`,
+        });
+      }
+    }
+  }
+  
+  console.log(`Parsed ${chunks.length} chunks from registration decision`);
+  return chunks;
+}
+
 // ============= MAIN PROCESSING FUNCTION =============
 
-function processDocumentText(text: string, fileName: string): StructuredChunk[] {
-  console.log(`Processing document: ${fileName}, text length: ${text.length}`);
+function processDocumentText(text: string, fileName: string, manualType?: string): StructuredChunk[] {
+  console.log(`Processing document: ${fileName}, text length: ${text.length}, manual type: ${manualType || 'none'}`);
   
-  const docType = detectDocumentType(text);
-  console.log(`Detected document type: ${docType}`);
+  // Определяем тип документа: ручной или автоматический
+  let docType: DocumentType;
+  if (manualType && manualType !== 'auto') {
+    docType = manualType as DocumentType;
+    console.log(`Using manual document type: ${docType}`);
+  } else {
+    docType = detectDocumentType(text);
+    console.log(`Detected document type: ${docType}`);
+  }
   
   let chunks: StructuredChunk[];
   
-  if (docType === 'court') {
+  if (docType === 'registration_decision') {
+    chunks = parseRegistrationDecision(text);
+    console.log(`Parsed ${chunks.length} structured chunks from registration decision`);
+    
+    if (chunks.length < 3 && text.length > 1000) {
+      console.log('Registration decision parsing yielded few results, falling back to simple chunking');
+      chunks = chunkTextSimple(text);
+    }
+  } else if (docType === 'court') {
     chunks = parseCourtDocument(text);
     console.log(`Parsed ${chunks.length} structured chunks from court document`);
     
@@ -856,7 +984,8 @@ function processDocumentText(text: string, fileName: string): StructuredChunk[] 
   const headerChunks = chunks.filter(c => c.chunk_type === 'header').length;
   const sectionChunks = chunks.filter(c => c.chunk_type === 'section').length;
   const pointChunks = chunks.filter(c => c.chunk_type === 'point').length;
-  console.log(`Chunk types: articles=${articleChunks}, headers=${headerChunks}, sections=${sectionChunks}, points=${pointChunks}`);
+  const registrationChunks = chunks.filter(c => c.chunk_type === 'registration').length;
+  console.log(`Chunk types: articles=${articleChunks}, headers=${headerChunks}, sections=${sectionChunks}, points=${pointChunks}, registration=${registrationChunks}`);
   
   return chunks;
 }
@@ -1105,9 +1234,10 @@ serve(async (req) => {
       text = sanitizeText(text);
       console.log(`Extracted text length: ${text.length}`);
 
-      // Process document with hierarchical chunking
-      const structuredChunks = processDocumentText(text, doc.file_name || 'unknown');
-      console.log(`Created ${structuredChunks.length} structured chunks`);
+      // Process document with hierarchical chunking (use manual document_type if specified)
+      const manualType = doc.document_type || 'auto';
+      const structuredChunks = processDocumentText(text, doc.file_name || 'unknown', manualType);
+      console.log(`Created ${structuredChunks.length} structured chunks (manual type: ${manualType})`);
 
       // Delete existing chunks
       await supabase
