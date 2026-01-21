@@ -476,17 +476,23 @@ export function useChat(userId: string | undefined) {
         let metadata: { response_time_ms?: number; rag_context?: string[]; citations?: { index: number; document: string; section?: string; article?: string; relevance: number }[]; smart_search?: boolean } = {};
 
         if (reader) {
+          let buffer = ''; // Buffer for incomplete SSE chunks
+          
           while (true) {
             const { done, value } = await reader.read();
             if (done) break;
 
-            const chunk = decoder.decode(value, { stream: true });
-            const lines = chunk.split('\n');
+            buffer += decoder.decode(value, { stream: true });
+            const lines = buffer.split('\n');
+            
+            // Keep the last potentially incomplete line in the buffer
+            buffer = lines.pop() || '';
 
             for (const line of lines) {
               if (line.startsWith('data: ')) {
-                const data = line.slice(6);
+                const data = line.slice(6).trim();
                 if (data === '[DONE]') continue;
+                if (!data) continue;
 
                 try {
                   const parsed = JSON.parse(data);
@@ -509,8 +515,30 @@ export function useChat(userId: string | undefined) {
                     };
                   }
                 } catch {
-                  // Ignore parsing errors
+                  // Ignore parsing errors for incomplete JSON
                 }
+              }
+            }
+          }
+          
+          // Process any remaining data in buffer
+          if (buffer.startsWith('data: ')) {
+            const data = buffer.slice(6).trim();
+            if (data && data !== '[DONE]') {
+              try {
+                const parsed = JSON.parse(data);
+                if (parsed.type === 'content') {
+                  fullContent += parsed.content;
+                } else if (parsed.type === 'metadata') {
+                  metadata = {
+                    response_time_ms: parsed.response_time_ms,
+                    rag_context: parsed.rag_context,
+                    citations: parsed.citations,
+                    smart_search: parsed.smart_search,
+                  };
+                }
+              } catch {
+                // Ignore
               }
             }
           }
