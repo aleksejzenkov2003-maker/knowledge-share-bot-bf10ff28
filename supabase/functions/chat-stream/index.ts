@@ -23,8 +23,9 @@ interface ChatRequest {
   model?: string;
   provider_id?: string;
   conversation_id?: string;
-  message_history?: { role: string; content: string }[];
+  message_history?: { role: string; content: string; agent_name?: string }[];
   attachments?: AttachmentInput[];
+  is_department_chat?: boolean;
 }
 
 interface ProviderConfig {
@@ -68,7 +69,7 @@ serve(async (req) => {
       userId = user?.id || null;
     }
 
-    const { message, role_id, department_id, model, provider_id, message_history, attachments }: ChatRequest = await req.json();
+    const { message, role_id, department_id, model, provider_id, message_history, attachments, is_department_chat }: ChatRequest = await req.json();
 
     if (!message && (!attachments || attachments.length === 0)) {
       return new Response(
@@ -478,12 +479,20 @@ serve(async (req) => {
     
     let simpleMessages: SimpleMessage[];
     
-    if (isProjectMode && message_history && message_history.length > 0) {
+    // Use message history for project mode OR department chat
+    if ((isProjectMode || is_department_chat) && message_history && message_history.length > 0) {
       simpleMessages = message_history.map((msg, idx) => {
-        if (idx === message_history.length - 1 && msg.role === 'user' && ragContext.length > 0) {
-          return { role: msg.role, content: `КОНТЕКСТ ИЗ ДОКУМЕНТОВ:\n${ragContext.join('\n\n---\n\n')}\n\n---\n\nВОПРОС ПОЛЬЗОВАТЕЛЯ: ${msg.content}` };
+        // For department chat, prefix assistant messages with agent name for context
+        let content = msg.content;
+        if (is_department_chat && msg.role === 'assistant' && (msg as { agent_name?: string }).agent_name) {
+          content = `[${(msg as { agent_name?: string }).agent_name}]: ${content}`;
         }
-        return msg;
+        
+        // Add RAG context to the last user message
+        if (idx === message_history.length - 1 && msg.role === 'user' && ragContext.length > 0) {
+          return { role: msg.role, content: `КОНТЕКСТ ИЗ ДОКУМЕНТОВ:\n${ragContext.join('\n\n---\n\n')}\n\n---\n\nВОПРОС ПОЛЬЗОВАТЕЛЯ: ${content}` };
+        }
+        return { role: msg.role, content };
       });
     } else {
       simpleMessages = [{ role: 'user', content: finalPrompt }];
