@@ -1037,6 +1037,62 @@ serve(async (req) => {
         if (text.length < 100) {
           text = `[PDF Document: ${doc.file_name}] - Не удалось извлечь текст из PDF. Попробуйте загрузить текстовую версию документа.`;
         }
+      } else if (
+        fileType.includes('word') || 
+        fileType.includes('officedocument.wordprocessingml') ||
+        doc.file_name?.toLowerCase().endsWith('.docx') ||
+        doc.file_name?.toLowerCase().endsWith('.doc')
+      ) {
+        console.log('Processing DOCX/Word document...');
+        
+        try {
+          const arrayBuffer = await fileData.arrayBuffer();
+          const bytes = new Uint8Array(arrayBuffer);
+          
+          // DOCX - это ZIP архив. Используем библиотеку для распаковки и парсинга
+          const JSZip = (await import("https://esm.sh/jszip@3.10.1")).default;
+          const zip = await JSZip.loadAsync(bytes);
+          
+          // Главный контент находится в word/document.xml
+          const documentXml = await zip.file("word/document.xml")?.async("string");
+          
+          if (documentXml) {
+            // Восстанавливаем абзацы - каждый <w:p> это параграф
+            const paragraphs: string[] = [];
+            const pMatches = documentXml.match(/<w:p[^>]*>[\s\S]*?<\/w:p>/g) || [];
+            
+            for (const pMatch of pMatches) {
+              const textParts = pMatch.match(/<w:t[^>]*>([^<]*)<\/w:t>/g) || [];
+              const paraText = textParts
+                .map(t => t.replace(/<w:t[^>]*>/, '').replace(/<\/w:t>/, ''))
+                .join('');
+              if (paraText.trim()) {
+                paragraphs.push(paraText.trim());
+              }
+            }
+            
+            text = paragraphs.join('\n\n');
+            
+            console.log(`Extracted ${paragraphs.length} paragraphs from DOCX, text length: ${text.length}`);
+          }
+          
+          // Декодируем HTML entities если есть
+          text = text
+            .replace(/&lt;/g, '<')
+            .replace(/&gt;/g, '>')
+            .replace(/&amp;/g, '&')
+            .replace(/&quot;/g, '"')
+            .replace(/&apos;/g, "'")
+            .replace(/&#(\d+);/g, (_, code) => String.fromCharCode(parseInt(code)));
+            
+        } catch (docxError) {
+          console.error('DOCX extraction failed:', docxError);
+          text = `[DOCX Document: ${doc.file_name}] - Не удалось извлечь текст. Ошибка: ${docxError}`;
+        }
+        
+        if (text.length < 100) {
+          text = `[DOCX Document: ${doc.file_name}] - Не удалось извлечь текст из документа.`;
+        }
       } else {
         try {
           text = await fileData.text();
