@@ -481,19 +481,32 @@ serve(async (req) => {
     
     // Use message history for project mode OR department chat
     if ((isProjectMode || is_department_chat) && message_history && message_history.length > 0) {
-      simpleMessages = message_history.map((msg, idx) => {
+      // Build messages from history
+      simpleMessages = message_history.map((msg) => {
         // For department chat, prefix assistant messages with agent name for context
         let content = msg.content;
         if (is_department_chat && msg.role === 'assistant' && (msg as { agent_name?: string }).agent_name) {
           content = `[${(msg as { agent_name?: string }).agent_name}]: ${content}`;
         }
-        
-        // Add RAG context to the last user message
-        if (idx === message_history.length - 1 && msg.role === 'user' && ragContext.length > 0) {
-          return { role: msg.role, content: `КОНТЕКСТ ИЗ ДОКУМЕНТОВ:\n${ragContext.join('\n\n---\n\n')}\n\n---\n\nВОПРОС ПОЛЬЗОВАТЕЛЯ: ${content}` };
-        }
         return { role: msg.role, content };
       });
+      
+      // CRITICAL: Always ensure current user message is at the end
+      // The message_history may not include the current message being sent
+      const lastMessage = simpleMessages[simpleMessages.length - 1];
+      if (lastMessage?.role !== 'user' || lastMessage?.content !== message) {
+        // Add current user message with RAG context
+        const userContent = ragContext.length > 0
+          ? `КОНТЕКСТ ИЗ ДОКУМЕНТОВ:\n${ragContext.join('\n\n---\n\n')}\n\n---\n\nВОПРОС ПОЛЬЗОВАТЕЛЯ: ${message}`
+          : message;
+        simpleMessages.push({ role: 'user', content: userContent });
+      } else if (ragContext.length > 0) {
+        // Last message is the current user message, add RAG context to it
+        simpleMessages[simpleMessages.length - 1] = {
+          role: 'user',
+          content: `КОНТЕКСТ ИЗ ДОКУМЕНТОВ:\n${ragContext.join('\n\n---\n\n')}\n\n---\n\nВОПРОС ПОЛЬЗОВАТЕЛЯ: ${lastMessage.content}`
+        };
+      }
     } else {
       simpleMessages = [{ role: 'user', content: finalPrompt }];
     }
