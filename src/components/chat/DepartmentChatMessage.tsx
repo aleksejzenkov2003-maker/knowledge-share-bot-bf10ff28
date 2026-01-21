@@ -64,10 +64,13 @@ export const DepartmentChatMessage: React.FC<DepartmentChatMessageProps> = ({
         </div>
 
         {/* Message content */}
-        <div className="prose prose-sm dark:prose-invert max-w-none">
+        <div className="prose prose-sm dark:prose-invert max-w-none break-words">
           {isAssistant ? (
             <ReactMarkdown
               components={{
+                h1: ({ children }) => <h1 className="text-xl font-bold mt-4 mb-2">{children}</h1>,
+                h2: ({ children }) => <h2 className="text-lg font-semibold mt-3 mb-2">{children}</h2>,
+                h3: ({ children }) => <h3 className="text-base font-semibold mt-2 mb-1">{children}</h3>,
                 p: ({ children }) => <p className="mb-2 last:mb-0">{children}</p>,
                 ul: ({ children }) => <ul className="mb-2 list-disc pl-4">{children}</ul>,
                 ol: ({ children }) => <ol className="mb-2 list-decimal pl-4">{children}</ol>,
@@ -80,7 +83,7 @@ export const DepartmentChatMessage: React.FC<DepartmentChatMessageProps> = ({
                     <code className="block p-3 rounded bg-muted font-mono text-sm overflow-x-auto">{children}</code>
                   );
                 },
-                pre: ({ children }) => <pre className="mb-2">{children}</pre>,
+                pre: ({ children }) => <pre className="mb-2 overflow-x-auto">{children}</pre>,
                 blockquote: ({ children }) => (
                   <blockquote className="border-l-2 border-primary pl-4 italic my-2">{children}</blockquote>
                 ),
@@ -92,9 +95,12 @@ export const DepartmentChatMessage: React.FC<DepartmentChatMessageProps> = ({
                 strong: ({ children }) => (
                   <strong className="font-semibold text-primary">{children}</strong>
                 ),
+                em: ({ children }) => (
+                  <em className="italic">{children}</em>
+                ),
               }}
             >
-              {(message.content || '...').replace(/\[(\d+)\]/g, '**[$1]**')}
+              {message.content || '...'}
             </ReactMarkdown>
           ) : (
             <p className="whitespace-pre-wrap">{message.content}</p>
