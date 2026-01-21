@@ -601,6 +601,10 @@ serve(async (req) => {
 
       case 'perplexity':
       default:
+        // Note: sonar-deep-research may take longer and work differently
+        const isDeepResearch = finalModel.includes('deep-research');
+        console.log(`Perplexity request: model=${finalModel}, isDeepResearch=${isDeepResearch}`);
+        
         streamResponse = await fetch('https://api.perplexity.ai/chat/completions', {
           method: 'POST',
           headers: {
@@ -610,9 +614,11 @@ serve(async (req) => {
           body: JSON.stringify({
             model: finalModel,
             messages: [{ role: 'system', content: enhancedSystemPrompt }, ...simpleMessages],
-            stream: true,
+            stream: !isDeepResearch, // Deep research doesn't support streaming well
           }),
         });
+        
+        console.log(`Perplexity response status: ${streamResponse.status}`);
         break;
     }
 
@@ -622,14 +628,72 @@ serve(async (req) => {
       throw new Error(`Provider error: ${streamResponse.status}`);
     }
 
+    const encoder = new TextEncoder();
+    const decoder = new TextDecoder();
+    let fullContent = '';
+
+    // Check if this is a non-streaming response (e.g., Perplexity deep-research)
+    const contentType = streamResponse.headers.get('content-type') || '';
+    const isNonStreaming = contentType.includes('application/json') || 
+      (providerConfig.provider_type === 'perplexity' && finalModel.includes('deep-research'));
+    
+    if (isNonStreaming) {
+      // Handle non-streaming JSON response
+      console.log('Handling non-streaming response');
+      const jsonResponse = await streamResponse.json();
+      fullContent = jsonResponse.choices?.[0]?.message?.content || '';
+      
+      const responseTimeMs = Date.now() - startTime;
+      const citations = rankedChunks.map((chunk, idx) => ({
+        index: idx + 1,
+        document: chunk.document_name,
+        section: chunk.section_title,
+        article: chunk.article_number,
+        relevance: chunk.relevance_score,
+      }));
+      
+      // Create a simple stream that sends the full content at once
+      const stream = new ReadableStream({
+        start(controller) {
+          controller.enqueue(encoder.encode(`data: ${JSON.stringify({ type: 'content', content: fullContent })}\n\n`));
+          controller.enqueue(encoder.encode(`data: ${JSON.stringify({
+            type: 'metadata',
+            response_time_ms: responseTimeMs,
+            rag_context: ragContext.length > 0 ? ragContext : undefined,
+            citations: citations.length > 0 ? citations : undefined,
+            smart_search: usedSmartSearch,
+          })}\n\n`));
+          controller.enqueue(encoder.encode('data: [DONE]\n\n'));
+          controller.close();
+        },
+      });
+      
+      // Log chat
+      await supabase.from('chat_logs').insert({
+        user_id: userId,
+        department_id: deptId,
+        provider_id: selectedProviderId || null,
+        prompt: message,
+        response: fullContent,
+        response_time_ms: responseTimeMs,
+        metadata: { 
+          model: finalModel,
+          provider_type: providerConfig.provider_type,
+          role_id,
+          rag_chunks: ragContext.length,
+          smart_search: usedSmartSearch,
+          streaming: false,
+        },
+      });
+      
+      return new Response(stream, { headers: corsHeaders });
+    }
+
+    // Streaming response handling
     const reader = streamResponse.body?.getReader();
     if (!reader) {
       throw new Error('No response body');
     }
-
-    const encoder = new TextEncoder();
-    const decoder = new TextDecoder();
-    let fullContent = '';
 
     const stream = new ReadableStream({
       async start(controller) {
@@ -658,7 +722,9 @@ serve(async (req) => {
                       content = parsed.delta.text;
                     }
                   } else {
-                    content = parsed.choices?.[0]?.delta?.content || '';
+                    // OpenAI/Perplexity/Lovable format
+                    content = parsed.choices?.[0]?.delta?.content || 
+                              parsed.choices?.[0]?.message?.content || '';
                   }
 
                   if (content) {
