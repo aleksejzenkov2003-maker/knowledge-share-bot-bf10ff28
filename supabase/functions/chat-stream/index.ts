@@ -206,6 +206,15 @@ serve(async (req) => {
     let usedSmartSearch = false;
     const FTS_CANDIDATES = 50; // Get more candidates for re-ranking
     const TOP_K_FINAL = 10;    // Final chunks after re-ranking
+    
+    // Collect trademark images from relevant documents
+    interface TrademarkImage {
+      documentId: string;
+      documentName: string;
+      base64: string;
+      mediaType: string;
+    }
+    const trademarkImages: TrademarkImage[] = [];
 
     if (folderIds.length > 0) {
       console.log(`RAG: Starting Smart Librarian search for folders: ${folderIds.join(', ')}`);
@@ -342,6 +351,61 @@ serve(async (req) => {
           citation += ` (релевантность: ${chunk.relevance_score.toFixed(1)})`;
           return `${citation}\n${chunk.content}`;
         });
+
+        // STEP 4: Fetch trademark images from relevant documents
+        const documentIds = [...new Set(rankedChunks.map(c => c.id))];
+        
+        // Get document IDs from chunks (need to query document_chunks to get document_id)
+        const { data: chunkDocs } = await supabase
+          .from('document_chunks')
+          .select('document_id')
+          .in('id', rankedChunks.map(c => c.id));
+        
+        if (chunkDocs && chunkDocs.length > 0) {
+          const uniqueDocIds = [...new Set(chunkDocs.map(c => c.document_id))];
+          
+          const { data: docsWithTrademarks } = await supabase
+            .from('documents')
+            .select('id, name, has_trademark, trademark_image_path')
+            .in('id', uniqueDocIds)
+            .eq('has_trademark', true);
+          
+          if (docsWithTrademarks && docsWithTrademarks.length > 0) {
+            console.log(`RAG: Found ${docsWithTrademarks.length} documents with trademarks`);
+            
+            for (const doc of docsWithTrademarks) {
+              if (doc.trademark_image_path) {
+                try {
+                  const { data: imageData, error: imgError } = await supabase.storage
+                    .from('rag-documents')
+                    .download(doc.trademark_image_path);
+                  
+                  if (!imgError && imageData) {
+                    const buffer = await imageData.arrayBuffer();
+                    const base64 = btoa(String.fromCharCode(...new Uint8Array(buffer)));
+                    
+                    // Determine media type from path
+                    const ext = doc.trademark_image_path.split('.').pop()?.toLowerCase();
+                    let mediaType = 'image/png';
+                    if (ext === 'jpg' || ext === 'jpeg') mediaType = 'image/jpeg';
+                    else if (ext === 'webp') mediaType = 'image/webp';
+                    else if (ext === 'gif') mediaType = 'image/gif';
+                    
+                    trademarkImages.push({
+                      documentId: doc.id,
+                      documentName: doc.name,
+                      base64,
+                      mediaType,
+                    });
+                    console.log(`RAG: Loaded trademark image for "${doc.name}"`);
+                  }
+                } catch (err) {
+                  console.error(`Error loading trademark for ${doc.name}:`, err);
+                }
+              }
+            }
+          }
+        }
       }
     }
 
@@ -406,6 +470,7 @@ serve(async (req) => {
     }
 
     const hasAttachments = attachmentParts.length > 0;
+    const hasTrademarkImages = trademarkImages.length > 0;
 
     // Build messages array - handle multimodal for Anthropic
     type SimpleMessage = { role: string; content: string };
@@ -424,15 +489,40 @@ serve(async (req) => {
       simpleMessages = [{ role: 'user', content: finalPrompt }];
     }
 
-    // Build Anthropic-specific messages with multimodal content
+    // Build Anthropic-specific messages with multimodal content (attachments + trademark images)
     let anthropicMessages: AnthropicMessage[];
-    if (hasAttachments) {
+    
+    // Prepare trademark image parts
+    const trademarkParts: MultimodalContentPart[] = trademarkImages.map(tm => ({
+      type: 'image' as const,
+      source: {
+        type: 'base64' as const,
+        media_type: tm.mediaType,
+        data: tm.base64,
+      },
+    }));
+    
+    const hasMultimodalContent = hasAttachments || hasTrademarkImages;
+    
+    if (hasMultimodalContent) {
       anthropicMessages = simpleMessages.map((msg, idx) => {
         if (idx === simpleMessages.length - 1 && msg.role === 'user') {
-          const content: MultimodalContentPart[] = [
-            ...attachmentParts,
-            { type: 'text', text: msg.content || 'Проанализируй прикрепленные файлы' },
-          ];
+          const content: MultimodalContentPart[] = [];
+          
+          // Add trademark images first (context about the documents)
+          if (hasTrademarkImages) {
+            content.push({ type: 'text', text: `ИЗОБРАЖЕНИЯ ТОВАРНЫХ ЗНАКОВ из релевантных документов (${trademarkImages.map(t => t.documentName).join(', ')}):` });
+            content.push(...trademarkParts);
+          }
+          
+          // Add user attachments
+          if (hasAttachments) {
+            content.push(...attachmentParts);
+          }
+          
+          // Add the text message
+          content.push({ type: 'text', text: msg.content || 'Проанализируй прикрепленные файлы' });
+          
           return { role: 'user', content };
         }
         return msg;
@@ -446,11 +536,15 @@ serve(async (req) => {
       ? `${systemPrompt}\n\nВАЖНО: При ответе на вопрос используй информацию из предоставленного контекста. Указывай источники в формате [1], [2] и т.д., ссылаясь на номера фрагментов из контекста. Если информации в контексте недостаточно, честно об этом скажи.`
       : systemPrompt;
     
+    if (hasTrademarkImages) {
+      enhancedSystemPrompt += `\n\nК этому запросу приложены изображения товарных знаков из релевантных документов (${trademarkImages.map(t => t.documentName).join(', ')}). Учитывай визуальные характеристики товарных знаков при анализе. Если спрашивают о товарном знаке - опиши его внешний вид, цвета, шрифты, графические элементы.`;
+    }
+    
     if (hasAttachments) {
       enhancedSystemPrompt += '\n\nПользователь прикрепил файлы к сообщению. Проанализируй их содержимое и ответь на вопрос пользователя, учитывая информацию из файлов.';
     }
 
-    console.log(`Streaming from ${providerConfig.provider_type} with model: ${finalModel}, attachments: ${hasAttachments}`);
+    console.log(`Streaming from ${providerConfig.provider_type} with model: ${finalModel}, attachments: ${hasAttachments}, trademarks: ${hasTrademarkImages}`);
 
     // Create streaming response based on provider
     let streamResponse: Response;

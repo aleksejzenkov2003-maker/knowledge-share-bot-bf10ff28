@@ -439,10 +439,12 @@ export type Database = {
           file_size: number | null
           file_type: string | null
           folder_id: string | null
+          has_trademark: boolean | null
           id: string
           name: string
           status: string
           storage_path: string | null
+          trademark_image_path: string | null
           updated_at: string
         }
         Insert: {
@@ -455,10 +457,12 @@ export type Database = {
           file_size?: number | null
           file_type?: string | null
           folder_id?: string | null
+          has_trademark?: boolean | null
           id?: string
           name: string
           status?: string
           storage_path?: string | null
+          trademark_image_path?: string | null
           updated_at?: string
         }
         Update: {
@@ -471,10 +475,12 @@ export type Database = {
           file_size?: number | null
           file_type?: string | null
           folder_id?: string | null
+          has_trademark?: boolean | null
           id?: string
           name?: string
           status?: string
           storage_path?: string | null
+          trademark_image_path?: string | null
           updated_at?: string
         }
         Relationships: [
