@@ -33,8 +33,15 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { Badge } from "@/components/ui/badge";
+import { Checkbox } from "@/components/ui/checkbox";
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipProvider,
+  TooltipTrigger,
+} from "@/components/ui/tooltip";
 import { toast } from "sonner";
-import { Plus, Upload, FileText, Trash2, Eye, Loader2, RefreshCw } from "lucide-react";
+import { Plus, Upload, FileText, Trash2, Eye, Loader2, RefreshCw, ImageIcon, X } from "lucide-react";
 
 interface DocumentFolder {
   id: string;
@@ -55,6 +62,8 @@ interface Document {
   document_type: string | null;
   created_at: string;
   folder?: DocumentFolder | null;
+  has_trademark?: boolean;
+  trademark_image_path?: string | null;
 }
 
 const DOCUMENT_TYPES: Record<string, string> = {
@@ -96,7 +105,11 @@ export default function Documents() {
     name: "",
     folder_id: "",
     document_type: "auto",
+    has_trademark: false,
   });
+  const [trademarkFile, setTrademarkFile] = useState<File | null>(null);
+  const [trademarkPreview, setTrademarkPreview] = useState<string | null>(null);
+  const trademarkInputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
     fetchData();
@@ -140,6 +153,24 @@ export default function Documents() {
       ...prev,
       name: prev.name || file.name.replace(/\.[^/.]+$/, ""),
     }));
+  };
+
+  const handleTrademarkSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (file) {
+      setTrademarkFile(file);
+      const reader = new FileReader();
+      reader.onload = () => setTrademarkPreview(reader.result as string);
+      reader.readAsDataURL(file);
+    }
+  };
+
+  const clearTrademarkFile = () => {
+    setTrademarkFile(null);
+    setTrademarkPreview(null);
+    if (trademarkInputRef.current) {
+      trademarkInputRef.current.value = "";
+    }
   };
 
   // Sanitize filename for storage (remove special chars, transliterate)
@@ -194,6 +225,22 @@ export default function Documents() {
 
       if (uploadError) throw uploadError;
 
+      // Upload trademark image if provided
+      let trademarkPath: string | null = null;
+      if (formData.has_trademark && trademarkFile) {
+        const trademarkFileName = `trademarks/${Date.now()}-${sanitizeFileName(trademarkFile.name)}`;
+        const { error: tmError } = await supabase.storage
+          .from("rag-documents")
+          .upload(trademarkFileName, trademarkFile);
+        
+        if (tmError) {
+          console.error("Trademark upload error:", tmError);
+          toast.warning("Документ будет загружен, но изображение ТЗ не удалось загрузить");
+        } else {
+          trademarkPath = trademarkFileName;
+        }
+      }
+
       // Create document record
       const { data: doc, error: docError } = await supabase
         .from("documents")
@@ -206,6 +253,8 @@ export default function Documents() {
           folder_id: formData.folder_id || null,
           document_type: formData.document_type,
           status: "pending",
+          has_trademark: formData.has_trademark,
+          trademark_image_path: trademarkPath,
         })
         .select()
         .single();
@@ -229,8 +278,11 @@ export default function Documents() {
       }
 
       setUploadDialogOpen(false);
-      setFormData({ name: "", folder_id: "", document_type: "auto" });
+      setFormData({ name: "", folder_id: "", document_type: "auto", has_trademark: false });
+      setTrademarkFile(null);
+      setTrademarkPreview(null);
       if (fileInputRef.current) fileInputRef.current.value = "";
+      if (trademarkInputRef.current) trademarkInputRef.current.value = "";
       fetchData();
     } catch (error: any) {
       console.error("Error uploading document:", error);
@@ -414,6 +466,58 @@ export default function Documents() {
                 </p>
               </div>
 
+              {/* Trademark checkbox and upload */}
+              <div className="space-y-3 border-t pt-4">
+                <div className="flex items-center space-x-2">
+                  <Checkbox
+                    id="has_trademark"
+                    checked={formData.has_trademark}
+                    onCheckedChange={(checked) => {
+                      setFormData((prev) => ({ ...prev, has_trademark: !!checked }));
+                      if (!checked) {
+                        clearTrademarkFile();
+                      }
+                    }}
+                  />
+                  <Label htmlFor="has_trademark" className="font-normal cursor-pointer">
+                    Документ содержит товарный знак
+                  </Label>
+                </div>
+
+                {formData.has_trademark && (
+                  <div className="space-y-2 pl-6">
+                    <Label>Изображение товарного знака</Label>
+                    <Input
+                      type="file"
+                      ref={trademarkInputRef}
+                      accept="image/*"
+                      onChange={handleTrademarkSelect}
+                    />
+                    {trademarkPreview && (
+                      <div className="relative inline-block border rounded-lg p-2 bg-muted/30">
+                        <img 
+                          src={trademarkPreview} 
+                          alt="Товарный знак" 
+                          className="max-h-24 object-contain"
+                        />
+                        <Button
+                          type="button"
+                          variant="ghost"
+                          size="icon"
+                          className="absolute -top-2 -right-2 h-6 w-6 rounded-full bg-destructive text-destructive-foreground"
+                          onClick={clearTrademarkFile}
+                        >
+                          <X className="h-3 w-3" />
+                        </Button>
+                      </div>
+                    )}
+                    <p className="text-xs text-muted-foreground">
+                      Загрузите изображение товарного знака (PNG, JPG, WebP)
+                    </p>
+                  </div>
+                )}
+              </div>
+
               <div className="flex justify-end gap-2">
                 <Button
                   type="button"
@@ -487,6 +591,18 @@ export default function Documents() {
                         <div className="flex items-center gap-2">
                           <FileText className="h-4 w-4 text-muted-foreground" />
                           {doc.name}
+                          {doc.has_trademark && (
+                            <TooltipProvider>
+                              <Tooltip>
+                                <TooltipTrigger asChild>
+                                  <ImageIcon className="h-4 w-4 text-blue-500" />
+                                </TooltipTrigger>
+                                <TooltipContent>
+                                  <p>Есть изображение товарного знака</p>
+                                </TooltipContent>
+                              </Tooltip>
+                            </TooltipProvider>
+                          )}
                         </div>
                       </TableCell>
                       <TableCell className="text-muted-foreground text-sm">
