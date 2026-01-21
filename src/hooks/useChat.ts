@@ -372,6 +372,9 @@ export function useChat(userId: string | undefined) {
       })),
     };
 
+    // Track if this is the first message (before adding userMessage)
+    const isFirstMessage = messages.length === 0;
+    
     setMessages((prev) => [...prev, userMessage]);
     setIsLoading(true);
 
@@ -379,8 +382,7 @@ export function useChat(userId: string | undefined) {
       attachments: uploadedAttachments.length > 0 ? uploadedAttachments : undefined,
     });
 
-    const currentMessages = messages;
-    if (currentMessages.length === 0) {
+    if (isFirstMessage) {
       await updateConversationTitle(conversationId, trimmedInput);
     }
 
@@ -569,7 +571,7 @@ export function useChat(userId: string | undefined) {
     attachments,
     createNewConversation,
     isLoading,
-    messages,
+    messages.length,
     saveMessage,
     selectedRoleId,
     updateConversationTitle,
