@@ -52,9 +52,20 @@ interface Document {
   status: string;
   chunk_count: number | null;
   folder_id: string | null;
+  document_type: string | null;
   created_at: string;
   folder?: DocumentFolder | null;
 }
+
+const DOCUMENT_TYPES: Record<string, string> = {
+  auto: "Автоопределение",
+  legal: "Закон / Кодекс / НПА",
+  court: "Судебное решение",
+  registration_decision: "Решение Роспатента",
+  contract: "Договор",
+  business: "Бизнес-документ",
+  general: "Общий документ",
+};
 
 interface DocumentChunk {
   id: string;
@@ -84,6 +95,7 @@ export default function Documents() {
   const [formData, setFormData] = useState({
     name: "",
     folder_id: "",
+    document_type: "auto",
   });
 
   useEffect(() => {
@@ -192,6 +204,7 @@ export default function Documents() {
           file_size: file.size,
           storage_path: fileName,
           folder_id: formData.folder_id || null,
+          document_type: formData.document_type,
           status: "pending",
         })
         .select()
@@ -216,7 +229,7 @@ export default function Documents() {
       }
 
       setUploadDialogOpen(false);
-      setFormData({ name: "", folder_id: "" });
+      setFormData({ name: "", folder_id: "", document_type: "auto" });
       if (fileInputRef.current) fileInputRef.current.value = "";
       fetchData();
     } catch (error: any) {
@@ -377,6 +390,30 @@ export default function Documents() {
                 </Select>
               </div>
 
+              <div className="space-y-2">
+                <Label htmlFor="document_type">Тип документа</Label>
+                <Select
+                  value={formData.document_type}
+                  onValueChange={(value) =>
+                    setFormData((prev) => ({ ...prev, document_type: value }))
+                  }
+                >
+                  <SelectTrigger>
+                    <SelectValue placeholder="Выберите тип" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {Object.entries(DOCUMENT_TYPES).map(([key, label]) => (
+                      <SelectItem key={key} value={key}>
+                        {label}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+                <p className="text-xs text-muted-foreground">
+                  Выберите тип для правильного структурирования документа
+                </p>
+              </div>
+
               <div className="flex justify-end gap-2">
                 <Button
                   type="button"
@@ -433,6 +470,7 @@ export default function Documents() {
                 <TableRow>
                   <TableHead>Название</TableHead>
                   <TableHead>Файл</TableHead>
+                  <TableHead>Тип</TableHead>
                   <TableHead>Папка</TableHead>
                   <TableHead>Размер</TableHead>
                   <TableHead>Chunks</TableHead>
@@ -453,6 +491,11 @@ export default function Documents() {
                       </TableCell>
                       <TableCell className="text-muted-foreground text-sm">
                         {doc.file_name || "-"}
+                      </TableCell>
+                      <TableCell>
+                        <Badge variant="secondary" className="text-xs">
+                          {DOCUMENT_TYPES[doc.document_type || "auto"] || "Авто"}
+                        </Badge>
                       </TableCell>
                       <TableCell>
                         {doc.folder ? (
