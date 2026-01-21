@@ -817,108 +817,182 @@ function chunkTextSimple(text: string, chunkSize: number = 2000): StructuredChun
 function parseRegistrationDecision(text: string): StructuredChunk[] {
   const chunks: StructuredChunk[] = [];
   
-  // Паттерны для решений Роспатента
-  const headerPatterns = {
-    decision: /^(РЕШЕНИЕ|УВЕДОМЛЕНИЕ|ЗАКЛЮЧЕНИЕ|ОТКАЗ)/im,
-    registration: /регистрации?\s*(?:№|номер)?\s*(\d+)/i,
-    application: /заявк\w*\s*(?:№|номер)?\s*([\d\-]+)/i,
-    trademark: /товарн\w+\s+знак/i,
-  };
+  console.log('Parsing registration decision, text length:', text.length);
   
-  // Секции документа
-  const sectionMarkers = [
-    { pattern: /^(РЕЗОЛЮТИВНАЯ ЧАСТЬ|РЕШЕНИЕ ПО ЗАЯВКЕ)/im, name: 'Резолютивная часть' },
-    { pattern: /^(ОПИСАНИЕ ТОВАРНОГО ЗНАКА|ОПИСАНИЕ ОБОЗНАЧЕНИЯ)/im, name: 'Описание товарного знака' },
-    { pattern: /^(ПЕРЕЧЕНЬ ТОВАРОВ И УСЛУГ|КЛАССЫ МКТУ)/im, name: 'Товары и услуги' },
-    { pattern: /^(ПРАВОВОЕ ОБОСНОВАНИЕ|ОБОСНОВАНИЕ)/im, name: 'Правовое обоснование' },
-    { pattern: /^(ЗАКЛЮЧЕНИЕ ЭКСПЕРТА|ЭКСПЕРТИЗА)/im, name: 'Заключение эксперта' },
-    { pattern: /(на основании|руководствуясь).+?(ГК\s+РФ|гражданского\s+кодекса)/im, name: 'Правовые основания' },
+  // Извлекаем номера заявки и регистрации
+  const appMatch = text.match(/Заявка\s*№?\s*([\d\/]+)/i);
+  const applicationNumber = appMatch ? appMatch[1] : null;
+  
+  const regMatch = text.match(/регистрации?\s*(?:№|номер)?\s*(\d+)/i);
+  const registrationNumber = regMatch ? regMatch[1] : null;
+  
+  console.log(`Found application: ${applicationNumber}, registration: ${registrationNumber}`);
+  
+  // Маркеры секций для непрерывного текста (ищем внутри текста, не в начале строки)
+  const sectionSplitters = [
+    { pattern: /ЗАКЛЮЧЕНИЕ ПО РЕЗУЛЬТАТАМ ЭКСПЕРТИЗЫ/gi, name: 'Заключение экспертизы' },
+    { pattern: /\(210\)\s*Заявка/gi, name: 'Реквизиты заявки' },
+    { pattern: /\(220\)\s*Дата подачи/gi, name: 'Дата подачи' },
+    { pattern: /\(511\)\s*Классы МКТУ/gi, name: 'Классы МКТУ' },
+    { pattern: /\(540\)\s*Воспроизведение знака/gi, name: 'Воспроизведение знака' },
+    { pattern: /\(550\)\s*Указание/gi, name: 'Указание о виде знака' },
+    { pattern: /\(731\)\s*Имя и адрес/gi, name: 'Заявитель' },
+    { pattern: /В результате экспертизы/gi, name: 'Результат экспертизы' },
+    { pattern: /статьей?\s*1499\s*Гражданского кодекса/gi, name: 'Правовое основание' },
+    { pattern: /в отношении приведённого ниже перечня/gi, name: 'Перечень товаров и услуг' },
+    { pattern: /Р\s*Е\s*Ш\s*Е\s*Н\s*И\s*Е/g, name: 'Решение' },
   ];
   
-  const lines = text.split('\n');
-  let currentSection = 'Общие сведения';
-  let currentContent: string[] = [];
-  let registrationNumber: string | null = null;
-  let applicationNumber: string | null = null;
+  // Собираем все позиции разделителей
+  interface SplitPoint {
+    index: number;
+    name: string;
+  }
   
-  // Извлекаем номера
-  const regMatch = text.match(headerPatterns.registration);
-  if (regMatch) registrationNumber = regMatch[1];
+  const splitPoints: SplitPoint[] = [];
   
-  const appMatch = text.match(headerPatterns.application);
-  if (appMatch) applicationNumber = appMatch[1];
-  
-  for (let i = 0; i < lines.length; i++) {
-    const line = lines[i].trim();
-    if (!line) continue;
-    
-    // Проверяем, является ли строка началом новой секции
-    let isNewSection = false;
-    let newSectionName = '';
-    
-    for (const marker of sectionMarkers) {
-      if (marker.pattern.test(line)) {
-        isNewSection = true;
-        newSectionName = marker.name;
-        break;
-      }
-    }
-    
-    if (isNewSection) {
-      // Сохраняем предыдущую секцию
-      if (currentContent.length > 0) {
-        const content = currentContent.join('\n').trim();
-        if (content.length > 50) {
-          chunks.push({
-            content,
-            section_title: currentSection,
-            article_number: registrationNumber || applicationNumber,
-            chunk_type: 'registration',
-            parent_context: `Решение Роспатента${registrationNumber ? ` №${registrationNumber}` : ''}`,
-          });
-        }
-      }
-      currentSection = newSectionName;
-      currentContent = [line];
-    } else {
-      currentContent.push(line);
+  for (const splitter of sectionSplitters) {
+    let match;
+    const regex = new RegExp(splitter.pattern.source, 'gi');
+    while ((match = regex.exec(text)) !== null) {
+      splitPoints.push({ index: match.index, name: splitter.name });
     }
   }
   
-  // Сохраняем последнюю секцию
-  if (currentContent.length > 0) {
-    const content = currentContent.join('\n').trim();
-    if (content.length > 50) {
-      chunks.push({
-        content,
-        section_title: currentSection,
-        article_number: registrationNumber || applicationNumber,
-        chunk_type: 'registration',
-        parent_context: `Решение Роспатента${registrationNumber ? ` №${registrationNumber}` : ''}`,
-      });
-    }
-  }
+  // Сортируем по позиции
+  splitPoints.sort((a, b) => a.index - b.index);
   
-  // Если структурный парсинг не дал результатов, разбиваем по абзацам
-  if (chunks.length < 2) {
-    const paragraphs = text.split(/\n{2,}/);
-    let chunkIndex = 0;
+  console.log(`Found ${splitPoints.length} split points`);
+  
+  // Если нашли маркеры - разбиваем по ним
+  if (splitPoints.length >= 2) {
+    // Добавляем начало и конец
+    const points = [
+      { index: 0, name: 'Заголовок документа' },
+      ...splitPoints,
+      { index: text.length, name: 'Конец' }
+    ];
     
-    for (const para of paragraphs) {
-      const trimmed = para.trim();
-      if (trimmed.length > 100) {
+    for (let i = 0; i < points.length - 1; i++) {
+      const start = points[i].index;
+      const end = points[i + 1].index;
+      const content = text.slice(start, end).trim();
+      
+      if (content.length > 100) {
         chunks.push({
-          content: trimmed,
-          section_title: `Раздел ${++chunkIndex}`,
-          article_number: registrationNumber || applicationNumber,
+          content,
+          section_title: points[i].name,
+          article_number: applicationNumber || registrationNumber,
           chunk_type: 'registration',
-          parent_context: `Решение Роспатента${registrationNumber ? ` №${registrationNumber}` : ''}`,
+          parent_context: `Решение Роспатента${applicationNumber ? ` по заявке ${applicationNumber}` : ''}`,
         });
       }
     }
   }
   
-  console.log(`Parsed ${chunks.length} chunks from registration decision`);
+  // Если маркеры не сработали, разбиваем по классам МКТУ
+  if (chunks.length < 3) {
+    console.log('Splitting by MKTU classes...');
+    
+    // Ищем классы МКТУ: "09 -", "35 -", "38 -", "42 -"
+    const mktuPattern = /(?:^|\s)(\d{2})\s*[-–]\s+/g;
+    const mktuMatches: { index: number; classNum: string }[] = [];
+    let match;
+    
+    while ((match = mktuPattern.exec(text)) !== null) {
+      const classNum = match[1];
+      // Проверяем что это похоже на класс МКТУ (01-45)
+      const num = parseInt(classNum);
+      if (num >= 1 && num <= 45) {
+        mktuMatches.push({ index: match.index, classNum });
+      }
+    }
+    
+    if (mktuMatches.length >= 2) {
+      console.log(`Found ${mktuMatches.length} MKTU classes`);
+      
+      // Берём текст до первого класса как заголовок
+      const headerEnd = mktuMatches[0].index;
+      const headerContent = text.slice(0, headerEnd).trim();
+      
+      if (headerContent.length > 200) {
+        chunks.length = 0; // Очищаем предыдущие попытки
+        chunks.push({
+          content: headerContent,
+          section_title: 'Реквизиты и заявитель',
+          article_number: applicationNumber || registrationNumber,
+          chunk_type: 'registration',
+          parent_context: `Решение Роспатента${applicationNumber ? ` по заявке ${applicationNumber}` : ''}`,
+        });
+      }
+      
+      // Каждый класс МКТУ - отдельный чанк
+      for (let i = 0; i < mktuMatches.length; i++) {
+        const start = mktuMatches[i].index;
+        const end = i < mktuMatches.length - 1 ? mktuMatches[i + 1].index : text.length;
+        const content = text.slice(start, end).trim();
+        
+        if (content.length > 50) {
+          chunks.push({
+            content,
+            section_title: `Класс МКТУ ${mktuMatches[i].classNum}`,
+            article_number: applicationNumber || registrationNumber,
+            chunk_type: 'registration',
+            parent_context: `Решение Роспатента${applicationNumber ? ` по заявке ${applicationNumber}` : ''}`,
+          });
+        }
+      }
+    }
+  }
+  
+  // Fallback: если ничего не помогло, разбиваем на фиксированные чанки с умным разделением
+  if (chunks.length < 3 && text.length > 1000) {
+    console.log('Using smart fixed-size chunking for registration decision...');
+    chunks.length = 0;
+    
+    // Разбиваем на чанки ~1500 символов, стараясь резать по предложениям
+    const targetSize = 1500;
+    let start = 0;
+    let chunkNum = 0;
+    
+    while (start < text.length) {
+      let end = Math.min(start + targetSize, text.length);
+      
+      // Ищем конец предложения (. или ) ближайший к target)
+      if (end < text.length) {
+        const searchWindow = text.slice(end - 200, end + 200);
+        const sentenceEnd = searchWindow.search(/[.)] /);
+        if (sentenceEnd !== -1) {
+          end = end - 200 + sentenceEnd + 2;
+        }
+      }
+      
+      const content = text.slice(start, end).trim();
+      if (content.length > 100) {
+        chunkNum++;
+        
+        // Определяем название секции по содержимому
+        let sectionName = `Часть ${chunkNum}`;
+        if (content.includes('ФЕДЕРАЛЬНАЯ СЛУЖБА')) sectionName = 'Заголовок';
+        else if (content.includes('Классы МКТУ') || content.match(/\d{2}\s*[-–]/)) sectionName = 'Классы МКТУ';
+        else if (content.includes('статьей 1499') || content.includes('Гражданского кодекса')) sectionName = 'Правовое основание';
+        else if (content.includes('ЗАКЛЮЧЕНИЕ')) sectionName = 'Заключение экспертизы';
+        else if (content.includes('заявитель') || content.includes('адрес')) sectionName = 'Сведения о заявителе';
+        
+        chunks.push({
+          content,
+          section_title: sectionName,
+          article_number: applicationNumber || registrationNumber,
+          chunk_type: 'registration',
+          parent_context: `Решение Роспатента${applicationNumber ? ` по заявке ${applicationNumber}` : ''}`,
+        });
+      }
+      
+      start = end;
+    }
+  }
+  
+  console.log(`Created ${chunks.length} chunks from registration decision`);
   return chunks;
 }
 
