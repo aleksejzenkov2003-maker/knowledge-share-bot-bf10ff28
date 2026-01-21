@@ -107,10 +107,10 @@ export const DepartmentChatMessage: React.FC<DepartmentChatMessageProps> = ({
           )}
         </div>
 
-        {/* Citations if available */}
+        {/* RAG Citations if available */}
         {message.metadata?.citations && message.metadata.citations.length > 0 && (
           <div className="mt-3 pt-3 border-t">
-            <div className="text-xs font-medium text-muted-foreground mb-2">Источники:</div>
+            <div className="text-xs font-medium text-muted-foreground mb-2">Документы:</div>
             <div className="flex flex-wrap gap-1">
               {message.metadata.citations.map((citation, idx) => (
                 <span
@@ -122,6 +122,34 @@ export const DepartmentChatMessage: React.FC<DepartmentChatMessageProps> = ({
                 </span>
               ))}
             </div>
+          </div>
+        )}
+
+        {/* Perplexity Web Citations */}
+        {message.metadata?.perplexity_citations && message.metadata.perplexity_citations.length > 0 && (
+          <div className="mt-3 pt-3 border-t">
+            <div className="text-xs font-medium text-muted-foreground mb-2">Веб-источники:</div>
+            <ul className="space-y-1">
+              {message.metadata.perplexity_citations.map((url, idx) => {
+                let hostname = url;
+                try {
+                  hostname = new URL(url).hostname.replace('www.', '');
+                } catch {}
+                return (
+                  <li key={idx}>
+                    <a 
+                      href={url} 
+                      target="_blank" 
+                      rel="noopener noreferrer"
+                      className="text-xs text-primary hover:underline flex items-center gap-1"
+                    >
+                      <span className="font-medium">[{idx + 1}]</span>
+                      <span className="truncate max-w-[300px]">{hostname}</span>
+                    </a>
+                  </li>
+                );
+              })}
+            </ul>
           </div>
         )}
       </div>

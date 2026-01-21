@@ -282,6 +282,7 @@ export function useDepartmentChat(userId: string | undefined, departmentId: stri
                   response_time_ms: parsed.response_time_ms,
                   rag_context: parsed.rag_context,
                   citations: parsed.citations,
+                  perplexity_citations: parsed.perplexity_citations,
                   smart_search: parsed.smart_search,
                 };
               }
@@ -305,6 +306,7 @@ export function useDepartmentChat(userId: string | undefined, departmentId: stri
                 response_time_ms: parsed.response_time_ms,
                 rag_context: parsed.rag_context,
                 citations: parsed.citations,
+                perplexity_citations: parsed.perplexity_citations,
                 smart_search: parsed.smart_search,
               };
             }

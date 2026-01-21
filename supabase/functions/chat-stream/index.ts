@@ -636,6 +636,7 @@ serve(async (req) => {
           body: JSON.stringify({
             model: finalModel,
             messages: [{ role: 'system', content: enhancedSystemPrompt }, ...simpleMessages],
+            max_tokens: 8000, // Perplexity sonar-pro supports up to 8k output tokens
             stream: !isDeepResearch, // Deep research doesn't support streaming well
           }),
         });
@@ -720,12 +721,16 @@ serve(async (req) => {
     const stream = new ReadableStream({
       async start(controller) {
         try {
+          let buffer = ''; // Buffer for incomplete SSE chunks
+          let perplexityCitations: string[] = []; // Capture Perplexity citations
+
           while (true) {
             const { done, value } = await reader.read();
             if (done) break;
 
-            const chunk = decoder.decode(value, { stream: true });
-            const lines = chunk.split('\n');
+            buffer += decoder.decode(value, { stream: true });
+            const lines = buffer.split('\n');
+            buffer = lines.pop() || ''; // Keep last potentially incomplete line
 
             for (const line of lines) {
               if (!line.trim() || line.startsWith(':')) continue;
@@ -737,6 +742,11 @@ serve(async (req) => {
                 try {
                   const parsed = JSON.parse(data);
                   let content = '';
+
+                  // Capture Perplexity citations from response
+                  if (providerConfig!.provider_type === 'perplexity' && parsed.citations && Array.isArray(parsed.citations)) {
+                    perplexityCitations = parsed.citations;
+                  }
 
                   // Handle different provider formats
                   if (providerConfig!.provider_type === 'anthropic') {
@@ -760,6 +770,24 @@ serve(async (req) => {
             }
           }
 
+          // Process remaining buffer
+          if (buffer.startsWith('data: ')) {
+            const data = buffer.slice(6).trim();
+            if (data && data !== '[DONE]') {
+              try {
+                const parsed = JSON.parse(data);
+                if (providerConfig!.provider_type === 'perplexity' && parsed.citations && Array.isArray(parsed.citations)) {
+                  perplexityCitations = parsed.citations;
+                }
+                const content = parsed.choices?.[0]?.delta?.content || parsed.choices?.[0]?.message?.content || '';
+                if (content) {
+                  fullContent += content;
+                  controller.enqueue(encoder.encode(`data: ${JSON.stringify({ type: 'content', content })}\n\n`));
+                }
+              } catch { }
+            }
+          }
+
           // Send metadata at the end with citations
           const responseTimeMs = Date.now() - startTime;
           const citations = rankedChunks.map((chunk, idx) => ({
@@ -775,6 +803,7 @@ serve(async (req) => {
             response_time_ms: responseTimeMs,
             rag_context: ragContext.length > 0 ? ragContext : undefined,
             citations: citations.length > 0 ? citations : undefined,
+            perplexity_citations: perplexityCitations.length > 0 ? perplexityCitations : undefined,
             smart_search: usedSmartSearch,
           })}\n\n`));
 
