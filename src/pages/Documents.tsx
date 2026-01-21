@@ -468,17 +468,16 @@ export default function Documents() {
                       </TableCell>
                       <TableCell>
                         <div className="flex gap-1">
-                          {doc.status === "error" && (
-                            <Button
-                              variant="ghost"
-                              size="icon"
-                              className="h-8 w-8 text-amber-500"
-                              onClick={() => handleReprocess(doc)}
-                              title="Переобработать"
-                            >
-                              <RefreshCw className="h-4 w-4" />
-                            </Button>
-                          )}
+                          <Button
+                            variant="ghost"
+                            size="icon"
+                            className="h-8 w-8 text-amber-500"
+                            onClick={() => handleReprocess(doc)}
+                            disabled={doc.status === "processing"}
+                            title="Переобработать"
+                          >
+                            <RefreshCw className="h-4 w-4" />
+                          </Button>
                           <Button
                             variant="ghost"
                             size="icon"
