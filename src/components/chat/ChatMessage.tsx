@@ -77,9 +77,19 @@ export function ChatMessage({ message }: ChatMessageProps) {
                         {children}
                       </blockquote>
                     ),
+                    a: ({ children, href }) => (
+                      <a 
+                        href={href} 
+                        target="_blank" 
+                        rel="noopener noreferrer" 
+                        className="text-primary underline hover:opacity-80 font-medium"
+                      >
+                        {children}
+                      </a>
+                    ),
                   }}
                 >
-                  {message.content}
+                  {message.content.replace(/\[(\d+)\]/g, '**[$1]**')}
                 </ReactMarkdown>
               )}
               {message.isStreaming && message.content && (
