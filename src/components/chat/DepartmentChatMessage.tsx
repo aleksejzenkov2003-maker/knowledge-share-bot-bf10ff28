@@ -85,13 +85,16 @@ export const DepartmentChatMessage: React.FC<DepartmentChatMessageProps> = ({
                   <blockquote className="border-l-2 border-primary pl-4 italic my-2">{children}</blockquote>
                 ),
                 a: ({ children, href }) => (
-                  <a href={href} target="_blank" rel="noopener noreferrer" className="text-primary underline">
+                  <a href={href} target="_blank" rel="noopener noreferrer" className="text-primary underline hover:opacity-80 font-medium">
                     {children}
                   </a>
                 ),
+                strong: ({ children }) => (
+                  <strong className="font-semibold text-primary">{children}</strong>
+                ),
               }}
             >
-              {message.content || '...'}
+              {(message.content || '...').replace(/\[(\d+)\]/g, '**[$1]**')}
             </ReactMarkdown>
           ) : (
             <p className="whitespace-pre-wrap">{message.content}</p>
