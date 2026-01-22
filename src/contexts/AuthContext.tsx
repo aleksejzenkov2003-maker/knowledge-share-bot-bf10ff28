@@ -66,30 +66,19 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     // Get initial session first, then set up listener
     const initializeAuth = async () => {
       try {
-        // Add timeout to prevent hanging
-        const sessionPromise = supabase.auth.getSession();
-        const timeoutPromise = new Promise<null>((_, reject) => 
-          setTimeout(() => reject(new Error('Session timeout')), 10000)
-        );
-
-        const result = await Promise.race([sessionPromise, timeoutPromise]);
+        const { data: { session: initialSession } } = await supabase.auth.getSession();
         
         if (!isMounted) return;
 
-        if (result && 'data' in result && result.data.session?.user) {
-          const initialSession = result.data.session;
+        if (initialSession?.user) {
           setSession(initialSession);
           setUser(initialSession.user);
           
-          try {
-            const metadata = await loadUserMetadata(initialSession.user.id);
-            if (isMounted) {
-              setRole(metadata.role);
-              setDepartmentId(metadata.departmentId);
-            }
-          } catch (metaError) {
-            console.error('Error loading metadata:', metaError);
-            // Still continue even if metadata fails
+          // Load metadata in parallel
+          const metadata = await loadUserMetadata(initialSession.user.id);
+          if (isMounted) {
+            setRole(metadata.role);
+            setDepartmentId(metadata.departmentId);
           }
         }
       } catch (error) {
@@ -112,13 +101,11 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         setUser(newSession?.user ?? null);
         
         if (newSession?.user) {
-          // Only refetch metadata on sign-in events, not on token refresh
-          if (event === 'SIGNED_IN' || event === 'USER_UPDATED') {
-            const metadata = await loadUserMetadata(newSession.user.id);
-            if (isMounted) {
-              setRole(metadata.role);
-              setDepartmentId(metadata.departmentId);
-            }
+          // Load metadata on any session event (sign-in, token refresh, initial)
+          const metadata = await loadUserMetadata(newSession.user.id);
+          if (isMounted) {
+            setRole(metadata.role);
+            setDepartmentId(metadata.departmentId);
           }
         } else {
           setRole(null);
