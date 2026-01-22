@@ -271,6 +271,7 @@ export function useDepartmentChat(userId: string | undefined, departmentId: stri
         role_id: null,
         message_role: 'user',
         content: text,
+        source: 'web' as const,
         metadata: userMsgMetadata as unknown as Json
       }]);
 
@@ -429,6 +430,7 @@ export function useDepartmentChat(userId: string | undefined, departmentId: stri
           role_id: agentId,
           message_role: 'assistant',
           content: fullContent,
+          source: 'web' as const,
           metadata: assistantMsgMetadata as unknown as Json
         }]);
 
