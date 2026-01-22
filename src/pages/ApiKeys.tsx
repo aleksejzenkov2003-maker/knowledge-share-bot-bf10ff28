@@ -24,6 +24,7 @@ interface ApiKey {
   expires_at: string | null;
   last_used_at: string | null;
   request_count: number;
+  portal_domain: string | null;
 }
 
 interface Department {
@@ -38,6 +39,7 @@ const ApiKeys = () => {
   const [isCreateOpen, setIsCreateOpen] = useState(false);
   const [newKeyName, setNewKeyName] = useState('');
   const [selectedDepartment, setSelectedDepartment] = useState('');
+  const [portalDomain, setPortalDomain] = useState('');
   const [createdKey, setCreatedKey] = useState<string | null>(null);
   const [visibleKeys, setVisibleKeys] = useState<Set<string>>(new Set());
   const { toast } = useToast();
@@ -73,7 +75,8 @@ const ApiKeys = () => {
       .from('department_api_keys')
       .insert({
         department_id: selectedDepartment,
-        name: newKeyName.trim()
+        name: newKeyName.trim(),
+        portal_domain: portalDomain.trim() || null
       })
       .select()
       .single();
@@ -93,6 +96,7 @@ const ApiKeys = () => {
     setCreatedKey(null);
     setNewKeyName('');
     setSelectedDepartment('');
+    setPortalDomain('');
   };
 
   const handleToggleActive = async (id: string, currentState: boolean) => {
@@ -197,6 +201,10 @@ const ApiKeys = () => {
                   <Copy className="h-4 w-4 mr-2" />
                   Скопировать
                 </Button>
+                <p className="text-xs text-muted-foreground">
+                  Этот ключ можно использовать для прямых API-вызовов. 
+                  Для интеграции с Bitrix24 через iframe используйте portal_domain.
+                </p>
               </div>
             ) : (
               <div className="space-y-4">
@@ -223,6 +231,19 @@ const ApiKeys = () => {
                       ))}
                     </SelectContent>
                   </Select>
+                </div>
+                <div className="space-y-2">
+                  <Label htmlFor="portalDomain">Домен Bitrix24 портала (опционально)</Label>
+                  <Input
+                    id="portalDomain"
+                    placeholder="company.bitrix24.ru"
+                    value={portalDomain}
+                    onChange={(e) => setPortalDomain(e.target.value)}
+                  />
+                  <p className="text-xs text-muted-foreground">
+                    Указывайте домен для безопасной JWT-авторизации из iframe. 
+                    API-ключ НЕ будет передаваться в браузер.
+                  </p>
                 </div>
               </div>
             )}
@@ -262,6 +283,7 @@ const ApiKeys = () => {
                 <TableRow>
                   <TableHead>Название</TableHead>
                   <TableHead>Отдел</TableHead>
+                  <TableHead>Портал Bitrix24</TableHead>
                   <TableHead>API-ключ</TableHead>
                   <TableHead>Статус</TableHead>
                   <TableHead>Запросов</TableHead>
@@ -274,6 +296,15 @@ const ApiKeys = () => {
                   <TableRow key={key.id}>
                     <TableCell className="font-medium">{key.name}</TableCell>
                     <TableCell>{getDepartmentName(key.department_id)}</TableCell>
+                    <TableCell>
+                      {key.portal_domain ? (
+                        <code className="text-xs bg-green-100 dark:bg-green-900/30 text-green-800 dark:text-green-300 px-2 py-1 rounded">
+                          {key.portal_domain}
+                        </code>
+                      ) : (
+                        <span className="text-xs text-muted-foreground">—</span>
+                      )}
+                    </TableCell>
                     <TableCell>
                       <div className="flex items-center gap-2">
                         <code className="text-xs bg-muted px-2 py-1 rounded">

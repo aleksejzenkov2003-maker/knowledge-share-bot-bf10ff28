@@ -14,13 +14,107 @@ interface SendMessageRequest {
     file_base64: string;
     file_type: string;
   }>;
-  role_slug?: string; // Optional: specify agent by slug instead of @mention
+  role_slug?: string;
+}
+
+interface BitrixAuthRequest {
+  portal: string;
+  bitrix_user_id: string;
+  bitrix_user_name?: string;
+  bitrix_user_email?: string;
+  access_token?: string;
+  auth_id?: string;
+}
+
+interface JWTPayload {
+  sub: string; // user_id
+  department_id: string;
+  bitrix_user_id: string;
+  portal: string;
+  exp: number;
+  iat: number;
 }
 
 interface BitrixUserInfo {
   bitrix_user_id: string;
   user_name?: string;
   user_email?: string;
+}
+
+// Simple JWT implementation using Web Crypto API
+async function createJWT(payload: Omit<JWTPayload, 'iat'>, secret: string): Promise<string> {
+  const header = { alg: 'HS256', typ: 'JWT' };
+  const now = Math.floor(Date.now() / 1000);
+  const fullPayload = { ...payload, iat: now };
+  
+  const encoder = new TextEncoder();
+  const headerB64 = btoa(JSON.stringify(header)).replace(/=/g, '').replace(/\+/g, '-').replace(/\//g, '_');
+  const payloadB64 = btoa(JSON.stringify(fullPayload)).replace(/=/g, '').replace(/\+/g, '-').replace(/\//g, '_');
+  
+  const data = encoder.encode(`${headerB64}.${payloadB64}`);
+  const key = await crypto.subtle.importKey(
+    'raw',
+    encoder.encode(secret),
+    { name: 'HMAC', hash: 'SHA-256' },
+    false,
+    ['sign']
+  );
+  
+  const signature = await crypto.subtle.sign('HMAC', key, data);
+  const signatureB64 = btoa(String.fromCharCode(...new Uint8Array(signature)))
+    .replace(/=/g, '').replace(/\+/g, '-').replace(/\//g, '_');
+  
+  return `${headerB64}.${payloadB64}.${signatureB64}`;
+}
+
+async function verifyJWT(token: string, secret: string): Promise<JWTPayload | null> {
+  try {
+    const parts = token.split('.');
+    if (parts.length !== 3) return null;
+    
+    const [headerB64, payloadB64, signatureB64] = parts;
+    
+    const encoder = new TextEncoder();
+    const data = encoder.encode(`${headerB64}.${payloadB64}`);
+    const key = await crypto.subtle.importKey(
+      'raw',
+      encoder.encode(secret),
+      { name: 'HMAC', hash: 'SHA-256' },
+      false,
+      ['verify']
+    );
+    
+    // Decode signature
+    const signatureStr = signatureB64.replace(/-/g, '+').replace(/_/g, '/');
+    const padding = '='.repeat((4 - signatureStr.length % 4) % 4);
+    const signature = Uint8Array.from(atob(signatureStr + padding), c => c.charCodeAt(0));
+    
+    const valid = await crypto.subtle.verify('HMAC', key, signature, data);
+    if (!valid) return null;
+    
+    // Decode payload
+    const payloadStr = payloadB64.replace(/-/g, '+').replace(/_/g, '/');
+    const payloadPadding = '='.repeat((4 - payloadStr.length % 4) % 4);
+    const payload: JWTPayload = JSON.parse(atob(payloadStr + payloadPadding));
+    
+    // Check expiration
+    if (payload.exp < Math.floor(Date.now() / 1000)) {
+      return null;
+    }
+    
+    return payload;
+  } catch {
+    return null;
+  }
+}
+
+async function hashToken(token: string): Promise<string> {
+  const encoder = new TextEncoder();
+  const data = encoder.encode(token);
+  const hashBuffer = await crypto.subtle.digest('SHA-256', data);
+  return Array.from(new Uint8Array(hashBuffer))
+    .map(b => b.toString(16).padStart(2, '0'))
+    .join('');
 }
 
 serve(async (req: Request) => {
@@ -31,13 +125,25 @@ serve(async (req: Request) => {
 
   const supabaseUrl = Deno.env.get('SUPABASE_URL')!;
   const supabaseServiceKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!;
+  const jwtSecret = Deno.env.get('BITRIX_JWT_SECRET') || 'fallback-secret-change-me';
   const supabase = createClient(supabaseUrl, supabaseServiceKey);
 
   try {
     const url = new URL(req.url);
     const path = url.pathname.replace(/^\/bitrix-chat-api\/?/, '').replace(/^\//, '');
 
-    // Extract API key from Authorization header
+    // ============ PUBLIC ENDPOINT: AUTH ============
+    if (path === 'auth') {
+      if (req.method !== 'POST') {
+        return new Response(JSON.stringify({ error: 'Method not allowed' }), {
+          status: 405,
+          headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+        });
+      }
+      return await handleAuth(req, supabase, jwtSecret);
+    }
+
+    // ============ JWT-PROTECTED ENDPOINTS ============
     const authHeader = req.headers.get('Authorization');
     if (!authHeader?.startsWith('Bearer ')) {
       return new Response(JSON.stringify({ error: 'Missing or invalid Authorization header' }), {
@@ -45,59 +151,100 @@ serve(async (req: Request) => {
         headers: { ...corsHeaders, 'Content-Type': 'application/json' },
       });
     }
-    const apiKey = authHeader.substring(7);
+    
+    const token = authHeader.substring(7);
+    
+    // Try JWT auth first (new secure flow)
+    let jwtPayload = await verifyJWT(token, jwtSecret);
+    let departmentId: string;
+    let bitrixUserInfo: BitrixUserInfo;
+    let userId: string;
+    
+    if (jwtPayload) {
+      // JWT auth - verify session is still valid
+      const tokenHash = await hashToken(token);
+      const { data: session } = await supabase
+        .from('bitrix_sessions')
+        .select('id')
+        .eq('jwt_token_hash', tokenHash)
+        .gt('expires_at', new Date().toISOString())
+        .single();
+      
+      if (!session) {
+        return new Response(JSON.stringify({ error: 'Session expired or revoked' }), {
+          status: 401,
+          headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+        });
+      }
+      
+      // Update last activity
+      await supabase
+        .from('bitrix_sessions')
+        .update({ last_activity_at: new Date().toISOString() })
+        .eq('id', session.id);
+      
+      departmentId = jwtPayload.department_id;
+      bitrixUserInfo = {
+        bitrix_user_id: jwtPayload.bitrix_user_id,
+      };
+      userId = jwtPayload.sub;
+    } else {
+      // Legacy API key auth (backwards compatibility)
+      const { data: apiKeyData, error: apiKeyError } = await supabase
+        .from('department_api_keys')
+        .select('id, department_id, is_active, expires_at, request_count')
+        .eq('api_key', token)
+        .single();
 
-    // Validate API key and get department
-    const { data: apiKeyData, error: apiKeyError } = await supabase
-      .from('department_api_keys')
-      .select('id, department_id, is_active, expires_at')
-      .eq('api_key', apiKey)
-      .single();
+      if (apiKeyError || !apiKeyData) {
+        return new Response(JSON.stringify({ error: 'Invalid token or API key' }), {
+          status: 401,
+          headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+        });
+      }
 
-    if (apiKeyError || !apiKeyData) {
-      return new Response(JSON.stringify({ error: 'Invalid API key' }), {
-        status: 401,
-        headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-      });
-    }
+      if (!apiKeyData.is_active) {
+        return new Response(JSON.stringify({ error: 'API key is deactivated' }), {
+          status: 403,
+          headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+        });
+      }
 
-    if (!apiKeyData.is_active) {
-      return new Response(JSON.stringify({ error: 'API key is deactivated' }), {
-        status: 403,
-        headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-      });
-    }
+      if (apiKeyData.expires_at && new Date(apiKeyData.expires_at) < new Date()) {
+        return new Response(JSON.stringify({ error: 'API key has expired' }), {
+          status: 403,
+          headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+        });
+      }
 
-    if (apiKeyData.expires_at && new Date(apiKeyData.expires_at) < new Date()) {
-      return new Response(JSON.stringify({ error: 'API key has expired' }), {
-        status: 403,
-        headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-      });
-    }
+      departmentId = apiKeyData.department_id;
 
-    const departmentId = apiKeyData.department_id;
+      // Update usage stats
+      await supabase
+        .from('department_api_keys')
+        .update({ 
+          last_used_at: new Date().toISOString(),
+          request_count: (apiKeyData.request_count || 0) + 1
+        })
+        .eq('id', apiKeyData.id);
 
-    // Update last_used_at and request_count
-    await supabase
-      .from('department_api_keys')
-      .update({ 
-        last_used_at: new Date().toISOString(),
-        request_count: (apiKeyData as any).request_count ? (apiKeyData as any).request_count + 1 : 1
-      })
-      .eq('id', apiKeyData.id);
+      // Extract Bitrix user info from headers (legacy flow)
+      bitrixUserInfo = {
+        bitrix_user_id: req.headers.get('X-Bitrix-User-Id') || '',
+        user_name: req.headers.get('X-Bitrix-User-Name') || undefined,
+        user_email: req.headers.get('X-Bitrix-User-Email') || undefined,
+      };
 
-    // Extract Bitrix user info from headers
-    const bitrixUserInfo: BitrixUserInfo = {
-      bitrix_user_id: req.headers.get('X-Bitrix-User-Id') || '',
-      user_name: req.headers.get('X-Bitrix-User-Name') || undefined,
-      user_email: req.headers.get('X-Bitrix-User-Email') || undefined,
-    };
+      if (!bitrixUserInfo.bitrix_user_id) {
+        return new Response(JSON.stringify({ error: 'Missing X-Bitrix-User-Id header' }), {
+          status: 400,
+          headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+        });
+      }
 
-    if (!bitrixUserInfo.bitrix_user_id) {
-      return new Response(JSON.stringify({ error: 'Missing X-Bitrix-User-Id header' }), {
-        status: 400,
-        headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-      });
+      // Get or create user for legacy flow
+      const userResult = await getOrCreateUser(supabase, departmentId, bitrixUserInfo);
+      userId = userResult.userId;
     }
 
     // Route to appropriate handler
@@ -109,7 +256,7 @@ serve(async (req: Request) => {
             headers: { ...corsHeaders, 'Content-Type': 'application/json' },
           });
         }
-        return await handleSendMessage(req, supabase, departmentId, bitrixUserInfo);
+        return await handleSendMessage(req, supabase, departmentId, bitrixUserInfo, userId);
 
       case 'messages':
         if (req.method !== 'GET') {
@@ -118,7 +265,7 @@ serve(async (req: Request) => {
             headers: { ...corsHeaders, 'Content-Type': 'application/json' },
           });
         }
-        return await handleGetMessages(url, supabase, departmentId, bitrixUserInfo);
+        return await handleGetMessages(url, supabase, departmentId, userId);
 
       case 'agents':
         if (req.method !== 'GET') {
@@ -138,14 +285,25 @@ serve(async (req: Request) => {
         }
         return await handleSyncUser(req, supabase, departmentId, bitrixUserInfo);
 
+      case 'logout':
+        if (req.method !== 'POST') {
+          return new Response(JSON.stringify({ error: 'Method not allowed' }), {
+            status: 405,
+            headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+          });
+        }
+        return await handleLogout(token, supabase, jwtSecret);
+
       default:
         return new Response(JSON.stringify({ 
           error: 'Not found',
           available_endpoints: [
+            'POST /auth',
             'POST /send-message',
             'GET /messages',
             'GET /agents',
-            'POST /sync-user'
+            'POST /sync-user',
+            'POST /logout'
           ]
         }), {
           status: 404,
@@ -161,6 +319,131 @@ serve(async (req: Request) => {
     });
   }
 });
+
+// ============ AUTH HANDLER ============
+async function handleAuth(
+  req: Request,
+  supabase: any,
+  jwtSecret: string
+): Promise<Response> {
+  const body: BitrixAuthRequest = await req.json();
+
+  if (!body.portal || !body.bitrix_user_id) {
+    return new Response(JSON.stringify({ 
+      error: 'Missing required fields: portal, bitrix_user_id' 
+    }), {
+      status: 400,
+      headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+    });
+  }
+
+  // Find API key by portal_domain
+  const { data: apiKeyData, error: apiKeyError } = await supabase
+    .from('department_api_keys')
+    .select('id, department_id, is_active, request_count')
+    .eq('portal_domain', body.portal)
+    .eq('is_active', true)
+    .single();
+
+  if (apiKeyError || !apiKeyData) {
+    return new Response(JSON.stringify({ 
+      error: 'Portal not registered',
+      details: 'No active API key found for this portal domain. Contact administrator.'
+    }), {
+      status: 401,
+      headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+    });
+  }
+
+  const departmentId = apiKeyData.department_id;
+
+  // Update API key usage stats
+  await supabase
+    .from('department_api_keys')
+    .update({ 
+      last_used_at: new Date().toISOString(),
+      request_count: (apiKeyData.request_count || 0) + 1
+    })
+    .eq('id', apiKeyData.id);
+
+  // Get or create user
+  const bitrixUserInfo: BitrixUserInfo = {
+    bitrix_user_id: body.bitrix_user_id,
+    user_name: body.bitrix_user_name,
+    user_email: body.bitrix_user_email,
+  };
+
+  const { userId, isNew } = await getOrCreateUser(supabase, departmentId, bitrixUserInfo);
+
+  // Create JWT (1 hour expiration)
+  const expiresIn = 3600; // 1 hour
+  const expiresAt = Math.floor(Date.now() / 1000) + expiresIn;
+  
+  const jwtPayload: Omit<JWTPayload, 'iat'> = {
+    sub: userId,
+    department_id: departmentId,
+    bitrix_user_id: body.bitrix_user_id,
+    portal: body.portal,
+    exp: expiresAt,
+  };
+
+  const token = await createJWT(jwtPayload, jwtSecret);
+  const tokenHash = await hashToken(token);
+
+  // Save session
+  await supabase
+    .from('bitrix_sessions')
+    .insert({
+      user_id: userId,
+      department_id: departmentId,
+      bitrix_user_id: body.bitrix_user_id,
+      portal_domain: body.portal,
+      jwt_token_hash: tokenHash,
+      expires_at: new Date(expiresAt * 1000).toISOString(),
+    });
+
+  // Get user profile
+  const { data: profile } = await supabase
+    .from('profiles')
+    .select('id, full_name, email, avatar_url')
+    .eq('id', userId)
+    .single();
+
+  return new Response(JSON.stringify({
+    token,
+    expires_in: expiresIn,
+    user: profile,
+    is_new_user: isNew,
+  }), {
+    headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+  });
+}
+
+// ============ LOGOUT HANDLER ============
+async function handleLogout(
+  token: string,
+  supabase: any,
+  jwtSecret: string
+): Promise<Response> {
+  const payload = await verifyJWT(token, jwtSecret);
+  if (!payload) {
+    return new Response(JSON.stringify({ error: 'Invalid token' }), {
+      status: 401,
+      headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+    });
+  }
+
+  const tokenHash = await hashToken(token);
+  
+  await supabase
+    .from('bitrix_sessions')
+    .delete()
+    .eq('jwt_token_hash', tokenHash);
+
+  return new Response(JSON.stringify({ success: true }), {
+    headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+  });
+}
 
 async function getOrCreateUser(
   supabase: any, 
@@ -196,10 +479,8 @@ async function getOrCreateUser(
     }
   }
 
-  // Create new profile for Bitrix user (without auth.users entry)
-  // Generate a deterministic UUID from bitrix_user_id
-  const namespaceUUID = '6ba7b810-9dad-11d1-80b4-00c04fd430c8'; // Standard namespace
-  const newUserId = await generateUUIDv5(bitrixUserInfo.bitrix_user_id, namespaceUUID);
+  // Create new profile for Bitrix user
+  const newUserId = await generateUUIDv5(bitrixUserInfo.bitrix_user_id, '6ba7b810-9dad-11d1-80b4-00c04fd430c8');
 
   const { error: insertError } = await supabase
     .from('profiles')
@@ -213,7 +494,6 @@ async function getOrCreateUser(
     });
 
   if (insertError) {
-    // If insert failed, try to fetch again (race condition)
     const { data: retryProfile } = await supabase
       .from('profiles')
       .select('id')
@@ -230,13 +510,11 @@ async function getOrCreateUser(
 }
 
 async function generateUUIDv5(name: string, namespace: string): Promise<string> {
-  // Simple deterministic UUID generation based on bitrix_user_id
   const encoder = new TextEncoder();
   const data = encoder.encode(namespace + name);
   const hashBuffer = await crypto.subtle.digest('SHA-256', data);
   const hashArray = new Uint8Array(hashBuffer);
   
-  // Format as UUID v5
   const hex = Array.from(hashArray.slice(0, 16))
     .map(b => b.toString(16).padStart(2, '0'))
     .join('');
@@ -245,7 +523,6 @@ async function generateUUIDv5(name: string, namespace: string): Promise<string> 
 }
 
 async function getOrCreateDepartmentChat(supabase: any, departmentId: string): Promise<string> {
-  // Find existing chat for department
   const { data: existingChat } = await supabase
     .from('department_chats')
     .select('id')
@@ -257,7 +534,6 @@ async function getOrCreateDepartmentChat(supabase: any, departmentId: string): P
     return existingChat.id;
   }
 
-  // Create new chat
   const { data: newChat, error } = await supabase
     .from('department_chats')
     .insert({
@@ -276,7 +552,8 @@ async function handleSendMessage(
   req: Request,
   supabase: any,
   departmentId: string,
-  bitrixUserInfo: BitrixUserInfo
+  bitrixUserInfo: BitrixUserInfo,
+  userId: string
 ): Promise<Response> {
   const body: SendMessageRequest = await req.json();
 
@@ -287,10 +564,6 @@ async function handleSendMessage(
     });
   }
 
-  // Get or create user
-  const { userId } = await getOrCreateUser(supabase, departmentId, bitrixUserInfo);
-  
-  // Get or create department chat
   const chatId = await getOrCreateDepartmentChat(supabase, departmentId);
 
   // Parse @mention from message to get role
@@ -313,7 +586,6 @@ async function handleSendMessage(
       roleName = role.name;
     }
   } else if (body.role_slug) {
-    // Use role_slug if no @mention
     const { data: role } = await supabase
       .from('chat_roles')
       .select('id, name')
@@ -331,26 +603,42 @@ async function handleSendMessage(
   const attachments: any[] = [];
   if (body.attachments && body.attachments.length > 0) {
     for (const att of body.attachments) {
-      // Decode base64 and upload to storage
-      const fileData = Uint8Array.from(atob(att.file_base64), c => c.charCodeAt(0));
-      const filePath = `bitrix/${departmentId}/${userId}/${Date.now()}_${att.file_name}`;
-      
-      const { error: uploadError } = await supabase.storage
-        .from('chat-attachments')
-        .upload(filePath, fileData, {
-          contentType: att.file_type,
-          upsert: false
-        });
+      try {
+        // Process base64 in chunks to avoid stack overflow
+        const base64 = att.file_base64;
+        const chunkSize = 65536;
+        const chunks: number[] = [];
+        
+        for (let i = 0; i < base64.length; i += chunkSize) {
+          const chunk = base64.slice(i, i + chunkSize);
+          const decoded = atob(chunk);
+          for (let j = 0; j < decoded.length; j++) {
+            chunks.push(decoded.charCodeAt(j));
+          }
+        }
+        
+        const fileData = new Uint8Array(chunks);
+        const filePath = `bitrix/${departmentId}/${userId}/${Date.now()}_${att.file_name}`;
+        
+        const { error: uploadError } = await supabase.storage
+          .from('chat-attachments')
+          .upload(filePath, fileData, {
+            contentType: att.file_type,
+            upsert: false
+          });
 
-      if (!uploadError) {
-        attachments.push({
-          id: crypto.randomUUID(),
-          file_name: att.file_name,
-          file_type: att.file_type,
-          file_size: fileData.length,
-          file_path: filePath,
-          status: 'uploaded'
-        });
+        if (!uploadError) {
+          attachments.push({
+            id: crypto.randomUUID(),
+            file_name: att.file_name,
+            file_type: att.file_type,
+            file_size: fileData.length,
+            file_path: filePath,
+            status: 'uploaded'
+          });
+        }
+      } catch (e) {
+        console.error('Attachment upload error:', e);
       }
     }
   }
@@ -381,10 +669,9 @@ async function handleSendMessage(
     });
   }
 
-  // Call chat-stream function internally
+  // Call chat-stream function
   const chatStreamUrl = `${Deno.env.get('SUPABASE_URL')}/functions/v1/chat-stream`;
   
-  // Load message history for context
   const { data: history } = await supabase
     .from('department_chat_messages')
     .select('message_role, content, role_id')
@@ -397,7 +684,6 @@ async function handleSendMessage(
     content: m.content
   }));
 
-  // Prepare request to chat-stream
   const chatRequest = {
     message: body.message,
     role_id: roleId,
@@ -451,7 +737,6 @@ async function handleSendMessage(
             if (line.startsWith('data: ')) {
               const data = line.substring(6);
               if (data === '[DONE]') {
-                // Save assistant message to database
                 await supabase
                   .from('department_chat_messages')
                   .insert({
@@ -508,18 +793,13 @@ async function handleGetMessages(
   url: URL,
   supabase: any,
   departmentId: string,
-  bitrixUserInfo: BitrixUserInfo
+  userId: string
 ): Promise<Response> {
   const limit = parseInt(url.searchParams.get('limit') || '50');
   const offset = parseInt(url.searchParams.get('offset') || '0');
 
-  // Get user
-  const { userId } = await getOrCreateUser(supabase, departmentId, bitrixUserInfo);
-
-  // Get chat
   const chatId = await getOrCreateDepartmentChat(supabase, departmentId);
 
-  // Get messages
   const { data: messages, error } = await supabase
     .from('department_chat_messages')
     .select('id, message_role, content, metadata, created_at, role_id')
@@ -578,10 +858,8 @@ async function handleSyncUser(
 ): Promise<Response> {
   const body = await req.json();
 
-  // Update user info
   const { userId, isNew } = await getOrCreateUser(supabase, departmentId, bitrixUserInfo);
 
-  // Update additional fields if provided
   if (body.full_name || body.email || body.avatar_url) {
     await supabase
       .from('profiles')
