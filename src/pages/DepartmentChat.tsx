@@ -16,7 +16,7 @@ interface Department {
 }
 
 const DepartmentChat: React.FC = () => {
-  const { user, departmentId: userDepartmentId, isAdmin } = useAuth();
+  const { user, departmentId: userDepartmentId, isAdmin, isLoading: authLoading } = useAuth();
   const [departments, setDepartments] = useState<Department[]>([]);
   const [selectedDepartmentId, setSelectedDepartmentId] = useState<string | null>(null);
   const [loadingDepartments, setLoadingDepartments] = useState(false);
@@ -66,6 +66,15 @@ const DepartmentChat: React.FC = () => {
       scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
     }
   }, [messages]);
+
+  // Wait for auth to complete first
+  if (authLoading) {
+    return (
+      <div className="flex items-center justify-center h-full">
+        <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
+      </div>
+    );
+  }
 
   // No department assigned and not admin
   if (!isAdmin && !userDepartmentId) {
