@@ -21,6 +21,8 @@ import Folders from "./pages/Folders";
 import Documents from "./pages/Documents";
 import ChatRoles from "./pages/ChatRoles";
 import ChatLogs from "./pages/ChatLogs";
+import ApiKeys from "./pages/ApiKeys";
+import BitrixWidget from "./pages/BitrixWidget";
 import NotFound from "./pages/NotFound";
 
 const queryClient = new QueryClient();
@@ -33,6 +35,9 @@ const App = () => (
         <Sonner />
         <BrowserRouter>
           <Routes>
+            {/* Public widget route - no auth required */}
+            <Route path="/widget/chat" element={<BitrixWidget />} />
+            
             <Route path="/login" element={<Login />} />
             <Route path="/register" element={<Register />} />
             <Route path="/unauthorized" element={<Unauthorized />} />
@@ -94,6 +99,11 @@ const App = () => (
             <Route path="/chat-logs" element={
               <ProtectedRoute allowedRoles={['admin', 'moderator']}>
                 <AdminLayout><ChatLogs /></AdminLayout>
+              </ProtectedRoute>
+            } />
+            <Route path="/api-keys" element={
+              <ProtectedRoute allowedRoles={['admin']}>
+                <AdminLayout><ApiKeys /></AdminLayout>
               </ProtectedRoute>
             } />
             <Route path="*" element={<NotFound />} />

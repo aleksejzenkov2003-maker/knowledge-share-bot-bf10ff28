@@ -14,3 +14,6 @@ verify_jwt = false
 
 [functions.rerank-chunks]
 verify_jwt = false
+
+[functions.bitrix-chat-api]
+verify_jwt = false
