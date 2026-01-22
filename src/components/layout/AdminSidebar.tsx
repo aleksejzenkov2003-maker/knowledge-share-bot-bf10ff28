@@ -27,6 +27,7 @@ import {
   FolderTree,
   UserCircle,
   MessagesSquare,
+  KeyRound,
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 
@@ -47,6 +48,7 @@ const managementItems = [
 const adminItems = [
   { title: 'Пользователи', url: '/users', icon: Users, roles: ['admin', 'moderator'] },
   { title: 'Отделы', url: '/departments', icon: Building2 },
+  { title: 'API-ключи', url: '/api-keys', icon: KeyRound, roles: ['admin'] },
   { title: 'Логи чатов', url: '/chat-logs', icon: ClipboardList, roles: ['admin', 'moderator'] },
 ];
 

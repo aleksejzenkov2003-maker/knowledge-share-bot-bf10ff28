@@ -217,6 +217,53 @@ export type Database = {
           },
         ]
       }
+      department_api_keys: {
+        Row: {
+          api_key: string
+          created_at: string | null
+          department_id: string
+          expires_at: string | null
+          id: string
+          is_active: boolean | null
+          last_used_at: string | null
+          name: string
+          request_count: number | null
+          updated_at: string | null
+        }
+        Insert: {
+          api_key?: string
+          created_at?: string | null
+          department_id: string
+          expires_at?: string | null
+          id?: string
+          is_active?: boolean | null
+          last_used_at?: string | null
+          name?: string
+          request_count?: number | null
+          updated_at?: string | null
+        }
+        Update: {
+          api_key?: string
+          created_at?: string | null
+          department_id?: string
+          expires_at?: string | null
+          id?: string
+          is_active?: boolean | null
+          last_used_at?: string | null
+          name?: string
+          request_count?: number | null
+          updated_at?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "department_api_keys_department_id_fkey"
+            columns: ["department_id"]
+            isOneToOne: false
+            referencedRelation: "departments"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       department_chat_messages: {
         Row: {
           chat_id: string
@@ -226,6 +273,7 @@ export type Database = {
           message_role: string
           metadata: Json | null
           role_id: string | null
+          source: string | null
           user_id: string
         }
         Insert: {
@@ -236,6 +284,7 @@ export type Database = {
           message_role: string
           metadata?: Json | null
           role_id?: string | null
+          source?: string | null
           user_id: string
         }
         Update: {
@@ -246,6 +295,7 @@ export type Database = {
           message_role?: string
           metadata?: Json | null
           role_id?: string | null
+          source?: string | null
           user_id?: string
         }
         Relationships: [
@@ -589,6 +639,7 @@ export type Database = {
       profiles: {
         Row: {
           avatar_url: string | null
+          bitrix_user_id: string | null
           created_at: string
           department_id: string | null
           email: string | null
@@ -599,6 +650,7 @@ export type Database = {
         }
         Insert: {
           avatar_url?: string | null
+          bitrix_user_id?: string | null
           created_at?: string
           department_id?: string | null
           email?: string | null
@@ -609,6 +661,7 @@ export type Database = {
         }
         Update: {
           avatar_url?: string | null
+          bitrix_user_id?: string | null
           created_at?: string
           department_id?: string | null
           email?: string | null

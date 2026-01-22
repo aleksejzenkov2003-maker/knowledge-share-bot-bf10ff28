@@ -73,6 +73,7 @@ export default function ChatLogs() {
   const [page, setPage] = useState(0);
   const [totalCount, setTotalCount] = useState(0);
   const [filterDepartment, setFilterDepartment] = useState("");
+  const [filterSource, setFilterSource] = useState("");
   const [searchQuery, setSearchQuery] = useState("");
   const [selectedLog, setSelectedLog] = useState<ChatLog | null>(null);
   const [detailsOpen, setDetailsOpen] = useState(false);
@@ -83,7 +84,7 @@ export default function ChatLogs() {
 
   useEffect(() => {
     fetchLogs();
-  }, [page, filterDepartment]);
+  }, [page, filterDepartment, filterSource]);
 
   const fetchDepartments = async () => {
     const { data } = await supabase.from("departments").select("id, name").order("name");
@@ -208,6 +209,23 @@ export default function ChatLogs() {
                 onChange={(e) => setSearchQuery(e.target.value)}
                 className="w-48"
               />
+              <Select
+                value={filterSource || "_all"}
+                onValueChange={(value) => {
+                  setFilterSource(value === "_all" ? "" : value);
+                  setPage(0);
+                }}
+              >
+                <SelectTrigger className="w-36">
+                  <SelectValue placeholder="Все источники" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="_all">Все источники</SelectItem>
+                  <SelectItem value="web">Web</SelectItem>
+                  <SelectItem value="bitrix">Битрикс24</SelectItem>
+                  <SelectItem value="api">API</SelectItem>
+                </SelectContent>
+              </Select>
               <Select
                 value={filterDepartment || "_all"}
                 onValueChange={(value) => {
