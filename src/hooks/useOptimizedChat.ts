@@ -1,4 +1,4 @@
-import { useState, useCallback, useRef } from "react";
+import { useState, useCallback, useRef, useEffect } from "react";
 import { supabase } from "@/integrations/supabase/client";
 import { toast } from "sonner";
 import { Message, Conversation, ChatRole, Attachment } from "@/types/chat";
@@ -66,10 +66,12 @@ export function useOptimizedChat(userId: string | undefined, departmentId: strin
   // Sync dbMessages to localMessages when not streaming
   const messages = isLoading ? localMessages : (dbMessages || localMessages);
 
-  // Set initial role when roles load
-  if (roles.length > 0 && !selectedRoleId) {
-    setSelectedRoleId(roles[0].id);
-  }
+  // Set initial role when roles load - use useEffect to avoid render-loop
+  useEffect(() => {
+    if (roles.length > 0 && !selectedRoleId) {
+      setSelectedRoleId(roles[0].id);
+    }
+  }, [roles, selectedRoleId]);
 
   // Attachment management
   const addAttachments = useCallback((files: File[]) => {
