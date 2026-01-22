@@ -56,6 +56,57 @@ export type Database = {
         }
         Relationships: []
       }
+      bitrix_sessions: {
+        Row: {
+          bitrix_user_id: string
+          created_at: string | null
+          department_id: string
+          expires_at: string
+          id: string
+          jwt_token_hash: string
+          last_activity_at: string | null
+          portal_domain: string
+          user_id: string
+        }
+        Insert: {
+          bitrix_user_id: string
+          created_at?: string | null
+          department_id: string
+          expires_at: string
+          id?: string
+          jwt_token_hash: string
+          last_activity_at?: string | null
+          portal_domain: string
+          user_id: string
+        }
+        Update: {
+          bitrix_user_id?: string
+          created_at?: string | null
+          department_id?: string
+          expires_at?: string
+          id?: string
+          jwt_token_hash?: string
+          last_activity_at?: string | null
+          portal_domain?: string
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "bitrix_sessions_department_id_fkey"
+            columns: ["department_id"]
+            isOneToOne: false
+            referencedRelation: "departments"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "bitrix_sessions_user_id_fkey"
+            columns: ["user_id"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       chat_logs: {
         Row: {
           completion_tokens: number | null
@@ -227,6 +278,7 @@ export type Database = {
           is_active: boolean | null
           last_used_at: string | null
           name: string
+          portal_domain: string | null
           request_count: number | null
           updated_at: string | null
         }
@@ -239,6 +291,7 @@ export type Database = {
           is_active?: boolean | null
           last_used_at?: string | null
           name?: string
+          portal_domain?: string | null
           request_count?: number | null
           updated_at?: string | null
         }
@@ -251,6 +304,7 @@ export type Database = {
           is_active?: boolean | null
           last_used_at?: string | null
           name?: string
+          portal_domain?: string | null
           request_count?: number | null
           updated_at?: string | null
         }
@@ -785,6 +839,7 @@ export type Database = {
       }
     }
     Functions: {
+      cleanup_expired_bitrix_sessions: { Args: never; Returns: number }
       get_user_department: { Args: { uid: string }; Returns: string }
       get_user_role: {
         Args: { uid: string }
