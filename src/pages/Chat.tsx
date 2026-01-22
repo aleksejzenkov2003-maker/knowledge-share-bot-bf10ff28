@@ -26,7 +26,7 @@ import { ChatSidebar } from "@/components/chat/ChatSidebar";
 import { ChatInput } from "@/components/chat/ChatInput";
 
 export default function Chat() {
-  const { user, departmentId } = useAuth();
+  const { user, departmentId, isLoading: authLoading } = useAuth();
   const [sidebarOpen, setSidebarOpen] = useState(true);
   const [inputValue, setInputValue] = useState("");
   const messagesEndRef = useRef<HTMLDivElement>(null);
@@ -74,7 +74,8 @@ export default function Chat() {
     }
   };
 
-  if (rolesLoading) {
+  // Wait for auth first, then roles
+  if (authLoading || (user && rolesLoading)) {
     return (
       <div className="flex items-center justify-center h-[calc(100vh-120px)]">
         <Loader2 className="h-8 w-8 animate-spin text-primary" />

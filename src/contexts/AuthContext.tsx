@@ -62,6 +62,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
   useEffect(() => {
     let isMounted = true;
+    let initialLoadComplete = false;
 
     // Get initial session first, then set up listener
     const initializeAuth = async () => {
@@ -85,6 +86,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         console.error('Error initializing auth:', error);
       } finally {
         if (isMounted) {
+          initialLoadComplete = true;
           setIsLoading(false);
         }
       }
@@ -96,17 +98,25 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     const { data: { subscription } } = supabase.auth.onAuthStateChange(
       async (event, newSession) => {
         if (!isMounted) return;
+        
+        // Skip INITIAL_SESSION if already processed by initializeAuth
+        if (event === 'INITIAL_SESSION' && !initialLoadComplete) {
+          return;
+        }
 
         setSession(newSession);
         setUser(newSession?.user ?? null);
         
         if (newSession?.user) {
-          // Load metadata on any session event (sign-in, token refresh, initial)
-          const metadata = await loadUserMetadata(newSession.user.id);
-          if (isMounted) {
-            setRole(metadata.role);
-            setDepartmentId(metadata.departmentId);
-          }
+          // Use setTimeout to avoid race conditions with Supabase's sync code
+          setTimeout(async () => {
+            if (!isMounted) return;
+            const metadata = await loadUserMetadata(newSession.user.id);
+            if (isMounted) {
+              setRole(metadata.role);
+              setDepartmentId(metadata.departmentId);
+            }
+          }, 0);
         } else {
           setRole(null);
           setDepartmentId(null);
