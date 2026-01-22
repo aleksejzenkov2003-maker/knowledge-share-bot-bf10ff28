@@ -20,13 +20,13 @@ import {
   StopCircle
 } from "lucide-react";
 import { cn } from "@/lib/utils";
-import { useChat } from "@/hooks/useChat";
+import { useOptimizedChat } from "@/hooks/useOptimizedChat";
 import { ChatMessage } from "@/components/chat/ChatMessage";
 import { ChatSidebar } from "@/components/chat/ChatSidebar";
 import { ChatInput } from "@/components/chat/ChatInput";
 
 export default function Chat() {
-  const { user } = useAuth();
+  const { user, departmentId } = useAuth();
   const [sidebarOpen, setSidebarOpen] = useState(true);
   const [inputValue, setInputValue] = useState("");
   const messagesEndRef = useRef<HTMLDivElement>(null);
@@ -42,9 +42,6 @@ export default function Chat() {
     isLoading,
     rolesLoading,
     conversationsLoading,
-    fetchRoles,
-    fetchConversations,
-    loadConversationMessages,
     sendMessage,
     handleNewChat,
     handleSelectConversation,
@@ -55,27 +52,12 @@ export default function Chat() {
     addAttachments,
     removeAttachment,
     clearAttachments,
-  } = useChat(user?.id);
+  } = useOptimizedChat(user?.id, departmentId);
 
-  useEffect(() => {
-    fetchRoles();
-  }, [fetchRoles]);
-
-  useEffect(() => {
-    if (user) {
-      fetchConversations();
-    }
-  }, [user, fetchConversations]);
-
+  // Auto-scroll to bottom on new messages
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [messages]);
-
-  useEffect(() => {
-    if (activeConversationId) {
-      loadConversationMessages(activeConversationId);
-    }
-  }, [activeConversationId, loadConversationMessages]);
 
   const selectedRole = roles.find((r) => r.id === selectedRoleId);
   const isProjectMode = selectedRole?.is_project_mode || false;

@@ -1,3 +1,4 @@
+import React from "react";
 import ReactMarkdown from "react-markdown";
 import { Card } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -14,7 +15,7 @@ interface ChatMessageProps {
   message: Message;
 }
 
-export function ChatMessage({ message }: ChatMessageProps) {
+function ChatMessageComponent({ message }: ChatMessageProps) {
   return (
     <div
       className={cn(
@@ -175,3 +176,19 @@ export function ChatMessage({ message }: ChatMessageProps) {
     </div>
   );
 }
+
+// Memoize with custom comparison to prevent unnecessary re-renders
+export const ChatMessage = React.memo(ChatMessageComponent, (prevProps, nextProps) => {
+  const prev = prevProps.message;
+  const next = nextProps.message;
+  
+  // Only re-render if meaningful properties changed
+  return (
+    prev.id === next.id &&
+    prev.content === next.content &&
+    prev.isStreaming === next.isStreaming &&
+    prev.responseTime === next.responseTime &&
+    prev.ragContext?.length === next.ragContext?.length &&
+    prev.citations?.length === next.citations?.length
+  );
+});
