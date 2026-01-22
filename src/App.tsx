@@ -23,6 +23,7 @@ import ChatRoles from "./pages/ChatRoles";
 import ChatLogs from "./pages/ChatLogs";
 import ApiKeys from "./pages/ApiKeys";
 import BitrixWidget from "./pages/BitrixWidget";
+import BitrixSessions from "./pages/BitrixSessions";
 import NotFound from "./pages/NotFound";
 
 const queryClient = new QueryClient();
@@ -104,6 +105,11 @@ const App = () => (
             <Route path="/api-keys" element={
               <ProtectedRoute allowedRoles={['admin']}>
                 <AdminLayout><ApiKeys /></AdminLayout>
+              </ProtectedRoute>
+            } />
+            <Route path="/bitrix-sessions" element={
+              <ProtectedRoute allowedRoles={['admin', 'moderator']}>
+                <AdminLayout><BitrixSessions /></AdminLayout>
               </ProtectedRoute>
             } />
             <Route path="*" element={<NotFound />} />
