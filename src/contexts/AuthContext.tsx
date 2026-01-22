@@ -63,6 +63,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   useEffect(() => {
     let isMounted = true;
     let initialLoadComplete = false;
+    let subscription: { unsubscribe: () => void } | null = null;
 
     // Get initial session first, then set up listener
     const initializeAuth = async () => {
@@ -76,10 +77,14 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
           setUser(initialSession.user);
           
           // Load metadata in parallel
-          const metadata = await loadUserMetadata(initialSession.user.id);
-          if (isMounted) {
-            setRole(metadata.role);
-            setDepartmentId(metadata.departmentId);
+          try {
+            const metadata = await loadUserMetadata(initialSession.user.id);
+            if (isMounted) {
+              setRole(metadata.role);
+              setDepartmentId(metadata.departmentId);
+            }
+          } catch (metaError) {
+            console.error('Error loading metadata:', metaError);
           }
         }
       } catch (error) {
@@ -92,41 +97,52 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       }
     };
 
+    // Set up auth state listener first (before async call)
+    try {
+      const { data } = supabase.auth.onAuthStateChange(
+        async (event, newSession) => {
+          if (!isMounted) return;
+          
+          // Skip INITIAL_SESSION if already processed by initializeAuth
+          if (event === 'INITIAL_SESSION' && !initialLoadComplete) {
+            return;
+          }
+
+          setSession(newSession);
+          setUser(newSession?.user ?? null);
+          
+          if (newSession?.user) {
+            // Use setTimeout to avoid race conditions with Supabase's sync code
+            setTimeout(async () => {
+              if (!isMounted) return;
+              try {
+                const metadata = await loadUserMetadata(newSession.user.id);
+                if (isMounted) {
+                  setRole(metadata.role);
+                  setDepartmentId(metadata.departmentId);
+                }
+              } catch (error) {
+                console.error('Error loading metadata on auth change:', error);
+              }
+            }, 0);
+          } else {
+            setRole(null);
+            setDepartmentId(null);
+          }
+        }
+      );
+      subscription = data.subscription;
+    } catch (error) {
+      console.error('Error setting up auth listener:', error);
+      setIsLoading(false);
+    }
+
+    // Then initialize
     initializeAuth();
-
-    // Set up auth state listener
-    const { data: { subscription } } = supabase.auth.onAuthStateChange(
-      async (event, newSession) => {
-        if (!isMounted) return;
-        
-        // Skip INITIAL_SESSION if already processed by initializeAuth
-        if (event === 'INITIAL_SESSION' && !initialLoadComplete) {
-          return;
-        }
-
-        setSession(newSession);
-        setUser(newSession?.user ?? null);
-        
-        if (newSession?.user) {
-          // Use setTimeout to avoid race conditions with Supabase's sync code
-          setTimeout(async () => {
-            if (!isMounted) return;
-            const metadata = await loadUserMetadata(newSession.user.id);
-            if (isMounted) {
-              setRole(metadata.role);
-              setDepartmentId(metadata.departmentId);
-            }
-          }, 0);
-        } else {
-          setRole(null);
-          setDepartmentId(null);
-        }
-      }
-    );
 
     return () => {
       isMounted = false;
-      subscription.unsubscribe();
+      subscription?.unsubscribe();
     };
   }, [loadUserMetadata]);
 
