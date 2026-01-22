@@ -33,6 +33,7 @@ export interface DepartmentChatMessage {
     }>;
     perplexity_citations?: string[]; // URLs from Perplexity API
     smart_search?: boolean;
+    stop_reason?: string | null; // 'max_tokens' if response was truncated
     user_name?: string;
     agent_name?: string;
     attachments?: DepartmentChatAttachment[];

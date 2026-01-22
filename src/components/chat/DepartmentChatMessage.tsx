@@ -183,6 +183,14 @@ export const DepartmentChatMessage: React.FC<DepartmentChatMessageProps> = ({
             </ul>
           </div>
         )}
+
+        {/* Truncation warning */}
+        {message.metadata?.stop_reason === 'max_tokens' && (
+          <div className="mt-2 flex items-center gap-1.5 text-xs text-amber-600 dark:text-amber-500">
+            <span>⚠️</span>
+            <span>Ответ был обрезан из-за ограничения длины</span>
+          </div>
+        )}
       </div>
     </div>
   );
