@@ -383,6 +383,7 @@ export function useDepartmentChat(userId: string | undefined, departmentId: stri
                   citations: parsed.citations,
                   perplexity_citations: parsed.perplexity_citations,
                   smart_search: parsed.smart_search,
+                  stop_reason: parsed.stop_reason,
                 };
               }
             } catch {

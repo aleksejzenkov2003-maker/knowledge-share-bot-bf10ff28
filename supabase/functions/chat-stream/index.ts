@@ -606,7 +606,7 @@ serve(async (req) => {
           },
           body: JSON.stringify({
             model: finalModel,
-            max_tokens: 4096,
+            max_tokens: 8192,
             system: enhancedSystemPrompt,
             messages: anthropicMessages.map(m => ({ role: m.role === 'assistant' ? 'assistant' : 'user', content: m.content })),
             stream: true,
@@ -746,6 +746,7 @@ serve(async (req) => {
         try {
           let buffer = ''; // Buffer for incomplete SSE chunks
           let perplexityCitations: string[] = []; // Capture Perplexity citations
+          let stopReason: string | null = null; // Track if response was truncated
 
           while (true) {
             const { done, value } = await reader.read();
@@ -776,7 +777,15 @@ serve(async (req) => {
                     if (parsed.type === 'content_block_delta' && parsed.delta?.text) {
                       content = parsed.delta.text;
                     }
+                    // Capture stop reason from Anthropic message_delta event
+                    if (parsed.type === 'message_delta' && parsed.delta?.stop_reason) {
+                      stopReason = parsed.delta.stop_reason;
+                    }
                   } else {
+                    // Capture stop reason from OpenAI/Perplexity format
+                    if (parsed.choices?.[0]?.finish_reason) {
+                      stopReason = parsed.choices[0].finish_reason;
+                    }
                     // OpenAI/Perplexity/Lovable format
                     content = parsed.choices?.[0]?.delta?.content || 
                               parsed.choices?.[0]?.message?.content || '';
@@ -828,6 +837,7 @@ serve(async (req) => {
             citations: citations.length > 0 ? citations : undefined,
             perplexity_citations: perplexityCitations.length > 0 ? perplexityCitations : undefined,
             smart_search: usedSmartSearch,
+            stop_reason: stopReason,
           })}\n\n`));
 
           controller.enqueue(encoder.encode('data: [DONE]\n\n'));
