@@ -176,7 +176,7 @@ serve(async (req) => {
         providerConfig = {
           provider_type: 'anthropic',
           api_key: ANTHROPIC_API_KEY,
-          default_model: 'claude-sonnet-4-20250514',
+          default_model: 'claude-sonnet-4-5-20250929',
         };
       } else if (PERPLEXITY_API_KEY) {
         providerConfig = {
