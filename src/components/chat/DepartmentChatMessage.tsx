@@ -1,19 +1,25 @@
 import React from 'react';
 import { DepartmentChatMessage as MessageType } from '@/types/departmentChat';
-import { Bot, User, FileText, Image } from 'lucide-react';
+import { Bot, User, FileText, Image, Clock, BookOpen, Link, AlertTriangle } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import ReactMarkdown from 'react-markdown';
 import { supabase } from '@/integrations/supabase/client';
+import { Badge } from '@/components/ui/badge';
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger,
+} from "@/components/ui/tooltip";
 
 interface DepartmentChatMessageProps {
   message: MessageType;
   currentUserId?: string;
 }
 
-export const DepartmentChatMessage: React.FC<DepartmentChatMessageProps> = ({
+function DepartmentChatMessageComponent({
   message,
   currentUserId
-}) => {
+}: DepartmentChatMessageProps) {
   const isAssistant = message.message_role === 'assistant';
   const isOwnMessage = message.user_id === currentUserId;
   const userName = message.metadata?.user_name || 'Пользователь';
@@ -138,60 +144,114 @@ export const DepartmentChatMessage: React.FC<DepartmentChatMessageProps> = ({
           </div>
         )}
 
-        {/* RAG Citations if available */}
-        {message.metadata?.citations && message.metadata.citations.length > 0 && (
-          <div className="mt-3 pt-3 border-t">
-            <div className="text-xs font-medium text-muted-foreground mb-2">Документы:</div>
-            <div className="flex flex-wrap gap-1">
-              {message.metadata.citations.map((citation, idx) => (
-                <span
-                  key={idx}
-                  className="inline-flex items-center px-2 py-1 rounded-full bg-primary/10 text-primary text-xs"
-                >
-                  [{citation.index}] {citation.document}
-                  {citation.article && `, ст. ${citation.article}`}
-                </span>
-              ))}
-            </div>
-          </div>
-        )}
-
-        {/* Perplexity Web Citations */}
-        {message.metadata?.perplexity_citations && message.metadata.perplexity_citations.length > 0 && (
-          <div className="mt-3 pt-3 border-t">
-            <div className="text-xs font-medium text-muted-foreground mb-2">Веб-источники:</div>
-            <ul className="space-y-1">
-              {message.metadata.perplexity_citations.map((url, idx) => {
-                let hostname = url;
-                try {
-                  hostname = new URL(url).hostname.replace('www.', '');
-                } catch {}
-                return (
-                  <li key={idx}>
-                    <a 
-                      href={url} 
-                      target="_blank" 
-                      rel="noopener noreferrer"
-                      className="text-xs text-primary hover:underline flex items-center gap-1"
-                    >
-                      <span className="font-medium">[{idx + 1}]</span>
-                      <span className="truncate max-w-[300px]">{hostname}</span>
-                    </a>
-                  </li>
-                );
-              })}
-            </ul>
-          </div>
-        )}
-
-        {/* Truncation warning */}
-        {message.metadata?.stop_reason === 'max_tokens' && (
-          <div className="mt-2 flex items-center gap-1.5 text-xs text-amber-600 dark:text-amber-500">
-            <span>⚠️</span>
-            <span>Ответ был обрезан из-за ограничения длины</span>
+        {/* Metadata for assistant messages */}
+        {isAssistant && message.content && (
+          <div className="flex flex-wrap items-center gap-2 mt-3 pt-2 border-t border-border/50 text-xs text-muted-foreground">
+            {message.metadata?.response_time_ms && (
+              <span className="flex items-center gap-1">
+                <Clock className="h-3 w-3" />
+                {message.metadata.response_time_ms}ms
+              </span>
+            )}
+            {message.metadata?.rag_context && message.metadata.rag_context.length > 0 && (
+              <Badge variant="outline" className="text-xs">
+                <FileText className="h-3 w-3 mr-1" />
+                {message.metadata.rag_context.length} источников
+                {message.metadata.smart_search && " (Claude re-rank)"}
+              </Badge>
+            )}
+            {message.metadata?.citations && message.metadata.citations.length > 0 && (
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <Badge variant="secondary" className="text-xs cursor-help">
+                    <BookOpen className="h-3 w-3 mr-1" />
+                    {message.metadata.citations.length} цитат
+                  </Badge>
+                </TooltipTrigger>
+                <TooltipContent side="top" className="max-w-sm">
+                  <div className="text-xs space-y-1">
+                    {message.metadata.citations.slice(0, 5).map((citation) => (
+                      <div key={citation.index} className="flex items-start gap-1">
+                        <span className="font-medium">[{citation.index}]</span>
+                        <span className="truncate">
+                          {citation.document}
+                          {citation.article && `, ст. ${citation.article}`}
+                        </span>
+                      </div>
+                    ))}
+                    {message.metadata.citations.length > 5 && (
+                      <div className="text-muted-foreground">
+                        ...и ещё {message.metadata.citations.length - 5}
+                      </div>
+                    )}
+                  </div>
+                </TooltipContent>
+              </Tooltip>
+            )}
+            {/* Perplexity web citations */}
+            {message.metadata?.perplexity_citations && message.metadata.perplexity_citations.length > 0 && (
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <Badge variant="outline" className="text-xs cursor-help">
+                    <Link className="h-3 w-3 mr-1" />
+                    {message.metadata.perplexity_citations.length} веб-источников
+                  </Badge>
+                </TooltipTrigger>
+                <TooltipContent side="top" className="max-w-md">
+                  <div className="text-xs space-y-1">
+                    {message.metadata.perplexity_citations.slice(0, 5).map((url, idx) => (
+                      <div key={idx} className="truncate">
+                        <a 
+                          href={url} 
+                          target="_blank" 
+                          rel="noopener noreferrer"
+                          className="text-primary hover:underline"
+                        >
+                          [{idx + 1}] {url}
+                        </a>
+                      </div>
+                    ))}
+                    {message.metadata.perplexity_citations.length > 5 && (
+                      <div className="text-muted-foreground">
+                        ...и ещё {message.metadata.perplexity_citations.length - 5}
+                      </div>
+                    )}
+                  </div>
+                </TooltipContent>
+              </Tooltip>
+            )}
+            {/* Warning for truncated messages */}
+            {message.metadata?.stop_reason === 'max_tokens' && (
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <Badge variant="destructive" className="text-xs cursor-help">
+                    <AlertTriangle className="h-3 w-3 mr-1" />
+                    Обрезано
+                  </Badge>
+                </TooltipTrigger>
+                <TooltipContent>
+                  Ответ был обрезан из-за ограничения длины
+                </TooltipContent>
+              </Tooltip>
+            )}
           </div>
         )}
       </div>
     </div>
   );
-};
+}
+
+// Memoize with custom comparison to prevent unnecessary re-renders
+export const DepartmentChatMessage = React.memo(DepartmentChatMessageComponent, (prevProps, nextProps) => {
+  const prev = prevProps.message;
+  const next = nextProps.message;
+  
+  return (
+    prev.id === next.id &&
+    prev.content === next.content &&
+    prev.metadata?.response_time_ms === next.metadata?.response_time_ms &&
+    prev.metadata?.rag_context?.length === next.metadata?.rag_context?.length &&
+    prev.metadata?.citations?.length === next.metadata?.citations?.length &&
+    prevProps.currentUserId === nextProps.currentUserId
+  );
+});

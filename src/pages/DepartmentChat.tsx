@@ -1,6 +1,6 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { useAuth } from '@/contexts/AuthContext';
-import { useDepartmentChat } from '@/hooks/useDepartmentChat';
+import { useOptimizedDepartmentChat } from '@/hooks/useOptimizedDepartmentChat';
 import { MentionInput } from '@/components/chat/MentionInput';
 import { DepartmentChatMessage } from '@/components/chat/DepartmentChatMessage';
 import { ScrollArea } from '@/components/ui/scroll-area';
@@ -35,7 +35,7 @@ const DepartmentChat: React.FC = () => {
     attachments,
     handleAttach,
     removeAttachment
-  } = useDepartmentChat(user?.id, activeDepartmentId || undefined);
+  } = useOptimizedDepartmentChat(user?.id, activeDepartmentId || undefined);
 
   const scrollRef = useRef<HTMLDivElement>(null);
 

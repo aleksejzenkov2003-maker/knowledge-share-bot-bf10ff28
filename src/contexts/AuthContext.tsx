@@ -1,4 +1,4 @@
-import React, { createContext, useContext, useEffect, useState } from 'react';
+import React, { createContext, useContext, useEffect, useState, useCallback } from 'react';
 import { User, Session } from '@supabase/supabase-js';
 import { supabase } from '@/integrations/supabase/client';
 
@@ -34,93 +34,92 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const [departmentId, setDepartmentId] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(true);
 
-  const fetchUserRole = async (userId: string) => {
+  // Memoized function to load user metadata (role + department) in parallel
+  const loadUserMetadata = useCallback(async (userId: string) => {
     try {
-      const { data, error } = await supabase
-        .from('user_roles')
-        .select('role')
-        .eq('user_id', userId)
-        .single();
-      
-      if (error) {
-        console.error('Error fetching user role:', error);
-        return null;
-      }
-      return data?.role as AppRole;
-    } catch (error) {
-      console.error('Error fetching user role:', error);
-      return null;
-    }
-  };
+      const [roleResult, profileResult] = await Promise.all([
+        supabase
+          .from('user_roles')
+          .select('role')
+          .eq('user_id', userId)
+          .single(),
+        supabase
+          .from('profiles')
+          .select('department_id')
+          .eq('id', userId)
+          .single()
+      ]);
 
-  const fetchUserDepartment = async (userId: string) => {
-    try {
-      const { data, error } = await supabase
-        .from('profiles')
-        .select('department_id')
-        .eq('id', userId)
-        .single();
-      
-      if (error) {
-        console.error('Error fetching user department:', error);
-        return null;
-      }
-      return data?.department_id as string | null;
+      const userRole = roleResult.error ? null : (roleResult.data?.role as AppRole);
+      const userDeptId = profileResult.error ? null : (profileResult.data?.department_id as string | null);
+
+      return { role: userRole, departmentId: userDeptId };
     } catch (error) {
-      console.error('Error fetching user department:', error);
-      return null;
+      console.error('Error loading user metadata:', error);
+      return { role: null, departmentId: null };
     }
-  };
+  }, []);
 
   useEffect(() => {
+    let isMounted = true;
+
+    // Get initial session first, then set up listener
+    const initializeAuth = async () => {
+      try {
+        const { data: { session: initialSession } } = await supabase.auth.getSession();
+        
+        if (!isMounted) return;
+
+        if (initialSession?.user) {
+          setSession(initialSession);
+          setUser(initialSession.user);
+          
+          const metadata = await loadUserMetadata(initialSession.user.id);
+          if (isMounted) {
+            setRole(metadata.role);
+            setDepartmentId(metadata.departmentId);
+          }
+        }
+      } catch (error) {
+        console.error('Error initializing auth:', error);
+      } finally {
+        if (isMounted) {
+          setIsLoading(false);
+        }
+      }
+    };
+
+    initializeAuth();
+
     // Set up auth state listener
     const { data: { subscription } } = supabase.auth.onAuthStateChange(
-      async (event, session) => {
-        setSession(session);
-        setUser(session?.user ?? null);
+      async (event, newSession) => {
+        if (!isMounted) return;
+
+        setSession(newSession);
+        setUser(newSession?.user ?? null);
         
-        if (session?.user) {
-          // Defer role and department fetch to avoid blocking
-          setTimeout(async () => {
-            const [userRole, userDepartment] = await Promise.all([
-              fetchUserRole(session.user.id),
-              fetchUserDepartment(session.user.id)
-            ]);
-            setRole(userRole);
-            setDepartmentId(userDepartment);
-            setIsLoading(false);
-          }, 0);
+        if (newSession?.user) {
+          // Only refetch metadata on sign-in events, not on token refresh
+          if (event === 'SIGNED_IN' || event === 'USER_UPDATED') {
+            const metadata = await loadUserMetadata(newSession.user.id);
+            if (isMounted) {
+              setRole(metadata.role);
+              setDepartmentId(metadata.departmentId);
+            }
+          }
         } else {
           setRole(null);
           setDepartmentId(null);
-          setIsLoading(false);
         }
       }
     );
 
-    // Get initial session
-    supabase.auth.getSession().then(({ data: { session } }) => {
-      setSession(session);
-      setUser(session?.user ?? null);
-      
-      if (session?.user) {
-        Promise.all([
-          fetchUserRole(session.user.id),
-          fetchUserDepartment(session.user.id)
-        ]).then(([userRole, userDepartment]) => {
-          setRole(userRole);
-          setDepartmentId(userDepartment);
-          setIsLoading(false);
-        });
-      } else {
-        setIsLoading(false);
-      }
-    });
-
     return () => {
+      isMounted = false;
       subscription.unsubscribe();
     };
-  }, []);
+  }, [loadUserMetadata]);
 
   const signIn = async (email: string, password: string) => {
     const { error } = await supabase.auth.signInWithPassword({ email, password });
