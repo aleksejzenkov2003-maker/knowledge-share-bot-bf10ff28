@@ -1,9 +1,9 @@
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useRef, useCallback } from 'react';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { Button } from '@/components/ui/button';
 import { Textarea } from '@/components/ui/textarea';
 import { Badge } from '@/components/ui/badge';
-import { Send, Paperclip, X, Bot, User, Loader2, StopCircle } from 'lucide-react';
+import { Send, Paperclip, X, Bot, User, Loader2, StopCircle, AlertCircle } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
 import ReactMarkdown from 'react-markdown';
 
@@ -29,7 +29,40 @@ interface Attachment {
   status: 'pending' | 'uploading' | 'ready';
 }
 
-const BitrixWidget = () => {
+interface UserProfile {
+  id: string;
+  full_name: string | null;
+  email: string | null;
+  avatar_url: string | null;
+}
+
+interface AuthState {
+  token: string;
+  expiresAt: number;
+  user: UserProfile | null;
+}
+
+declare global {
+  interface Window {
+    BX24?: {
+      init: (callback: () => void) => void;
+      placement: {
+        info: () => {
+          DOMAIN: string;
+          [key: string]: any;
+        };
+      };
+      callMethod: (method: string, params: any, callback: (result: any) => void) => void;
+      getAuth: () => {
+        access_token: string;
+        auth_id: string;
+        [key: string]: any;
+      };
+    };
+  }
+}
+
+const BitrixChatSecure = () => {
   const [messages, setMessages] = useState<Message[]>([]);
   const [agents, setAgents] = useState<Agent[]>([]);
   const [input, setInput] = useState('');
@@ -38,39 +71,173 @@ const BitrixWidget = () => {
   const [isGenerating, setIsGenerating] = useState(false);
   const [showAgents, setShowAgents] = useState(false);
   const [streamingContent, setStreamingContent] = useState('');
+  const [authState, setAuthState] = useState<AuthState | null>(null);
+  const [authError, setAuthError] = useState<string | null>(null);
   
   const scrollRef = useRef<HTMLDivElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const abortControllerRef = useRef<AbortController | null>(null);
+  const refreshTimerRef = useRef<NodeJS.Timeout | null>(null);
   const { toast } = useToast();
 
   // Get params from URL
   const params = new URLSearchParams(window.location.search);
-  const apiKey = params.get('apiKey') || '';
-  const bitrixUserId = params.get('bitrixUserId') || '';
-  const userName = params.get('userName') || '';
+  const portalFromUrl = params.get('portal') || '';
+  const bitrixUserIdFromUrl = params.get('bitrixUserId') || '';
+  const userNameFromUrl = params.get('userName') || '';
+  const userEmailFromUrl = params.get('userEmail') || '';
 
   const baseUrl = `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/bitrix-chat-api`;
 
-  const headers = {
-    'Authorization': `Bearer ${apiKey}`,
-    'X-Bitrix-User-Id': bitrixUserId,
-    'X-Bitrix-User-Name': userName,
-    'Content-Type': 'application/json'
-  };
+  // Get headers with JWT token
+  const getHeaders = useCallback(() => {
+    if (!authState?.token) return null;
+    return {
+      'Authorization': `Bearer ${authState.token}`,
+      'Content-Type': 'application/json'
+    };
+  }, [authState?.token]);
 
-  useEffect(() => {
-    if (!apiKey || !bitrixUserId) {
-      toast({
-        title: 'Ошибка конфигурации',
-        description: 'Отсутствуют обязательные параметры (apiKey, bitrixUserId)',
-        variant: 'destructive'
+  // Authenticate with Bitrix
+  const authenticate = useCallback(async (portal: string, bitrixUserId: string, userName?: string, userEmail?: string) => {
+    try {
+      setAuthError(null);
+      
+      const response = await fetch(`${baseUrl}/auth`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          portal,
+          bitrix_user_id: bitrixUserId,
+          bitrix_user_name: userName,
+          bitrix_user_email: userEmail,
+        })
       });
-      return;
+
+      if (!response.ok) {
+        const error = await response.json();
+        throw new Error(error.error || 'Authentication failed');
+      }
+
+      const data = await response.json();
+      
+      const newAuthState: AuthState = {
+        token: data.token,
+        expiresAt: Date.now() + (data.expires_in * 1000),
+        user: data.user
+      };
+
+      setAuthState(newAuthState);
+      
+      // Store in sessionStorage (more secure than localStorage)
+      sessionStorage.setItem('bitrix_auth', JSON.stringify(newAuthState));
+
+      // Schedule token refresh (5 minutes before expiration)
+      const refreshIn = (data.expires_in - 300) * 1000;
+      if (refreshIn > 0) {
+        refreshTimerRef.current = setTimeout(() => {
+          authenticate(portal, bitrixUserId, userName, userEmail);
+        }, refreshIn);
+      }
+
+      return newAuthState;
+    } catch (error: any) {
+      setAuthError(error.message);
+      throw error;
     }
-    
+  }, [baseUrl]);
+
+  // Initialize authentication
+  useEffect(() => {
+    const initAuth = async () => {
+      // Try to restore from sessionStorage
+      const stored = sessionStorage.getItem('bitrix_auth');
+      if (stored) {
+        try {
+          const parsed: AuthState = JSON.parse(stored);
+          // Check if still valid (with 5 min buffer)
+          if (parsed.expiresAt > Date.now() + 300000) {
+            setAuthState(parsed);
+            setIsLoading(false);
+            return;
+          }
+        } catch {
+          sessionStorage.removeItem('bitrix_auth');
+        }
+      }
+
+      // Check if BX24 SDK is available
+      if (window.BX24) {
+        window.BX24.init(() => {
+          const placement = window.BX24!.placement.info();
+          const portal = placement.DOMAIN;
+          
+          window.BX24!.callMethod('user.current', {}, async (result: any) => {
+            if (result.error()) {
+              setAuthError('Failed to get user info from Bitrix24');
+              setIsLoading(false);
+              return;
+            }
+            
+            const user = result.data();
+            try {
+              await authenticate(
+                portal,
+                user.ID,
+                `${user.NAME} ${user.LAST_NAME}`.trim(),
+                user.EMAIL
+              );
+              setIsLoading(false);
+            } catch {
+              setIsLoading(false);
+            }
+          });
+        });
+      } else if (portalFromUrl && bitrixUserIdFromUrl) {
+        // Fallback: use URL params (for testing or non-Bitrix embedding)
+        try {
+          await authenticate(portalFromUrl, bitrixUserIdFromUrl, userNameFromUrl, userEmailFromUrl);
+        } catch {
+          // Error is already set in authenticate()
+        }
+        setIsLoading(false);
+      } else {
+        setAuthError('Не удалось определить параметры авторизации. Откройте страницу из Bitrix24.');
+        setIsLoading(false);
+      }
+    };
+
+    initAuth();
+
+    // Listen for postMessage from parent (for receiving auth data securely)
+    const handleMessage = async (event: MessageEvent) => {
+      if (event.data?.type === 'BITRIX_AUTH') {
+        const { portal, bitrixUserId, userName, userEmail } = event.data;
+        if (portal && bitrixUserId) {
+          try {
+            await authenticate(portal, bitrixUserId, userName, userEmail);
+          } catch {
+            // Error handled in authenticate
+          }
+        }
+      }
+    };
+
+    window.addEventListener('message', handleMessage);
+
+    return () => {
+      window.removeEventListener('message', handleMessage);
+      if (refreshTimerRef.current) {
+        clearTimeout(refreshTimerRef.current);
+      }
+    };
+  }, [authenticate, portalFromUrl, bitrixUserIdFromUrl, userNameFromUrl, userEmailFromUrl]);
+
+  // Load initial data after auth
+  useEffect(() => {
+    if (!authState?.token) return;
     loadInitialData();
-  }, [apiKey, bitrixUserId]);
+  }, [authState?.token]);
 
   useEffect(() => {
     scrollToBottom();
@@ -83,7 +250,9 @@ const BitrixWidget = () => {
   };
 
   const loadInitialData = async () => {
-    setIsLoading(true);
+    const headers = getHeaders();
+    if (!headers) return;
+
     try {
       const [messagesRes, agentsRes] = await Promise.all([
         fetch(`${baseUrl}/messages?limit=50`, { headers }),
@@ -101,13 +270,21 @@ const BitrixWidget = () => {
       }
     } catch (error) {
       console.error('Load error:', error);
-    } finally {
-      setIsLoading(false);
     }
   };
 
   const handleSend = async () => {
     if (!input.trim() && attachments.length === 0) return;
+
+    const headers = getHeaders();
+    if (!headers) {
+      toast({
+        title: 'Ошибка авторизации',
+        description: 'Пожалуйста, перезагрузите страницу',
+        variant: 'destructive'
+      });
+      return;
+    }
 
     const message = input.trim();
     setInput('');
@@ -249,7 +426,6 @@ const BitrixWidget = () => {
       const reader = new FileReader();
       reader.onload = () => {
         const result = reader.result as string;
-        // Remove data:...;base64, prefix
         const base64 = result.split(',')[1];
         resolve(base64);
       };
@@ -258,13 +434,29 @@ const BitrixWidget = () => {
     });
   };
 
-  if (!apiKey || !bitrixUserId) {
+  // Loading state
+  if (isLoading) {
     return (
-      <div className="flex items-center justify-center h-screen bg-background p-4">
-        <div className="text-center text-muted-foreground">
-          <p className="text-lg font-medium">Ошибка конфигурации</p>
-          <p className="text-sm mt-2">Необходимые параметры: apiKey, bitrixUserId</p>
-        </div>
+      <div className="flex flex-col items-center justify-center h-screen bg-background p-4">
+        <Loader2 className="h-8 w-8 animate-spin text-primary mb-4" />
+        <p className="text-muted-foreground">Инициализация...</p>
+      </div>
+    );
+  }
+
+  // Auth error state
+  if (authError) {
+    return (
+      <div className="flex flex-col items-center justify-center h-screen bg-background p-4">
+        <AlertCircle className="h-12 w-12 text-destructive mb-4" />
+        <p className="text-lg font-medium text-center mb-2">Ошибка авторизации</p>
+        <p className="text-sm text-muted-foreground text-center max-w-md">{authError}</p>
+        <Button 
+          className="mt-4" 
+          onClick={() => window.location.reload()}
+        >
+          Попробовать снова
+        </Button>
       </div>
     );
   }
@@ -276,6 +468,11 @@ const BitrixWidget = () => {
         <div className="flex items-center gap-2">
           <Bot className="h-5 w-5 text-primary" />
           <span className="font-medium">AI Ассистент</span>
+          {authState?.user?.full_name && (
+            <Badge variant="outline" className="ml-2 text-xs">
+              {authState.user.full_name}
+            </Badge>
+          )}
         </div>
         {agents.length > 0 && (
           <div className="flex items-center gap-1">
@@ -283,7 +480,7 @@ const BitrixWidget = () => {
               <Badge 
                 key={agent.id} 
                 variant="secondary" 
-                className="text-xs cursor-pointer"
+                className="text-xs cursor-pointer hover:bg-secondary/80"
                 onClick={() => insertMention(agent.mention || `@${agent.slug}`)}
               >
                 {agent.mention || `@${agent.slug}`}
@@ -295,11 +492,7 @@ const BitrixWidget = () => {
 
       {/* Messages */}
       <ScrollArea className="flex-1 p-4">
-        {isLoading ? (
-          <div className="flex items-center justify-center h-full">
-            <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
-          </div>
-        ) : messages.length === 0 && !streamingContent ? (
+        {messages.length === 0 && !streamingContent ? (
           <div className="flex flex-col items-center justify-center h-full text-muted-foreground">
             <Bot className="h-12 w-12 mb-4 opacity-50" />
             <p>Начните диалог с AI-ассистентом</p>
@@ -447,4 +640,4 @@ const BitrixWidget = () => {
   );
 };
 
-export default BitrixWidget;
+export default BitrixChatSecure;

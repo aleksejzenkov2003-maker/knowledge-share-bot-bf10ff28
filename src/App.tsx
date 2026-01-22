@@ -22,7 +22,7 @@ import Documents from "./pages/Documents";
 import ChatRoles from "./pages/ChatRoles";
 import ChatLogs from "./pages/ChatLogs";
 import ApiKeys from "./pages/ApiKeys";
-import BitrixWidget from "./pages/BitrixWidget";
+import BitrixChatSecure from "./pages/BitrixChatSecure";
 import BitrixSessions from "./pages/BitrixSessions";
 import NotFound from "./pages/NotFound";
 
@@ -36,8 +36,8 @@ const App = () => (
         <Sonner />
         <BrowserRouter>
           <Routes>
-            {/* Public widget route - no auth required */}
-            <Route path="/widget/chat" element={<BitrixWidget />} />
+            {/* Public Bitrix widget route - JWT auth inside */}
+            <Route path="/bitrix-chat" element={<BitrixChatSecure />} />
             
             <Route path="/login" element={<Login />} />
             <Route path="/register" element={<Register />} />
