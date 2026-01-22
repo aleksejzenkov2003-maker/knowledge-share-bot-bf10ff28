@@ -45,6 +45,18 @@ interface RankedChunk {
   relevance_reason: string;
 }
 
+// Helper function to convert ArrayBuffer to base64 without stack overflow
+function arrayBufferToBase64(buffer: ArrayBuffer): string {
+  const bytes = new Uint8Array(buffer);
+  const chunkSize = 8192;
+  let binary = '';
+  for (let i = 0; i < bytes.length; i += chunkSize) {
+    const chunk = bytes.subarray(i, Math.min(i + chunkSize, bytes.length));
+    binary += String.fromCharCode.apply(null, Array.from(chunk));
+  }
+  return btoa(binary);
+}
+
 serve(async (req) => {
   if (req.method === 'OPTIONS') {
     return new Response(null, { headers: corsHeaders });
@@ -383,7 +395,7 @@ serve(async (req) => {
                   
                   if (!imgError && imageData) {
                     const buffer = await imageData.arrayBuffer();
-                    const base64 = btoa(String.fromCharCode(...new Uint8Array(buffer)));
+                    const base64 = arrayBufferToBase64(buffer);
                     
                     // Determine media type from path
                     const ext = doc.trademark_image_path.split('.').pop()?.toLowerCase();
@@ -441,7 +453,7 @@ serve(async (req) => {
           }
           
           const buffer = await fileData.arrayBuffer();
-          const base64 = btoa(String.fromCharCode(...new Uint8Array(buffer)));
+          const base64 = arrayBufferToBase64(buffer);
           
           if (attachment.file_type.startsWith('image/')) {
             attachmentParts.push({
