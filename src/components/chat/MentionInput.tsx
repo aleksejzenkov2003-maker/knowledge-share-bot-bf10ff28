@@ -1,16 +1,32 @@
 import React, { useState, useRef, useEffect, useCallback } from 'react';
 import { Textarea } from '@/components/ui/textarea';
 import { Button } from '@/components/ui/button';
-import { Send, Square, AtSign } from 'lucide-react';
+import { Send, Square, AtSign, Paperclip, Loader2 } from 'lucide-react';
 import { AgentMention } from '@/types/departmentChat';
+import { Attachment } from '@/types/chat';
+import { AttachmentPreview } from './AttachmentPreview';
 import { cn } from '@/lib/utils';
+import { toast } from 'sonner';
+
+const MAX_FILE_SIZE = 10 * 1024 * 1024; // 10MB
+const ALLOWED_TYPES = [
+  'application/pdf',
+  'image/jpeg',
+  'image/jpg',
+  'image/png',
+  'image/webp',
+];
+const MAX_FILES = 5;
 
 interface MentionInputProps {
   availableAgents: AgentMention[];
-  onSend: (message: string) => void;
+  onSend: (message: string, attachments?: Attachment[]) => void;
   isGenerating: boolean;
   onStop: () => void;
   placeholder?: string;
+  attachments?: Attachment[];
+  onAttach?: (files: File[]) => void;
+  onRemoveAttachment?: (id: string) => void;
 }
 
 export const MentionInput: React.FC<MentionInputProps> = ({
@@ -18,7 +34,10 @@ export const MentionInput: React.FC<MentionInputProps> = ({
   onSend,
   isGenerating,
   onStop,
-  placeholder = "Напишите @агент и ваш вопрос..."
+  placeholder = "Напишите @агент и ваш вопрос...",
+  attachments = [],
+  onAttach,
+  onRemoveAttachment,
 }) => {
   const [value, setValue] = useState('');
   const [showSuggestions, setShowSuggestions] = useState(false);
@@ -27,6 +46,7 @@ export const MentionInput: React.FC<MentionInputProps> = ({
   const [mentionStart, setMentionStart] = useState<number | null>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const suggestionsRef = useRef<HTMLDivElement>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
 
   // Handle input changes and detect @mentions
   const handleChange = useCallback((e: React.ChangeEvent<HTMLTextAreaElement>) => {
@@ -110,11 +130,65 @@ export const MentionInput: React.FC<MentionInputProps> = ({
   }, [showSuggestions, filteredAgents, selectedIndex, insertMention]);
 
   const handleSend = useCallback(() => {
-    if (value.trim() && !isGenerating) {
-      onSend(value.trim());
+    if ((value.trim() || attachments.length > 0) && !isGenerating) {
+      onSend(value.trim(), attachments.length > 0 ? attachments : undefined);
       setValue('');
     }
-  }, [value, isGenerating, onSend]);
+  }, [value, isGenerating, onSend, attachments]);
+
+  // File handling
+  const validateFiles = useCallback((files: File[]): File[] => {
+    const validFiles: File[] = [];
+    const currentCount = attachments.length;
+
+    for (const file of files) {
+      if (currentCount + validFiles.length >= MAX_FILES) {
+        toast.error(`Максимум ${MAX_FILES} файлов`);
+        break;
+      }
+
+      if (!ALLOWED_TYPES.includes(file.type)) {
+        toast.error(`Неподдерживаемый формат: ${file.name}. Разрешены: PDF, JPG, PNG, WEBP`);
+        continue;
+      }
+
+      if (file.size > MAX_FILE_SIZE) {
+        toast.error(`Файл слишком большой: ${file.name}. Максимум 10MB`);
+        continue;
+      }
+
+      validFiles.push(file);
+    }
+
+    return validFiles;
+  }, [attachments.length]);
+
+  const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const files = Array.from(e.target.files || []);
+    const validFiles = validateFiles(files);
+    if (validFiles.length > 0 && onAttach) {
+      onAttach(validFiles);
+    }
+    e.target.value = '';
+  };
+
+  const handleDrop = useCallback((e: React.DragEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    
+    if (!onAttach) return;
+    
+    const files = Array.from(e.dataTransfer.files);
+    const validFiles = validateFiles(files);
+    if (validFiles.length > 0) {
+      onAttach(validFiles);
+    }
+  }, [validateFiles, onAttach]);
+
+  const handleDragOver = (e: React.DragEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+  };
 
   // Close suggestions on click outside
   useEffect(() => {
@@ -128,8 +202,16 @@ export const MentionInput: React.FC<MentionInputProps> = ({
     return () => document.removeEventListener('mousedown', handleClickOutside);
   }, []);
 
+  const isUploading = attachments.some(a => a.status === 'uploading');
+  const canSend = (value.trim() || attachments.length > 0) && !isGenerating && !isUploading;
+  const hasFileSupport = !!onAttach && !!onRemoveAttachment;
+
   return (
-    <div className="relative">
+    <div 
+      className="relative space-y-3"
+      onDrop={hasFileSupport ? handleDrop : undefined}
+      onDragOver={hasFileSupport ? handleDragOver : undefined}
+    >
       {/* Agent suggestions dropdown */}
       {showSuggestions && (
         <div 
@@ -170,8 +252,40 @@ export const MentionInput: React.FC<MentionInputProps> = ({
         </div>
       )}
 
+      {/* Attachment Preview */}
+      {hasFileSupport && (
+        <AttachmentPreview 
+          attachments={attachments} 
+          onRemove={onRemoveAttachment!} 
+        />
+      )}
+
       {/* Input area */}
       <div className="flex gap-2 items-end">
+        {/* Attach Button */}
+        {hasFileSupport && (
+          <>
+            <Button
+              type="button"
+              variant="outline"
+              size="icon"
+              className="h-[60px] w-12 flex-shrink-0"
+              onClick={() => fileInputRef.current?.click()}
+              disabled={isGenerating || attachments.length >= MAX_FILES}
+            >
+              <Paperclip className="h-5 w-5" />
+            </Button>
+            <input
+              ref={fileInputRef}
+              type="file"
+              multiple
+              accept={ALLOWED_TYPES.join(',')}
+              className="hidden"
+              onChange={handleFileChange}
+            />
+          </>
+        )}
+
         <div className="flex-1 relative">
           <Textarea
             ref={textareaRef}
@@ -215,17 +329,28 @@ export const MentionInput: React.FC<MentionInputProps> = ({
             type="button"
             size="icon"
             onClick={handleSend}
-            disabled={!value.trim()}
+            disabled={!canSend}
             className="h-[60px] w-12"
           >
-            <Send className="h-4 w-4" />
+            {isUploading ? (
+              <Loader2 className="h-4 w-4 animate-spin" />
+            ) : (
+              <Send className="h-4 w-4" />
+            )}
           </Button>
         )}
       </div>
 
       {/* Help text */}
-      <div className="mt-2 text-xs text-muted-foreground">
-        Начните с <kbd className="px-1.5 py-0.5 rounded bg-muted font-mono">@</kbd> чтобы выбрать агента
+      <div className="text-xs text-muted-foreground flex items-center justify-between">
+        <span>
+          Начните с <kbd className="px-1.5 py-0.5 rounded bg-muted font-mono">@</kbd> чтобы выбрать агента
+        </span>
+        {hasFileSupport && (
+          <span className="text-muted-foreground/60">
+            PDF, JPG, PNG, WEBP (до 10MB)
+          </span>
+        )}
       </div>
     </div>
   );
