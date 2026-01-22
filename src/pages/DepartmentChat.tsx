@@ -31,7 +31,10 @@ const DepartmentChat: React.FC = () => {
     isLoading,
     isGenerating,
     sendMessage,
-    stopGeneration
+    stopGeneration,
+    attachments,
+    handleAttach,
+    removeAttachment
   } = useDepartmentChat(user?.id, activeDepartmentId || undefined);
 
   const scrollRef = useRef<HTMLDivElement>(null);
@@ -237,6 +240,9 @@ const DepartmentChat: React.FC = () => {
           onSend={sendMessage}
           isGenerating={isGenerating}
           onStop={stopGeneration}
+          attachments={attachments}
+          onAttach={handleAttach}
+          onRemoveAttachment={removeAttachment}
         />
       </div>
     </div>

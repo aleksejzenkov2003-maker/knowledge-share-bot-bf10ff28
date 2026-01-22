@@ -7,6 +7,13 @@ export interface DepartmentChat {
   updated_at: string;
 }
 
+export interface DepartmentChatAttachment {
+  file_path: string;
+  file_name: string;
+  file_type: string;
+  file_size: number;
+}
+
 export interface DepartmentChatMessage {
   id: string;
   chat_id: string;
@@ -28,6 +35,7 @@ export interface DepartmentChatMessage {
     smart_search?: boolean;
     user_name?: string;
     agent_name?: string;
+    attachments?: DepartmentChatAttachment[];
   } | null;
   created_at: string;
 }

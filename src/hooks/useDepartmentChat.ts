@@ -1,7 +1,9 @@
 import { useState, useCallback, useRef, useEffect } from "react";
 import { supabase } from "@/integrations/supabase/client";
 import { toast } from "sonner";
-import { DepartmentChat, DepartmentChatMessage, AgentMention } from "@/types/departmentChat";
+import { DepartmentChat, DepartmentChatMessage, AgentMention, DepartmentChatAttachment } from "@/types/departmentChat";
+import { Attachment } from "@/types/chat";
+import type { Json } from "@/integrations/supabase/types";
 
 export function useDepartmentChat(userId: string | undefined, departmentId: string | undefined) {
   const [chat, setChat] = useState<DepartmentChat | null>(null);
@@ -9,6 +11,7 @@ export function useDepartmentChat(userId: string | undefined, departmentId: stri
   const [availableAgents, setAvailableAgents] = useState<AgentMention[]>([]);
   const [isLoading, setIsLoading] = useState(false);
   const [isGenerating, setIsGenerating] = useState(false);
+  const [attachments, setAttachments] = useState<Attachment[]>([]);
   const abortControllerRef = useRef<AbortController | null>(null);
 
   // Fetch the department chat
@@ -145,9 +148,77 @@ export function useDepartmentChat(userId: string | undefined, departmentId: stri
     }
   }, []);
 
+  // Handle file attachments
+  const handleAttach = useCallback(async (files: File[]) => {
+    if (!userId) return;
+
+    const newAttachments: Attachment[] = files.map(file => ({
+      id: crypto.randomUUID(),
+      file,
+      file_name: file.name,
+      file_type: file.type,
+      file_size: file.size,
+      preview_url: file.type.startsWith('image/') ? URL.createObjectURL(file) : undefined,
+      status: 'pending' as const
+    }));
+
+    setAttachments(prev => [...prev, ...newAttachments]);
+
+    // Upload each file
+    for (const attachment of newAttachments) {
+      try {
+        setAttachments(prev => prev.map(a => 
+          a.id === attachment.id ? { ...a, status: 'uploading' as const } : a
+        ));
+
+        const file = attachment.file!;
+        const fileExt = file.name.split('.').pop();
+        const fileName = `${userId}/${Date.now()}-${crypto.randomUUID()}.${fileExt}`;
+
+        const { error: uploadError } = await supabase.storage
+          .from('chat-attachments')
+          .upload(fileName, file);
+
+        if (uploadError) throw uploadError;
+
+        setAttachments(prev => prev.map(a => 
+          a.id === attachment.id 
+            ? { ...a, status: 'uploaded' as const, file_path: fileName } 
+            : a
+        ));
+      } catch (error) {
+        console.error('Error uploading file:', error);
+        setAttachments(prev => prev.map(a => 
+          a.id === attachment.id ? { ...a, status: 'error' as const } : a
+        ));
+        toast.error(`Ошибка загрузки: ${attachment.file_name}`);
+      }
+    }
+  }, [userId]);
+
+  const removeAttachment = useCallback((id: string) => {
+    setAttachments(prev => {
+      const attachment = prev.find(a => a.id === id);
+      if (attachment?.preview_url) {
+        URL.revokeObjectURL(attachment.preview_url);
+      }
+      return prev.filter(a => a.id !== id);
+    });
+  }, []);
+
+  const clearAttachments = useCallback(() => {
+    attachments.forEach(a => {
+      if (a.preview_url) URL.revokeObjectURL(a.preview_url);
+    });
+    setAttachments([]);
+  }, [attachments]);
+
   // Send message with optional agent mention
-  const sendMessage = useCallback(async (text: string) => {
-    if (!chat?.id || !userId || !text.trim()) return;
+  const sendMessage = useCallback(async (text: string, messageAttachments?: Attachment[]) => {
+    if (!chat?.id || !userId) return;
+    
+    const hasAttachments = messageAttachments && messageAttachments.length > 0;
+    if (!text.trim() && !hasAttachments) return;
 
     const { agentId, cleanText } = parseMention(text);
 
@@ -159,6 +230,16 @@ export function useDepartmentChat(userId: string | undefined, departmentId: stri
     const agent = availableAgents.find(a => a.id === agentId);
     const userName = await getUserName(userId);
 
+    // Prepare attachments metadata
+    const attachmentsMetadata: DepartmentChatAttachment[] = hasAttachments
+      ? messageAttachments.filter(a => a.status === 'uploaded' && a.file_path).map(a => ({
+          file_path: a.file_path!,
+          file_name: a.file_name,
+          file_type: a.file_type,
+          file_size: a.file_size
+        }))
+      : [];
+
     // Add user message to UI immediately
     const userMessage: DepartmentChatMessage = {
       id: crypto.randomUUID(),
@@ -167,25 +248,31 @@ export function useDepartmentChat(userId: string | undefined, departmentId: stri
       role_id: null,
       message_role: 'user',
       content: text,
-      metadata: { user_name: userName },
+      metadata: { 
+        user_name: userName,
+        attachments: attachmentsMetadata.length > 0 ? attachmentsMetadata : undefined
+      },
       created_at: new Date().toISOString()
     };
 
     setMessages(prev => [...prev, userMessage]);
+    clearAttachments();
 
     // Save user message to DB
-    const { data: savedUserMsg, error: userMsgError } = await supabase
+    const userMsgMetadata = { 
+      user_name: userName,
+      attachments: attachmentsMetadata.length > 0 ? attachmentsMetadata : undefined
+    };
+    const { error: userMsgError } = await supabase
       .from('department_chat_messages')
-      .insert({
+      .insert([{
         chat_id: chat.id,
         user_id: userId,
         role_id: null,
         message_role: 'user',
         content: text,
-        metadata: { user_name: userName }
-      })
-      .select()
-      .single();
+        metadata: userMsgMetadata as unknown as Json
+      }]);
 
     if (userMsgError) {
       console.error('Error saving user message:', userMsgError);
@@ -220,6 +307,23 @@ export function useDepartmentChat(userId: string | undefined, departmentId: stri
 
       const { data: { session } } = await supabase.auth.getSession();
 
+      const requestBody: any = {
+        message: cleanText,
+        role_id: agentId,
+        message_history: historyForContext,
+        is_department_chat: true
+      };
+
+      // Add attachments to request if present
+      if (attachmentsMetadata.length > 0) {
+        requestBody.attachments = attachmentsMetadata.map(a => ({
+          file_path: a.file_path,
+          file_name: a.file_name,
+          file_type: a.file_type,
+          file_size: a.file_size
+        }));
+      }
+
       const response = await fetch(
         `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/chat-stream`,
         {
@@ -228,12 +332,7 @@ export function useDepartmentChat(userId: string | undefined, departmentId: stri
             'Content-Type': 'application/json',
             'Authorization': `Bearer ${session?.access_token}`,
           },
-          body: JSON.stringify({
-            message: cleanText,
-            role_id: agentId,
-            message_history: historyForContext,
-            is_department_chat: true
-          }),
+          body: JSON.stringify(requestBody),
           signal: abortControllerRef.current.signal
         }
       );
@@ -317,19 +416,20 @@ export function useDepartmentChat(userId: string | undefined, departmentId: stri
       }
 
       // Save assistant message to DB
+      const assistantMsgMetadata = {
+        ...metadata,
+        agent_name: agent?.name
+      };
       await supabase
         .from('department_chat_messages')
-        .insert({
+        .insert([{
           chat_id: chat.id,
           user_id: userId,
           role_id: agentId,
           message_role: 'assistant',
           content: fullContent,
-          metadata: {
-            ...metadata,
-            agent_name: agent?.name
-          }
-        });
+          metadata: assistantMsgMetadata as unknown as Json
+        }]);
 
       // Update the message in state with final content
       setMessages(prev => prev.map(m =>
@@ -349,7 +449,7 @@ export function useDepartmentChat(userId: string | undefined, departmentId: stri
       setIsGenerating(false);
       abortControllerRef.current = null;
     }
-  }, [chat?.id, userId, parseMention, availableAgents, messages, getUserName]);
+  }, [chat?.id, userId, parseMention, availableAgents, messages, getUserName, clearAttachments]);
 
   const stopGeneration = useCallback(() => {
     if (abortControllerRef.current) {
@@ -381,6 +481,9 @@ export function useDepartmentChat(userId: string | undefined, departmentId: stri
     isGenerating,
     sendMessage,
     stopGeneration,
-    loadMessages
+    loadMessages,
+    attachments,
+    handleAttach,
+    removeAttachment
   };
 }

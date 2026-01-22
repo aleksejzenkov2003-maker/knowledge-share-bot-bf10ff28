@@ -1,8 +1,9 @@
 import React from 'react';
 import { DepartmentChatMessage as MessageType } from '@/types/departmentChat';
-import { Bot, User } from 'lucide-react';
+import { Bot, User, FileText, Image } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import ReactMarkdown from 'react-markdown';
+import { supabase } from '@/integrations/supabase/client';
 
 interface DepartmentChatMessageProps {
   message: MessageType;
@@ -106,6 +107,36 @@ export const DepartmentChatMessage: React.FC<DepartmentChatMessageProps> = ({
             <p className="whitespace-pre-wrap">{message.content}</p>
           )}
         </div>
+
+        {/* Attachments */}
+        {message.metadata?.attachments && message.metadata.attachments.length > 0 && (
+          <div className="mt-2 flex flex-wrap gap-2">
+            {message.metadata.attachments.map((att, idx) => {
+              const isImage = att.file_type.startsWith('image/');
+              const { data } = supabase.storage.from('chat-attachments').getPublicUrl(att.file_path);
+              
+              return (
+                <a
+                  key={idx}
+                  href={data.publicUrl}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className={cn(
+                    "flex items-center gap-2 px-2 py-1.5 rounded-md border bg-background",
+                    "hover:bg-muted transition-colors text-sm"
+                  )}
+                >
+                  {isImage ? (
+                    <Image className="h-4 w-4 text-muted-foreground" />
+                  ) : (
+                    <FileText className="h-4 w-4 text-muted-foreground" />
+                  )}
+                  <span className="truncate max-w-[120px]">{att.file_name}</span>
+                </a>
+              );
+            })}
+          </div>
+        )}
 
         {/* RAG Citations if available */}
         {message.metadata?.citations && message.metadata.citations.length > 0 && (
