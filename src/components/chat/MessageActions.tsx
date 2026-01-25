@@ -1,9 +1,18 @@
 import React, { useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
-import { Pencil, RefreshCw, Check, X, Copy, CheckCheck } from "lucide-react";
+import { Pencil, RefreshCw, Check, X, Copy, CheckCheck, ChevronDown, Bot } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { toast } from "@/hooks/use-toast";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+  DropdownMenuSeparator,
+  DropdownMenuLabel,
+} from "@/components/ui/dropdown-menu";
+import { ChatRole } from "@/types/chat";
 
 interface MessageActionsProps {
   messageId: string;
@@ -11,7 +20,9 @@ interface MessageActionsProps {
   content: string;
   isStreaming?: boolean;
   onEditMessage?: (messageId: string, newContent: string) => void;
-  onRegenerateResponse?: (messageId: string) => void;
+  onRegenerateResponse?: (messageId: string, roleId?: string) => void;
+  availableRoles?: ChatRole[];
+  currentRoleId?: string;
 }
 
 export function MessageActions({
@@ -21,6 +32,8 @@ export function MessageActions({
   isStreaming,
   onEditMessage,
   onRegenerateResponse,
+  availableRoles = [],
+  currentRoleId,
 }: MessageActionsProps) {
   const [isEditing, setIsEditing] = useState(false);
   const [editContent, setEditContent] = useState(content);
@@ -57,6 +70,10 @@ export function MessageActions({
     setIsEditing(false);
   };
 
+  const handleRegenerate = (roleId?: string) => {
+    onRegenerateResponse?.(messageId, roleId);
+  };
+
   if (isStreaming) return null;
 
   if (isEditing && role === "user") {
@@ -81,6 +98,8 @@ export function MessageActions({
       </div>
     );
   }
+
+  const currentRole = availableRoles.find(r => r.id === currentRoleId);
 
   return (
     <div
@@ -116,15 +135,60 @@ export function MessageActions({
       )}
 
       {role === "assistant" && onRegenerateResponse && (
-        <Button
-          variant="ghost"
-          size="sm"
-          className="h-7 px-2 text-xs"
-          onClick={() => onRegenerateResponse(messageId)}
-        >
-          <RefreshCw className="h-3 w-3 mr-1" />
-          Обновить
-        </Button>
+        <div className="flex items-center">
+          <Button
+            variant="ghost"
+            size="sm"
+            className="h-7 px-2 text-xs"
+            onClick={() => handleRegenerate()}
+          >
+            <RefreshCw className="h-3 w-3 mr-1" />
+            Обновить
+          </Button>
+          
+          {availableRoles.length > 1 && (
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  className="h-7 px-1.5 text-xs"
+                >
+                  <ChevronDown className="h-3 w-3" />
+                </Button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="start" className="w-56 bg-popover z-50">
+                <DropdownMenuLabel className="text-xs font-normal text-muted-foreground">
+                  Обновить с другим агентом
+                </DropdownMenuLabel>
+                <DropdownMenuSeparator />
+                {availableRoles.map((agentRole) => (
+                  <DropdownMenuItem
+                    key={agentRole.id}
+                    onClick={() => handleRegenerate(agentRole.id)}
+                    className={cn(
+                      "cursor-pointer",
+                      agentRole.id === currentRoleId && "bg-accent"
+                    )}
+                  >
+                    <Bot className="h-3 w-3 mr-2" />
+                    <div className="flex flex-col">
+                      <span className="text-sm">{agentRole.name}</span>
+                      {agentRole.description && (
+                        <span className="text-xs text-muted-foreground truncate max-w-[180px]">
+                          {agentRole.description}
+                        </span>
+                      )}
+                    </div>
+                    {agentRole.id === currentRoleId && (
+                      <Check className="h-3 w-3 ml-auto text-primary" />
+                    )}
+                  </DropdownMenuItem>
+                ))}
+              </DropdownMenuContent>
+            </DropdownMenu>
+          )}
+        </div>
       )}
     </div>
   );

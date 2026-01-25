@@ -513,8 +513,8 @@ export function useOptimizedChat(userId: string | undefined, departmentId: strin
     sendMessage(newContent, selectedRoleId ? roles.find(r => r.id === selectedRoleId)?.is_project_mode || false : false);
   }, [messages, sendMessage, selectedRoleId, roles]);
 
-  // Регенерация ответа ассистента (повторяет последний вопрос)
-  const regenerateResponse = useCallback(async (messageId: string) => {
+  // Регенерация ответа ассистента (повторяет последний вопрос, опционально с другой ролью)
+  const regenerateResponse = useCallback(async (messageId: string, newRoleId?: string) => {
     const messageIndex = messages.findIndex(m => m.id === messageId);
     if (messageIndex === -1) return;
     
@@ -528,13 +528,19 @@ export function useOptimizedChat(userId: string | undefined, departmentId: strin
     
     const userMessage = messages[lastUserMessageIndex];
     
+    // Если указана новая роль, меняем текущую
+    const roleIdToUse = newRoleId || selectedRoleId;
+    if (newRoleId && newRoleId !== selectedRoleId) {
+      setSelectedRoleId(newRoleId);
+    }
+    
     // Удаляем ответ ассистента
     const messagesToKeep = messages.slice(0, messageIndex);
     setLocalMessages(messagesToKeep);
     
-    // Повторно отправляем вопрос
-    sendMessage(userMessage.content, selectedRoleId ? roles.find(r => r.id === selectedRoleId)?.is_project_mode || false : false);
-  }, [messages, sendMessage, selectedRoleId, roles]);
+    // Повторно отправляем вопрос с выбранной ролью
+    sendMessage(userMessage.content, roleIdToUse ? roles.find(r => r.id === roleIdToUse)?.is_project_mode || false : false);
+  }, [messages, sendMessage, selectedRoleId, roles, setSelectedRoleId]);
 
   // Needed for backward compatibility - no-op since we use React Query
   const fetchRoles = useCallback(() => {}, []);
