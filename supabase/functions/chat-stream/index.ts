@@ -492,17 +492,14 @@ serve(async (req) => {
     let webSearchCitations: string[] = [];
     let webSearchUsed = false;
     
-    // Trigger web search if:
-    // 1. Provider is Anthropic (Claude)
-    // 2. RAG found fewer than 3 relevant chunks
-    // 3. Perplexity API key is available
+    // ALWAYS perform web search for Claude to ensure complete answers
+    // This supplements RAG with real-time web data
     if (
       providerConfig.provider_type === 'anthropic' && 
-      rankedChunks.length < 3 && 
       PERPLEXITY_API_KEY &&
       message // Only if there's a user message
     ) {
-      console.log('RAG insufficient for Claude, performing hybrid web search via Perplexity...');
+      console.log('Performing ALWAYS-ON web search for Claude via Perplexity...');
       
       try {
         const webSearchResponse = await fetch('https://api.perplexity.ai/chat/completions', {
@@ -545,17 +542,25 @@ serve(async (req) => {
       let contextParts: string[] = [];
       
       if (ragContext.length > 0) {
-        contextParts.push(`КОНТЕКСТ ИЗ ДОКУМЕНТОВ:\n${ragContext.join('\n\n---\n\n')}`);
+        contextParts.push(`КОНТЕКСТ ИЗ ДОКУМЕНТОВ (база знаний):\n${ragContext.join('\n\n---\n\n')}`);
       }
       
       if (webSearchContext.length > 0) {
         const sourcesNote = webSearchCitations.length > 0 
-          ? `\n\n(Источники: ${webSearchCitations.slice(0, 5).join(', ')}${webSearchCitations.length > 5 ? '...' : ''})`
+          ? `\n\n(Веб-источники: ${webSearchCitations.slice(0, 5).join(', ')}${webSearchCitations.length > 5 ? '...' : ''})`
           : '';
-        contextParts.push(`КОНТЕКСТ ИЗ ИНТЕРНЕТА:${sourcesNote}\n${webSearchContext.join('\n\n')}`);
+        contextParts.push(`КОНТЕКСТ ИЗ ИНТЕРНЕТА (дополнительная информация):${sourcesNote}\n${webSearchContext.join('\n\n')}`);
       }
       
-      finalPrompt = `${contextParts.join('\n\n---\n\n')}\n\n---\n\nВОПРОС ПОЛЬЗОВАТЕЛЯ: ${message || 'Проанализируй прикрепленные файлы'}`;
+      const instructions = `
+ИНСТРУКЦИИ:
+1. Используй ОБА источника для полного ответа: документы И интернет
+2. Если в документах нет конкретной информации — обязательно дополни из интернета
+3. НЕ говори "в документах отсутствует" или "информация недоступна" — найди ответ в веб-контексте
+4. Указывай источники: [номер] для документов, (ссылка) для веб-источников
+5. Приоритет: документы первичны, интернет — для дополнения и актуализации`;
+      
+      finalPrompt = `${contextParts.join('\n\n---\n\n')}\n\n---\n${instructions}\n\n---\n\nВОПРОС ПОЛЬЗОВАТЕЛЯ: ${message || 'Проанализируй прикрепленные файлы'}`;
     }
 
     // Load attachments and build multimodal content for Anthropic
