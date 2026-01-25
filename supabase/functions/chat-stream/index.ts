@@ -827,10 +827,77 @@ serve(async (req) => {
         break;
     }
 
+    // Handle provider errors with fallback
     if (!streamResponse.ok) {
       const errorText = await streamResponse.text();
       console.error('Provider stream error:', streamResponse.status, errorText);
-      throw new Error(`Provider error: ${streamResponse.status}`);
+      
+      // If Perplexity fails with 401 (invalid API key), try fallback to other providers
+      if (streamResponse.status === 401 && providerConfig.provider_type === 'perplexity') {
+        console.log('Perplexity 401 error, attempting fallback...');
+        
+        // Try Lovable AI first, then Anthropic
+        const fallbackProviders = [
+          { type: 'lovable', key: LOVABLE_API_KEY, model: 'google/gemini-2.5-flash' },
+          { type: 'anthropic', key: ANTHROPIC_API_KEY, model: 'claude-sonnet-4-5-20250929' },
+        ];
+        
+        for (const fallback of fallbackProviders) {
+          if (fallback.key) {
+            console.log(`Falling back to ${fallback.type}...`);
+            
+            let fallbackResponse: Response;
+            
+            if (fallback.type === 'lovable') {
+              fallbackResponse = await fetch('https://ai.gateway.lovable.dev/v1/chat/completions', {
+                method: 'POST',
+                headers: {
+                  'Authorization': `Bearer ${fallback.key}`,
+                  'Content-Type': 'application/json',
+                },
+                body: JSON.stringify({
+                  model: fallback.model,
+                  messages: [{ role: 'system', content: enhancedSystemPrompt }, ...simpleMessages],
+                  stream: true,
+                }),
+              });
+            } else {
+              fallbackResponse = await fetch('https://api.anthropic.com/v1/messages', {
+                method: 'POST',
+                headers: {
+                  'x-api-key': fallback.key,
+                  'anthropic-version': '2023-06-01',
+                  'Content-Type': 'application/json',
+                },
+                body: JSON.stringify({
+                  model: fallback.model,
+                  max_tokens: 8192,
+                  system: enhancedSystemPrompt,
+                  messages: simpleMessages.map(m => ({ role: m.role === 'assistant' ? 'assistant' : 'user', content: m.content })),
+                  stream: true,
+                }),
+              });
+            }
+            
+            if (fallbackResponse.ok) {
+              console.log(`Fallback to ${fallback.type} successful`);
+              streamResponse = fallbackResponse;
+              // Update provider type for correct response parsing
+              providerConfig.provider_type = fallback.type;
+              break;
+            } else {
+              console.error(`Fallback to ${fallback.type} failed:`, fallbackResponse.status);
+            }
+          }
+        }
+        
+        // Check if fallback worked
+        if (!streamResponse.ok) {
+          throw new Error(`Provider error: ${streamResponse.status} - All fallbacks failed`);
+        }
+      } else {
+        throw new Error(`Provider error: ${streamResponse.status}`);
+      }
     }
 
     const encoder = new TextEncoder();
