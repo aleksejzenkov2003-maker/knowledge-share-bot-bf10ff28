@@ -1,5 +1,6 @@
 import React from "react";
 import ReactMarkdown from "react-markdown";
+import remarkGfm from "remark-gfm";
 import { Card } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Bot, User, Clock, FileText, Loader2, BookOpen, Image } from "lucide-react";
@@ -53,6 +54,7 @@ function ChatMessageComponent({ message }: ChatMessageProps) {
                 </div>
               ) : (
                 <ReactMarkdown
+                  remarkPlugins={[remarkGfm]}
                   components={{
                     p: ({ children }) => <p className="mb-2 last:mb-0">{children}</p>,
                     ul: ({ children }) => <ul className="list-disc pl-4 mb-2">{children}</ul>,
@@ -87,6 +89,28 @@ function ChatMessageComponent({ message }: ChatMessageProps) {
                       >
                         {children}
                       </a>
+                    ),
+                    table: ({ children }) => (
+                      <div className="overflow-x-auto my-3">
+                        <table className="min-w-full border-collapse border border-border text-sm">
+                          {children}
+                        </table>
+                      </div>
+                    ),
+                    thead: ({ children }) => (
+                      <thead className="bg-muted/50">{children}</thead>
+                    ),
+                    tbody: ({ children }) => <tbody>{children}</tbody>,
+                    tr: ({ children }) => (
+                      <tr className="border-b border-border">{children}</tr>
+                    ),
+                    th: ({ children }) => (
+                      <th className="border border-border px-3 py-2 text-left font-semibold bg-muted/30">
+                        {children}
+                      </th>
+                    ),
+                    td: ({ children }) => (
+                      <td className="border border-border px-3 py-2">{children}</td>
                     ),
                   }}
                 >

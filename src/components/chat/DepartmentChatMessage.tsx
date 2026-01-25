@@ -3,6 +3,7 @@ import { DepartmentChatMessage as MessageType } from '@/types/departmentChat';
 import { Bot, User, FileText, Image, Clock, BookOpen, Link, AlertTriangle } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import ReactMarkdown from 'react-markdown';
+import remarkGfm from 'remark-gfm';
 import { supabase } from '@/integrations/supabase/client';
 import { Badge } from '@/components/ui/badge';
 import {
@@ -74,6 +75,7 @@ function DepartmentChatMessageComponent({
         <div className="prose prose-sm dark:prose-invert max-w-none break-words">
           {isAssistant ? (
             <ReactMarkdown
+              remarkPlugins={[remarkGfm]}
               components={{
                 h1: ({ children }) => <h1 className="text-xl font-bold mt-4 mb-2">{children}</h1>,
                 h2: ({ children }) => <h2 className="text-lg font-semibold mt-3 mb-2">{children}</h2>,
@@ -104,6 +106,28 @@ function DepartmentChatMessageComponent({
                 ),
                 em: ({ children }) => (
                   <em className="italic">{children}</em>
+                ),
+                table: ({ children }) => (
+                  <div className="overflow-x-auto my-3">
+                    <table className="min-w-full border-collapse border border-border text-sm">
+                      {children}
+                    </table>
+                  </div>
+                ),
+                thead: ({ children }) => (
+                  <thead className="bg-muted/50">{children}</thead>
+                ),
+                tbody: ({ children }) => <tbody>{children}</tbody>,
+                tr: ({ children }) => (
+                  <tr className="border-b border-border">{children}</tr>
+                ),
+                th: ({ children }) => (
+                  <th className="border border-border px-3 py-2 text-left font-semibold bg-muted/30">
+                    {children}
+                  </th>
+                ),
+                td: ({ children }) => (
+                  <td className="border border-border px-3 py-2">{children}</td>
                 ),
               }}
             >
