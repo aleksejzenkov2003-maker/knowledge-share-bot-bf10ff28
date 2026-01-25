@@ -82,6 +82,10 @@ interface DocumentChunk {
   chunk_index: number;
 }
 
+// Maximum file size: 10 MB (Edge functions have limited memory)
+const MAX_FILE_SIZE = 10 * 1024 * 1024;
+const MAX_FILE_SIZE_MB = 10;
+
 const STATUS_LABELS: Record<string, { label: string; variant: "default" | "secondary" | "destructive" | "outline" }> = {
   pending: { label: "Ожидает", variant: "outline" },
   processing: { label: "Обработка", variant: "secondary" },
@@ -213,6 +217,12 @@ export default function Documents() {
       return;
     }
 
+    // Check file size before upload
+    if (file.size > MAX_FILE_SIZE) {
+      toast.error(`Файл слишком большой. Максимальный размер: ${MAX_FILE_SIZE_MB} MB. Ваш файл: ${(file.size / (1024 * 1024)).toFixed(1)} MB`);
+      return;
+    }
+
     setUploading(true);
 
     try {
@@ -263,18 +273,35 @@ export default function Documents() {
 
       toast.success("Документ загружен");
 
-      // Trigger processing
+      // Trigger processing with timeout
       try {
-        const { error: processError } = await supabase.functions.invoke("process-document", {
+        const processPromise = supabase.functions.invoke("process-document", {
           body: { document_id: doc.id },
         });
-
-        if (processError) {
-          console.error("Processing error:", processError);
-          toast.warning("Документ загружен, но обработка не запущена");
+        
+        const timeoutPromise = new Promise((_, reject) => 
+          setTimeout(() => reject(new Error("Timeout")), 60000)
+        );
+        
+        const result = await Promise.race([processPromise, timeoutPromise]) as { error?: Error };
+        
+        if (result?.error) {
+          console.error("Processing error:", result.error);
+          // Update status to error if processing failed
+          await supabase
+            .from("documents")
+            .update({ status: "error" })
+            .eq("id", doc.id);
+          toast.warning("Документ загружен, но обработка не удалась. Попробуйте уменьшить размер файла.");
         }
       } catch (err) {
         console.error("Processing invocation error:", err);
+        // Update status to error on timeout
+        await supabase
+          .from("documents")
+          .update({ status: "error" })
+          .eq("id", doc.id);
+        toast.warning("Документ загружен, но обработка превысила время ожидания");
       }
 
       setUploadDialogOpen(false);
