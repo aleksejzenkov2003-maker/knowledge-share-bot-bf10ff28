@@ -1,5 +1,3 @@
-import { PDFDocument } from 'pdf-lib';
-
 export interface PdfPart {
   blob: Blob;
   partNumber: number;
@@ -26,8 +24,10 @@ export function estimatePdfParts(fileSize: number, pagesPerPart: number = 50): n
 
 /**
  * Gets the total page count of a PDF file
+ * Uses dynamic import to avoid bundling issues with React
  */
 export async function getPdfPageCount(file: File): Promise<number> {
+  const { PDFDocument } = await import('pdf-lib');
   const arrayBuffer = await file.arrayBuffer();
   const pdfDoc = await PDFDocument.load(arrayBuffer, { ignoreEncryption: true });
   return pdfDoc.getPageCount();
@@ -36,6 +36,7 @@ export async function getPdfPageCount(file: File): Promise<number> {
 /**
  * Splits a large PDF file into smaller parts on the client side.
  * Each part will contain up to `pagesPerPart` pages.
+ * Uses dynamic import to avoid bundling issues with React.
  * 
  * @param file - The PDF file to split
  * @param pagesPerPart - Maximum pages per part (default: 50)
@@ -47,6 +48,9 @@ export async function splitPdf(
   pagesPerPart: number = 50,
   onProgress?: (progress: SplitProgress) => void
 ): Promise<PdfPart[]> {
+  // Dynamic import to avoid bundling issues
+  const { PDFDocument } = await import('pdf-lib');
+  
   // Load the PDF
   onProgress?.({ currentPart: 0, totalParts: 0, stage: 'loading' });
   
@@ -78,7 +82,7 @@ export async function splitPdf(
     
     // Save to bytes
     const pdfBytes = await newPdf.save();
-    // Convert Uint8Array to Blob - use slice() to get a proper ArrayBuffer
+    // Convert Uint8Array to Blob
     const blob = new Blob([new Uint8Array(pdfBytes)], { type: 'application/pdf' });
     
     parts.push({
