@@ -18,4 +18,16 @@ export default defineConfig(({ mode }) => ({
       "@": path.resolve(__dirname, "./src"),
     },
   },
+  optimizeDeps: {
+    exclude: ['pdf-lib'],
+  },
+  build: {
+    rollupOptions: {
+      output: {
+        manualChunks: {
+          'pdf-lib': ['pdf-lib'],
+        },
+      },
+    },
+  },
 }));
