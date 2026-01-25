@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
 import { supabase } from '@/integrations/supabase/client';
 import { useAuth } from '@/contexts/AuthContext';
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
+import { Card, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
@@ -10,8 +10,10 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { Switch } from '@/components/ui/switch';
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle, DialogTrigger } from '@/components/ui/dialog';
 import { useToast } from '@/hooks/use-toast';
-import { Loader2, MessageSquare, Plus, Pencil, Trash2, Building2 } from 'lucide-react';
+import { Loader2, MessageSquare, Plus, Pencil, Trash2, Building2, ChevronDown, ChevronRight, FileText } from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
+import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible';
+import { cn } from '@/lib/utils';
 
 interface SystemPrompt {
   id: string;
@@ -33,6 +35,7 @@ const Prompts = () => {
   const [isLoading, setIsLoading] = useState(true);
   const [isDialogOpen, setIsDialogOpen] = useState(false);
   const [editingPrompt, setEditingPrompt] = useState<SystemPrompt | null>(null);
+  const [expandedIds, setExpandedIds] = useState<Set<string>>(new Set());
   const [formData, setFormData] = useState({
     name: '',
     prompt_text: '',
@@ -61,6 +64,18 @@ const Prompts = () => {
   useEffect(() => {
     fetchData();
   }, []);
+
+  const toggleExpanded = (id: string) => {
+    setExpandedIds(prev => {
+      const next = new Set(prev);
+      if (next.has(id)) {
+        next.delete(id);
+      } else {
+        next.add(id);
+      }
+      return next;
+    });
+  };
 
   const openCreateDialog = () => {
     setEditingPrompt(null);
@@ -163,6 +178,11 @@ const Prompts = () => {
     return dept?.name || 'Общий';
   };
 
+  const getPromptPreview = (text: string, maxLength: number = 100) => {
+    if (text.length <= maxLength) return text;
+    return text.slice(0, maxLength).trim() + '...';
+  };
+
   if (isLoading) {
     return (
       <div className="flex items-center justify-center py-12">
@@ -188,7 +208,7 @@ const Prompts = () => {
                 Добавить промпт
               </Button>
             </DialogTrigger>
-            <DialogContent className="max-w-2xl">
+            <DialogContent className="max-w-3xl max-h-[90vh] overflow-y-auto">
               <DialogHeader>
                 <DialogTitle>
                   {editingPrompt ? 'Редактировать промпт' : 'Новый системный промпт'}
@@ -198,33 +218,35 @@ const Prompts = () => {
                 </DialogDescription>
               </DialogHeader>
               <div className="space-y-4 py-4">
-                <div className="space-y-2">
-                  <Label htmlFor="name">Название</Label>
-                  <Input
-                    id="name"
-                    placeholder="Например: Эксперт по патентам"
-                    value={formData.name}
-                    onChange={(e) => setFormData({ ...formData, name: e.target.value })}
-                  />
-                </div>
-                <div className="space-y-2">
-                  <Label htmlFor="department">Отдел (пространство)</Label>
-                  <Select
-                    value={formData.department_id || "all"}
-                    onValueChange={(value) => setFormData({ ...formData, department_id: value === "all" ? "" : value })}
-                  >
-                    <SelectTrigger>
-                      <SelectValue placeholder="Выберите отдел" />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="all">Общий (все отделы)</SelectItem>
-                      {departments.map((dept) => (
-                        <SelectItem key={dept.id} value={dept.id}>
-                          {dept.name}
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
+                <div className="grid grid-cols-2 gap-4">
+                  <div className="space-y-2">
+                    <Label htmlFor="name">Название</Label>
+                    <Input
+                      id="name"
+                      placeholder="Например: Эксперт по патентам"
+                      value={formData.name}
+                      onChange={(e) => setFormData({ ...formData, name: e.target.value })}
+                    />
+                  </div>
+                  <div className="space-y-2">
+                    <Label htmlFor="department">Отдел (пространство)</Label>
+                    <Select
+                      value={formData.department_id || "all"}
+                      onValueChange={(value) => setFormData({ ...formData, department_id: value === "all" ? "" : value })}
+                    >
+                      <SelectTrigger>
+                        <SelectValue placeholder="Выберите отдел" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="all">Общий (все отделы)</SelectItem>
+                        {departments.map((dept) => (
+                          <SelectItem key={dept.id} value={dept.id}>
+                            {dept.name}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </div>
                 </div>
                 <div className="space-y-2">
                   <Label htmlFor="prompt">Текст системного промпта</Label>
@@ -233,7 +255,8 @@ const Prompts = () => {
                     placeholder="Ты - эксперт по патентному праву. Отвечай на вопросы о патентах, изобретениях и интеллектуальной собственности..."
                     value={formData.prompt_text}
                     onChange={(e) => setFormData({ ...formData, prompt_text: e.target.value })}
-                    rows={8}
+                    rows={16}
+                    className="font-mono text-sm"
                   />
                 </div>
                 <div className="flex items-center space-x-2">
@@ -258,7 +281,7 @@ const Prompts = () => {
         )}
       </div>
 
-      <div className="grid gap-4">
+      <div className="grid gap-3">
         {prompts.length === 0 ? (
           <Card>
             <CardContent className="py-8 text-center text-muted-foreground">
@@ -266,56 +289,86 @@ const Prompts = () => {
             </CardContent>
           </Card>
         ) : (
-          prompts.map((prompt) => (
-            <Card key={prompt.id}>
-              <CardHeader>
-                <div className="flex items-start justify-between">
-                  <div className="space-y-1">
-                    <CardTitle className="flex items-center gap-2">
-                      <MessageSquare className="h-5 w-5" />
-                      {prompt.name}
-                      {!prompt.is_active && (
-                        <Badge variant="secondary">Неактивен</Badge>
-                      )}
-                    </CardTitle>
-                    <CardDescription className="flex items-center gap-2">
-                      <Building2 className="h-4 w-4" />
-                      Пространство: {getDepartmentName(prompt.department_id)}
-                    </CardDescription>
-                  </div>
-                  {isAdmin && (
-                    <div className="flex items-center gap-2">
-                      <Switch
-                        checked={prompt.is_active}
-                        onCheckedChange={() => toggleActive(prompt.id, prompt.is_active)}
-                      />
-                      <Button
-                        variant="ghost"
-                        size="icon"
-                        onClick={() => openEditDialog(prompt)}
-                      >
-                        <Pencil className="h-4 w-4" />
-                      </Button>
-                      <Button
-                        variant="ghost"
-                        size="icon"
-                        onClick={() => deletePrompt(prompt.id)}
-                      >
-                        <Trash2 className="h-4 w-4 text-destructive" />
-                      </Button>
+          prompts.map((prompt) => {
+            const isExpanded = expandedIds.has(prompt.id);
+            return (
+              <Collapsible key={prompt.id} open={isExpanded} onOpenChange={() => toggleExpanded(prompt.id)}>
+                <Card className={cn(
+                  "transition-all",
+                  !prompt.is_active && "opacity-60"
+                )}>
+                  <CollapsibleTrigger asChild>
+                    <div className="flex items-center justify-between p-4 cursor-pointer hover:bg-muted/50 transition-colors">
+                      <div className="flex items-center gap-3 min-w-0 flex-1">
+                        <div className="flex items-center justify-center h-9 w-9 rounded-lg bg-primary/10 text-primary shrink-0">
+                          <FileText className="h-4 w-4" />
+                        </div>
+                        <div className="min-w-0 flex-1">
+                          <div className="flex items-center gap-2">
+                            <span className="font-medium truncate">{prompt.name}</span>
+                            {!prompt.is_active && (
+                              <Badge variant="secondary" className="text-xs">Неактивен</Badge>
+                            )}
+                          </div>
+                          <div className="flex items-center gap-2 text-sm text-muted-foreground">
+                            <Building2 className="h-3 w-3" />
+                            <span>{getDepartmentName(prompt.department_id)}</span>
+                            <span className="text-muted-foreground/50">•</span>
+                            <span className="truncate">{getPromptPreview(prompt.prompt_text, 60)}</span>
+                          </div>
+                        </div>
+                      </div>
+                      <div className="flex items-center gap-2 shrink-0">
+                        {isAdmin && (
+                          <>
+                            <Switch
+                              checked={prompt.is_active}
+                              onCheckedChange={() => toggleActive(prompt.id, prompt.is_active)}
+                              onClick={(e) => e.stopPropagation()}
+                            />
+                            <Button
+                              variant="ghost"
+                              size="icon"
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                openEditDialog(prompt);
+                              }}
+                            >
+                              <Pencil className="h-4 w-4" />
+                            </Button>
+                            <Button
+                              variant="ghost"
+                              size="icon"
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                deletePrompt(prompt.id);
+                              }}
+                            >
+                              <Trash2 className="h-4 w-4 text-destructive" />
+                            </Button>
+                          </>
+                        )}
+                        {isExpanded ? (
+                          <ChevronDown className="h-4 w-4 text-muted-foreground" />
+                        ) : (
+                          <ChevronRight className="h-4 w-4 text-muted-foreground" />
+                        )}
+                      </div>
                     </div>
-                  )}
-                </div>
-              </CardHeader>
-              <CardContent>
-                <div className="rounded-md bg-muted p-4">
-                  <pre className="whitespace-pre-wrap text-sm">
-                    {prompt.prompt_text}
-                  </pre>
-                </div>
-              </CardContent>
-            </Card>
-          ))
+                  </CollapsibleTrigger>
+                  <CollapsibleContent>
+                    <div className="px-4 pb-4">
+                      <div className="rounded-lg border bg-muted/30 p-4 max-h-64 overflow-y-auto">
+                        <pre className="whitespace-pre-wrap text-sm font-mono leading-relaxed">
+                          {prompt.prompt_text}
+                        </pre>
+                      </div>
+                    </div>
+                  </CollapsibleContent>
+                </Card>
+              </Collapsible>
+            );
+          })
         )}
       </div>
     </div>
