@@ -74,6 +74,8 @@ async function fetchMessagesData(conversationId: string): Promise<Message[]> {
     ragContext: (msg.metadata as DBMessage['metadata'])?.rag_context,
     citations: (msg.metadata as DBMessage['metadata'])?.citations,
     smartSearch: (msg.metadata as DBMessage['metadata'])?.smart_search,
+    webSearchCitations: (msg.metadata as any)?.web_search_citations,
+    webSearchUsed: (msg.metadata as any)?.web_search_used,
     attachments: (msg.metadata as DBMessage['metadata'])?.attachments?.map((a, idx) => ({
       id: `${msg.id}-${idx}`,
       file_path: a.file_path,
