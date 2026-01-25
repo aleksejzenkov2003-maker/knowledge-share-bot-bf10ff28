@@ -1,32 +1,31 @@
 import { useState, useEffect, useRef, useMemo } from "react";
 import { useNavigate } from "react-router-dom";
-import { useAuth } from "@/contexts/AuthContext";
 import { Button } from "@/components/ui/button";
-import { Badge } from "@/components/ui/badge";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { 
-  Loader2, 
-  Bot, 
-  RotateCcw, 
-  History,
-  PanelLeftClose,
-  PanelLeft,
-  StopCircle,
-  Maximize2,
+  PanelLeftClose, 
+  PanelLeft, 
+  Minimize2, 
+  Trash2,
+  Loader2,
   MessageSquare
 } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { useAuth } from "@/contexts/AuthContext";
 import { useOptimizedChat } from "@/hooks/useOptimizedChat";
-import { ChatMessage } from "@/components/chat/ChatMessage";
 import { ChatSidebarEnhanced } from "@/components/chat/ChatSidebarEnhanced";
 import { ChatInputEnhanced } from "@/components/chat/ChatInputEnhanced";
+import { ChatMessage } from "@/components/chat/ChatMessage";
 
-export default function Chat() {
+export default function ChatFullscreen() {
   const navigate = useNavigate();
-  const { user, departmentId, isLoading: authLoading } = useAuth();
+  const { user, isLoading: authLoading } = useAuth();
   const [sidebarOpen, setSidebarOpen] = useState(true);
   const [inputValue, setInputValue] = useState("");
   const messagesEndRef = useRef<HTMLDivElement>(null);
+
+  // Get user profile to fetch departmentId
+  const departmentId = user?.user_metadata?.department_id || null;
 
   const {
     roles,
@@ -36,24 +35,23 @@ export default function Chat() {
     activeConversationId,
     messages,
     isLoading,
-    rolesLoading,
     conversationsLoading,
+    rolesLoading,
     sendMessage,
     handleNewChat,
     handleSelectConversation,
     deleteConversation,
     renameConversation,
     stopGeneration,
-    editMessage,
-    regenerateResponse,
     attachments,
     addAttachments,
     removeAttachment,
-    clearAttachments,
+    editMessage,
+    regenerateResponse,
   } = useOptimizedChat(user?.id, departmentId);
 
   const selectedRole = useMemo(() => 
-    roles.find((r) => r.id === selectedRoleId),
+    roles.find(r => r.id === selectedRoleId), 
     [roles, selectedRoleId]
   );
 
@@ -62,16 +60,14 @@ export default function Chat() {
     [conversations, activeConversationId]
   );
 
-  const isProjectMode = selectedRole?.is_project_mode || false;
-
-  // Auto-scroll to bottom on new messages
+  // Auto-scroll to bottom
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [messages]);
 
   const handleSend = () => {
     if (inputValue.trim() || attachments.length > 0) {
-      sendMessage(inputValue, isProjectMode);
+      sendMessage(inputValue, selectedRole?.is_project_mode || false);
       setInputValue("");
     }
   };
@@ -80,117 +76,98 @@ export default function Chat() {
     setSelectedRoleId(roleId);
   };
 
-  const handleClearChat = () => {
-    if (activeConversationId) {
-      deleteConversation(activeConversationId);
-    }
-  };
-
-  // Wait for auth first, then roles
-  if (authLoading || (user && rolesLoading)) {
+  if (authLoading || rolesLoading) {
     return (
-      <div className="flex items-center justify-center h-[calc(100vh-120px)]">
-        <Loader2 className="h-8 w-8 animate-spin text-primary" />
+      <div className="h-screen flex items-center justify-center bg-background">
+        <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
       </div>
     );
   }
 
   return (
-    <div className="flex h-[calc(100vh-120px)]">
+    <div className="h-screen flex bg-background overflow-hidden">
       {/* Sidebar */}
       <div 
         className={cn(
-          "border-r transition-all duration-300 flex-shrink-0",
-          sidebarOpen ? "w-72" : "w-0 overflow-hidden"
+          "h-full border-r border-border transition-all duration-300 flex-shrink-0",
+          sidebarOpen ? "w-64" : "w-0"
         )}
       >
-        <ChatSidebarEnhanced
-          conversations={conversations}
-          activeConversationId={activeConversationId}
-          isLoading={conversationsLoading}
-          onNewChat={handleNewChat}
-          onSelectConversation={handleSelectConversation}
-          onDeleteConversation={deleteConversation}
-          onRenameConversation={renameConversation}
-        />
+        {sidebarOpen && (
+          <ChatSidebarEnhanced
+            conversations={conversations}
+            activeConversationId={activeConversationId}
+            isLoading={conversationsLoading}
+            onNewChat={handleNewChat}
+            onSelectConversation={handleSelectConversation}
+            onDeleteConversation={deleteConversation}
+            onRenameConversation={renameConversation}
+          />
+        )}
       </div>
 
       {/* Main Chat Area */}
       <div className="flex-1 flex flex-col min-w-0">
         {/* Header */}
-        <div className="flex items-center justify-between p-3 border-b">
+        <header className="h-14 border-b border-border flex items-center justify-between px-4 flex-shrink-0">
           <div className="flex items-center gap-2">
             <Button
               variant="ghost"
               size="icon"
               onClick={() => setSidebarOpen(!sidebarOpen)}
-              className="h-8 w-8 flex-shrink-0"
+              className="h-8 w-8"
             >
-              {sidebarOpen ? <PanelLeftClose className="h-4 w-4" /> : <PanelLeft className="h-4 w-4" />}
+              {sidebarOpen ? (
+                <PanelLeftClose className="h-4 w-4" />
+              ) : (
+                <PanelLeft className="h-4 w-4" />
+              )}
             </Button>
             
             {activeConversation && (
-              <span className="text-sm font-medium truncate max-w-[200px]">
+              <span className="text-sm font-medium truncate max-w-[300px]">
                 {activeConversation.title}
               </span>
             )}
-            
-            {isProjectMode && (
-              <Badge variant="outline" className="text-xs hidden sm:flex">
-                <History className="h-3 w-3 mr-1" />
-                Режим проекта
-              </Badge>
-            )}
           </div>
-          
-          <div className="flex items-center gap-1">
-            {isLoading && (
-              <Button variant="destructive" size="sm" onClick={stopGeneration} className="h-8">
-                <StopCircle className="h-4 w-4 mr-1" />
-                Стоп
+
+          <div className="flex items-center gap-2">
+            {activeConversation && (
+              <Button
+                variant="ghost"
+                size="sm"
+                onClick={() => deleteConversation(activeConversation.id)}
+                className="text-muted-foreground hover:text-destructive"
+              >
+                <Trash2 className="h-4 w-4" />
               </Button>
             )}
-            <Button 
-              variant="ghost" 
-              size="icon" 
-              onClick={handleClearChat}
+            <Button
+              variant="ghost"
+              size="icon"
+              onClick={() => navigate("/chat")}
               className="h-8 w-8"
-              title="Очистить чат"
+              title="Выйти из полноэкранного режима"
             >
-              <RotateCcw className="h-4 w-4" />
-            </Button>
-            <Button 
-              variant="ghost" 
-              size="icon" 
-              onClick={() => navigate("/chat-fullscreen")}
-              className="h-8 w-8"
-              title="Полноэкранный режим"
-            >
-              <Maximize2 className="h-4 w-4" />
+              <Minimize2 className="h-4 w-4" />
             </Button>
           </div>
-        </div>
+        </header>
 
-        {/* Messages */}
+        {/* Messages Area */}
         <ScrollArea className="flex-1">
           <div className="max-w-3xl mx-auto py-6 px-4">
             {messages.length === 0 ? (
-              <div className="flex flex-col items-center justify-center h-[50vh] text-center">
-                <div className="w-14 h-14 rounded-full bg-primary/10 flex items-center justify-center mb-4">
-                  <MessageSquare className="h-7 w-7 text-primary" />
+              <div className="flex flex-col items-center justify-center h-[60vh] text-center">
+                <div className="w-16 h-16 rounded-full bg-primary/10 flex items-center justify-center mb-4">
+                  <MessageSquare className="h-8 w-8 text-primary" />
                 </div>
-                <h2 className="text-lg font-semibold mb-1">
+                <h2 className="text-xl font-semibold mb-2">
                   {selectedRole?.name || "Чат с ассистентом"}
                 </h2>
-                <p className="text-sm text-muted-foreground max-w-sm">
+                <p className="text-muted-foreground max-w-md">
                   {selectedRole?.description || "Начните диалог, задав вопрос или выбрав тему для обсуждения"}
                 </p>
-                {isProjectMode && (
-                  <Badge variant="secondary" className="mt-3">
-                    <History className="h-3 w-3 mr-1" />
-                    История сохраняется в контексте
-                  </Badge>
-                )}
               </div>
             ) : (
               <div className="space-y-4">
@@ -214,8 +191,8 @@ export default function Chat() {
           </div>
         </ScrollArea>
 
-        {/* Input */}
-        <div className="border-t py-4">
+        {/* Input Area */}
+        <div className="border-t border-border py-4">
           <ChatInputEnhanced
             value={inputValue}
             onChange={setInputValue}
