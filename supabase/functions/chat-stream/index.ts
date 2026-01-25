@@ -655,9 +655,12 @@ serve(async (req) => {
       // CRITICAL: Always ensure current user message is at the end
       // The message_history may not include the current message being sent
       const lastMessage = simpleMessages[simpleMessages.length - 1];
-      const userContent = ragContext.length > 0
-        ? `КОНТЕКСТ ИЗ ДОКУМЕНТОВ:\n${ragContext.join('\n\n---\n\n')}\n\n---\n\nВОПРОС ПОЛЬЗОВАТЕЛЯ: ${message}`
-        : message;
+      
+      // Use finalPrompt which already contains:
+      // - RAG context (documents from knowledge base)
+      // - Web search context (Perplexity results)
+      // - Combined instructions for using both sources
+      const userContent = finalPrompt;
         
       if (lastMessage?.role === 'user') {
         // Merge current message with last user message
