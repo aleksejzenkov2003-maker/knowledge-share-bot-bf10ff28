@@ -16,13 +16,17 @@ import {
 import { MessageActions } from "./MessageActions";
 import { SourcesPanel } from "./SourcesPanel";
 
+import { ChatRole } from "@/types/chat";
+
 interface ChatMessageProps {
   message: Message;
   onEditMessage?: (messageId: string, newContent: string) => void;
-  onRegenerateResponse?: (messageId: string) => void;
+  onRegenerateResponse?: (messageId: string, roleId?: string) => void;
+  availableRoles?: ChatRole[];
+  currentRoleId?: string;
 }
 
-function ChatMessageComponent({ message, onEditMessage, onRegenerateResponse }: ChatMessageProps) {
+function ChatMessageComponent({ message, onEditMessage, onRegenerateResponse, availableRoles, currentRoleId }: ChatMessageProps) {
   return (
     <div
       className={cn(
@@ -264,6 +268,8 @@ function ChatMessageComponent({ message, onEditMessage, onRegenerateResponse }: 
           isStreaming={message.isStreaming}
           onEditMessage={onEditMessage}
           onRegenerateResponse={onRegenerateResponse}
+          availableRoles={availableRoles}
+          currentRoleId={currentRoleId}
         />
       </Card>
       {message.role === "user" && (
@@ -289,6 +295,8 @@ export const ChatMessage = React.memo(ChatMessageComponent, (prevProps, nextProp
     prev.ragContext?.length === next.ragContext?.length &&
     prev.citations?.length === next.citations?.length &&
     prevProps.onEditMessage === nextProps.onEditMessage &&
-    prevProps.onRegenerateResponse === nextProps.onRegenerateResponse
+    prevProps.onRegenerateResponse === nextProps.onRegenerateResponse &&
+    prevProps.availableRoles?.length === nextProps.availableRoles?.length &&
+    prevProps.currentRoleId === nextProps.currentRoleId
   );
 });

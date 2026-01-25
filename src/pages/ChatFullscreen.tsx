@@ -177,6 +177,8 @@ export default function ChatFullscreen() {
                     message={message}
                     onEditMessage={editMessage}
                     onRegenerateResponse={regenerateResponse}
+                    availableRoles={roles}
+                    currentRoleId={selectedRoleId}
                   />
                 ))}
                 {isLoading && (

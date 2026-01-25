@@ -173,7 +173,7 @@ export default function Chat() {
 
         {/* Messages */}
         <ScrollArea className="flex-1">
-          <div className="max-w-3xl mx-auto py-6 px-4">
+          <div className="max-w-5xl mx-auto py-6 px-4 lg:px-8">
             {messages.length === 0 ? (
               <div className="flex flex-col items-center justify-center h-[50vh] text-center">
                 <div className="w-14 h-14 rounded-full bg-primary/10 flex items-center justify-center mb-4">
@@ -200,6 +200,8 @@ export default function Chat() {
                     message={message}
                     onEditMessage={editMessage}
                     onRegenerateResponse={regenerateResponse}
+                    availableRoles={roles}
+                    currentRoleId={selectedRoleId}
                   />
                 ))}
                 {isLoading && (
