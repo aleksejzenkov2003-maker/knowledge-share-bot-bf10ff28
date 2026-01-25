@@ -360,6 +360,12 @@ export default function Documents() {
   };
 
   const handleReprocess = async (doc: Document) => {
+    // Check file size before reprocessing
+    if (doc.file_size && doc.file_size > MAX_FILE_SIZE) {
+      toast.error(`Файл слишком большой (${(doc.file_size / (1024 * 1024)).toFixed(1)} MB). Максимум: ${MAX_FILE_SIZE_MB} MB. Удалите документ и загрузите файл меньшего размера.`);
+      return;
+    }
+
     try {
       await supabase
         .from("documents")
