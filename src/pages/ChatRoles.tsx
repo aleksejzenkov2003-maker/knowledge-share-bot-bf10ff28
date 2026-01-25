@@ -97,9 +97,8 @@ const providerModels: Record<string, { value: string; label: string }[]> = {
     { value: 'o3-mini', label: 'O3 Mini (новый)' },
   ],
   anthropic: [
-    { value: 'claude-sonnet-4-20250514', label: 'Claude Sonnet 4 (новейший)' },
-    { value: 'claude-4-5-sonnet-20250514', label: 'Claude 4.5 Sonnet (премиум)' },
-    { value: 'claude-3-7-sonnet-20250219', label: 'Claude 3.7 Sonnet' },
+    { value: 'claude-sonnet-4-5-20250929', label: 'Claude Sonnet 4.5 (премиум)' },
+    { value: 'claude-sonnet-4-20250514', label: 'Claude Sonnet 4' },
     { value: 'claude-3-5-sonnet-20241022', label: 'Claude 3.5 Sonnet' },
     { value: 'claude-3-5-haiku-20241022', label: 'Claude 3.5 Haiku (быстрый)' },
     { value: 'claude-3-opus-20240229', label: 'Claude 3 Opus (мощный)' },

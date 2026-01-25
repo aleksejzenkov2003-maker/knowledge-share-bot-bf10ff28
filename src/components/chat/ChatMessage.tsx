@@ -11,16 +11,19 @@ import {
   TooltipContent,
   TooltipTrigger,
 } from "@/components/ui/tooltip";
+import { MessageActions } from "./MessageActions";
 
 interface ChatMessageProps {
   message: Message;
+  onEditMessage?: (messageId: string, newContent: string) => void;
+  onRegenerateResponse?: (messageId: string) => void;
 }
 
-function ChatMessageComponent({ message }: ChatMessageProps) {
+function ChatMessageComponent({ message, onEditMessage, onRegenerateResponse }: ChatMessageProps) {
   return (
     <div
       className={cn(
-        "flex gap-3",
+        "flex gap-3 group",
         message.role === "user" ? "justify-end" : "justify-start"
       )}
     >
@@ -191,6 +194,16 @@ function ChatMessageComponent({ message }: ChatMessageProps) {
             )}
           </div>
         )}
+        
+        {/* Action buttons */}
+        <MessageActions
+          messageId={message.id}
+          role={message.role}
+          content={message.content}
+          isStreaming={message.isStreaming}
+          onEditMessage={onEditMessage}
+          onRegenerateResponse={onRegenerateResponse}
+        />
       </Card>
       {message.role === "user" && (
         <div className="flex-shrink-0 h-8 w-8 rounded-full bg-secondary flex items-center justify-center">
@@ -213,6 +226,8 @@ export const ChatMessage = React.memo(ChatMessageComponent, (prevProps, nextProp
     prev.isStreaming === next.isStreaming &&
     prev.responseTime === next.responseTime &&
     prev.ragContext?.length === next.ragContext?.length &&
-    prev.citations?.length === next.citations?.length
+    prev.citations?.length === next.citations?.length &&
+    prevProps.onEditMessage === nextProps.onEditMessage &&
+    prevProps.onRegenerateResponse === nextProps.onRegenerateResponse
   );
 });

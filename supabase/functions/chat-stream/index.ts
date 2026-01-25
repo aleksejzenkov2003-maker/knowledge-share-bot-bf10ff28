@@ -214,7 +214,7 @@ serve(async (req) => {
       throw new Error('No AI provider configured or API key missing');
     }
 
-    const finalModel = selectedModel || providerConfig.default_model;
+    let finalModel = selectedModel || providerConfig.default_model;
 
     // =====================================================
     // "SMART LIBRARIAN" RAG - Hybrid Search with Claude Re-ranking
@@ -652,6 +652,20 @@ serve(async (req) => {
     }
 
     console.log(`Streaming from ${providerConfig.provider_type} with model: ${finalModel}, attachments: ${hasAttachments}, trademarks: ${hasTrademarkImages}`);
+
+    // Validate model identifiers for each provider
+    const validAnthropicModels = [
+      'claude-sonnet-4-5-20250929',
+      'claude-sonnet-4-20250514',
+      'claude-3-5-sonnet-20241022',
+      'claude-3-5-haiku-20241022',
+      'claude-3-opus-20240229',
+    ];
+    
+    if (providerConfig.provider_type === 'anthropic' && !validAnthropicModels.includes(finalModel)) {
+      console.warn(`Invalid Anthropic model: ${finalModel}, falling back to claude-sonnet-4-5-20250929`);
+      finalModel = 'claude-sonnet-4-5-20250929';
+    }
 
     // Create streaming response based on provider
     let streamResponse: Response;

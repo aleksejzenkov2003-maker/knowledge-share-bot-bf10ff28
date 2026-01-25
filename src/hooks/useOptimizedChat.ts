@@ -259,14 +259,11 @@ export function useOptimizedChat(userId: string | undefined, departmentId: strin
     streamingContentRef.current = "";
 
     try {
-      let messageHistory: { role: string; content: string }[] | undefined;
-      
-      if (isProjectMode) {
-        messageHistory = [...messages, userMessage].map(m => ({
-          role: m.role,
-          content: m.content,
-        }));
-      }
+      // ВСЕГДА передаём историю сообщений для поддержания контекста
+      const messageHistory = [...messages, userMessage].map(m => ({
+        role: m.role,
+        content: m.content,
+      }));
 
       const { data: sessionData } = await supabase.auth.getSession();
       const token = sessionData.session?.access_token;
@@ -495,6 +492,42 @@ export function useOptimizedChat(userId: string | undefined, departmentId: strin
     }
   }, []);
 
+  // Редактирование сообщения пользователя (удаляет последующие сообщения и отправляет новое)
+  const editMessage = useCallback(async (messageId: string, newContent: string) => {
+    const messageIndex = messages.findIndex(m => m.id === messageId);
+    if (messageIndex === -1) return;
+    
+    // Удаляем текущее сообщение и все последующие
+    const messagesToKeep = messages.slice(0, messageIndex);
+    setLocalMessages(messagesToKeep);
+    
+    // Отправляем новое сообщение
+    sendMessage(newContent, selectedRoleId ? roles.find(r => r.id === selectedRoleId)?.is_project_mode || false : false);
+  }, [messages, sendMessage, selectedRoleId, roles]);
+
+  // Регенерация ответа ассистента (повторяет последний вопрос)
+  const regenerateResponse = useCallback(async (messageId: string) => {
+    const messageIndex = messages.findIndex(m => m.id === messageId);
+    if (messageIndex === -1) return;
+    
+    // Находим предыдущее сообщение пользователя
+    let lastUserMessageIndex = messageIndex - 1;
+    while (lastUserMessageIndex >= 0 && messages[lastUserMessageIndex].role !== "user") {
+      lastUserMessageIndex--;
+    }
+    
+    if (lastUserMessageIndex < 0) return;
+    
+    const userMessage = messages[lastUserMessageIndex];
+    
+    // Удаляем ответ ассистента
+    const messagesToKeep = messages.slice(0, messageIndex);
+    setLocalMessages(messagesToKeep);
+    
+    // Повторно отправляем вопрос
+    sendMessage(userMessage.content, selectedRoleId ? roles.find(r => r.id === selectedRoleId)?.is_project_mode || false : false);
+  }, [messages, sendMessage, selectedRoleId, roles]);
+
   // Needed for backward compatibility - no-op since we use React Query
   const fetchRoles = useCallback(() => {}, []);
   const fetchConversations = useCallback(() => {}, []);
@@ -520,6 +553,8 @@ export function useOptimizedChat(userId: string | undefined, departmentId: strin
     deleteConversation,
     renameConversation,
     stopGeneration,
+    editMessage,
+    regenerateResponse,
     attachments,
     addAttachments,
     removeAttachment,

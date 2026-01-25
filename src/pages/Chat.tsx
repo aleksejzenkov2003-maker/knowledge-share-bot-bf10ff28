@@ -48,6 +48,8 @@ export default function Chat() {
     deleteConversation,
     renameConversation,
     stopGeneration,
+    editMessage,
+    regenerateResponse,
     attachments,
     addAttachments,
     removeAttachment,
@@ -187,7 +189,12 @@ export default function Chat() {
               </div>
             ) : (
               messages.map((message) => (
-                <ChatMessage key={message.id} message={message} />
+                <ChatMessage 
+                  key={message.id} 
+                  message={message}
+                  onEditMessage={editMessage}
+                  onRegenerateResponse={regenerateResponse}
+                />
               ))
             )}
             <div ref={messagesEndRef} />
