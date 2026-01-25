@@ -43,14 +43,21 @@ async function fetchDepartmentChatData(departmentId: string): Promise<Department
   return data;
 }
 
-// Fetch available agents
+// Fetch available agents - gets ALL active agents with mention_trigger
+// RLS policy handles access control (admins see all, users see their department)
 async function fetchAgentsData(departmentId: string): Promise<AgentMention[]> {
   const { data, error } = await supabase
     .from('chat_roles')
     .select('id, name, mention_trigger, slug')
-    .eq('is_active', true);
+    .eq('is_active', true)
+    .not('mention_trigger', 'is', null); // Only agents with mention triggers
 
-  if (error) throw error;
+  if (error) {
+    console.error('Error fetching agents:', error);
+    throw error;
+  }
+
+  console.log('Fetched agents for department chat:', data?.length, data);
 
   return (data || []).map(role => ({
     id: role.id,
@@ -122,26 +129,40 @@ export function useOptimizedDepartmentChat(userId: string | undefined, departmen
     }
   }, [dbMessages, isGenerating]);
 
-  // Parse @mention from message
+  // Parse @mention from message - supports multiple formats
   const parseMention = useCallback((text: string): { agentId: string | null; cleanText: string } => {
-    const mentionRegex = /^@(\S+)\s*/;
+    // Match @trigger at the start of message (handles multi-word triggers like "ТЗ консультант")
+    const mentionRegex = /^@([^\n]+?)(?:\s+|$)/;
     const match = text.match(mentionRegex);
 
     if (!match) {
       return { agentId: null, cleanText: text };
     }
 
-    const trigger = match[1].toLowerCase();
-    const agent = availableAgents.find(a => 
-      a.slug.toLowerCase() === trigger ||
-      (a.mention_trigger && a.mention_trigger.replace('@', '').toLowerCase() === trigger)
-    );
+    const trigger = match[1].trim().toLowerCase();
+    
+    // Try to find agent by various matching strategies
+    const agent = availableAgents.find(a => {
+      const slugLower = a.slug.toLowerCase();
+      const mentionLower = a.mention_trigger?.replace('@', '').toLowerCase().trim();
+      const nameLower = a.name.toLowerCase().trim();
+      
+      // Match by: exact mention_trigger, slug, or name
+      return (
+        slugLower === trigger ||
+        mentionLower === trigger ||
+        nameLower === trigger ||
+        // Partial match for multi-word names
+        trigger.startsWith(slugLower) ||
+        (mentionLower && trigger.startsWith(mentionLower)) ||
+        trigger.startsWith(nameLower)
+      );
+    });
 
     if (agent) {
-      return { 
-        agentId: agent.id, 
-        cleanText: text.replace(mentionRegex, '').trim() 
-      };
+      // Remove the full matched trigger from text
+      const cleanText = text.replace(/^@[^\n]+?\s*/, '').trim();
+      return { agentId: agent.id, cleanText };
     }
 
     return { agentId: null, cleanText: text };
