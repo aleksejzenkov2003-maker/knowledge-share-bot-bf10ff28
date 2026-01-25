@@ -553,8 +553,11 @@ serve(async (req) => {
     
     let simpleMessages: SimpleMessage[];
     
-    // Use message history for project mode OR department chat
-    if ((isProjectMode || is_department_chat) && message_history && message_history.length > 0) {
+    // ALWAYS use message history if available (fixes context loss bug)
+    // Previously this was gated on isProjectMode || is_department_chat, causing context loss
+    if (message_history && message_history.length > 0) {
+      console.log(`Using message history: ${message_history.length} messages, isProjectMode=${isProjectMode}, is_department_chat=${is_department_chat}`);
+      
       // Build messages from history
       const rawMessages = message_history.map((msg) => {
         // For department chat, prefix assistant messages with agent name for context
@@ -593,6 +596,7 @@ serve(async (req) => {
         simpleMessages.push({ role: 'user', content: userContent });
       }
     } else {
+      console.log(`No message history, starting new conversation`);
       simpleMessages = [{ role: 'user', content: finalPrompt }];
     }
 
