@@ -16,7 +16,9 @@ import Providers from "./pages/Providers";
 import Prompts from "./pages/Prompts";
 import TestChat from "./pages/TestChat";
 import Chat from "./pages/Chat";
+import ChatFullscreen from "./pages/ChatFullscreen";
 import DepartmentChat from "./pages/DepartmentChat";
+import DepartmentChatFullscreen from "./pages/DepartmentChatFullscreen";
 import Folders from "./pages/Folders";
 import Documents from "./pages/Documents";
 import ChatRoles from "./pages/ChatRoles";
@@ -77,9 +79,19 @@ const App = () => (
                 <AdminLayout><Chat /></AdminLayout>
               </ProtectedRoute>
             } />
+            <Route path="/chat-fullscreen" element={
+              <ProtectedRoute>
+                <ChatFullscreen />
+              </ProtectedRoute>
+            } />
             <Route path="/department-chat" element={
               <ProtectedRoute>
                 <AdminLayout><DepartmentChat /></AdminLayout>
+              </ProtectedRoute>
+            } />
+            <Route path="/department-chat-fullscreen" element={
+              <ProtectedRoute>
+                <DepartmentChatFullscreen />
               </ProtectedRoute>
             } />
             <Route path="/folders" element={
