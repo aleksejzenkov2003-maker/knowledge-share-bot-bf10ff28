@@ -1159,6 +1159,23 @@ serve(async (req) => {
       );
     }
 
+    // Check file size limit (10 MB max for edge functions)
+    const MAX_FILE_SIZE = 10 * 1024 * 1024;
+    if (doc.file_size && doc.file_size > MAX_FILE_SIZE) {
+      console.error(`File too large: ${doc.file_size} bytes (max ${MAX_FILE_SIZE})`);
+      await supabase
+        .from('documents')
+        .update({ status: 'error' })
+        .eq('id', document_id);
+      return new Response(
+        JSON.stringify({ 
+          error: 'File too large', 
+          message: `Файл слишком большой (${(doc.file_size / (1024 * 1024)).toFixed(1)} MB). Максимум: 10 MB` 
+        }),
+        { status: 413, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+      );
+    }
+
     // Update status to processing
     await supabase
       .from('documents')
