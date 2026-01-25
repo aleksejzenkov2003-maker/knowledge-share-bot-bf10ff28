@@ -32,6 +32,8 @@ export interface DepartmentChatMessage {
       relevance: number;
     }>;
     perplexity_citations?: string[]; // URLs from Perplexity API
+    web_search_citations?: string[]; // URLs from web search (hybrid Claude search)
+    web_search_used?: boolean; // Whether web search was triggered for this response
     smart_search?: boolean;
     stop_reason?: string | null; // 'max_tokens' if response was truncated
     user_name?: string;

@@ -48,6 +48,8 @@ export interface Message {
   smartSearch?: boolean;
   isStreaming?: boolean;
   attachments?: Attachment[];
+  webSearchCitations?: string[];
+  webSearchUsed?: boolean;
 }
 
 export interface DBMessage {

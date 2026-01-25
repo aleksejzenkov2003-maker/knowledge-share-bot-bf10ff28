@@ -486,10 +486,76 @@ serve(async (req) => {
 
     console.log(`RAG: Final context has ${ragContext.length} chunks, smart search: ${usedSmartSearch}`);
 
-    // Build messages with context
+    // HYBRID WEB SEARCH: If RAG results are insufficient and provider is Anthropic, 
+    // perform a web search via Perplexity to supplement the context
+    let webSearchContext: string[] = [];
+    let webSearchCitations: string[] = [];
+    let webSearchUsed = false;
+    
+    // Trigger web search if:
+    // 1. Provider is Anthropic (Claude)
+    // 2. RAG found fewer than 3 relevant chunks
+    // 3. Perplexity API key is available
+    if (
+      providerConfig.provider_type === 'anthropic' && 
+      rankedChunks.length < 3 && 
+      PERPLEXITY_API_KEY &&
+      message // Only if there's a user message
+    ) {
+      console.log('RAG insufficient for Claude, performing hybrid web search via Perplexity...');
+      
+      try {
+        const webSearchResponse = await fetch('https://api.perplexity.ai/chat/completions', {
+          method: 'POST',
+          headers: {
+            'Authorization': `Bearer ${PERPLEXITY_API_KEY}`,
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({
+            model: 'sonar',
+            messages: [
+              { role: 'system', content: 'Provide a concise, factual answer with sources. Focus on key facts relevant to the query.' },
+              { role: 'user', content: message }
+            ],
+          }),
+        });
+        
+        if (webSearchResponse.ok) {
+          const searchData = await webSearchResponse.json();
+          const searchContent = searchData.choices?.[0]?.message?.content;
+          if (searchContent) {
+            webSearchContext = [searchContent];
+            webSearchUsed = true;
+          }
+          if (searchData.citations && Array.isArray(searchData.citations)) {
+            webSearchCitations = searchData.citations;
+          }
+          console.log(`Web search successful: ${webSearchCitations.length} citations found`);
+        } else {
+          console.error('Web search failed:', webSearchResponse.status);
+        }
+      } catch (webSearchError) {
+        console.error('Web search error:', webSearchError);
+      }
+    }
+
+    // Build messages with combined context (RAG + Web)
     let finalPrompt = message || '';
-    if (ragContext.length > 0) {
-      finalPrompt = `КОНТЕКСТ ИЗ ДОКУМЕНТОВ:\n${ragContext.join('\n\n---\n\n')}\n\n---\n\nВОПРОС ПОЛЬЗОВАТЕЛЯ: ${message || 'Проанализируй прикрепленные файлы'}`;
+    if (ragContext.length > 0 || webSearchContext.length > 0) {
+      let contextParts: string[] = [];
+      
+      if (ragContext.length > 0) {
+        contextParts.push(`КОНТЕКСТ ИЗ ДОКУМЕНТОВ:\n${ragContext.join('\n\n---\n\n')}`);
+      }
+      
+      if (webSearchContext.length > 0) {
+        const sourcesNote = webSearchCitations.length > 0 
+          ? `\n\n(Источники: ${webSearchCitations.slice(0, 5).join(', ')}${webSearchCitations.length > 5 ? '...' : ''})`
+          : '';
+        contextParts.push(`КОНТЕКСТ ИЗ ИНТЕРНЕТА:${sourcesNote}\n${webSearchContext.join('\n\n')}`);
+      }
+      
+      finalPrompt = `${contextParts.join('\n\n---\n\n')}\n\n---\n\nВОПРОС ПОЛЬЗОВАТЕЛЯ: ${message || 'Проанализируй прикрепленные файлы'}`;
     }
 
     // Load attachments and build multimodal content for Anthropic
@@ -647,6 +713,11 @@ serve(async (req) => {
       ? `${systemPrompt}\n\nВАЖНО: При ответе на вопрос используй информацию из предоставленного контекста. Указывай источники в формате [1], [2] и т.д., ссылаясь на номера фрагментов из контекста. Если информации в контексте недостаточно, честно об этом скажи.`
       : systemPrompt;
     
+    // Add instruction for web search context
+    if (webSearchUsed) {
+      enhancedSystemPrompt += '\n\nК этому запросу добавлена информация из интернета (веб-поиск). Используй её как дополнительный источник, но приоритет отдавай документам из базы знаний, если они есть.';
+    }
+    
     if (hasTrademarkImages) {
       enhancedSystemPrompt += `\n\nК этому запросу приложены изображения товарных знаков из релевантных документов (${trademarkImages.map(t => t.documentName).join(', ')}). Учитывай визуальные характеристики товарных знаков при анализе. Если спрашивают о товарном знаке - опиши его внешний вид, цвета, шрифты, графические элементы.`;
     }
@@ -787,6 +858,8 @@ serve(async (req) => {
             response_time_ms: responseTimeMs,
             rag_context: ragContext.length > 0 ? ragContext : undefined,
             citations: citations.length > 0 ? citations : undefined,
+            web_search_citations: webSearchCitations.length > 0 ? webSearchCitations : undefined,
+            web_search_used: webSearchUsed,
             smart_search: usedSmartSearch,
           })}\n\n`));
           controller.enqueue(encoder.encode('data: [DONE]\n\n'));
@@ -916,6 +989,8 @@ serve(async (req) => {
             rag_context: ragContext.length > 0 ? ragContext : undefined,
             citations: citations.length > 0 ? citations : undefined,
             perplexity_citations: perplexityCitations.length > 0 ? perplexityCitations : undefined,
+            web_search_citations: webSearchCitations.length > 0 ? webSearchCitations : undefined,
+            web_search_used: webSearchUsed,
             smart_search: usedSmartSearch,
             stop_reason: stopReason,
           })}\n\n`));

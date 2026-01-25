@@ -1,16 +1,24 @@
 import React from 'react';
 import { DepartmentChatMessage as MessageType } from '@/types/departmentChat';
-import { Bot, User, FileText, Image, Clock, BookOpen, Link, AlertTriangle } from 'lucide-react';
+import { Bot, User, FileText, Image, Clock, BookOpen, Globe, AlertTriangle } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import { supabase } from '@/integrations/supabase/client';
 import { Badge } from '@/components/ui/badge';
 import {
+  Sheet,
+  SheetContent,
+  SheetHeader,
+  SheetTitle,
+  SheetTrigger,
+} from "@/components/ui/sheet";
+import {
   Tooltip,
   TooltipContent,
   TooltipTrigger,
 } from "@/components/ui/tooltip";
+import { SourcesPanel } from './SourcesPanel';
 
 interface DepartmentChatMessageProps {
   message: MessageType;
@@ -177,73 +185,94 @@ function DepartmentChatMessageComponent({
                 {message.metadata.response_time_ms}ms
               </span>
             )}
-            {message.metadata?.rag_context && message.metadata.rag_context.length > 0 && (
-              <Badge variant="outline" className="text-xs">
-                <FileText className="h-3 w-3 mr-1" />
-                {message.metadata.rag_context.length} источников
-                {message.metadata.smart_search && " (Claude re-rank)"}
-              </Badge>
+            
+            {/* Interactive Sources Panel */}
+            {((message.metadata?.rag_context && message.metadata.rag_context.length > 0) || 
+              (message.metadata?.citations && message.metadata.citations.length > 0) ||
+              (message.metadata?.perplexity_citations && message.metadata.perplexity_citations.length > 0) ||
+              (message.metadata?.web_search_citations && message.metadata.web_search_citations.length > 0)) && (
+              <Sheet>
+                <SheetTrigger asChild>
+                  <Badge 
+                    variant="outline" 
+                    className="text-xs cursor-pointer hover:bg-accent transition-colors"
+                  >
+                    <FileText className="h-3 w-3 mr-1" />
+                    {message.metadata?.rag_context?.length || 0} источников
+                    {message.metadata?.smart_search && " (Claude)"}
+                  </Badge>
+                </SheetTrigger>
+                <SheetContent className="w-[400px] sm:w-[540px]">
+                  <SheetHeader>
+                    <SheetTitle>Источники ответа</SheetTitle>
+                  </SheetHeader>
+                  <div className="mt-4">
+                    <SourcesPanel 
+                      ragContext={message.metadata?.rag_context}
+                      citations={message.metadata?.citations}
+                      webSearchCitations={message.metadata?.perplexity_citations || message.metadata?.web_search_citations}
+                      webSearchUsed={message.metadata?.web_search_used}
+                    />
+                  </div>
+                </SheetContent>
+              </Sheet>
             )}
+            
             {message.metadata?.citations && message.metadata.citations.length > 0 && (
-              <Tooltip>
-                <TooltipTrigger asChild>
-                  <Badge variant="secondary" className="text-xs cursor-help">
+              <Sheet>
+                <SheetTrigger asChild>
+                  <Badge 
+                    variant="secondary" 
+                    className="text-xs cursor-pointer hover:bg-accent transition-colors"
+                  >
                     <BookOpen className="h-3 w-3 mr-1" />
                     {message.metadata.citations.length} цитат
                   </Badge>
-                </TooltipTrigger>
-                <TooltipContent side="top" className="max-w-sm">
-                  <div className="text-xs space-y-1">
-                    {message.metadata.citations.slice(0, 5).map((citation) => (
-                      <div key={citation.index} className="flex items-start gap-1">
-                        <span className="font-medium">[{citation.index}]</span>
-                        <span className="truncate">
-                          {citation.document}
-                          {citation.article && `, ст. ${citation.article}`}
-                        </span>
-                      </div>
-                    ))}
-                    {message.metadata.citations.length > 5 && (
-                      <div className="text-muted-foreground">
-                        ...и ещё {message.metadata.citations.length - 5}
-                      </div>
-                    )}
+                </SheetTrigger>
+                <SheetContent className="w-[400px] sm:w-[540px]">
+                  <SheetHeader>
+                    <SheetTitle>Цитаты из документов</SheetTitle>
+                  </SheetHeader>
+                  <div className="mt-4">
+                    <SourcesPanel 
+                      ragContext={message.metadata?.rag_context}
+                      citations={message.metadata?.citations}
+                      webSearchCitations={message.metadata?.perplexity_citations || message.metadata?.web_search_citations}
+                      webSearchUsed={message.metadata?.web_search_used}
+                    />
                   </div>
-                </TooltipContent>
-              </Tooltip>
+                </SheetContent>
+              </Sheet>
             )}
-            {/* Perplexity web citations */}
-            {message.metadata?.perplexity_citations && message.metadata.perplexity_citations.length > 0 && (
-              <Tooltip>
-                <TooltipTrigger asChild>
-                  <Badge variant="outline" className="text-xs cursor-help">
-                    <Link className="h-3 w-3 mr-1" />
-                    {message.metadata.perplexity_citations.length} веб-источников
+            
+            {/* Web search sources */}
+            {(message.metadata?.perplexity_citations?.length > 0 || message.metadata?.web_search_citations?.length > 0) && (
+              <Sheet>
+                <SheetTrigger asChild>
+                  <Badge 
+                    variant="secondary" 
+                    className="text-xs cursor-pointer hover:bg-accent transition-colors"
+                  >
+                    <Globe className="h-3 w-3 mr-1" />
+                    {(message.metadata?.perplexity_citations?.length || message.metadata?.web_search_citations?.length || 0)} веб
                   </Badge>
-                </TooltipTrigger>
-                <TooltipContent side="top" className="max-w-md">
-                  <div className="text-xs space-y-1">
-                    {message.metadata.perplexity_citations.slice(0, 5).map((url, idx) => (
-                      <div key={idx} className="truncate">
-                        <a 
-                          href={url} 
-                          target="_blank" 
-                          rel="noopener noreferrer"
-                          className="text-primary hover:underline"
-                        >
-                          [{idx + 1}] {url}
-                        </a>
-                      </div>
-                    ))}
-                    {message.metadata.perplexity_citations.length > 5 && (
-                      <div className="text-muted-foreground">
-                        ...и ещё {message.metadata.perplexity_citations.length - 5}
-                      </div>
-                    )}
+                </SheetTrigger>
+                <SheetContent className="w-[400px] sm:w-[540px]">
+                  <SheetHeader>
+                    <SheetTitle>Веб-источники</SheetTitle>
+                  </SheetHeader>
+                  <div className="mt-4">
+                    <SourcesPanel 
+                      ragContext={message.metadata?.rag_context}
+                      citations={message.metadata?.citations}
+                      webSearchCitations={message.metadata?.perplexity_citations || message.metadata?.web_search_citations}
+                      webSearchUsed={message.metadata?.web_search_used}
+                    />
                   </div>
-                </TooltipContent>
-              </Tooltip>
+                </SheetContent>
+              </Sheet>
             )}
+            
             {/* Warning for truncated messages */}
             {message.metadata?.stop_reason === 'max_tokens' && (
               <Tooltip>

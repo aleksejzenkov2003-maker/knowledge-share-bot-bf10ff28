@@ -3,15 +3,18 @@ import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import { Card } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
-import { Bot, User, Clock, FileText, Loader2, BookOpen, Image } from "lucide-react";
+import { Bot, User, Clock, FileText, Loader2, BookOpen, Image, Globe } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { Message } from "@/types/chat";
 import {
-  Tooltip,
-  TooltipContent,
-  TooltipTrigger,
-} from "@/components/ui/tooltip";
+  Sheet,
+  SheetContent,
+  SheetHeader,
+  SheetTitle,
+  SheetTrigger,
+} from "@/components/ui/sheet";
 import { MessageActions } from "./MessageActions";
+import { SourcesPanel } from "./SourcesPanel";
 
 interface ChatMessageProps {
   message: Message;
@@ -157,40 +160,90 @@ function ChatMessageComponent({ message, onEditMessage, onRegenerateResponse }: 
                 {message.responseTime}ms
               </span>
             )}
-            {message.ragContext && message.ragContext.length > 0 && (
-              <Badge variant="outline" className="text-xs">
-                <FileText className="h-3 w-3 mr-1" />
-                {message.ragContext.length} источников
-                {message.smartSearch && " (Claude re-rank)"}
-              </Badge>
+            
+            {/* Interactive Sources/Citations Panel */}
+            {((message.ragContext && message.ragContext.length > 0) || 
+              (message.citations && message.citations.length > 0) ||
+              (message.webSearchCitations && message.webSearchCitations.length > 0)) && (
+              <Sheet>
+                <SheetTrigger asChild>
+                  <Badge 
+                    variant="outline" 
+                    className="text-xs cursor-pointer hover:bg-accent transition-colors"
+                  >
+                    <FileText className="h-3 w-3 mr-1" />
+                    {message.ragContext?.length || 0} источников
+                    {message.smartSearch && " (Claude)"}
+                  </Badge>
+                </SheetTrigger>
+                <SheetContent className="w-[400px] sm:w-[540px]">
+                  <SheetHeader>
+                    <SheetTitle>Источники ответа</SheetTitle>
+                  </SheetHeader>
+                  <div className="mt-4">
+                    <SourcesPanel 
+                      ragContext={message.ragContext}
+                      citations={message.citations}
+                      webSearchCitations={message.webSearchCitations}
+                      webSearchUsed={message.webSearchUsed}
+                    />
+                  </div>
+                </SheetContent>
+              </Sheet>
             )}
+            
             {message.citations && message.citations.length > 0 && (
-              <Tooltip>
-                <TooltipTrigger asChild>
-                  <Badge variant="secondary" className="text-xs cursor-help">
+              <Sheet>
+                <SheetTrigger asChild>
+                  <Badge 
+                    variant="secondary" 
+                    className="text-xs cursor-pointer hover:bg-accent transition-colors"
+                  >
                     <BookOpen className="h-3 w-3 mr-1" />
                     {message.citations.length} цитат
                   </Badge>
-                </TooltipTrigger>
-                <TooltipContent side="top" className="max-w-sm">
-                  <div className="text-xs space-y-1">
-                    {message.citations.slice(0, 5).map((citation) => (
-                      <div key={citation.index} className="flex items-start gap-1">
-                        <span className="font-medium">[{citation.index}]</span>
-                        <span className="truncate">
-                          {citation.document}
-                          {citation.article && `, ст. ${citation.article}`}
-                        </span>
-                      </div>
-                    ))}
-                    {message.citations.length > 5 && (
-                      <div className="text-muted-foreground">
-                        ...и ещё {message.citations.length - 5}
-                      </div>
-                    )}
+                </SheetTrigger>
+                <SheetContent className="w-[400px] sm:w-[540px]">
+                  <SheetHeader>
+                    <SheetTitle>Цитаты из документов</SheetTitle>
+                  </SheetHeader>
+                  <div className="mt-4">
+                    <SourcesPanel 
+                      ragContext={message.ragContext}
+                      citations={message.citations}
+                      webSearchCitations={message.webSearchCitations}
+                      webSearchUsed={message.webSearchUsed}
+                    />
                   </div>
-                </TooltipContent>
-              </Tooltip>
+                </SheetContent>
+              </Sheet>
+            )}
+            
+            {message.webSearchCitations && message.webSearchCitations.length > 0 && (
+              <Sheet>
+                <SheetTrigger asChild>
+                  <Badge 
+                    variant="secondary" 
+                    className="text-xs cursor-pointer hover:bg-accent transition-colors"
+                  >
+                    <Globe className="h-3 w-3 mr-1" />
+                    {message.webSearchCitations.length} веб
+                  </Badge>
+                </SheetTrigger>
+                <SheetContent className="w-[400px] sm:w-[540px]">
+                  <SheetHeader>
+                    <SheetTitle>Веб-источники</SheetTitle>
+                  </SheetHeader>
+                  <div className="mt-4">
+                    <SourcesPanel 
+                      ragContext={message.ragContext}
+                      citations={message.citations}
+                      webSearchCitations={message.webSearchCitations}
+                      webSearchUsed={message.webSearchUsed}
+                    />
+                  </div>
+                </SheetContent>
+              </Sheet>
             )}
           </div>
         )}

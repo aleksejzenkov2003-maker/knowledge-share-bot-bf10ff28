@@ -300,6 +300,8 @@ export function useOptimizedChat(userId: string | undefined, departmentId: strin
         rag_context?: string[]; 
         citations?: { index: number; document: string; section?: string; article?: string; relevance: number }[];
         smart_search?: boolean;
+        web_search_citations?: string[];
+        web_search_used?: boolean;
       } = {};
 
       if (reader) {
@@ -338,6 +340,8 @@ export function useOptimizedChat(userId: string | undefined, departmentId: strin
                     rag_context: parsed.rag_context,
                     citations: parsed.citations,
                     smart_search: parsed.smart_search,
+                    web_search_citations: parsed.web_search_citations,
+                    web_search_used: parsed.web_search_used,
                   };
                 }
               } catch {
@@ -361,6 +365,8 @@ export function useOptimizedChat(userId: string | undefined, departmentId: strin
                   rag_context: parsed.rag_context,
                   citations: parsed.citations,
                   smart_search: parsed.smart_search,
+                  web_search_citations: parsed.web_search_citations,
+                  web_search_used: parsed.web_search_used,
                 };
               }
             } catch {
@@ -389,6 +395,8 @@ export function useOptimizedChat(userId: string | undefined, departmentId: strin
               ragContext: metadata.rag_context,
               citations: metadata.citations,
               smartSearch: metadata.smart_search,
+              webSearchCitations: metadata.web_search_citations,
+              webSearchUsed: metadata.web_search_used,
             }
           : m
       ));
