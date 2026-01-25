@@ -52,8 +52,10 @@ import {
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
 import { toast } from "sonner";
-import { Plus, Upload, FileText, Trash2, Eye, Loader2, RefreshCw, ImageIcon, X, Split, AlertTriangle } from "lucide-react";
+import { Plus, Upload, FileText, Trash2, Eye, Loader2, RefreshCw, ImageIcon, X, Split, AlertTriangle, LayoutList, LayoutGrid } from "lucide-react";
 import { splitPdf, getPdfPageCount, generatePartFileName, SplitProgress, estimatePdfParts } from "@/components/documents/pdfSplitter";
+import { DocumentTree, Document as TreeDocument, DocumentFolder as TreeFolder } from "@/components/documents/DocumentTree";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 
 interface DocumentFolder {
   id: string;
@@ -129,6 +131,7 @@ export default function Documents() {
   const [chunks, setChunks] = useState<DocumentChunk[]>([]);
   const [uploading, setUploading] = useState(false);
   const [filterFolder, setFilterFolder] = useState<string>("");
+  const [viewMode, setViewMode] = useState<"tree" | "table">("tree");
   const fileInputRef = useRef<HTMLInputElement>(null);
   
   // New state for split upload
@@ -795,26 +798,52 @@ export default function Documents() {
                 Всего документов: {documents.length}
               </CardDescription>
             </div>
-            <Select 
-              value={filterFolder || "_all"} 
-              onValueChange={(value) => setFilterFolder(value === "_all" ? "" : value)}
-            >
-              <SelectTrigger className="w-48">
-                <SelectValue placeholder="Все папки" />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="_all">Все папки</SelectItem>
-                {folders.map((folder) => (
-                  <SelectItem key={folder.id} value={folder.id}>
-                    {folder.name}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
+            <div className="flex items-center gap-2">
+              <Tabs value={viewMode} onValueChange={(v) => setViewMode(v as "tree" | "table")}>
+                <TabsList className="h-9">
+                  <TabsTrigger value="tree" className="px-3">
+                    <LayoutGrid className="h-4 w-4" />
+                  </TabsTrigger>
+                  <TabsTrigger value="table" className="px-3">
+                    <LayoutList className="h-4 w-4" />
+                  </TabsTrigger>
+                </TabsList>
+              </Tabs>
+              <Select 
+                value={filterFolder || "_all"} 
+                onValueChange={(value) => setFilterFolder(value === "_all" ? "" : value)}
+              >
+                <SelectTrigger className="w-48">
+                  <SelectValue placeholder="Все папки" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="_all">Все папки</SelectItem>
+                  {folders.map((folder) => (
+                    <SelectItem key={folder.id} value={folder.id}>
+                      {folder.name}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
           </div>
         </CardHeader>
         <CardContent>
-          {documents.length === 0 ? (
+          {viewMode === "tree" ? (
+            <DocumentTree
+              documents={documents.map(doc => ({
+                ...doc,
+                parent_document_id: doc.parent_document_id || null,
+                part_number: doc.part_number || null,
+                total_parts: doc.total_parts || null,
+              }))}
+              folders={folders}
+              onReprocess={handleReprocess}
+              onViewChunks={handleViewChunks}
+              onDelete={handleDelete}
+              formatFileSize={formatFileSize}
+            />
+          ) : documents.length === 0 ? (
             <div className="text-center py-8 text-muted-foreground">
               Документы не найдены
             </div>
