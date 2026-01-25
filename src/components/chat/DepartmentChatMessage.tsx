@@ -88,6 +88,7 @@ function DepartmentChatMessageComponent({
                 h1: ({ children }) => <h1 className="text-xl font-bold mt-4 mb-2">{children}</h1>,
                 h2: ({ children }) => <h2 className="text-lg font-semibold mt-3 mb-2">{children}</h2>,
                 h3: ({ children }) => <h3 className="text-base font-semibold mt-2 mb-1">{children}</h3>,
+                h4: ({ children }) => <h4 className="text-sm font-semibold mt-2 mb-1">{children}</h4>,
                 p: ({ children }) => <p className="mb-2 last:mb-0">{children}</p>,
                 ul: ({ children }) => <ul className="mb-2 list-disc pl-4">{children}</ul>,
                 ol: ({ children }) => <ol className="mb-2 list-decimal pl-4">{children}</ol>,
@@ -102,7 +103,7 @@ function DepartmentChatMessageComponent({
                 },
                 pre: ({ children }) => <pre className="mb-2 overflow-x-auto">{children}</pre>,
                 blockquote: ({ children }) => (
-                  <blockquote className="border-l-2 border-primary pl-4 italic my-2">{children}</blockquote>
+                  <blockquote className="border-l-3 border-primary pl-4 my-2 italic text-muted-foreground">{children}</blockquote>
                 ),
                 a: ({ children, href }) => (
                   <a href={href} target="_blank" rel="noopener noreferrer" className="text-primary underline hover:opacity-80 font-medium">
@@ -110,14 +111,15 @@ function DepartmentChatMessageComponent({
                   </a>
                 ),
                 strong: ({ children }) => (
-                  <strong className="font-semibold text-primary">{children}</strong>
+                  <strong className="font-semibold">{children}</strong>
                 ),
                 em: ({ children }) => (
                   <em className="italic">{children}</em>
                 ),
+                hr: () => <hr className="my-4 border-border" />,
                 table: ({ children }) => (
-                  <div className="overflow-x-auto my-3">
-                    <table className="min-w-full border-collapse border border-border text-sm">
+                  <div className="overflow-x-auto my-3 rounded border border-border">
+                    <table className="min-w-full border-collapse text-sm">
                       {children}
                     </table>
                   </div>
@@ -127,15 +129,15 @@ function DepartmentChatMessageComponent({
                 ),
                 tbody: ({ children }) => <tbody>{children}</tbody>,
                 tr: ({ children }) => (
-                  <tr className="border-b border-border">{children}</tr>
+                  <tr className="border-b border-border last:border-b-0">{children}</tr>
                 ),
                 th: ({ children }) => (
-                  <th className="border border-border px-3 py-2 text-left font-semibold bg-muted/30">
+                  <th className="px-3 py-2 text-left font-semibold bg-muted/30">
                     {children}
                   </th>
                 ),
                 td: ({ children }) => (
-                  <td className="border border-border px-3 py-2">{children}</td>
+                  <td className="px-3 py-2">{children}</td>
                 ),
               }}
             >
