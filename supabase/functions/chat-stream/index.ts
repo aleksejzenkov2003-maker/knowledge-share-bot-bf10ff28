@@ -43,6 +43,11 @@ interface RankedChunk {
   article_number?: string;
   relevance_score: number;
   relevance_reason: string;
+  // New fields for document grouping
+  parent_document_id?: string;
+  original_document_name?: string;
+  part_number?: number;
+  total_parts?: number;
 }
 
 // Helper function to convert ArrayBuffer to base64 without stack overflow
@@ -257,6 +262,10 @@ serve(async (req) => {
                 section_title?: string;
                 article_number?: string;
                 fts_rank?: number;
+                parent_document_id?: string;
+                original_document_name?: string;
+                part_number?: number;
+                total_parts?: number;
               }) => ({
                 id: chunk.id,
                 content: chunk.content,
@@ -264,6 +273,10 @@ serve(async (req) => {
                 section_title: chunk.section_title,
                 article_number: chunk.article_number,
                 fts_rank: chunk.fts_rank,
+                parent_document_id: chunk.parent_document_id,
+                original_document_name: chunk.original_document_name,
+                part_number: chunk.part_number,
+                total_parts: chunk.total_parts,
               }));
 
               // Call rerank-chunks edge function
@@ -304,6 +317,10 @@ serve(async (req) => {
               section_title?: string;
               article_number?: string;
               fts_rank: number;
+              parent_document_id?: string;
+              original_document_name?: string;
+              part_number?: number;
+              total_parts?: number;
             }) => ({
               id: chunk.id,
               content: chunk.content,
@@ -312,6 +329,10 @@ serve(async (req) => {
               article_number: chunk.article_number,
               relevance_score: chunk.fts_rank * 10, // Normalize FTS rank
               relevance_reason: 'FTS match',
+              parent_document_id: chunk.parent_document_id,
+              original_document_name: chunk.original_document_name,
+              part_number: chunk.part_number,
+              total_parts: chunk.total_parts,
             }));
             console.log(`RAG: Using FTS results directly (${rankedChunks.length} chunks)`);
           }
@@ -341,6 +362,10 @@ serve(async (req) => {
               section_title?: string;
               article_number?: string;
               keyword_matches: number;
+              parent_document_id?: string;
+              original_document_name?: string;
+              part_number?: number;
+              total_parts?: number;
             }) => ({
               id: chunk.id,
               content: chunk.content,
@@ -349,21 +374,58 @@ serve(async (req) => {
               article_number: chunk.article_number,
               relevance_score: chunk.keyword_matches,
               relevance_reason: `${chunk.keyword_matches} keyword matches`,
+              parent_document_id: chunk.parent_document_id,
+              original_document_name: chunk.original_document_name,
+              part_number: chunk.part_number,
+              total_parts: chunk.total_parts,
             }));
             console.log(`RAG: Keyword search found ${rankedChunks.length} chunks`);
           }
         }
       }
 
-      // Build RAG context with citations
+      // Build RAG context with citations - group by parent document and sort parts
       if (rankedChunks.length > 0) {
-        ragContext = rankedChunks.map((chunk, idx) => {
-          let citation = `[${idx + 1}] ${chunk.document_name}`;
+        // Group chunks by parent document (or self if no parent)
+        const groupedChunks = new Map<string, RankedChunk[]>();
+        for (const chunk of rankedChunks) {
+          const groupKey = chunk.parent_document_id || chunk.id;
+          if (!groupedChunks.has(groupKey)) {
+            groupedChunks.set(groupKey, []);
+          }
+          groupedChunks.get(groupKey)!.push(chunk);
+        }
+        
+        // Sort chunks within each group by part_number
+        for (const chunks of groupedChunks.values()) {
+          chunks.sort((a, b) => (a.part_number || 0) - (b.part_number || 0));
+        }
+        
+        // Flatten back to array with proper ordering
+        const sortedChunks: RankedChunk[] = [];
+        for (const chunks of groupedChunks.values()) {
+          sortedChunks.push(...chunks);
+        }
+        
+        ragContext = sortedChunks.map((chunk, idx) => {
+          // Use original document name if available (for split documents)
+          const displayName = chunk.original_document_name || chunk.document_name;
+          let citation = `[${idx + 1}] ${displayName}`;
+          
+          // Add part info for split documents
+          if (chunk.part_number && chunk.total_parts && chunk.total_parts > 1) {
+            citation += ` (часть ${chunk.part_number}/${chunk.total_parts})`;
+          }
+          
           if (chunk.section_title) citation += ` | ${chunk.section_title}`;
           if (chunk.article_number) citation += ` | Статья ${chunk.article_number}`;
           citation += ` (релевантность: ${chunk.relevance_score.toFixed(1)})`;
           return `${citation}\n${chunk.content}`;
         });
+        
+        // Update rankedChunks to sorted order for citations
+        rankedChunks.length = 0;
+        rankedChunks.push(...sortedChunks);
 
         // STEP 4: Fetch trademark images from relevant documents
         const documentIds = [...new Set(rankedChunks.map(c => c.id))];
