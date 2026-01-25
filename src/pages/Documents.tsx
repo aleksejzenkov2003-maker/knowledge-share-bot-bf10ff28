@@ -403,8 +403,10 @@ export default function Documents() {
           });
         });
 
-        // Upload parts sequentially
+        // Upload parts sequentially - first part becomes parent for all others
         const docIds: string[] = [];
+        let parentDocId: string | undefined = undefined;
+        
         for (let i = 0; i < parts.length; i++) {
           const part = parts[i];
           const partFileName = generatePartFileName(file.name, part.partNumber, part.totalParts);
@@ -422,12 +424,18 @@ export default function Documents() {
             part.blob,
             partFileName,
             partDocName,
-            undefined, // parentId - first part has no parent
+            i === 0 ? undefined : parentDocId, // First part has no parent, others link to it
             part.partNumber,
             part.totalParts
           );
           
-          if (docId) docIds.push(docId);
+          if (docId) {
+            docIds.push(docId);
+            // First part becomes the parent for subsequent parts
+            if (i === 0) {
+              parentDocId = docId;
+            }
+          }
         }
 
         // Process parts sequentially

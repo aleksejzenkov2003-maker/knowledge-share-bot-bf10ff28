@@ -174,18 +174,22 @@ function DocumentGroupItem({
 }) {
   const [isOpen, setIsOpen] = useState(false);
   
-  // Single document - no grouping needed
-  if (!group.isMultiPart || group.documents.length === 1) {
-    return (
-      <DocumentItem
-        doc={group.documents[0]}
-        onReprocess={onReprocess}
-        onViewChunks={onViewChunks}
-        onDelete={onDelete}
-        formatFileSize={formatFileSize}
-        folders={folders}
-      />
-    );
+  // Single document that is NOT part of a multi-part set - render as simple item
+  if (!group.isMultiPart && group.documents.length === 1) {
+    const doc = group.documents[0];
+    // If it's a single doc with total_parts = 1 or null, render normally
+    if (!doc.total_parts || doc.total_parts === 1) {
+      return (
+        <DocumentItem
+          doc={doc}
+          onReprocess={onReprocess}
+          onViewChunks={onViewChunks}
+          onDelete={onDelete}
+          formatFileSize={formatFileSize}
+          folders={folders}
+        />
+      );
+    }
   }
   
   // Multi-part document group
@@ -195,6 +199,14 @@ function DocumentGroupItem({
   const hasError = group.documents.some(d => d.status === 'error');
   const parentDoc = group.parentDocument || group.documents[0];
   const folder = folders.find(f => f.id === parentDoc.folder_id);
+  
+  // Check for incomplete upload (fewer parts than expected)
+  const expectedParts = parentDoc.total_parts || group.documents.reduce((max, d) => Math.max(max, d.total_parts || 0), 0);
+  const actualParts = group.documents.length;
+  const isIncomplete = expectedParts > 1 && actualParts < expectedParts;
+  
+  // Extract base name without part info for display
+  const baseName = parentDoc.name.replace(/\s*\(часть\s*\d+\/\d+.*\)$/i, '').trim();
   
   return (
     <Collapsible open={isOpen} onOpenChange={setIsOpen}>
@@ -209,8 +221,15 @@ function DocumentGroupItem({
             <Folder className="h-4 w-4 text-muted-foreground shrink-0" />
             <div className="flex flex-col min-w-0 flex-1">
               <div className="flex items-center gap-2 flex-wrap">
-                <span className="font-medium truncate">{parentDoc.name}</span>
-                <Badge variant="secondary">{group.documents.length} частей</Badge>
+                <span className="font-medium truncate">{baseName || parentDoc.name}</span>
+                {isIncomplete ? (
+                  <Badge variant="outline" className="text-orange-600 border-orange-400">
+                    <AlertCircle className="w-3 h-3 mr-1" />
+                    {actualParts}/{expectedParts} частей
+                  </Badge>
+                ) : (
+                  <Badge variant="secondary">{actualParts} частей</Badge>
+                )}
                 {hasError ? (
                   <Badge variant="destructive"><AlertCircle className="w-3 h-3 mr-1" />Ошибка</Badge>
                 ) : allReady ? (
@@ -224,6 +243,9 @@ function DocumentGroupItem({
                 <span>{formatFileSize(totalSize)}</span>
                 <span>• {totalChunks} чанков</span>
                 {folder && <span>• {folder.name}</span>}
+                {isIncomplete && (
+                  <span className="text-orange-600">• Загрузка не завершена</span>
+                )}
               </div>
             </div>
           </div>
