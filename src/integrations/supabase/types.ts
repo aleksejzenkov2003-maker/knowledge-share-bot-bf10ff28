@@ -546,8 +546,11 @@ export type Database = {
           has_trademark: boolean | null
           id: string
           name: string
+          parent_document_id: string | null
+          part_number: number | null
           status: string
           storage_path: string | null
+          total_parts: number | null
           trademark_image_path: string | null
           updated_at: string
         }
@@ -564,8 +567,11 @@ export type Database = {
           has_trademark?: boolean | null
           id?: string
           name: string
+          parent_document_id?: string | null
+          part_number?: number | null
           status?: string
           storage_path?: string | null
+          total_parts?: number | null
           trademark_image_path?: string | null
           updated_at?: string
         }
@@ -582,8 +588,11 @@ export type Database = {
           has_trademark?: boolean | null
           id?: string
           name?: string
+          parent_document_id?: string | null
+          part_number?: number | null
           status?: string
           storage_path?: string | null
+          total_parts?: number | null
           trademark_image_path?: string | null
           updated_at?: string
         }
@@ -600,6 +609,13 @@ export type Database = {
             columns: ["folder_id"]
             isOneToOne: false
             referencedRelation: "document_folders"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "documents_parent_document_id_fkey"
+            columns: ["parent_document_id"]
+            isOneToOne: false
+            referencedRelation: "documents"
             referencedColumns: ["id"]
           },
         ]

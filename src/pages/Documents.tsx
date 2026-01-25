@@ -3,6 +3,7 @@ import { supabase } from "@/integrations/supabase/client";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { Progress } from "@/components/ui/progress";
 import {
   Select,
   SelectContent,
@@ -40,8 +41,19 @@ import {
   TooltipProvider,
   TooltipTrigger,
 } from "@/components/ui/tooltip";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
 import { toast } from "sonner";
-import { Plus, Upload, FileText, Trash2, Eye, Loader2, RefreshCw, ImageIcon, X } from "lucide-react";
+import { Plus, Upload, FileText, Trash2, Eye, Loader2, RefreshCw, ImageIcon, X, Split, AlertTriangle } from "lucide-react";
+import { splitPdf, getPdfPageCount, generatePartFileName, SplitProgress, estimatePdfParts } from "@/components/documents/PdfSplitter";
 
 interface DocumentFolder {
   id: string;
@@ -64,6 +76,9 @@ interface Document {
   folder?: DocumentFolder | null;
   has_trademark?: boolean;
   trademark_image_path?: string | null;
+  parent_document_id?: string | null;
+  part_number?: number | null;
+  total_parts?: number | null;
 }
 
 const DOCUMENT_TYPES: Record<string, string> = {
@@ -82,9 +97,12 @@ interface DocumentChunk {
   chunk_index: number;
 }
 
-// Maximum file size: 10 MB (Edge functions have limited memory)
-const MAX_FILE_SIZE = 10 * 1024 * 1024;
-const MAX_FILE_SIZE_MB = 10;
+// New limits for split upload
+const MAX_FILE_SIZE = 50 * 1024 * 1024; // 50 MB - maximum file we can handle with splitting
+const MAX_FILE_SIZE_MB = 50;
+const SPLIT_THRESHOLD = 10 * 1024 * 1024; // 10 MB - threshold for automatic splitting
+const SPLIT_THRESHOLD_MB = 10;
+const PAGES_PER_PART = 50; // Pages per split part
 
 const STATUS_LABELS: Record<string, { label: string; variant: "default" | "secondary" | "destructive" | "outline" }> = {
   pending: { label: "Ожидает", variant: "outline" },
@@ -92,6 +110,14 @@ const STATUS_LABELS: Record<string, { label: string; variant: "default" | "secon
   ready: { label: "Готов", variant: "default" },
   error: { label: "Ошибка", variant: "destructive" },
 };
+
+interface UploadProgress {
+  stage: 'idle' | 'analyzing' | 'splitting' | 'uploading' | 'processing' | 'complete';
+  currentPart?: number;
+  totalParts?: number;
+  message: string;
+  percent: number;
+}
 
 export default function Documents() {
   const [documents, setDocuments] = useState<Document[]>([]);
@@ -104,6 +130,16 @@ export default function Documents() {
   const [uploading, setUploading] = useState(false);
   const [filterFolder, setFilterFolder] = useState<string>("");
   const fileInputRef = useRef<HTMLInputElement>(null);
+  
+  // New state for split upload
+  const [uploadProgress, setUploadProgress] = useState<UploadProgress>({ 
+    stage: 'idle', 
+    message: '', 
+    percent: 0 
+  });
+  const [splitWarningOpen, setSplitWarningOpen] = useState(false);
+  const [pendingFile, setPendingFile] = useState<File | null>(null);
+  const [estimatedParts, setEstimatedParts] = useState<number>(0);
 
   const [formData, setFormData] = useState({
     name: "",
@@ -208,36 +244,28 @@ export default function Documents() {
     return result || 'document';
   };
 
-  const handleUpload = async (e: React.FormEvent) => {
-    e.preventDefault();
-
-    const file = fileInputRef.current?.files?.[0];
-    if (!file) {
-      toast.error("Выберите файл");
-      return;
-    }
-
-    // Check file size before upload
-    if (file.size > MAX_FILE_SIZE) {
-      toast.error(`Файл слишком большой. Максимальный размер: ${MAX_FILE_SIZE_MB} MB. Ваш файл: ${(file.size / (1024 * 1024)).toFixed(1)} MB`);
-      return;
-    }
-
-    setUploading(true);
-
+  // Upload a single file (either standalone or part of split)
+  const uploadSingleFile = async (
+    file: File | Blob,
+    fileName: string,
+    docName: string,
+    parentId?: string,
+    partNumber?: number,
+    totalParts?: number
+  ): Promise<string | null> => {
     try {
-      // Upload file to storage with sanitized filename
-      const sanitizedName = sanitizeFileName(file.name);
-      const fileName = `${Date.now()}-${sanitizedName}`;
+      const sanitizedName = sanitizeFileName(fileName);
+      const storagePath = `${Date.now()}-${sanitizedName}`;
+      
       const { error: uploadError } = await supabase.storage
         .from("rag-documents")
-        .upload(fileName, file);
+        .upload(storagePath, file);
 
       if (uploadError) throw uploadError;
 
-      // Upload trademark image if provided
+      // Upload trademark image if provided (only for main document, not parts)
       let trademarkPath: string | null = null;
-      if (formData.has_trademark && trademarkFile) {
+      if (!parentId && formData.has_trademark && trademarkFile) {
         const trademarkFileName = `trademarks/${Date.now()}-${sanitizeFileName(trademarkFile.name)}`;
         const { error: tmError } = await supabase.storage
           .from("rag-documents")
@@ -245,7 +273,6 @@ export default function Documents() {
         
         if (tmError) {
           console.error("Trademark upload error:", tmError);
-          toast.warning("Документ будет загружен, но изображение ТЗ не удалось загрузить");
         } else {
           trademarkPath = trademarkFileName;
         }
@@ -255,55 +282,194 @@ export default function Documents() {
       const { data: doc, error: docError } = await supabase
         .from("documents")
         .insert({
-          name: formData.name,
-          file_name: file.name,
-          file_type: file.type,
-          file_size: file.size,
-          storage_path: fileName,
+          name: docName,
+          file_name: fileName,
+          file_type: 'application/pdf',
+          file_size: file instanceof File ? file.size : (file as Blob).size,
+          storage_path: storagePath,
           folder_id: formData.folder_id || null,
           document_type: formData.document_type,
           status: "pending",
-          has_trademark: formData.has_trademark,
+          has_trademark: !parentId && formData.has_trademark,
           trademark_image_path: trademarkPath,
+          parent_document_id: parentId || null,
+          part_number: partNumber || null,
+          total_parts: totalParts || null,
         })
         .select()
         .single();
 
       if (docError) throw docError;
 
-      toast.success("Документ загружен");
+      return doc.id;
+    } catch (error) {
+      console.error("Error uploading file:", error);
+      throw error;
+    }
+  };
 
-      // Trigger processing with timeout
-      try {
-        const processPromise = supabase.functions.invoke("process-document", {
-          body: { document_id: doc.id },
-        });
-        
-        const timeoutPromise = new Promise((_, reject) => 
-          setTimeout(() => reject(new Error("Timeout")), 60000)
-        );
-        
-        const result = await Promise.race([processPromise, timeoutPromise]) as { error?: Error };
-        
-        if (result?.error) {
-          console.error("Processing error:", result.error);
-          // Update status to error if processing failed
-          await supabase
-            .from("documents")
-            .update({ status: "error" })
-            .eq("id", doc.id);
-          toast.warning("Документ загружен, но обработка не удалась. Попробуйте уменьшить размер файла.");
-        }
-      } catch (err) {
-        console.error("Processing invocation error:", err);
-        // Update status to error on timeout
+  // Process a document (trigger Edge Function)
+  const processDocument = async (docId: string): Promise<boolean> => {
+    try {
+      const processPromise = supabase.functions.invoke("process-document", {
+        body: { document_id: docId },
+      });
+      
+      const timeoutPromise = new Promise((_, reject) => 
+        setTimeout(() => reject(new Error("Timeout")), 120000)
+      );
+      
+      const result = await Promise.race([processPromise, timeoutPromise]) as { error?: Error };
+      
+      if (result?.error) {
+        console.error("Processing error:", result.error);
         await supabase
           .from("documents")
           .update({ status: "error" })
-          .eq("id", doc.id);
-        toast.warning("Документ загружен, но обработка превысила время ожидания");
+          .eq("id", docId);
+        return false;
+      }
+      return true;
+    } catch (err) {
+      console.error("Processing invocation error:", err);
+      await supabase
+        .from("documents")
+        .update({ status: "error" })
+        .eq("id", docId);
+      return false;
+    }
+  };
+
+  const handleUpload = async (e: React.FormEvent) => {
+    e.preventDefault();
+
+    const file = fileInputRef.current?.files?.[0];
+    if (!file) {
+      toast.error("Выберите файл");
+      return;
+    }
+
+    // Check maximum file size
+    if (file.size > MAX_FILE_SIZE) {
+      toast.error(`Файл слишком большой. Максимальный размер: ${MAX_FILE_SIZE_MB} MB. Ваш файл: ${(file.size / (1024 * 1024)).toFixed(1)} MB`);
+      return;
+    }
+
+    // Check if file needs splitting
+    if (file.size > SPLIT_THRESHOLD && file.type === 'application/pdf') {
+      // Estimate parts and show warning
+      const estimated = estimatePdfParts(file.size, PAGES_PER_PART);
+      setEstimatedParts(estimated);
+      setPendingFile(file);
+      setSplitWarningOpen(true);
+      return;
+    }
+
+    // Regular upload for small files
+    await performUpload(file, false);
+  };
+
+  const performUpload = async (file: File, needsSplit: boolean) => {
+    setUploading(true);
+    setSplitWarningOpen(false);
+    setPendingFile(null);
+
+    try {
+      if (needsSplit && file.type === 'application/pdf') {
+        // Split upload flow
+        setUploadProgress({ stage: 'analyzing', message: 'Анализ PDF...', percent: 5 });
+        
+        const pageCount = await getPdfPageCount(file);
+        const actualParts = Math.ceil(pageCount / PAGES_PER_PART);
+        
+        setUploadProgress({ 
+          stage: 'splitting', 
+          message: `Разбиение на ${actualParts} частей...`, 
+          percent: 10 
+        });
+        
+        // Split the PDF
+        const parts = await splitPdf(file, PAGES_PER_PART, (progress: SplitProgress) => {
+          const percent = 10 + (progress.currentPart / progress.totalParts) * 30;
+          setUploadProgress({
+            stage: 'splitting',
+            currentPart: progress.currentPart,
+            totalParts: progress.totalParts,
+            message: `Разбиение: часть ${progress.currentPart} из ${progress.totalParts}`,
+            percent,
+          });
+        });
+
+        // Upload parts sequentially
+        const docIds: string[] = [];
+        for (let i = 0; i < parts.length; i++) {
+          const part = parts[i];
+          const partFileName = generatePartFileName(file.name, part.partNumber, part.totalParts);
+          const partDocName = `${formData.name} (часть ${part.partNumber}/${part.totalParts}, стр. ${part.pageStart}-${part.pageEnd})`;
+          
+          setUploadProgress({
+            stage: 'uploading',
+            currentPart: i + 1,
+            totalParts: parts.length,
+            message: `Загрузка части ${i + 1} из ${parts.length}...`,
+            percent: 40 + ((i + 1) / parts.length) * 30,
+          });
+
+          const docId = await uploadSingleFile(
+            part.blob,
+            partFileName,
+            partDocName,
+            undefined, // parentId - first part has no parent
+            part.partNumber,
+            part.totalParts
+          );
+          
+          if (docId) docIds.push(docId);
+        }
+
+        // Process parts sequentially
+        let successCount = 0;
+        for (let i = 0; i < docIds.length; i++) {
+          setUploadProgress({
+            stage: 'processing',
+            currentPart: i + 1,
+            totalParts: docIds.length,
+            message: `Обработка части ${i + 1} из ${docIds.length}...`,
+            percent: 70 + ((i + 1) / docIds.length) * 25,
+          });
+          
+          const success = await processDocument(docIds[i]);
+          if (success) successCount++;
+        }
+
+        setUploadProgress({ stage: 'complete', message: 'Готово!', percent: 100 });
+        
+        if (successCount === docIds.length) {
+          toast.success(`Документ разбит на ${parts.length} частей и успешно обработан`);
+        } else {
+          toast.warning(`Документ разбит на ${parts.length} частей. Успешно обработано: ${successCount}`);
+        }
+      } else {
+        // Regular single file upload
+        setUploadProgress({ stage: 'uploading', message: 'Загрузка...', percent: 30 });
+        
+        const docId = await uploadSingleFile(file, file.name, formData.name);
+        
+        if (docId) {
+          setUploadProgress({ stage: 'processing', message: 'Обработка документа...', percent: 60 });
+          const success = await processDocument(docId);
+          
+          setUploadProgress({ stage: 'complete', message: 'Готово!', percent: 100 });
+          
+          if (success) {
+            toast.success("Документ загружен и обработан");
+          } else {
+            toast.warning("Документ загружен, но обработка не удалась");
+          }
+        }
       }
 
+      // Reset form
       setUploadDialogOpen(false);
       setFormData({ name: "", folder_id: "", document_type: "auto", has_trademark: false });
       setTrademarkFile(null);
@@ -316,6 +482,9 @@ export default function Documents() {
       toast.error(error.message || "Ошибка загрузки");
     } finally {
       setUploading(false);
+      setTimeout(() => {
+        setUploadProgress({ stage: 'idle', message: '', percent: 0 });
+      }, 2000);
     }
   };
 
@@ -361,8 +530,8 @@ export default function Documents() {
 
   const handleReprocess = async (doc: Document) => {
     // Check file size before reprocessing
-    if (doc.file_size && doc.file_size > MAX_FILE_SIZE) {
-      toast.error(`Файл слишком большой (${(doc.file_size / (1024 * 1024)).toFixed(1)} MB). Максимум: ${MAX_FILE_SIZE_MB} MB. Удалите документ и загрузите файл меньшего размера.`);
+    if (doc.file_size && doc.file_size > SPLIT_THRESHOLD) {
+      toast.error(`Файл слишком большой для переобработки (${(doc.file_size / (1024 * 1024)).toFixed(1)} MB). Удалите документ и загрузите заново — он будет автоматически разбит на части.`);
       return;
     }
 
@@ -409,7 +578,7 @@ export default function Documents() {
         <div>
           <h1 className="text-3xl font-bold">Документы</h1>
           <p className="text-muted-foreground">
-            Загрузка и управление документами для RAG
+            Загрузка и управление документами для RAG (до {MAX_FILE_SIZE_MB} MB)
           </p>
         </div>
 
@@ -436,7 +605,8 @@ export default function Documents() {
                   required
                 />
                 <p className="text-xs text-muted-foreground">
-                  Поддерживаются: PDF, DOC, DOCX, TXT, MD
+                  Поддерживаются: PDF (до {MAX_FILE_SIZE_MB} MB), DOC, DOCX, TXT, MD.
+                  PDF больше {SPLIT_THRESHOLD_MB} MB будут автоматически разбиты на части.
                 </p>
               </div>
 
@@ -551,11 +721,28 @@ export default function Documents() {
                 )}
               </div>
 
+              {/* Upload progress */}
+              {uploading && uploadProgress.stage !== 'idle' && (
+                <div className="space-y-2 p-3 bg-muted/50 rounded-lg">
+                  <div className="flex items-center gap-2">
+                    <Loader2 className="h-4 w-4 animate-spin" />
+                    <span className="text-sm font-medium">{uploadProgress.message}</span>
+                  </div>
+                  <Progress value={uploadProgress.percent} className="h-2" />
+                  {uploadProgress.currentPart && uploadProgress.totalParts && (
+                    <p className="text-xs text-muted-foreground text-center">
+                      Часть {uploadProgress.currentPart} из {uploadProgress.totalParts}
+                    </p>
+                  )}
+                </div>
+              )}
+
               <div className="flex justify-end gap-2">
                 <Button
                   type="button"
                   variant="outline"
                   onClick={() => setUploadDialogOpen(false)}
+                  disabled={uploading}
                 >
                   Отмена
                 </Button>
@@ -568,6 +755,36 @@ export default function Documents() {
           </DialogContent>
         </Dialog>
       </div>
+
+      {/* Split warning dialog */}
+      <AlertDialog open={splitWarningOpen} onOpenChange={setSplitWarningOpen}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle className="flex items-center gap-2">
+              <Split className="h-5 w-5 text-amber-500" />
+              Большой файл будет разбит на части
+            </AlertDialogTitle>
+            <AlertDialogDescription className="space-y-2">
+              <p>
+                Файл превышает {SPLIT_THRESHOLD_MB} MB и будет автоматически разбит 
+                на ~{estimatedParts} частей по {PAGES_PER_PART} страниц каждая.
+              </p>
+              <p className="text-amber-600 dark:text-amber-400">
+                Это может занять несколько минут. Не закрывайте страницу во время загрузки.
+              </p>
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel onClick={() => setPendingFile(null)}>
+              Отмена
+            </AlertDialogCancel>
+            <AlertDialogAction onClick={() => pendingFile && performUpload(pendingFile, true)}>
+              <Split className="h-4 w-4 mr-2" />
+              Разбить и загрузить
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
 
       <Card>
         <CardHeader>
@@ -618,12 +835,20 @@ export default function Documents() {
               <TableBody>
                 {documents.map((doc) => {
                   const status = STATUS_LABELS[doc.status] || STATUS_LABELS.pending;
+                  const isPart = doc.part_number && doc.total_parts;
                   return (
                     <TableRow key={doc.id}>
                       <TableCell className="font-medium">
                         <div className="flex items-center gap-2">
                           <FileText className="h-4 w-4 text-muted-foreground" />
-                          {doc.name}
+                          <span className={isPart ? "text-muted-foreground" : ""}>
+                            {doc.name}
+                          </span>
+                          {isPart && (
+                            <Badge variant="outline" className="text-xs">
+                              {doc.part_number}/{doc.total_parts}
+                            </Badge>
+                          )}
                           {doc.has_trademark && (
                             <TooltipProvider>
                               <Tooltip>
@@ -660,16 +885,27 @@ export default function Documents() {
                       </TableCell>
                       <TableCell>
                         <div className="flex gap-1">
-                          <Button
-                            variant="ghost"
-                            size="icon"
-                            className="h-8 w-8 text-amber-500"
-                            onClick={() => handleReprocess(doc)}
-                            disabled={doc.status === "processing"}
-                            title="Переобработать"
-                          >
-                            <RefreshCw className="h-4 w-4" />
-                          </Button>
+                          <TooltipProvider>
+                            <Tooltip>
+                              <TooltipTrigger asChild>
+                                <Button
+                                  variant="ghost"
+                                  size="icon"
+                                  className="h-8 w-8 text-amber-500"
+                                  onClick={() => handleReprocess(doc)}
+                                  disabled={doc.status === "processing" || (doc.file_size && doc.file_size > SPLIT_THRESHOLD)}
+                                  title="Переобработать"
+                                >
+                                  <RefreshCw className="h-4 w-4" />
+                                </Button>
+                              </TooltipTrigger>
+                              {doc.file_size && doc.file_size > SPLIT_THRESHOLD && (
+                                <TooltipContent>
+                                  <p>Файл слишком большой для переобработки</p>
+                                </TooltipContent>
+                              )}
+                            </Tooltip>
+                          </TooltipProvider>
                           <Button
                             variant="ghost"
                             size="icon"
