@@ -53,7 +53,7 @@ import {
 } from "@/components/ui/alert-dialog";
 import { toast } from "sonner";
 import { Plus, Upload, FileText, Trash2, Eye, Loader2, RefreshCw, ImageIcon, X, Split, AlertTriangle } from "lucide-react";
-import { splitPdf, getPdfPageCount, generatePartFileName, SplitProgress, estimatePdfParts } from "@/components/documents/PdfSplitter";
+import { splitPdf, getPdfPageCount, generatePartFileName, SplitProgress, estimatePdfParts } from "@/components/documents/pdfSplitter";
 
 interface DocumentFolder {
   id: string;
