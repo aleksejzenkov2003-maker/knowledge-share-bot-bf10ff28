@@ -9,6 +9,7 @@ import {
   useCreateConversation,
   useUpdateConversation,
   useDeleteConversation,
+  usePinConversation,
   chatQueryKeys
 } from "./queries/useChatQueries";
 import { useQueryClient } from "@tanstack/react-query";
@@ -62,6 +63,7 @@ export function useOptimizedChat(userId: string | undefined, departmentId: strin
   const createConversationMutation = useCreateConversation(userId);
   const updateConversationMutation = useUpdateConversation(userId);
   const deleteConversationMutation = useDeleteConversation(userId);
+  const pinConversationMutation = usePinConversation(userId);
 
   // Sync dbMessages to localMessages when not streaming
   const messages = isLoading ? localMessages : (dbMessages || localMessages);
@@ -496,6 +498,16 @@ export function useOptimizedChat(userId: string | undefined, departmentId: strin
     }
   }, [updateConversationMutation]);
 
+  const pinConversation = useCallback(async (conversationId: string, isPinned: boolean) => {
+    try {
+      pinConversationMutation.mutate({ id: conversationId, isPinned });
+      toast.success(isPinned ? "Чат закреплён" : "Чат откреплён");
+    } catch (error) {
+      console.error("Error pinning conversation:", error);
+      toast.error("Ошибка закрепления");
+    }
+  }, [pinConversationMutation]);
+
   const stopGeneration = useCallback(() => {
     if (abortControllerRef.current) {
       abortControllerRef.current.abort();
@@ -572,6 +584,7 @@ export function useOptimizedChat(userId: string | undefined, departmentId: strin
     handleSelectConversation,
     deleteConversation,
     renameConversation,
+    pinConversation,
     stopGeneration,
     editMessage,
     regenerateResponse,

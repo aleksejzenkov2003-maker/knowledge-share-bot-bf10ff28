@@ -44,6 +44,7 @@ export default function Chat() {
     handleSelectConversation,
     deleteConversation,
     renameConversation,
+    pinConversation,
     stopGeneration,
     editMessage,
     regenerateResponse,
@@ -112,12 +113,14 @@ export default function Chat() {
         <ChatSidebarEnhanced
           conversations={conversations}
           activeConversationId={activeConversationId}
-          isLoading={conversationsLoading}
           onNewChat={handleNewChat}
           onSelectConversation={handleSelectConversation}
           onDeleteConversation={deleteConversation}
           onRenameConversation={renameConversation}
+          onPinConversation={pinConversation}
           roles={roles}
+          selectedRoleFilter="all"
+          onRoleFilterChange={() => {}}
           conversationRolesMap={conversationRolesMap}
         />
       </div>
