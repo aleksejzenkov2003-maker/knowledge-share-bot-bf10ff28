@@ -25,6 +25,8 @@ import ChatRoles from "./pages/ChatRoles";
 import ChatLogs from "./pages/ChatLogs";
 import ApiKeys from "./pages/ApiKeys";
 import BitrixChatSecure from "./pages/BitrixChatSecure";
+import BitrixPersonalChat from "./pages/BitrixPersonalChat";
+import BitrixDepartmentChat from "./pages/BitrixDepartmentChat";
 import BitrixSessions from "./pages/BitrixSessions";
 import NotFound from "./pages/NotFound";
 

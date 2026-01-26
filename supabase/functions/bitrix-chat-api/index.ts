@@ -4,7 +4,7 @@ import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
   'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type, x-bitrix-user-id, x-bitrix-user-name, x-bitrix-user-email',
-  'Access-Control-Allow-Methods': 'GET, POST, OPTIONS',
+  'Access-Control-Allow-Methods': 'GET, POST, DELETE, OPTIONS',
 };
 
 interface SendMessageRequest {
@@ -15,6 +15,17 @@ interface SendMessageRequest {
     file_type: string;
   }>;
   role_slug?: string;
+}
+
+interface PersonalMessageRequest {
+  message: string;
+  conversation_id?: string;
+  role_id?: string;
+  attachments?: Array<{
+    file_name: string;
+    file_base64: string;
+    file_type: string;
+  }>;
 }
 
 interface BitrixAuthRequest {
@@ -31,6 +42,7 @@ interface JWTPayload {
   department_id: string;
   bitrix_user_id: string;
   portal: string;
+  role: 'admin' | 'moderator' | 'employee'; // User role
   exp: number;
   iat: number;
 }
@@ -159,6 +171,7 @@ serve(async (req: Request) => {
     let departmentId: string;
     let bitrixUserInfo: BitrixUserInfo;
     let userId: string;
+    let userRole: 'admin' | 'moderator' | 'employee' = 'employee';
     
     if (jwtPayload) {
       // JWT auth - verify session is still valid
@@ -188,6 +201,7 @@ serve(async (req: Request) => {
         bitrix_user_id: jwtPayload.bitrix_user_id,
       };
       userId = jwtPayload.sub;
+      userRole = jwtPayload.role || 'employee';
     } else {
       // Legacy API key auth (backwards compatibility)
       const { data: apiKeyData, error: apiKeyError } = await supabase
@@ -245,11 +259,43 @@ serve(async (req: Request) => {
       // Get or create user for legacy flow
       const userResult = await getOrCreateUser(supabase, departmentId, bitrixUserInfo);
       userId = userResult.userId;
+      userRole = userResult.role;
     }
 
     // Route to appropriate handler
+    // === PERSONAL CHAT ENDPOINTS ===
+    if (path === 'personal/conversations' && req.method === 'GET') {
+      return await handleGetPersonalConversations(url, supabase, userId);
+    }
+    if (path === 'personal/conversations' && req.method === 'POST') {
+      return await handleCreatePersonalConversation(req, supabase, userId);
+    }
+    if (path.match(/^personal\/conversations\/[^/]+$/) && req.method === 'GET') {
+      const conversationId = path.split('/')[2];
+      return await handleGetPersonalConversation(url, supabase, userId, conversationId);
+    }
+    if (path.match(/^personal\/conversations\/[^/]+$/) && req.method === 'DELETE') {
+      const conversationId = path.split('/')[2];
+      return await handleDeletePersonalConversation(supabase, userId, conversationId);
+    }
+    if (path.match(/^personal\/conversations\/[^/]+\/messages$/) && req.method === 'POST') {
+      const conversationId = path.split('/')[2];
+      return await handleSendPersonalMessage(req, supabase, userId, conversationId, departmentId);
+    }
+
+    // === EXISTING + NEW DEPARTMENT CHAT ENDPOINTS ===
     switch (path) {
+      case 'me':
+        if (req.method !== 'GET') {
+          return new Response(JSON.stringify({ error: 'Method not allowed' }), {
+            status: 405,
+            headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+          });
+        }
+        return await handleGetMe(supabase, userId, departmentId, userRole);
+
       case 'send-message':
+      case 'department/send-message':
         if (req.method !== 'POST') {
           return new Response(JSON.stringify({ error: 'Method not allowed' }), {
             status: 405,
@@ -259,6 +305,7 @@ serve(async (req: Request) => {
         return await handleSendMessage(req, supabase, departmentId, bitrixUserInfo, userId);
 
       case 'messages':
+      case 'department/messages':
         if (req.method !== 'GET') {
           return new Response(JSON.stringify({ error: 'Method not allowed' }), {
             status: 405,
@@ -268,13 +315,23 @@ serve(async (req: Request) => {
         return await handleGetMessages(url, supabase, departmentId, userId);
 
       case 'agents':
+      case 'department/agents':
         if (req.method !== 'GET') {
           return new Response(JSON.stringify({ error: 'Method not allowed' }), {
             status: 405,
             headers: { ...corsHeaders, 'Content-Type': 'application/json' },
           });
         }
-        return await handleGetAgents(supabase, departmentId);
+        return await handleGetAgents(supabase, departmentId, userRole);
+
+      case 'personal/roles':
+        if (req.method !== 'GET') {
+          return new Response(JSON.stringify({ error: 'Method not allowed' }), {
+            status: 405,
+            headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+          });
+        }
+        return await handleGetAgents(supabase, departmentId, userRole);
 
       case 'sync-user':
         if (req.method !== 'POST') {
@@ -299,9 +356,19 @@ serve(async (req: Request) => {
           error: 'Not found',
           available_endpoints: [
             'POST /auth',
-            'POST /send-message',
-            'GET /messages',
-            'GET /agents',
+            'GET /me',
+            // Personal chat
+            'GET /personal/conversations',
+            'POST /personal/conversations',
+            'GET /personal/conversations/:id',
+            'DELETE /personal/conversations/:id',
+            'POST /personal/conversations/:id/messages',
+            'GET /personal/roles',
+            // Department chat
+            'POST /department/send-message (or /send-message)',
+            'GET /department/messages (or /messages)',
+            'GET /department/agents (or /agents)',
+            // User
             'POST /sync-user',
             'POST /logout'
           ]
@@ -373,7 +440,7 @@ async function handleAuth(
     user_email: body.bitrix_user_email,
   };
 
-  const { userId, isNew } = await getOrCreateUser(supabase, departmentId, bitrixUserInfo);
+  const { userId, isNew, role } = await getOrCreateUser(supabase, departmentId, bitrixUserInfo);
 
   // Create JWT (1 hour expiration)
   const expiresIn = 3600; // 1 hour
@@ -384,6 +451,7 @@ async function handleAuth(
     department_id: departmentId,
     bitrix_user_id: body.bitrix_user_id,
     portal: body.portal,
+    role: role, // Include role in JWT
     exp: expiresAt,
   };
 
@@ -402,18 +470,93 @@ async function handleAuth(
       expires_at: new Date(expiresAt * 1000).toISOString(),
     });
 
-  // Get user profile
+  // Get user profile with department info
   const { data: profile } = await supabase
     .from('profiles')
-    .select('id, full_name, email, avatar_url')
+    .select('id, full_name, email, avatar_url, department_id')
     .eq('id', userId)
     .single();
+
+  // Get department name
+  let departmentName = null;
+  if (profile?.department_id) {
+    const { data: dept } = await supabase
+      .from('departments')
+      .select('name')
+      .eq('id', profile.department_id)
+      .single();
+    departmentName = dept?.name;
+  }
 
   return new Response(JSON.stringify({
     token,
     expires_in: expiresIn,
-    user: profile,
+    user: {
+      ...profile,
+      role,
+      department_name: departmentName,
+    },
     is_new_user: isNew,
+  }), {
+    headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+  });
+}
+
+// ============ GET ME HANDLER ============
+async function handleGetMe(
+  supabase: any,
+  userId: string,
+  departmentId: string,
+  userRole: 'admin' | 'moderator' | 'employee'
+): Promise<Response> {
+  // Get user profile
+  const { data: profile } = await supabase
+    .from('profiles')
+    .select('id, full_name, email, avatar_url, department_id')
+    .eq('id', userId)
+    .single();
+
+  // Get department name
+  let departmentName = null;
+  if (departmentId) {
+    const { data: dept } = await supabase
+      .from('departments')
+      .select('name')
+      .eq('id', departmentId)
+      .single();
+    departmentName = dept?.name;
+  }
+
+  // Get available roles/agents based on permissions
+  let availableRolesQuery = supabase
+    .from('chat_roles')
+    .select('id, name, slug, mention_trigger, description')
+    .eq('is_active', true);
+
+  // Admin/moderator can see all roles
+  if (userRole !== 'admin' && userRole !== 'moderator') {
+    availableRolesQuery = availableRolesQuery.or(
+      `department_ids.cs.{${departmentId}},department_ids.eq.{},department_ids.is.null`
+    );
+  }
+
+  const { data: roles } = await availableRolesQuery;
+
+  return new Response(JSON.stringify({
+    user_id: userId,
+    full_name: profile?.full_name,
+    email: profile?.email,
+    avatar_url: profile?.avatar_url,
+    role: userRole,
+    department_id: departmentId,
+    department_name: departmentName,
+    permissions: {
+      can_access_personal_chat: true,
+      can_access_department_chat: true,
+      can_view_all_departments: userRole === 'admin' || userRole === 'moderator',
+      available_role_ids: (roles || []).map((r: any) => r.id),
+    },
+    available_roles: roles || [],
   }), {
     headers: { ...corsHeaders, 'Content-Type': 'application/json' },
   });
@@ -449,7 +592,7 @@ async function getOrCreateUser(
   supabase: any, 
   departmentId: string, 
   bitrixUserInfo: BitrixUserInfo
-): Promise<{ userId: string; isNew: boolean }> {
+): Promise<{ userId: string; isNew: boolean; role: 'admin' | 'moderator' | 'employee' }> {
   // Try to find existing user by bitrix_user_id
   const { data: existingProfile } = await supabase
     .from('profiles')
@@ -458,7 +601,18 @@ async function getOrCreateUser(
     .single();
 
   if (existingProfile) {
-    return { userId: existingProfile.id, isNew: false };
+    // Get user role
+    const { data: userRole } = await supabase
+      .from('user_roles')
+      .select('role')
+      .eq('user_id', existingProfile.id)
+      .single();
+    
+    return { 
+      userId: existingProfile.id, 
+      isNew: false, 
+      role: userRole?.role || 'employee' 
+    };
   }
 
   // Try to find by email if provided
@@ -475,7 +629,19 @@ async function getOrCreateUser(
         .from('profiles')
         .update({ bitrix_user_id: bitrixUserInfo.bitrix_user_id })
         .eq('id', profileByEmail.id);
-      return { userId: profileByEmail.id, isNew: false };
+      
+      // Get user role
+      const { data: userRole } = await supabase
+        .from('user_roles')
+        .select('role')
+        .eq('user_id', profileByEmail.id)
+        .single();
+      
+      return { 
+        userId: profileByEmail.id, 
+        isNew: false, 
+        role: userRole?.role || 'employee' 
+      };
     }
   }
 
@@ -501,12 +667,30 @@ async function getOrCreateUser(
       .single();
     
     if (retryProfile) {
-      return { userId: retryProfile.id, isNew: false };
+      const { data: userRole } = await supabase
+        .from('user_roles')
+        .select('role')
+        .eq('user_id', retryProfile.id)
+        .single();
+      
+      return { 
+        userId: retryProfile.id, 
+        isNew: false, 
+        role: userRole?.role || 'employee' 
+      };
     }
     throw new Error(`Failed to create user: ${insertError.message}`);
   }
 
-  return { userId: newUserId, isNew: true };
+  // Create employee role for new user
+  await supabase
+    .from('user_roles')
+    .insert({
+      user_id: newUserId,
+      role: 'employee'
+    });
+
+  return { userId: newUserId, isNew: true, role: 'employee' };
 }
 
 async function generateUUIDv5(name: string, namespace: string): Promise<string> {
@@ -548,6 +732,387 @@ async function getOrCreateDepartmentChat(supabase: any, departmentId: string): P
   return newChat.id;
 }
 
+// ============ PERSONAL CHAT HANDLERS ============
+async function handleGetPersonalConversations(
+  url: URL,
+  supabase: any,
+  userId: string
+): Promise<Response> {
+  const limit = parseInt(url.searchParams.get('limit') || '50');
+  const offset = parseInt(url.searchParams.get('offset') || '0');
+
+  const { data: conversations, error } = await supabase
+    .from('conversations')
+    .select(`
+      id, 
+      title, 
+      role_id, 
+      is_active, 
+      is_pinned, 
+      created_at, 
+      updated_at,
+      chat_roles(id, name, slug)
+    `)
+    .eq('user_id', userId)
+    .eq('is_active', true)
+    .order('is_pinned', { ascending: false })
+    .order('updated_at', { ascending: false })
+    .range(offset, offset + limit - 1);
+
+  if (error) {
+    return new Response(JSON.stringify({ error: 'Failed to fetch conversations' }), {
+      status: 500,
+      headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+    });
+  }
+
+  return new Response(JSON.stringify({
+    conversations: conversations.map((c: any) => ({
+      id: c.id,
+      title: c.title,
+      role_id: c.role_id,
+      role: c.chat_roles,
+      is_pinned: c.is_pinned,
+      created_at: c.created_at,
+      updated_at: c.updated_at,
+    })),
+  }), {
+    headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+  });
+}
+
+async function handleCreatePersonalConversation(
+  req: Request,
+  supabase: any,
+  userId: string
+): Promise<Response> {
+  const body = await req.json();
+  const title = body.title || 'Новый диалог';
+  const roleId = body.role_id || null;
+
+  const { data: conversation, error } = await supabase
+    .from('conversations')
+    .insert({
+      user_id: userId,
+      title,
+      role_id: roleId,
+      is_active: true,
+    })
+    .select('id, title, role_id, created_at')
+    .single();
+
+  if (error) {
+    return new Response(JSON.stringify({ error: 'Failed to create conversation' }), {
+      status: 500,
+      headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+    });
+  }
+
+  return new Response(JSON.stringify({ conversation }), {
+    status: 201,
+    headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+  });
+}
+
+async function handleGetPersonalConversation(
+  url: URL,
+  supabase: any,
+  userId: string,
+  conversationId: string
+): Promise<Response> {
+  // Verify ownership
+  const { data: conversation, error: convError } = await supabase
+    .from('conversations')
+    .select('id, title, role_id, is_pinned, created_at, updated_at')
+    .eq('id', conversationId)
+    .eq('user_id', userId)
+    .single();
+
+  if (convError || !conversation) {
+    return new Response(JSON.stringify({ error: 'Conversation not found' }), {
+      status: 404,
+      headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+    });
+  }
+
+  // Get messages
+  const limit = parseInt(url.searchParams.get('limit') || '100');
+  const { data: messages, error: msgError } = await supabase
+    .from('messages')
+    .select('id, role, content, metadata, created_at')
+    .eq('conversation_id', conversationId)
+    .order('created_at', { ascending: true })
+    .limit(limit);
+
+  if (msgError) {
+    return new Response(JSON.stringify({ error: 'Failed to fetch messages' }), {
+      status: 500,
+      headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+    });
+  }
+
+  return new Response(JSON.stringify({
+    conversation,
+    messages: messages || [],
+  }), {
+    headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+  });
+}
+
+async function handleDeletePersonalConversation(
+  supabase: any,
+  userId: string,
+  conversationId: string
+): Promise<Response> {
+  // Verify ownership and soft delete
+  const { error } = await supabase
+    .from('conversations')
+    .update({ is_active: false })
+    .eq('id', conversationId)
+    .eq('user_id', userId);
+
+  if (error) {
+    return new Response(JSON.stringify({ error: 'Failed to delete conversation' }), {
+      status: 500,
+      headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+    });
+  }
+
+  return new Response(JSON.stringify({ success: true }), {
+    headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+  });
+}
+
+async function handleSendPersonalMessage(
+  req: Request,
+  supabase: any,
+  userId: string,
+  conversationId: string,
+  departmentId: string
+): Promise<Response> {
+  // Verify ownership
+  const { data: conversation, error: convError } = await supabase
+    .from('conversations')
+    .select('id, role_id')
+    .eq('id', conversationId)
+    .eq('user_id', userId)
+    .single();
+
+  if (convError || !conversation) {
+    return new Response(JSON.stringify({ error: 'Conversation not found' }), {
+      status: 404,
+      headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+    });
+  }
+
+  const body: PersonalMessageRequest = await req.json();
+
+  if (!body.message?.trim()) {
+    return new Response(JSON.stringify({ error: 'Message required' }), {
+      status: 400,
+      headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+    });
+  }
+
+  const roleId = body.role_id || conversation.role_id;
+
+  // Handle file attachments
+  const attachments: any[] = [];
+  if (body.attachments && body.attachments.length > 0) {
+    for (const att of body.attachments) {
+      try {
+        const base64 = att.file_base64;
+        const chunkSize = 65536;
+        const chunks: number[] = [];
+        
+        for (let i = 0; i < base64.length; i += chunkSize) {
+          const chunk = base64.slice(i, i + chunkSize);
+          const decoded = atob(chunk);
+          for (let j = 0; j < decoded.length; j++) {
+            chunks.push(decoded.charCodeAt(j));
+          }
+        }
+        
+        const fileData = new Uint8Array(chunks);
+        const filePath = `personal/${userId}/${Date.now()}_${att.file_name}`;
+        
+        const { error: uploadError } = await supabase.storage
+          .from('chat-attachments')
+          .upload(filePath, fileData, {
+            contentType: att.file_type,
+            upsert: false
+          });
+
+        if (!uploadError) {
+          attachments.push({
+            file_name: att.file_name,
+            file_type: att.file_type,
+            file_size: fileData.length,
+            file_path: filePath,
+          });
+        }
+      } catch (e) {
+        console.error('Attachment upload error:', e);
+      }
+    }
+  }
+
+  // Save user message
+  const { data: userMessage, error: msgError } = await supabase
+    .from('messages')
+    .insert({
+      conversation_id: conversationId,
+      role: 'user',
+      content: body.message,
+      metadata: {
+        attachments: attachments.length > 0 ? attachments : undefined,
+      }
+    })
+    .select('id')
+    .single();
+
+  if (msgError) {
+    return new Response(JSON.stringify({ error: 'Failed to save message' }), {
+      status: 500,
+      headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+    });
+  }
+
+  // Update conversation title if first message
+  const { count } = await supabase
+    .from('messages')
+    .select('id', { count: 'exact', head: true })
+    .eq('conversation_id', conversationId);
+
+  if (count === 1) {
+    const title = body.message.substring(0, 50) + (body.message.length > 50 ? '...' : '');
+    await supabase
+      .from('conversations')
+      .update({ title })
+      .eq('id', conversationId);
+  }
+
+  // Update conversation timestamp
+  await supabase
+    .from('conversations')
+    .update({ updated_at: new Date().toISOString() })
+    .eq('id', conversationId);
+
+  // Call chat-stream function
+  const chatStreamUrl = `${Deno.env.get('SUPABASE_URL')}/functions/v1/chat-stream`;
+  
+  const { data: history } = await supabase
+    .from('messages')
+    .select('role, content')
+    .eq('conversation_id', conversationId)
+    .order('created_at', { ascending: true })
+    .limit(20);
+
+  const messages = (history || []).map((m: any) => ({
+    role: m.role,
+    content: m.content
+  }));
+
+  const chatRequest = {
+    message: body.message,
+    role_id: roleId,
+    department_id: departmentId,
+    messages: messages,
+    attachments: attachments.map(a => ({
+      file_name: a.file_name,
+      file_type: a.file_type,
+      file_path: a.file_path
+    }))
+  };
+
+  const chatResponse = await fetch(chatStreamUrl, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'Authorization': `Bearer ${Deno.env.get('SUPABASE_ANON_KEY')}`
+    },
+    body: JSON.stringify(chatRequest)
+  });
+
+  if (!chatResponse.ok || !chatResponse.body) {
+    return new Response(JSON.stringify({ 
+      error: 'Failed to get AI response',
+      user_message_id: userMessage.id 
+    }), {
+      status: 500,
+      headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+    });
+  }
+
+  // Stream response back to client
+  const reader = chatResponse.body.getReader();
+  let fullResponse = '';
+  let metadata: any = {};
+
+  const stream = new ReadableStream({
+    async start(controller) {
+      const encoder = new TextEncoder();
+      const decoder = new TextDecoder();
+
+      try {
+        while (true) {
+          const { done, value } = await reader.read();
+          if (done) break;
+
+          const chunk = decoder.decode(value);
+          const lines = chunk.split('\n');
+
+          for (const line of lines) {
+            if (line.startsWith('data: ')) {
+              const data = line.substring(6);
+              if (data === '[DONE]') {
+                // Save assistant message
+                await supabase
+                  .from('messages')
+                  .insert({
+                    conversation_id: conversationId,
+                    role: 'assistant',
+                    content: fullResponse,
+                    metadata: metadata
+                  });
+
+                controller.enqueue(encoder.encode('data: [DONE]\n\n'));
+              } else {
+                try {
+                  const parsed = JSON.parse(data);
+                  if (parsed.content) {
+                    fullResponse += parsed.content;
+                  }
+                  if (parsed.citations || parsed.response_time_ms) {
+                    metadata = { ...metadata, ...parsed };
+                  }
+                  controller.enqueue(encoder.encode(`data: ${data}\n\n`));
+                } catch {
+                  controller.enqueue(encoder.encode(line + '\n'));
+                }
+              }
+            }
+          }
+        }
+      } catch (error) {
+        console.error('Stream error:', error);
+      } finally {
+        controller.close();
+      }
+    }
+  });
+
+  return new Response(stream, {
+    headers: {
+      ...corsHeaders,
+      'Content-Type': 'text/event-stream',
+      'Cache-Control': 'no-cache',
+      'Connection': 'keep-alive',
+    },
+  });
+}
+
+// ============ DEPARTMENT CHAT HANDLERS ============
 async function handleSendMessage(
   req: Request,
   supabase: any,
@@ -823,12 +1388,22 @@ async function handleGetMessages(
   });
 }
 
-async function handleGetAgents(supabase: any, departmentId: string): Promise<Response> {
-  const { data: agents, error } = await supabase
+async function handleGetAgents(
+  supabase: any, 
+  departmentId: string,
+  userRole: 'admin' | 'moderator' | 'employee' = 'employee'
+): Promise<Response> {
+  let query = supabase
     .from('chat_roles')
     .select('id, name, slug, mention_trigger, description')
-    .eq('is_active', true)
-    .or(`department_ids.cs.{${departmentId}},department_ids.eq.{},department_ids.is.null`);
+    .eq('is_active', true);
+
+  // Admin/moderator can see all agents
+  if (userRole !== 'admin' && userRole !== 'moderator') {
+    query = query.or(`department_ids.cs.{${departmentId}},department_ids.eq.{},department_ids.is.null`);
+  }
+
+  const { data: agents, error } = await query;
 
   if (error) {
     return new Response(JSON.stringify({ error: 'Failed to fetch agents' }), {
@@ -858,7 +1433,7 @@ async function handleSyncUser(
 ): Promise<Response> {
   const body = await req.json();
 
-  const { userId, isNew } = await getOrCreateUser(supabase, departmentId, bitrixUserInfo);
+  const { userId, isNew, role } = await getOrCreateUser(supabase, departmentId, bitrixUserInfo);
 
   if (body.full_name || body.email || body.avatar_url) {
     await supabase
@@ -874,6 +1449,7 @@ async function handleSyncUser(
   return new Response(JSON.stringify({
     user_id: userId,
     is_new: isNew,
+    role: role,
     bitrix_user_id: bitrixUserInfo.bitrix_user_id
   }), {
     headers: { ...corsHeaders, 'Content-Type': 'application/json' },
