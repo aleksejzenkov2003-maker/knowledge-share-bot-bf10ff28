@@ -426,8 +426,39 @@ export function useOptimizedChat(userId: string | undefined, departmentId: strin
         updateIntervalRef.current = null;
       }
       
+      // Handle abort - save partial content
       if (error.name === 'AbortError') {
-        console.log('Request aborted');
+        console.log('Request aborted, saving partial content');
+        const partialContent = streamingContentRef.current;
+        
+        if (partialContent && partialContent.trim()) {
+          const stoppedContent = partialContent + "\n\n_[Генерация остановлена]_";
+          
+          // Update local state
+          setLocalMessages(prev => prev.map(m =>
+            m.id === assistantMessageId
+              ? {
+                  ...m,
+                  content: stoppedContent,
+                  isStreaming: false,
+                }
+              : m
+          ));
+          
+          // Save to database
+          await saveMessage(conversationId, "assistant", stoppedContent, {
+            role_id: selectedRoleId || undefined,
+          });
+          
+          // Update conversation timestamp
+          await supabase
+            .from("conversations")
+            .update({ updated_at: new Date().toISOString() })
+            .eq("id", conversationId);
+          
+          // Invalidate queries to sync
+          queryClient.invalidateQueries({ queryKey: chatQueryKeys.messages(conversationId) });
+        }
         return;
       }
       
