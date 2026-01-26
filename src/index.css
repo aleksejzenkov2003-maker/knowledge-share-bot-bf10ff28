@@ -103,3 +103,26 @@ All colors MUST be HSL.
     @apply bg-background text-foreground;
   }
 }
+
+/* PDF Viewer highlight styles */
+.pdf-highlight {
+  background-color: hsl(50 100% 50% / 0.7) !important;
+  color: hsl(0 0% 0%) !important;
+  padding: 0 2px;
+  border-radius: 2px;
+  mix-blend-mode: multiply;
+}
+
+.react-pdf__Page__textContent {
+  opacity: 0.4;
+}
+
+.react-pdf__Page__textContent span {
+  position: relative;
+}
+
+.react-pdf__Page__textContent .pdf-highlight {
+  opacity: 1;
+  position: relative;
+  z-index: 10;
+}
