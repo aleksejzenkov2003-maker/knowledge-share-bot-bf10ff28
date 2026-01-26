@@ -395,7 +395,14 @@ async function handleAuth(
 ): Promise<Response> {
   const body: BitrixAuthRequest = await req.json();
 
+  console.log('[AUTH] Incoming request:', {
+    portal: body.portal,
+    bitrix_user_id: body.bitrix_user_id,
+    bitrix_user_name: body.bitrix_user_name,
+  });
+
   if (!body.portal || !body.bitrix_user_id) {
+    console.log('[AUTH] Missing required fields');
     return new Response(JSON.stringify({ 
       error: 'Missing required fields: portal, bitrix_user_id' 
     }), {
@@ -404,23 +411,41 @@ async function handleAuth(
     });
   }
 
+  // Normalize portal domain: extract domain only (no protocol, no path)
+  let normalizedPortal = body.portal.trim().toLowerCase();
+  normalizedPortal = normalizedPortal.replace(/^https?:\/\//, '');
+  normalizedPortal = normalizedPortal.split('/')[0].split('?')[0].split('#')[0];
+  
+  console.log('[AUTH] Normalized portal domain:', normalizedPortal);
+
   // Find API key by portal_domain
   const { data: apiKeyData, error: apiKeyError } = await supabase
     .from('department_api_keys')
-    .select('id, department_id, is_active, request_count')
-    .eq('portal_domain', body.portal)
+    .select('id, department_id, is_active, request_count, portal_domain')
+    .eq('portal_domain', normalizedPortal)
     .eq('is_active', true)
     .single();
 
+  console.log('[AUTH] DB lookup result:', {
+    found: !!apiKeyData,
+    error: apiKeyError?.message,
+    storedDomain: apiKeyData?.portal_domain,
+  });
+
   if (apiKeyError || !apiKeyData) {
+    console.log('[AUTH] Portal not registered - lookup failed for:', normalizedPortal);
     return new Response(JSON.stringify({ 
       error: 'Portal not registered',
-      details: 'No active API key found for this portal domain. Contact administrator.'
+      details: `No active API key found for portal domain "${normalizedPortal}". Contact administrator.`,
+      received_portal: body.portal,
+      normalized_portal: normalizedPortal,
     }), {
       status: 401,
       headers: { ...corsHeaders, 'Content-Type': 'application/json' },
     });
   }
+  
+  console.log('[AUTH] API key found, department_id:', apiKeyData.department_id);
 
   const departmentId = apiKeyData.department_id;
 

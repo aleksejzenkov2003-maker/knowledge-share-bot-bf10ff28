@@ -65,9 +65,39 @@ const ApiKeys = () => {
     }
   };
 
+  // Helper to extract clean domain from URL
+  const extractDomain = (input: string): string => {
+    if (!input) return '';
+    let domain = input.trim();
+    // Remove protocol
+    domain = domain.replace(/^https?:\/\//, '');
+    // Remove path, query, fragment
+    domain = domain.split('/')[0].split('?')[0].split('#')[0];
+    return domain.toLowerCase();
+  };
+
+  // Validate domain format
+  const isValidDomain = (domain: string): boolean => {
+    if (!domain) return true; // Optional field
+    // Simple domain validation: letters, numbers, dots, hyphens
+    const domainRegex = /^[a-z0-9]([a-z0-9-]*[a-z0-9])?(\.[a-z0-9]([a-z0-9-]*[a-z0-9])?)*$/i;
+    return domainRegex.test(domain);
+  };
+
   const handleCreateKey = async () => {
     if (!selectedDepartment || !newKeyName.trim()) {
       toast({ title: 'Ошибка', description: 'Заполните все поля', variant: 'destructive' });
+      return;
+    }
+
+    // Clean and validate portal domain
+    const cleanDomain = extractDomain(portalDomain);
+    if (cleanDomain && !isValidDomain(cleanDomain)) {
+      toast({ 
+        title: 'Неверный формат домена', 
+        description: 'Укажите только домен, например: company.bitrix24.ru', 
+        variant: 'destructive' 
+      });
       return;
     }
 
@@ -76,7 +106,7 @@ const ApiKeys = () => {
       .insert({
         department_id: selectedDepartment,
         name: newKeyName.trim(),
-        portal_domain: portalDomain.trim() || null
+        portal_domain: cleanDomain || null
       })
       .select()
       .single();
@@ -239,9 +269,19 @@ const ApiKeys = () => {
                     placeholder="company.bitrix24.ru"
                     value={portalDomain}
                     onChange={(e) => setPortalDomain(e.target.value)}
+                    onBlur={(e) => {
+                      // Auto-clean to pure domain on blur
+                      const cleaned = extractDomain(e.target.value);
+                      if (cleaned !== e.target.value) {
+                        setPortalDomain(cleaned);
+                      }
+                    }}
                   />
                   <p className="text-xs text-muted-foreground">
-                    Указывайте домен для безопасной JWT-авторизации из iframe. 
+                    <strong>Только домен</strong> (без https:// и пути), например: <code className="bg-muted px-1 rounded">bitrix.company.ru</code>
+                  </p>
+                  <p className="text-xs text-muted-foreground">
+                    Bitrix24 передаёт только доменную часть при авторизации. 
                     API-ключ НЕ будет передаваться в браузер.
                   </p>
                 </div>

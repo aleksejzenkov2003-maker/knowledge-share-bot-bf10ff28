@@ -106,14 +106,22 @@ export default function BitrixDepartmentChat() {
     }
   }, [theme]);
 
-  // Authenticate on mount
+  // Authenticate on mount with timeout
   useEffect(() => {
+    const AUTH_TIMEOUT_MS = 30000; // 30 seconds
+    
     const authenticate = async () => {
       if (!portal || !bitrixUserId) {
-        setAuthError('Отсутствуют параметры авторизации');
+        setAuthError('Отсутствуют параметры авторизации. Проверьте настройки приложения в Bitrix24.');
         setIsAuthenticating(false);
         return;
       }
+
+      // Create AbortController for timeout
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => {
+        controller.abort();
+      }, AUTH_TIMEOUT_MS);
 
       try {
         const response = await fetch(`${apiBaseUrl}/auth`, {
@@ -125,11 +133,15 @@ export default function BitrixDepartmentChat() {
             bitrix_user_name: userName,
             bitrix_user_email: userEmail,
           }),
+          signal: controller.signal,
         });
+
+        clearTimeout(timeoutId);
 
         if (!response.ok) {
           const error = await response.json();
-          throw new Error(error.details || error.error || 'Ошибка авторизации');
+          const errorMessage = error.details || error.error || 'Ошибка авторизации';
+          throw new Error(errorMessage);
         }
 
         const data = await response.json();
@@ -137,7 +149,19 @@ export default function BitrixDepartmentChat() {
         setUser(data.user);
       } catch (error) {
         console.error('Auth error:', error);
-        setAuthError(error instanceof Error ? error.message : 'Ошибка авторизации');
+        if (error instanceof Error) {
+          if (error.name === 'AbortError') {
+            setAuthError('Превышено время ожидания авторизации. Проверьте подключение к сети и попробуйте обновить страницу.');
+          } else if (error.message.includes('Portal not registered')) {
+            setAuthError(`Портал "${portal}" не зарегистрирован. Обратитесь к администратору для добавления API-ключа.`);
+          } else if (error.message.includes('fetch')) {
+            setAuthError('Ошибка сети. Проверьте подключение к интернету.');
+          } else {
+            setAuthError(error.message);
+          }
+        } else {
+          setAuthError('Неизвестная ошибка авторизации');
+        }
       } finally {
         setIsAuthenticating(false);
       }
