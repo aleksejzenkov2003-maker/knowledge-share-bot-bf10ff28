@@ -291,10 +291,8 @@ export function DocumentTree({
   const groups: DocumentGroup[] = [];
   const processedIds = new Set<string>();
   
-  // First, find all parent documents and their children
-  const parentDocs = documents.filter(d => d.parent_document_id === null && d.total_parts && d.total_parts > 1);
+  // Step 1: Build map of children by parent_document_id
   const childDocsMap = new Map<string, Document[]>();
-  
   for (const doc of documents) {
     if (doc.parent_document_id) {
       if (!childDocsMap.has(doc.parent_document_id)) {
@@ -305,21 +303,21 @@ export function DocumentTree({
     }
   }
   
-  // Create groups for parent documents with their children
-  for (const parent of parentDocs) {
-    const children = childDocsMap.get(parent.id) || [];
-    // Include parent itself as it has the original metadata
+  // Step 2: Find documents that ACTUALLY have children linked to them (real parents)
+  const realParentDocs = documents.filter(d => childDocsMap.has(d.id));
+  for (const parent of realParentDocs) {
+    const children = childDocsMap.get(parent.id)!;
     groups.push({
       parentDocument: parent,
-      documents: children.length > 0 ? children : [parent],
-      isMultiPart: children.length > 0 || (parent.total_parts || 0) > 1,
+      documents: children,
+      isMultiPart: true,
     });
     processedIds.add(parent.id);
   }
   
-  // Also group orphan split documents (children without visible parent)
+  // Step 3: Group orphan split documents (children whose parent was deleted or not found)
   const orphanSplits = documents.filter(
-    d => d.parent_document_id && !parentDocs.find(p => p.id === d.parent_document_id)
+    d => d.parent_document_id && !realParentDocs.find(p => p.id === d.parent_document_id)
   );
   
   const orphanGroups = new Map<string, Document[]>();
@@ -330,7 +328,7 @@ export function DocumentTree({
     orphanGroups.get(doc.parent_document_id!)!.push(doc);
   }
   
-  for (const [parentId, docs] of orphanGroups) {
+  for (const [, docs] of orphanGroups) {
     groups.push({
       parentDocument: null,
       documents: docs,
