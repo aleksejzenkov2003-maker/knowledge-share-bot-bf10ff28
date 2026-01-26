@@ -697,10 +697,13 @@ async function getOrCreateUser(
       .single();
 
     if (profileByEmail) {
-      // Link existing profile to bitrix_user_id
+      // Link existing profile to bitrix_user_id and update department if not set
       await supabase
         .from('profiles')
-        .update({ bitrix_user_id: bitrixUserInfo.bitrix_user_id })
+        .update({ 
+          bitrix_user_id: bitrixUserInfo.bitrix_user_id,
+          department_id: departmentId
+        })
         .eq('id', profileByEmail.id);
       
       // Get user role
@@ -718,66 +721,99 @@ async function getOrCreateUser(
     }
   }
 
-  // Create new profile for Bitrix user
-  const newUserId = await generateUUIDv5(bitrixUserInfo.bitrix_user_id, '6ba7b810-9dad-11d1-80b4-00c04fd430c8');
-
-  const { error: insertError } = await supabase
-    .from('profiles')
-    .insert({
-      id: newUserId,
-      bitrix_user_id: bitrixUserInfo.bitrix_user_id,
+  // No existing profile found - need to create an auth user first
+  // Use Supabase Admin API to create a user
+  const email = bitrixUserInfo.user_email || `bitrix_${bitrixUserInfo.bitrix_user_id}@bitrix.local`;
+  const password = await generateSecurePassword();
+  
+  console.log('[AUTH] Creating new auth user for Bitrix user:', bitrixUserInfo.bitrix_user_id);
+  
+  // Create user via Supabase Admin API
+  const { data: authData, error: authError } = await supabase.auth.admin.createUser({
+    email: email,
+    password: password,
+    email_confirm: true, // Auto-confirm email
+    user_metadata: {
       full_name: bitrixUserInfo.user_name || `Bitrix User ${bitrixUserInfo.bitrix_user_id}`,
-      email: bitrixUserInfo.user_email,
-      department_id: departmentId,
-      status: 'active'
-    });
-
-  if (insertError) {
-    const { data: retryProfile } = await supabase
-      .from('profiles')
-      .select('id')
-      .eq('bitrix_user_id', bitrixUserInfo.bitrix_user_id)
-      .single();
-    
-    if (retryProfile) {
-      const { data: userRole } = await supabase
-        .from('user_roles')
-        .select('role')
-        .eq('user_id', retryProfile.id)
-        .single();
-      
-      return { 
-        userId: retryProfile.id, 
-        isNew: false, 
-        role: userRole?.role || 'employee' 
-      };
+      bitrix_user_id: bitrixUserInfo.bitrix_user_id,
     }
-    throw new Error(`Failed to create user: ${insertError.message}`);
+  });
+
+  if (authError) {
+    console.error('[AUTH] Failed to create auth user:', authError.message);
+    
+    // If user already exists (maybe email conflict), try to find them
+    if (authError.message.includes('already') || authError.message.includes('duplicate')) {
+      const { data: existingAuthUser } = await supabase.auth.admin.listUsers();
+      const foundUser = existingAuthUser?.users?.find(
+        (u: any) => u.email === email
+      );
+      
+      if (foundUser) {
+        // Update the profile with bitrix_user_id
+        await supabase
+          .from('profiles')
+          .update({ 
+            bitrix_user_id: bitrixUserInfo.bitrix_user_id,
+            department_id: departmentId
+          })
+          .eq('id', foundUser.id);
+        
+        const { data: userRole } = await supabase
+          .from('user_roles')
+          .select('role')
+          .eq('user_id', foundUser.id)
+          .single();
+        
+        return {
+          userId: foundUser.id,
+          isNew: false,
+          role: userRole?.role || 'employee'
+        };
+      }
+    }
+    
+    throw new Error(`Failed to create user: ${authError.message}`);
   }
 
-  // Create employee role for new user
-  await supabase
+  const newUserId = authData.user.id;
+  console.log('[AUTH] Created new auth user with id:', newUserId);
+
+  // The profile should be created automatically by the handle_new_user trigger
+  // But we need to update it with bitrix_user_id and department_id
+  // Wait a bit for trigger to complete
+  await new Promise(resolve => setTimeout(resolve, 500));
+
+  // Update profile with Bitrix info
+  const { error: updateError } = await supabase
+    .from('profiles')
+    .update({
+      bitrix_user_id: bitrixUserInfo.bitrix_user_id,
+      department_id: departmentId,
+      full_name: bitrixUserInfo.user_name || `Bitrix User ${bitrixUserInfo.bitrix_user_id}`,
+    })
+    .eq('id', newUserId);
+
+  if (updateError) {
+    console.error('[AUTH] Failed to update profile:', updateError.message);
+  }
+
+  // Get user role (should be 'employee' from trigger)
+  const { data: userRole } = await supabase
     .from('user_roles')
-    .insert({
-      user_id: newUserId,
-      role: 'employee'
-    });
+    .select('role')
+    .eq('user_id', newUserId)
+    .single();
 
-  return { userId: newUserId, isNew: true, role: 'employee' };
+  return { userId: newUserId, isNew: true, role: userRole?.role || 'employee' };
 }
 
-async function generateUUIDv5(name: string, namespace: string): Promise<string> {
-  const encoder = new TextEncoder();
-  const data = encoder.encode(namespace + name);
-  const hashBuffer = await crypto.subtle.digest('SHA-256', data);
-  const hashArray = new Uint8Array(hashBuffer);
-  
-  const hex = Array.from(hashArray.slice(0, 16))
-    .map(b => b.toString(16).padStart(2, '0'))
-    .join('');
-  
-  return `${hex.slice(0, 8)}-${hex.slice(8, 12)}-5${hex.slice(13, 16)}-${(parseInt(hex.slice(16, 18), 16) & 0x3f | 0x80).toString(16).padStart(2, '0')}${hex.slice(18, 20)}-${hex.slice(20, 32)}`;
+async function generateSecurePassword(): Promise<string> {
+  const array = new Uint8Array(32);
+  crypto.getRandomValues(array);
+  return Array.from(array, byte => byte.toString(16).padStart(2, '0')).join('');
 }
+
 
 async function getOrCreateDepartmentChat(supabase: any, departmentId: string): Promise<string> {
   const { data: existingChat } = await supabase
