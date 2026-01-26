@@ -166,7 +166,7 @@ export default function ChatFullscreen() {
             <Button
               variant="ghost"
               size="icon"
-              onClick={() => navigate("/chat")}
+              onClick={() => navigate(`/chat${activeConversationId ? `?conversationId=${activeConversationId}` : ''}`)}
               className="h-8 w-8"
               title="Выйти из полноэкранного режима"
             >
