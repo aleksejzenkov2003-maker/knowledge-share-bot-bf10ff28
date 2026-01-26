@@ -112,6 +112,7 @@ export default function Chat() {
           onSelectConversation={handleSelectConversation}
           onDeleteConversation={deleteConversation}
           onRenameConversation={renameConversation}
+          roles={roles}
         />
       </div>
 

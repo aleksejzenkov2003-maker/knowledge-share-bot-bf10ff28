@@ -11,12 +11,19 @@ import {
   Loader2,
   Search,
   X,
-  ChevronRight
+  Filter,
+  Bot
 } from "lucide-react";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import { cn } from "@/lib/utils";
-import { Conversation } from "@/types/chat";
-import { format, isToday, isYesterday, isThisWeek, isThisMonth, subDays } from "date-fns";
-import { ru } from "date-fns/locale";
+import { Conversation, ChatRole } from "@/types/chat";
+import { isToday, isYesterday, subDays } from "date-fns";
 
 interface ChatSidebarEnhancedProps {
   conversations: Conversation[];
@@ -26,6 +33,7 @@ interface ChatSidebarEnhancedProps {
   onSelectConversation: (conversation: Conversation) => void;
   onDeleteConversation: (id: string) => void;
   onRenameConversation: (id: string, title: string) => void;
+  roles?: ChatRole[];
 }
 
 interface ConversationGroup {
@@ -43,6 +51,7 @@ function groupConversationsByDate(conversations: Conversation[]): ConversationGr
   ];
 
   const sevenDaysAgo = subDays(new Date(), 7);
+  const thirtyDaysAgo = subDays(new Date(), 30);
 
   conversations.forEach((conv) => {
     const date = new Date(conv.updated_at || conv.created_at);
@@ -53,7 +62,7 @@ function groupConversationsByDate(conversations: Conversation[]): ConversationGr
       groups[1].conversations.push(conv);
     } else if (date > sevenDaysAgo) {
       groups[2].conversations.push(conv);
-    } else if (isThisMonth(date)) {
+    } else if (date > thirtyDaysAgo) {
       groups[3].conversations.push(conv);
     } else {
       groups[4].conversations.push(conv);
@@ -72,19 +81,38 @@ export function ChatSidebarEnhanced({
   onSelectConversation,
   onDeleteConversation,
   onRenameConversation,
+  roles = [],
 }: ChatSidebarEnhancedProps) {
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editingTitle, setEditingTitle] = useState("");
   const [searchQuery, setSearchQuery] = useState("");
+  const [selectedRoleFilter, setSelectedRoleFilter] = useState<string>("all");
 
-  // Filter conversations by search query
+  // Get unique roles used in conversations
+  const usedRoles = useMemo(() => {
+    const roleIds = new Set(conversations.map(c => c.role_id).filter(Boolean));
+    return roles.filter(r => roleIds.has(r.id));
+  }, [conversations, roles]);
+
+  // Filter conversations by search query and role
   const filteredConversations = useMemo(() => {
-    if (!searchQuery.trim()) return conversations;
-    const query = searchQuery.toLowerCase();
-    return conversations.filter(conv => 
-      conv.title.toLowerCase().includes(query)
-    );
-  }, [conversations, searchQuery]);
+    let filtered = conversations;
+    
+    // Filter by role
+    if (selectedRoleFilter !== "all") {
+      filtered = filtered.filter(conv => conv.role_id === selectedRoleFilter);
+    }
+    
+    // Filter by search query
+    if (searchQuery.trim()) {
+      const query = searchQuery.toLowerCase();
+      filtered = filtered.filter(conv => 
+        conv.title.toLowerCase().includes(query)
+      );
+    }
+    
+    return filtered;
+  }, [conversations, searchQuery, selectedRoleFilter]);
 
   // Group filtered conversations by date
   const groupedConversations = useMemo(() => 
@@ -108,6 +136,12 @@ export function ChatSidebarEnhanced({
   const handleDelete = (id: string, e: React.MouseEvent) => {
     e.stopPropagation();
     onDeleteConversation(id);
+  };
+
+  const getRoleName = (roleId: string | null) => {
+    if (!roleId) return null;
+    const role = roles.find(r => r.id === roleId);
+    return role?.name || null;
   };
 
   return (
@@ -146,6 +180,36 @@ export function ChatSidebarEnhanced({
           )}
         </div>
       </div>
+
+      {/* Role Filter */}
+      {usedRoles.length > 0 && (
+        <div className="px-3 pb-2">
+          <Select value={selectedRoleFilter} onValueChange={setSelectedRoleFilter}>
+            <SelectTrigger className="h-9 bg-sidebar-accent/50 border-sidebar-border rounded-lg">
+              <div className="flex items-center gap-2">
+                <Filter className="h-4 w-4 text-muted-foreground" />
+                <SelectValue placeholder="Все помощники" />
+              </div>
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="all">
+                <div className="flex items-center gap-2">
+                  <Bot className="h-4 w-4" />
+                  <span>Все помощники</span>
+                </div>
+              </SelectItem>
+              {usedRoles.map(role => (
+                <SelectItem key={role.id} value={role.id}>
+                  <div className="flex items-center gap-2">
+                    <Bot className="h-4 w-4" />
+                    <span>{role.name}</span>
+                  </div>
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        </div>
+      )}
       
       {/* Conversations List */}
       <ScrollArea className="flex-1">
@@ -157,7 +221,7 @@ export function ChatSidebarEnhanced({
           ) : filteredConversations.length === 0 ? (
             <div className="text-center py-8 text-muted-foreground text-sm">
               <History className="h-8 w-8 mx-auto mb-2 opacity-50" />
-              <p>{searchQuery ? "Ничего не найдено" : "Нет диалогов"}</p>
+              <p>{searchQuery || selectedRoleFilter !== "all" ? "Ничего не найдено" : "Нет диалогов"}</p>
             </div>
           ) : (
             groupedConversations.map((group) => (
@@ -195,13 +259,26 @@ export function ChatSidebarEnhanced({
                           autoFocus
                         />
                       ) : (
-                        <span className="flex-1 truncate text-sm text-sidebar-foreground">
-                          {conversation.title}
-                        </span>
+                        <div className="flex-1 min-w-0">
+                          <span className="block truncate text-sm text-sidebar-foreground">
+                            {conversation.title || "Без названия"}
+                          </span>
+                          {/* Show role name as subtle badge */}
+                          {getRoleName(conversation.role_id) && (
+                            <span className="text-xs text-muted-foreground truncate">
+                              {getRoleName(conversation.role_id)}
+                            </span>
+                          )}
+                        </div>
                       )}
                       
-                      {/* Actions - visible on hover */}
-                      <div className="flex items-center gap-0.5 opacity-0 group-hover:opacity-100 transition-opacity">
+                      {/* Actions - always visible on active, hover on others */}
+                      <div className={cn(
+                        "flex items-center gap-0.5 transition-opacity",
+                        activeConversationId === conversation.id 
+                          ? "opacity-100" 
+                          : "opacity-0 group-hover:opacity-100"
+                      )}>
                         <Button
                           variant="ghost"
                           size="icon"
