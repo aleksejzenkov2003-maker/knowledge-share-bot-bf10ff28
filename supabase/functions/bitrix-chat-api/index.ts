@@ -418,45 +418,93 @@ async function handleAuth(
   
   console.log('[AUTH] Normalized portal domain:', normalizedPortal);
 
-  // Find API key by portal_domain
-  const { data: apiKeyData, error: apiKeyError } = await supabase
-    .from('department_api_keys')
-    .select('id, department_id, is_active, request_count, portal_domain')
-    .eq('portal_domain', normalizedPortal)
-    .eq('is_active', true)
+  // STEP 1: Try to find existing user by bitrix_user_id and check their department
+  const { data: existingProfile } = await supabase
+    .from('profiles')
+    .select('id, department_id')
+    .eq('bitrix_user_id', body.bitrix_user_id)
     .single();
 
-  console.log('[AUTH] DB lookup result:', {
-    found: !!apiKeyData,
-    error: apiKeyError?.message,
-    storedDomain: apiKeyData?.portal_domain,
-  });
+  let departmentId: string | null = null;
+  let apiKeyId: string | null = null;
+  let isUserDepartmentDetected = false;
 
-  if (apiKeyError || !apiKeyData) {
-    console.log('[AUTH] Portal not registered - lookup failed for:', normalizedPortal);
-    return new Response(JSON.stringify({ 
-      error: 'Portal not registered',
-      details: `No active API key found for portal domain "${normalizedPortal}". Contact administrator.`,
-      received_portal: body.portal,
-      normalized_portal: normalizedPortal,
-    }), {
-      status: 401,
-      headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-    });
+  if (existingProfile?.department_id) {
+    // User already has a department assigned - use it
+    console.log('[AUTH] User already has department_id:', existingProfile.department_id);
+    departmentId = existingProfile.department_id;
+    isUserDepartmentDetected = true;
+
+    // Verify this portal has an API key for this department
+    const { data: apiKeyForDept } = await supabase
+      .from('department_api_keys')
+      .select('id, request_count')
+      .eq('portal_domain', normalizedPortal)
+      .eq('department_id', departmentId)
+      .eq('is_active', true)
+      .single();
+
+    if (apiKeyForDept) {
+      apiKeyId = apiKeyForDept.id;
+      // Update usage stats
+      await supabase
+        .from('department_api_keys')
+        .update({ 
+          last_used_at: new Date().toISOString(),
+          request_count: (apiKeyForDept.request_count || 0) + 1
+        })
+        .eq('id', apiKeyForDept.id);
+    }
+    // If no API key for this specific department - that's okay, user can still use their assigned department
   }
-  
-  console.log('[AUTH] API key found, department_id:', apiKeyData.department_id);
 
-  const departmentId = apiKeyData.department_id;
+  // STEP 2: If user doesn't have department - find API key by portal (legacy flow / first login)
+  if (!departmentId) {
+    console.log('[AUTH] User has no department, looking up API key by portal');
+    
+    // For multi-department portals, we need to pick one
+    const { data: apiKeys, error: apiKeyError } = await supabase
+      .from('department_api_keys')
+      .select('id, department_id, is_active, request_count, portal_domain')
+      .eq('portal_domain', normalizedPortal)
+      .eq('is_active', true);
 
-  // Update API key usage stats
-  await supabase
-    .from('department_api_keys')
-    .update({ 
-      last_used_at: new Date().toISOString(),
-      request_count: (apiKeyData.request_count || 0) + 1
-    })
-    .eq('id', apiKeyData.id);
+    console.log('[AUTH] DB lookup result:', {
+      found: apiKeys?.length || 0,
+      error: apiKeyError?.message,
+    });
+
+    if (apiKeyError || !apiKeys || apiKeys.length === 0) {
+      console.log('[AUTH] Portal not registered - lookup failed for:', normalizedPortal);
+      return new Response(JSON.stringify({ 
+        error: 'Portal not registered',
+        details: `No active API key found for portal domain "${normalizedPortal}". Contact administrator.`,
+        received_portal: body.portal,
+        normalized_portal: normalizedPortal,
+      }), {
+        status: 401,
+        headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+      });
+    }
+
+    // If multiple departments available for this portal, use the first one for new users
+    // Admin can later reassign user to correct department
+    const selectedApiKey = apiKeys[0];
+    departmentId = selectedApiKey.department_id;
+    apiKeyId = selectedApiKey.id;
+    
+    console.log('[AUTH] API key found, department_id:', departmentId, 
+      apiKeys.length > 1 ? `(${apiKeys.length} departments available)` : '');
+
+    // Update API key usage stats
+    await supabase
+      .from('department_api_keys')
+      .update({ 
+        last_used_at: new Date().toISOString(),
+        request_count: (selectedApiKey.request_count || 0) + 1
+      })
+      .eq('id', selectedApiKey.id);
+  }
 
   // Get or create user
   const bitrixUserInfo: BitrixUserInfo = {
@@ -465,7 +513,7 @@ async function handleAuth(
     user_email: body.bitrix_user_email,
   };
 
-  const { userId, isNew, role } = await getOrCreateUser(supabase, departmentId, bitrixUserInfo);
+  const { userId, isNew, role } = await getOrCreateUser(supabase, departmentId!, bitrixUserInfo);
 
   // Create JWT (1 hour expiration)
   const expiresIn = 3600; // 1 hour
@@ -473,7 +521,7 @@ async function handleAuth(
   
   const jwtPayload: Omit<JWTPayload, 'iat'> = {
     sub: userId,
-    department_id: departmentId,
+    department_id: departmentId!,
     bitrix_user_id: body.bitrix_user_id,
     portal: body.portal,
     role: role, // Include role in JWT

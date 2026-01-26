@@ -43,7 +43,7 @@
   'use strict';
 
   var KnowledgeChat = {
-    version: '3.0.0',
+    version: '3.1.0',
     baseUrl: 'https://knowledge-share-bot.lovable.app',
     
     /**
@@ -56,6 +56,10 @@
      * @param {string} [config.userEmail] - User email (optional)
      * @param {string} [config.chatType] - Chat type: 'personal' or 'department' (default: 'personal')
      * @param {string} [config.theme] - Theme: 'light' or 'dark' (optional)
+     * 
+     * Note: Department is auto-detected from user's profile. 
+     * If user doesn't have a department yet, they'll be assigned to the first department 
+     * associated with the portal. Admins can reassign users to different departments.
      */
     init: function(config) {
       if (!config.containerId) {
@@ -82,6 +86,7 @@
       var chatRoute = chatType === 'department' ? '/bitrix-department' : '/bitrix-personal';
 
       // Build widget URL with params (NO API KEY!)
+      // Department is auto-detected from user profile on the backend
       var params = new URLSearchParams();
       params.set('portal', config.portal);
       params.set('bitrixUserId', String(config.bitrixUserId));
@@ -113,7 +118,7 @@
       this._container = container;
       this._config = config;
 
-      console.log('[KnowledgeChat] Widget initialized - type:', chatType);
+      console.log('[KnowledgeChat] Widget initialized - type:', chatType, '(department auto-detected)');
       
       return this;
     },
