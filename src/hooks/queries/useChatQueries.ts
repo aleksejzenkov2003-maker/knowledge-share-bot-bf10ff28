@@ -76,6 +76,7 @@ async function fetchMessagesData(conversationId: string): Promise<Message[]> {
     smartSearch: (msg.metadata as DBMessage['metadata'])?.smart_search,
     webSearchCitations: (msg.metadata as any)?.web_search_citations,
     webSearchUsed: (msg.metadata as any)?.web_search_used,
+    roleId: (msg.metadata as any)?.role_id,
     attachments: (msg.metadata as DBMessage['metadata'])?.attachments?.map((a, idx) => ({
       id: `${msg.id}-${idx}`,
       file_path: a.file_path,
@@ -85,6 +86,42 @@ async function fetchMessagesData(conversationId: string): Promise<Message[]> {
       status: 'uploaded' as const,
     })),
   }));
+}
+
+// Fetch all role IDs used in messages for each conversation
+async function fetchConversationRolesMap(conversationIds: string[]): Promise<Map<string, string[]>> {
+  if (conversationIds.length === 0) return new Map();
+  
+  const { data, error } = await supabase
+    .from("messages")
+    .select("conversation_id, metadata")
+    .in("conversation_id", conversationIds)
+    .eq("role", "assistant");
+
+  if (error) {
+    console.error("Error fetching conversation roles:", error);
+    return new Map();
+  }
+
+  const rolesMap = new Map<string, Set<string>>();
+  
+  (data || []).forEach((msg) => {
+    const roleId = (msg.metadata as any)?.role_id;
+    if (roleId) {
+      if (!rolesMap.has(msg.conversation_id)) {
+        rolesMap.set(msg.conversation_id, new Set());
+      }
+      rolesMap.get(msg.conversation_id)!.add(roleId);
+    }
+  });
+
+  // Convert Sets to Arrays
+  const result = new Map<string, string[]>();
+  rolesMap.forEach((roleSet, convId) => {
+    result.set(convId, Array.from(roleSet));
+  });
+  
+  return result;
 }
 
 // Fetch user profile
@@ -116,6 +153,16 @@ export function useConversationsQuery(userId: string | undefined) {
     queryFn: () => fetchConversationsData(userId!),
     enabled: !!userId,
     staleTime: 30 * 1000, // 30 seconds
+  });
+}
+
+// Hook to get roles used in each conversation
+export function useConversationRolesQuery(conversationIds: string[]) {
+  return useQuery({
+    queryKey: ['conversation-roles', conversationIds],
+    queryFn: () => fetchConversationRolesMap(conversationIds),
+    enabled: conversationIds.length > 0,
+    staleTime: 60 * 1000, // 1 minute
   });
 }
 

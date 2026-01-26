@@ -16,6 +16,7 @@ import { useOptimizedChat } from "@/hooks/useOptimizedChat";
 import { ChatSidebarEnhanced } from "@/components/chat/ChatSidebarEnhanced";
 import { ChatInputEnhanced } from "@/components/chat/ChatInputEnhanced";
 import { ChatMessage } from "@/components/chat/ChatMessage";
+import { useConversationRolesQuery } from "@/hooks/queries/useChatQueries";
 
 export default function ChatFullscreen() {
   const navigate = useNavigate();
@@ -49,6 +50,10 @@ export default function ChatFullscreen() {
     editMessage,
     regenerateResponse,
   } = useOptimizedChat(user?.id, departmentId);
+
+  // Fetch roles used in messages for each conversation
+  const conversationIds = useMemo(() => conversations.map(c => c.id), [conversations]);
+  const { data: conversationRolesMap = new Map() } = useConversationRolesQuery(conversationIds);
 
   const selectedRole = useMemo(() => 
     roles.find(r => r.id === selectedRoleId), 
@@ -103,6 +108,7 @@ export default function ChatFullscreen() {
             onDeleteConversation={deleteConversation}
             onRenameConversation={renameConversation}
             roles={roles}
+            conversationRolesMap={conversationRolesMap}
           />
         )}
       </div>

@@ -165,6 +165,9 @@ export function useOptimizedChat(userId: string | undefined, departmentId: strin
       citations?: { index: number; document: string; section?: string; article?: string; relevance: number }[];
       smart_search?: boolean;
       attachments?: { file_path: string; file_name: string; file_type: string; file_size: number }[];
+      role_id?: string;
+      web_search_citations?: string[];
+      web_search_used?: boolean;
     }
   ) => {
     try {
@@ -401,7 +404,10 @@ export function useOptimizedChat(userId: string | undefined, departmentId: strin
           : m
       ));
 
-      await saveMessage(conversationId, "assistant", finalContent, metadata);
+      await saveMessage(conversationId, "assistant", finalContent, {
+        ...metadata,
+        role_id: selectedRoleId || undefined,
+      });
 
       // Update conversation timestamp
       await supabase

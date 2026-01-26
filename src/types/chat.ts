@@ -50,6 +50,7 @@ export interface Message {
   attachments?: Attachment[];
   webSearchCitations?: string[];
   webSearchUsed?: boolean;
+  roleId?: string;
 }
 
 export interface DBMessage {
