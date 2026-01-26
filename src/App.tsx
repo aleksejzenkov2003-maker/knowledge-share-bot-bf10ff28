@@ -40,8 +40,10 @@ const App = () => (
         <Sonner />
         <BrowserRouter>
           <Routes>
-            {/* Public Bitrix widget route - JWT auth inside */}
+            {/* Public Bitrix widget routes - JWT auth inside */}
             <Route path="/bitrix-chat" element={<BitrixChatSecure />} />
+            <Route path="/bitrix-personal" element={<BitrixPersonalChat />} />
+            <Route path="/bitrix-department" element={<BitrixDepartmentChat />} />
             
             <Route path="/login" element={<Login />} />
             <Route path="/register" element={<Register />} />
