@@ -30,7 +30,7 @@
 
 | Поле | Значение |
 |------|----------|
-| **Путь вашего обработчика** | `https://knowledge-share-bot.lovable.app/bitrix24-app/department.html` |
+| **Путь вашего обработчика** | `https://admin.artpatent-content.ru/bitrix24-app/department.html` |
 | **Путь для первоначальной установки** | *(оставить пустым)* |
 | **Использует только API** | ❌ Не отмечать |
 | **Поддерживает BitrixMobile** | ❌ Не отмечать |
@@ -55,7 +55,7 @@
 Общий чат для всех сотрудников отдела с автоматическим определением пользователя.
 
 ```
-URL обработчика: https://knowledge-share-bot.lovable.app/bitrix24-app/department.html
+URL обработчика: https://admin.artpatent-content.ru/bitrix24-app/department.html
 ```
 
 ### Личный AI-ассистент
@@ -63,7 +63,7 @@ URL обработчика: https://knowledge-share-bot.lovable.app/bitrix24-app
 Персональный чат с сохранением истории для каждого пользователя.
 
 ```
-URL обработчика: https://knowledge-share-bot.lovable.app/bitrix24-app/personal.html
+URL обработчика: https://admin.artpatent-content.ru/bitrix24-app/personal.html
 ```
 
 ---
@@ -88,9 +88,9 @@ URL обработчика: https://knowledge-share-bot.lovable.app/bitrix24-app
 
 | Приложение | Название пункта меню | URL обработчика |
 |------------|---------------------|-----------------|
-| #1 | AI Юрист | `https://knowledge-share-bot.lovable.app/bitrix24-app/department.html` |
-| #2 | AI Бухгалтер | `https://knowledge-share-bot.lovable.app/bitrix24-app/department.html` |
-| #3 | AI HR | `https://knowledge-share-bot.lovable.app/bitrix24-app/department.html` |
+| #1 | AI Юрист | `https://admin.artpatent-content.ru/bitrix24-app/department.html` |
+| #2 | AI Бухгалтер | `https://admin.artpatent-content.ru/bitrix24-app/department.html` |
+| #3 | AI HR | `https://admin.artpatent-content.ru/bitrix24-app/department.html` |
 
 > 💡 **Как это работает:** URL одинаковый для всех приложений. Система автоматически определяет отдел пользователя по его профилю или назначает первый доступный отдел для новых пользователей.
 
