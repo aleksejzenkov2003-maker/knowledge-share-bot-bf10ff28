@@ -1,4 +1,7 @@
-import React, { useState, useEffect, useRef } from "react";
+import React, { useState, useEffect, useCallback, useRef } from "react";
+import { Document, Page, pdfjs } from "react-pdf";
+import "react-pdf/dist/esm/Page/AnnotationLayer.css";
+import "react-pdf/dist/esm/Page/TextLayer.css";
 import {
   Dialog,
   DialogContent,
@@ -18,10 +21,15 @@ import {
   Search,
   X,
   ExternalLink,
-  Download
+  Download,
+  ChevronUp,
+  ChevronDown
 } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
 import { toast } from "@/hooks/use-toast";
+
+// Set up PDF.js worker
+pdfjs.GlobalWorkerOptions.workerSrc = `//unpkg.com/pdfjs-dist@${pdfjs.version}/build/pdf.worker.min.mjs`;
 
 interface DocumentViewerProps {
   isOpen: boolean;
@@ -31,6 +39,11 @@ interface DocumentViewerProps {
   documentName?: string;
   searchText?: string;
   pageNumber?: number;
+}
+
+interface TextMatch {
+  pageIndex: number;
+  matchIndex: number;
 }
 
 export function DocumentViewer({
@@ -45,16 +58,26 @@ export function DocumentViewer({
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [documentUrl, setDocumentUrl] = useState<string | null>(null);
+  const [numPages, setNumPages] = useState<number>(0);
   const [currentPage, setCurrentPage] = useState(pageNumber);
-  const [zoom, setZoom] = useState(100);
+  const [scale, setScale] = useState(1.0);
   const [searchQuery, setSearchQuery] = useState(searchText || "");
+  const [searchResults, setSearchResults] = useState<TextMatch[]>([]);
+  const [currentMatchIndex, setCurrentMatchIndex] = useState(0);
+  const [isSearching, setIsSearching] = useState(false);
   const [highlightedText, setHighlightedText] = useState<string | null>(searchText || null);
-  const iframeRef = useRef<HTMLIFrameElement>(null);
+  const containerRef = useRef<HTMLDivElement>(null);
+  const pdfDocRef = useRef<any>(null);
 
   useEffect(() => {
     if (isOpen && (documentId || storagePath)) {
       loadDocument();
     }
+    return () => {
+      if (documentUrl) {
+        URL.revokeObjectURL(documentUrl);
+      }
+    };
   }, [isOpen, documentId, storagePath]);
 
   useEffect(() => {
@@ -62,18 +85,28 @@ export function DocumentViewer({
   }, [pageNumber]);
 
   useEffect(() => {
-    setSearchQuery(searchText || "");
-    setHighlightedText(searchText || null);
+    if (searchText) {
+      setSearchQuery(searchText);
+      setHighlightedText(searchText);
+    }
   }, [searchText]);
+
+  // Auto-search when document loads and searchText is provided
+  useEffect(() => {
+    if (numPages > 0 && highlightedText && pdfDocRef.current) {
+      performSearch(highlightedText);
+    }
+  }, [numPages, highlightedText]);
 
   const loadDocument = async () => {
     setLoading(true);
     setError(null);
+    setNumPages(0);
+    setSearchResults([]);
 
     try {
       let path = storagePath;
 
-      // If we have documentId but no path, fetch the document info
       if (!path && documentId) {
         const { data: doc, error: docError } = await supabase
           .from('documents')
@@ -89,10 +122,9 @@ export function DocumentViewer({
         throw new Error('Путь к документу не найден');
       }
 
-      // Get signed URL
       const { data: signedUrl, error: urlError } = await supabase.storage
         .from('rag-documents')
-        .createSignedUrl(path, 3600); // 1 hour expiry
+        .createSignedUrl(path, 3600);
 
       if (urlError) throw urlError;
 
@@ -114,12 +146,89 @@ export function DocumentViewer({
     }
   };
 
+  const onDocumentLoadSuccess = ({ numPages }: { numPages: number }) => {
+    setNumPages(numPages);
+    setLoading(false);
+  };
+
+  const onDocumentLoadError = (error: Error) => {
+    console.error('PDF load error:', error);
+    setError('Ошибка загрузки PDF');
+    setLoading(false);
+  };
+
+  const performSearch = async (query: string) => {
+    if (!pdfDocRef.current || !query.trim()) {
+      setSearchResults([]);
+      return;
+    }
+
+    setIsSearching(true);
+    const matches: TextMatch[] = [];
+    const searchLower = query.toLowerCase();
+
+    try {
+      for (let pageNum = 1; pageNum <= numPages; pageNum++) {
+        const page = await pdfDocRef.current.getPage(pageNum);
+        const textContent = await page.getTextContent();
+        const pageText = textContent.items.map((item: any) => item.str).join(' ').toLowerCase();
+        
+        let startIndex = 0;
+        let matchIndex = 0;
+        while ((startIndex = pageText.indexOf(searchLower, startIndex)) !== -1) {
+          matches.push({ pageIndex: pageNum, matchIndex });
+          matchIndex++;
+          startIndex += searchLower.length;
+        }
+      }
+
+      setSearchResults(matches);
+      setCurrentMatchIndex(0);
+
+      if (matches.length > 0) {
+        setCurrentPage(matches[0].pageIndex);
+        toast({
+          title: "Поиск завершён",
+          description: `Найдено совпадений: ${matches.length}`,
+        });
+      } else {
+        toast({
+          title: "Поиск завершён",
+          description: "Совпадений не найдено",
+        });
+      }
+    } catch (err) {
+      console.error('Search error:', err);
+    } finally {
+      setIsSearching(false);
+    }
+  };
+
+  const handleSearch = () => {
+    setHighlightedText(searchQuery);
+    performSearch(searchQuery);
+  };
+
+  const goToNextMatch = () => {
+    if (searchResults.length === 0) return;
+    const nextIndex = (currentMatchIndex + 1) % searchResults.length;
+    setCurrentMatchIndex(nextIndex);
+    setCurrentPage(searchResults[nextIndex].pageIndex);
+  };
+
+  const goToPrevMatch = () => {
+    if (searchResults.length === 0) return;
+    const prevIndex = currentMatchIndex === 0 ? searchResults.length - 1 : currentMatchIndex - 1;
+    setCurrentMatchIndex(prevIndex);
+    setCurrentPage(searchResults[prevIndex].pageIndex);
+  };
+
   const handleZoomIn = () => {
-    setZoom(prev => Math.min(prev + 25, 200));
+    setScale(prev => Math.min(prev + 0.25, 3));
   };
 
   const handleZoomOut = () => {
-    setZoom(prev => Math.max(prev - 25, 50));
+    setScale(prev => Math.max(prev - 0.25, 0.5));
   };
 
   const handlePrevPage = () => {
@@ -127,13 +236,7 @@ export function DocumentViewer({
   };
 
   const handleNextPage = () => {
-    setCurrentPage(prev => prev + 1);
-  };
-
-  const handleSearch = () => {
-    setHighlightedText(searchQuery);
-    // For PDF.js viewer, we could use the find function
-    // For now, we'll just set the highlight text
+    setCurrentPage(prev => Math.min(prev + 1, numPages));
   };
 
   const handleOpenExternal = () => {
@@ -165,39 +268,50 @@ export function DocumentViewer({
     }
   };
 
-  // Build PDF viewer URL with page and search parameters
-  const getPdfViewerUrl = () => {
-    if (!documentUrl) return null;
-    
-    // Use browser's built-in PDF viewer with page parameter
-    let url = documentUrl;
-    const params = [];
-    
-    if (currentPage > 1) {
-      params.push(`page=${currentPage}`);
-    }
-    
-    if (highlightedText) {
-      params.push(`search=${encodeURIComponent(highlightedText)}`);
-    }
-    
-    if (params.length > 0) {
-      url += '#' + params.join('&');
-    }
-    
-    return url;
+  const clearSearch = () => {
+    setSearchQuery("");
+    setHighlightedText(null);
+    setSearchResults([]);
+    setCurrentMatchIndex(0);
   };
+
+  // Highlight text in the text layer after page renders
+  useEffect(() => {
+    if (!highlightedText || !containerRef.current) return;
+
+    // Small delay to ensure text layer is rendered
+    const timeoutId = setTimeout(() => {
+      const textLayer = containerRef.current?.querySelector('.react-pdf__Page__textContent');
+      if (!textLayer) return;
+
+      const spans = textLayer.querySelectorAll('span');
+      const searchLower = highlightedText.toLowerCase();
+
+      spans.forEach((span) => {
+        const text = span.textContent || '';
+        const textLower = text.toLowerCase();
+        
+        if (textLower.includes(searchLower)) {
+          // Wrap matching text in mark elements
+          const regex = new RegExp(`(${highlightedText.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')})`, 'gi');
+          span.innerHTML = text.replace(regex, '<mark class="pdf-highlight">$1</mark>');
+        }
+      });
+    }, 500);
+
+    return () => clearTimeout(timeoutId);
+  }, [highlightedText, currentPage, numPages]);
 
   return (
     <Dialog open={isOpen} onOpenChange={(open) => !open && onClose()}>
-      <DialogContent className="max-w-[90vw] max-h-[90vh] w-[1200px] h-[85vh] flex flex-col p-0">
+      <DialogContent className="max-w-[95vw] max-h-[95vh] w-[1400px] h-[90vh] flex flex-col p-0">
         <DialogHeader className="px-4 py-3 border-b flex-shrink-0">
           <div className="flex items-center justify-between gap-4">
-            <DialogTitle className="truncate flex-1">
+            <DialogTitle className="truncate flex-1 text-sm md:text-base">
               {documentName || 'Документ'}
             </DialogTitle>
             
-            <div className="flex items-center gap-2">
+            <div className="flex items-center gap-1 md:gap-2 flex-wrap">
               {/* Search */}
               <div className="flex items-center gap-1">
                 <Input
@@ -206,20 +320,44 @@ export function DocumentViewer({
                   value={searchQuery}
                   onChange={(e) => setSearchQuery(e.target.value)}
                   onKeyDown={(e) => e.key === 'Enter' && handleSearch()}
-                  className="h-8 w-40"
+                  className="h-8 w-32 md:w-40 text-sm"
                 />
-                <Button variant="ghost" size="sm" onClick={handleSearch}>
-                  <Search className="h-4 w-4" />
+                <Button 
+                  variant="ghost" 
+                  size="sm" 
+                  onClick={handleSearch}
+                  disabled={isSearching}
+                >
+                  {isSearching ? (
+                    <Loader2 className="h-4 w-4 animate-spin" />
+                  ) : (
+                    <Search className="h-4 w-4" />
+                  )}
                 </Button>
               </div>
+
+              {/* Search navigation */}
+              {searchResults.length > 0 && (
+                <div className="flex items-center gap-1 border-l pl-2 ml-1">
+                  <Button variant="ghost" size="sm" onClick={goToPrevMatch}>
+                    <ChevronUp className="h-4 w-4" />
+                  </Button>
+                  <Badge variant="secondary" className="text-xs whitespace-nowrap">
+                    {currentMatchIndex + 1}/{searchResults.length}
+                  </Badge>
+                  <Button variant="ghost" size="sm" onClick={goToNextMatch}>
+                    <ChevronDown className="h-4 w-4" />
+                  </Button>
+                </div>
+              )}
               
               {/* Zoom controls */}
-              <div className="flex items-center gap-1 border-l pl-2 ml-2">
+              <div className="flex items-center gap-1 border-l pl-2 ml-1">
                 <Button variant="ghost" size="sm" onClick={handleZoomOut}>
                   <ZoomOut className="h-4 w-4" />
                 </Button>
                 <Badge variant="secondary" className="text-xs">
-                  {zoom}%
+                  {Math.round(scale * 100)}%
                 </Badge>
                 <Button variant="ghost" size="sm" onClick={handleZoomIn}>
                   <ZoomIn className="h-4 w-4" />
@@ -227,24 +365,24 @@ export function DocumentViewer({
               </div>
               
               {/* Page navigation */}
-              <div className="flex items-center gap-1 border-l pl-2 ml-2">
-                <Button variant="ghost" size="sm" onClick={handlePrevPage}>
+              <div className="flex items-center gap-1 border-l pl-2 ml-1">
+                <Button variant="ghost" size="sm" onClick={handlePrevPage} disabled={currentPage <= 1}>
                   <ChevronLeft className="h-4 w-4" />
                 </Button>
-                <Badge variant="outline" className="text-xs">
-                  Стр. {currentPage}
+                <Badge variant="outline" className="text-xs whitespace-nowrap">
+                  {currentPage}/{numPages || '?'}
                 </Badge>
-                <Button variant="ghost" size="sm" onClick={handleNextPage}>
+                <Button variant="ghost" size="sm" onClick={handleNextPage} disabled={currentPage >= numPages}>
                   <ChevronRight className="h-4 w-4" />
                 </Button>
               </div>
               
               {/* Actions */}
-              <div className="flex items-center gap-1 border-l pl-2 ml-2">
-                <Button variant="ghost" size="sm" onClick={handleOpenExternal}>
+              <div className="flex items-center gap-1 border-l pl-2 ml-1">
+                <Button variant="ghost" size="sm" onClick={handleOpenExternal} title="Открыть в новой вкладке">
                   <ExternalLink className="h-4 w-4" />
                 </Button>
-                <Button variant="ghost" size="sm" onClick={handleDownload}>
+                <Button variant="ghost" size="sm" onClick={handleDownload} title="Скачать">
                   <Download className="h-4 w-4" />
                 </Button>
               </div>
@@ -254,16 +392,13 @@ export function DocumentViewer({
           {highlightedText && (
             <div className="flex items-center gap-2 mt-2">
               <Badge variant="secondary" className="text-xs">
-                Поиск: "{highlightedText}"
+                Поиск: "{highlightedText.slice(0, 50)}{highlightedText.length > 50 ? '...' : ''}"
               </Badge>
               <Button
                 variant="ghost"
                 size="sm"
                 className="h-5 w-5 p-0"
-                onClick={() => {
-                  setHighlightedText(null);
-                  setSearchQuery("");
-                }}
+                onClick={clearSearch}
               >
                 <X className="h-3 w-3" />
               </Button>
@@ -271,7 +406,7 @@ export function DocumentViewer({
           )}
         </DialogHeader>
         
-        <div className="flex-1 overflow-hidden relative">
+        <div className="flex-1 overflow-hidden relative" ref={containerRef}>
           {loading && (
             <div className="absolute inset-0 flex items-center justify-center bg-background/80 z-10">
               <div className="flex flex-col items-center gap-2">
@@ -292,14 +427,38 @@ export function DocumentViewer({
             </div>
           )}
           
-          {documentUrl && !loading && !error && (
-            <iframe
-              ref={iframeRef}
-              src={getPdfViewerUrl() || undefined}
-              className="w-full h-full border-0"
-              style={{ transform: `scale(${zoom / 100})`, transformOrigin: 'top left' }}
-              title={documentName || 'Document viewer'}
-            />
+          {documentUrl && (
+            <ScrollArea className="h-full w-full">
+              <div className="flex justify-center p-4 min-h-full">
+                <Document
+                  file={documentUrl}
+                  onLoadSuccess={(pdf) => {
+                    pdfDocRef.current = pdf;
+                    onDocumentLoadSuccess(pdf);
+                  }}
+                  onLoadError={onDocumentLoadError}
+                  loading={
+                    <div className="flex items-center justify-center p-8">
+                      <Loader2 className="h-8 w-8 animate-spin text-primary" />
+                    </div>
+                  }
+                  className="pdf-document"
+                >
+                  <Page
+                    pageNumber={currentPage}
+                    scale={scale}
+                    renderTextLayer={true}
+                    renderAnnotationLayer={true}
+                    loading={
+                      <div className="flex items-center justify-center p-8">
+                        <Loader2 className="h-6 w-6 animate-spin text-primary" />
+                      </div>
+                    }
+                    className="shadow-lg"
+                  />
+                </Document>
+              </div>
+            </ScrollArea>
           )}
         </div>
       </DialogContent>
