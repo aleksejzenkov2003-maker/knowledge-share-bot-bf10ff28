@@ -346,9 +346,9 @@ export function DocumentViewer({
         const matchingWord = searchWords.find(word => textLower.includes(word));
         
         if (matchingWord) {
-          // Highlight the matching word
-          const regex = new RegExp(`(${matchingWord.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')})`, 'gi');
-          span.innerHTML = text.replace(regex, '<mark class="pdf-highlight">$1</mark>');
+          // Add highlight class to the entire span instead of modifying innerHTML
+          // This preserves PDF.js positioning
+          (span as HTMLElement).classList.add('pdf-span-highlight');
           highlightCount++;
         }
       });
@@ -356,7 +356,7 @@ export function DocumentViewer({
       console.log(`Highlighted ${highlightCount} spans with keywords from: "${highlightedText.slice(0, 50)}..."`);
 
       // Scroll to first match
-      const firstHighlight = textLayer.querySelector('.pdf-highlight');
+      const firstHighlight = textLayer.querySelector('.pdf-span-highlight');
       if (firstHighlight) {
         firstHighlight.scrollIntoView({ behavior: 'smooth', block: 'center' });
       }
