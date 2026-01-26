@@ -102,6 +102,7 @@ export default function ChatFullscreen() {
             onSelectConversation={handleSelectConversation}
             onDeleteConversation={deleteConversation}
             onRenameConversation={renameConversation}
+            roles={roles}
           />
         )}
       </div>
