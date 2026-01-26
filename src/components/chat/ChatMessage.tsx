@@ -270,6 +270,9 @@ function ChatMessageComponent({ message, onEditMessage, onRegenerateResponse, av
           onRegenerateResponse={onRegenerateResponse}
           availableRoles={availableRoles}
           currentRoleId={currentRoleId}
+          ragContext={message.ragContext}
+          citations={message.citations}
+          webSearchCitations={message.webSearchCitations}
         />
       </Card>
       {message.role === "user" && (

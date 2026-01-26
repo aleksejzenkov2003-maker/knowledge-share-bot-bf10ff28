@@ -24,6 +24,13 @@ export interface Citation {
   section?: string;
   article?: string;
   relevance: number;
+  // Extended metadata for document navigation
+  chunk_id?: string;
+  document_id?: string;
+  page_start?: number;
+  chunk_index?: number;
+  content_preview?: string;
+  storage_path?: string;
 }
 
 export interface Attachment {
