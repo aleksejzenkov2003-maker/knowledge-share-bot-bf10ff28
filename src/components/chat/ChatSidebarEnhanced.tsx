@@ -297,10 +297,10 @@ export function ChatSidebarEnhanced({
                               variant="ghost"
                               size="icon"
                               className={cn(
-                                "h-6 w-6 shrink-0 transition-opacity",
+                                "h-6 w-6 shrink-0",
                                 activeConversationId === conversation.id 
-                                  ? "opacity-100" 
-                                  : "opacity-0 group-hover:opacity-100"
+                                  ? "opacity-70 hover:opacity-100" 
+                                  : "opacity-0 group-hover:opacity-70 hover:!opacity-100"
                               )}
                               onClick={(e) => e.stopPropagation()}
                             >
