@@ -1,25 +1,7 @@
-import { useState, useMemo } from "react";
+import { useState, useMemo, useCallback } from "react";
 import { Button } from "@/components/ui/button";
-import { ScrollArea } from "@/components/ui/scroll-area";
 import { Input } from "@/components/ui/input";
-import { 
-  Plus, 
-  MessageSquare, 
-  Trash2, 
-  History, 
-  Pencil,
-  Loader2,
-  Search,
-  X,
-  MoreHorizontal,
-  Bot
-} from "lucide-react";
-import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuTrigger,
-} from "@/components/ui/dropdown-menu";
+import { ScrollArea } from "@/components/ui/scroll-area";
 import {
   Select,
   SelectContent,
@@ -27,314 +9,417 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
+import { 
+  Plus, 
+  Search, 
+  MoreHorizontal, 
+  Pencil, 
+  Trash2, 
+  X, 
+  Filter,
+  Pin,
+  PinOff,
+  History,
+} from "lucide-react";
 import { cn } from "@/lib/utils";
-import { Conversation, ChatRole } from "@/types/chat";
-import { isToday, isYesterday, subDays } from "date-fns";
+import { ChatRole, Conversation } from "@/types/chat";
 
 interface ChatSidebarEnhancedProps {
   conversations: Conversation[];
   activeConversationId: string | null;
-  isLoading: boolean;
-  onNewChat: () => void;
   onSelectConversation: (conversation: Conversation) => void;
+  onNewChat: () => void;
   onDeleteConversation: (id: string) => void;
-  onRenameConversation: (id: string, title: string) => void;
-  roles?: ChatRole[];
+  onRenameConversation: (id: string, newTitle: string) => void;
+  onPinConversation?: (id: string, isPinned: boolean) => void;
+  roles: ChatRole[];
+  selectedRoleFilter: string;
+  onRoleFilterChange: (roleId: string) => void;
   conversationRolesMap?: Map<string, string[]>;
 }
 
-interface ConversationGroup {
-  label: string;
-  conversations: Conversation[];
+// Date grouping helper
+function getDateGroup(dateString: string): string {
+  const date = new Date(dateString);
+  const now = new Date();
+  const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+  const yesterday = new Date(today);
+  yesterday.setDate(yesterday.getDate() - 1);
+  const weekAgo = new Date(today);
+  weekAgo.setDate(weekAgo.getDate() - 7);
+  const monthAgo = new Date(today);
+  monthAgo.setDate(monthAgo.getDate() - 30);
+
+  if (date >= today) return "Сегодня";
+  if (date >= yesterday) return "Вчера";
+  if (date >= weekAgo) return "Последние 7 дней";
+  if (date >= monthAgo) return "Последние 30 дней";
+  return "Ранее";
 }
 
-function groupConversationsByDate(conversations: Conversation[]): ConversationGroup[] {
-  const groups: ConversationGroup[] = [
-    { label: "Сегодня", conversations: [] },
-    { label: "Вчера", conversations: [] },
-    { label: "Последние 7 дней", conversations: [] },
-    { label: "Этот месяц", conversations: [] },
-    { label: "Ранее", conversations: [] },
-  ];
-
-  const sevenDaysAgo = subDays(new Date(), 7);
-  const thirtyDaysAgo = subDays(new Date(), 30);
-
-  conversations.forEach((conv) => {
-    const date = new Date(conv.updated_at || conv.created_at);
-    
-    if (isToday(date)) {
-      groups[0].conversations.push(conv);
-    } else if (isYesterday(date)) {
-      groups[1].conversations.push(conv);
-    } else if (date > sevenDaysAgo) {
-      groups[2].conversations.push(conv);
-    } else if (date > thirtyDaysAgo) {
-      groups[3].conversations.push(conv);
-    } else {
-      groups[4].conversations.push(conv);
+// Group conversations by date
+function groupByDate(conversations: Conversation[]): Map<string, Conversation[]> {
+  const groups = new Map<string, Conversation[]>();
+  const order = ["Сегодня", "Вчера", "Последние 7 дней", "Последние 30 дней", "Ранее"];
+  
+  // Initialize groups in order
+  order.forEach(group => groups.set(group, []));
+  
+  conversations.forEach(conv => {
+    const group = getDateGroup(conv.updated_at);
+    const existing = groups.get(group) || [];
+    existing.push(conv);
+    groups.set(group, existing);
+  });
+  
+  // Remove empty groups
+  order.forEach(group => {
+    if (groups.get(group)?.length === 0) {
+      groups.delete(group);
     }
   });
-
-  return groups.filter(g => g.conversations.length > 0);
+  
+  return groups;
 }
 
 export function ChatSidebarEnhanced({
   conversations,
   activeConversationId,
-  isLoading,
-  onNewChat,
   onSelectConversation,
+  onNewChat,
   onDeleteConversation,
   onRenameConversation,
-  roles = [],
+  onPinConversation,
+  roles,
+  selectedRoleFilter,
+  onRoleFilterChange,
   conversationRolesMap = new Map(),
 }: ChatSidebarEnhancedProps) {
+  const [searchQuery, setSearchQuery] = useState("");
+  const [isSearchOpen, setIsSearchOpen] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editingTitle, setEditingTitle] = useState("");
-  const [searchQuery, setSearchQuery] = useState("");
-  const [selectedRoleFilter, setSelectedRoleFilter] = useState<string>("all");
-  const [isSearchOpen, setIsSearchOpen] = useState(false);
+  const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
+  const [conversationToDelete, setConversationToDelete] = useState<string | null>(null);
 
-  // Get all unique roles used across all conversations (from conversation.role_id + message metadata)
-  const usedRoles = useMemo(() => {
-    const roleIds = new Set<string>();
-    
-    conversations.forEach(c => {
-      if (c.role_id) roleIds.add(c.role_id);
-      const messageRoles = conversationRolesMap.get(c.id) || [];
-      messageRoles.forEach(rid => roleIds.add(rid));
-    });
-    
-    return roles.filter(r => roleIds.has(r.id));
-  }, [conversations, roles, conversationRolesMap]);
-
-  // Filter conversations by search query and role (including roles used in messages)
+  // Filter conversations by search and role
   const filteredConversations = useMemo(() => {
     let filtered = conversations;
-    
-    // Filter by role - check conversation.role_id AND roles used in messages
+
+    // Filter by search query
+    if (searchQuery.trim()) {
+      const query = searchQuery.toLowerCase();
+      filtered = filtered.filter(conv =>
+        conv.title.toLowerCase().includes(query)
+      );
+    }
+
+    // Filter by role - check both conversation role_id AND message metadata role_ids
     if (selectedRoleFilter !== "all") {
       filtered = filtered.filter(conv => {
+        // Check conversation's own role_id
         if (conv.role_id === selectedRoleFilter) return true;
+        
+        // Check role_ids from messages in this conversation
         const messageRoles = conversationRolesMap.get(conv.id) || [];
         return messageRoles.includes(selectedRoleFilter);
       });
     }
-    
-    // Filter by search query
-    if (searchQuery.trim()) {
-      const query = searchQuery.toLowerCase();
-      filtered = filtered.filter(conv => 
-        conv.title.toLowerCase().includes(query)
-      );
-    }
-    
+
     return filtered;
   }, [conversations, searchQuery, selectedRoleFilter, conversationRolesMap]);
 
-  const groupedConversations = useMemo(() => 
-    groupConversationsByDate(filteredConversations),
-    [filteredConversations]
-  );
+  // Separate pinned and unpinned conversations
+  const { pinnedConversations, unpinnedConversations } = useMemo(() => {
+    const pinned = filteredConversations.filter(c => c.is_pinned);
+    const unpinned = filteredConversations.filter(c => !c.is_pinned);
+    return { pinnedConversations: pinned, unpinnedConversations: unpinned };
+  }, [filteredConversations]);
 
-  const handleStartEdit = (conversation: Conversation, e?: React.MouseEvent) => {
+  // Group unpinned conversations by date
+  const groupedConversations = useMemo(() => {
+    return groupByDate(unpinnedConversations);
+  }, [unpinnedConversations]);
+
+  const handleStartRename = useCallback((conv: Conversation, e?: React.MouseEvent) => {
     e?.stopPropagation();
-    setEditingId(conversation.id);
-    setEditingTitle(conversation.title);
-  };
+    setEditingId(conv.id);
+    setEditingTitle(conv.title);
+  }, []);
 
-  const handleSaveEdit = (id: string) => {
-    if (editingTitle.trim()) {
-      onRenameConversation(id, editingTitle.trim());
+  const handleSaveRename = useCallback(() => {
+    if (editingId && editingTitle.trim()) {
+      onRenameConversation(editingId, editingTitle.trim());
     }
     setEditingId(null);
-  };
+    setEditingTitle("");
+  }, [editingId, editingTitle, onRenameConversation]);
 
-  const handleDelete = (id: string, e?: React.MouseEvent) => {
+  const handleCancelRename = useCallback(() => {
+    setEditingId(null);
+    setEditingTitle("");
+  }, []);
+
+  const handleDeleteClick = useCallback((id: string, e?: React.MouseEvent) => {
     e?.stopPropagation();
-    onDeleteConversation(id);
-  };
+    setConversationToDelete(id);
+    setDeleteDialogOpen(true);
+  }, []);
 
-  const toggleSearch = () => {
-    setIsSearchOpen(!isSearchOpen);
-    if (isSearchOpen) {
-      setSearchQuery("");
+  const handleConfirmDelete = useCallback(() => {
+    if (conversationToDelete) {
+      onDeleteConversation(conversationToDelete);
     }
+    setDeleteDialogOpen(false);
+    setConversationToDelete(null);
+  }, [conversationToDelete, onDeleteConversation]);
+
+  const handleTogglePin = useCallback((id: string, isPinned: boolean, e?: React.MouseEvent) => {
+    e?.stopPropagation();
+    onPinConversation?.(id, isPinned);
+  }, [onPinConversation]);
+
+  const renderConversationItem = (conversation: Conversation) => {
+    const isEditing = editingId === conversation.id;
+    const isActive = activeConversationId === conversation.id;
+
+    return (
+      <div
+        key={conversation.id}
+        className={cn(
+          "group flex items-center gap-2 px-2 py-2 rounded-lg cursor-pointer transition-colors",
+          isActive
+            ? "bg-sidebar-accent text-sidebar-accent-foreground"
+            : "hover:bg-sidebar-accent/50"
+        )}
+        onClick={() => !isEditing && onSelectConversation(conversation)}
+      >
+        {isEditing ? (
+          <div className="flex-1 flex items-center gap-1" onClick={(e) => e.stopPropagation()}>
+            <Input
+              value={editingTitle}
+              onChange={(e) => setEditingTitle(e.target.value)}
+              className="h-7 text-sm"
+              autoFocus
+              onKeyDown={(e) => {
+                if (e.key === "Enter") handleSaveRename();
+                if (e.key === "Escape") handleCancelRename();
+              }}
+            />
+            <Button
+              variant="ghost"
+              size="icon"
+              className="h-6 w-6 shrink-0"
+              onClick={handleSaveRename}
+            >
+              <Pencil className="h-3 w-3" />
+            </Button>
+            <Button
+              variant="ghost"
+              size="icon"
+              className="h-6 w-6 shrink-0"
+              onClick={handleCancelRename}
+            >
+              <X className="h-3 w-3" />
+            </Button>
+          </div>
+        ) : (
+          <>
+            {conversation.is_pinned && (
+              <Pin className="h-3 w-3 shrink-0 text-muted-foreground" />
+            )}
+            <span className="flex-1 min-w-0 truncate text-sm text-sidebar-foreground">
+              {conversation.title || "Без названия"}
+            </span>
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  className={cn(
+                    "h-6 w-6 shrink-0 relative z-10",
+                    isActive 
+                      ? "opacity-70 hover:opacity-100" 
+                      : "opacity-0 group-hover:opacity-70 hover:!opacity-100"
+                  )}
+                  onClick={(e) => e.stopPropagation()}
+                >
+                  <MoreHorizontal className="h-4 w-4" />
+                </Button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="end" className="w-40">
+                <DropdownMenuItem onClick={(e) => {
+                  e.stopPropagation();
+                  handleTogglePin(conversation.id, !conversation.is_pinned);
+                }}>
+                  {conversation.is_pinned ? (
+                    <>
+                      <PinOff className="h-4 w-4 mr-2" />
+                      Открепить
+                    </>
+                  ) : (
+                    <>
+                      <Pin className="h-4 w-4 mr-2" />
+                      Закрепить
+                    </>
+                  )}
+                </DropdownMenuItem>
+                <DropdownMenuItem onClick={(e) => {
+                  e.stopPropagation();
+                  handleStartRename(conversation);
+                }}>
+                  <Pencil className="h-4 w-4 mr-2" />
+                  Переименовать
+                </DropdownMenuItem>
+                <DropdownMenuItem 
+                  onClick={(e) => handleDeleteClick(conversation.id, e)}
+                  className="text-destructive focus:text-destructive"
+                >
+                  <Trash2 className="h-4 w-4 mr-2" />
+                  Удалить
+                </DropdownMenuItem>
+              </DropdownMenuContent>
+            </DropdownMenu>
+          </>
+        )}
+      </div>
+    );
   };
 
   return (
     <div className="flex flex-col h-full bg-sidebar">
-      {/* Header with New Chat + Search + Filter */}
-      <div className="p-2 space-y-2">
-        {/* Top row: New Chat + Search toggle */}
-        <div className="flex items-center gap-1">
-          <Button 
-            onClick={onNewChat} 
-            className="flex-1 justify-start gap-2 h-9"
-            variant="outline"
-            size="sm"
-          >
-            <Plus className="h-4 w-4" />
-            Новый чат
-          </Button>
-          
+      {/* Header with new chat button */}
+      <div className="p-3 border-b border-sidebar-border">
+        <Button
+          onClick={onNewChat}
+          className="w-full justify-start gap-2"
+          variant="outline"
+        >
+          <Plus className="h-4 w-4" />
+          Новый чат
+        </Button>
+      </div>
+
+      {/* Search and Filter Controls */}
+      <div className="p-2 space-y-2 border-b border-sidebar-border">
+        {/* Search toggle and input */}
+        <div className="flex items-center gap-2">
           <Button
             variant="ghost"
             size="icon"
-            className="h-9 w-9 shrink-0"
-            onClick={toggleSearch}
+            className="h-8 w-8 shrink-0"
+            onClick={() => {
+              setIsSearchOpen(!isSearchOpen);
+              if (isSearchOpen) setSearchQuery("");
+            }}
           >
-            <Search className="h-4 w-4" />
+            {isSearchOpen ? <X className="h-4 w-4" /> : <Search className="h-4 w-4" />}
           </Button>
-        </div>
-
-        {/* Collapsible search */}
-        {isSearchOpen && (
-          <div className="relative">
-            <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-muted-foreground" />
+          
+          {isSearchOpen && (
             <Input
+              placeholder="Поиск чатов..."
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
-              placeholder="Поиск..."
-              className="pl-8 pr-7 h-8 text-sm bg-sidebar-accent/50 border-sidebar-border"
+              className="h-8 text-sm"
               autoFocus
             />
-            {searchQuery && (
-              <Button
-                variant="ghost"
-                size="icon"
-                className="absolute right-0.5 top-1/2 -translate-y-1/2 h-6 w-6"
-                onClick={() => setSearchQuery("")}
-              >
-                <X className="h-3 w-3" />
-              </Button>
-            )}
-          </div>
-        )}
-
-        {/* Role filter - only show if there are roles to filter */}
-        {usedRoles.length > 1 && (
-          <Select value={selectedRoleFilter} onValueChange={setSelectedRoleFilter}>
-            <SelectTrigger className="h-8 text-xs bg-sidebar-accent/50 border-sidebar-border">
-              <div className="flex items-center gap-1.5 truncate">
-                <Bot className="h-3.5 w-3.5 text-muted-foreground shrink-0" />
-                <SelectValue placeholder="Все помощники" />
-              </div>
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value="all">
-                <span className="text-sm">Все помощники</span>
-              </SelectItem>
-              {usedRoles.map(role => (
-                <SelectItem key={role.id} value={role.id}>
-                  <span className="text-sm">{role.name}</span>
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
-        )}
+          )}
+          
+          {!isSearchOpen && (
+            <Select value={selectedRoleFilter} onValueChange={onRoleFilterChange}>
+              <SelectTrigger className="h-8 flex-1 text-sm">
+                <div className="flex items-center gap-2">
+                  <Filter className="h-3 w-3" />
+                  <SelectValue placeholder="Все ассистенты" />
+                </div>
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="all">Все ассистенты</SelectItem>
+                {roles.map((role) => (
+                  <SelectItem key={role.id} value={role.id}>
+                    {role.name}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          )}
+        </div>
       </div>
-      
-      {/* Conversations List */}
+
+      {/* Conversations list */}
       <ScrollArea className="flex-1">
-        <div className="px-1.5 pb-2">
-          {isLoading ? (
-            <div className="flex items-center justify-center py-8">
-              <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" />
-            </div>
-          ) : filteredConversations.length === 0 ? (
-            <div className="text-center py-8 text-muted-foreground text-sm">
-              <History className="h-8 w-8 mx-auto mb-2 opacity-50" />
-              <p>{searchQuery || selectedRoleFilter !== "all" ? "Ничего не найдено" : "Нет диалогов"}</p>
-            </div>
-          ) : (
-            groupedConversations.map((group) => (
-              <div key={group.label} className="mb-3">
-                {/* Group Label */}
-                <div className="px-2 py-1 text-[11px] font-medium text-muted-foreground uppercase tracking-wider">
-                  {group.label}
-                </div>
-                
-                {/* Group Items */}
-                <div className="space-y-0.5">
-                  {group.conversations.map((conversation) => (
-                    <div
-                      key={conversation.id}
-                      onClick={() => onSelectConversation(conversation)}
-                      className={cn(
-                        "group flex items-center gap-2 px-2 py-1.5 rounded-md cursor-pointer transition-colors",
-                        "hover:bg-sidebar-accent",
-                        activeConversationId === conversation.id && "bg-sidebar-accent"
-                      )}
-                    >
-                      <MessageSquare className="h-4 w-4 flex-shrink-0 text-muted-foreground" />
-                      
-                      {editingId === conversation.id ? (
-                        <Input
-                          value={editingTitle}
-                          onChange={(e) => setEditingTitle(e.target.value)}
-                          onBlur={() => handleSaveEdit(conversation.id)}
-                          onKeyDown={(e) => {
-                            if (e.key === "Enter") handleSaveEdit(conversation.id);
-                            if (e.key === "Escape") setEditingId(null);
-                          }}
-                          onClick={(e) => e.stopPropagation()}
-                          className="h-6 text-sm bg-background flex-1"
-                          autoFocus
-                        />
-                      ) : (
-                        <span className="flex-1 truncate text-sm text-sidebar-foreground">
-                          {conversation.title || "Без названия"}
-                        </span>
-                      )}
-                      
-                      {/* Three-dot menu - ChatGPT style */}
-                      {editingId !== conversation.id && (
-                        <DropdownMenu>
-                          <DropdownMenuTrigger asChild>
-                            <Button
-                              variant="ghost"
-                              size="icon"
-                              className={cn(
-                                "h-6 w-6 shrink-0",
-                                activeConversationId === conversation.id 
-                                  ? "opacity-70 hover:opacity-100" 
-                                  : "opacity-0 group-hover:opacity-70 hover:!opacity-100"
-                              )}
-                              onClick={(e) => e.stopPropagation()}
-                            >
-                              <MoreHorizontal className="h-4 w-4" />
-                            </Button>
-                          </DropdownMenuTrigger>
-                          <DropdownMenuContent align="end" className="w-40">
-                            <DropdownMenuItem 
-                              onClick={(e) => {
-                                e.stopPropagation();
-                                handleStartEdit(conversation);
-                              }}
-                            >
-                              <Pencil className="h-4 w-4 mr-2" />
-                              Переименовать
-                            </DropdownMenuItem>
-                            <DropdownMenuItem 
-                              onClick={(e) => handleDelete(conversation.id, e)}
-                              className="text-destructive focus:text-destructive"
-                            >
-                              <Trash2 className="h-4 w-4 mr-2" />
-                              Удалить
-                            </DropdownMenuItem>
-                          </DropdownMenuContent>
-                        </DropdownMenu>
-                      )}
-                    </div>
-                  ))}
-                </div>
+        <div className="p-2 space-y-4">
+          {/* Pinned conversations section */}
+          {pinnedConversations.length > 0 && (
+            <div>
+              <div className="px-2 py-1.5 text-[11px] font-medium text-muted-foreground uppercase tracking-wider flex items-center gap-1">
+                <Pin className="h-3 w-3" />
+                Закреплённые
               </div>
-            ))
+              <div className="space-y-0.5">
+                {pinnedConversations.map(renderConversationItem)}
+              </div>
+            </div>
+          )}
+
+          {/* Grouped conversations by date */}
+          {Array.from(groupedConversations.entries()).map(([group, convs]) => (
+            <div key={group}>
+              <div className="px-2 py-1.5 text-[11px] font-medium text-muted-foreground uppercase tracking-wider">
+                {group}
+              </div>
+              <div className="space-y-0.5">
+                {convs.map(renderConversationItem)}
+              </div>
+            </div>
+          ))}
+
+          {filteredConversations.length === 0 && (
+            <div className="px-2 py-8 text-center text-sm text-muted-foreground">
+              <History className="h-8 w-8 mx-auto mb-2 opacity-50" />
+              <p>{searchQuery ? "Чаты не найдены" : "Нет чатов"}</p>
+            </div>
           )}
         </div>
       </ScrollArea>
+
+      {/* Delete confirmation dialog */}
+      <AlertDialog open={deleteDialogOpen} onOpenChange={setDeleteDialogOpen}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Удалить чат?</AlertDialogTitle>
+            <AlertDialogDescription>
+              Это действие нельзя отменить. Чат и вся история сообщений будут удалены навсегда.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Отмена</AlertDialogCancel>
+            <AlertDialogAction 
+              onClick={handleConfirmDelete}
+              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+            >
+              Удалить
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   );
 }

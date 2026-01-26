@@ -13,6 +13,7 @@ export interface Conversation {
   role_id: string | null;
   title: string;
   is_active: boolean;
+  is_pinned?: boolean;
   created_at: string;
   updated_at: string;
 }

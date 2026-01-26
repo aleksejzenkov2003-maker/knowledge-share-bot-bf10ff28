@@ -43,6 +43,7 @@ export default function ChatFullscreen() {
     handleSelectConversation,
     deleteConversation,
     renameConversation,
+    pinConversation,
     stopGeneration,
     attachments,
     addAttachments,
@@ -102,12 +103,14 @@ export default function ChatFullscreen() {
           <ChatSidebarEnhanced
             conversations={conversations}
             activeConversationId={activeConversationId}
-            isLoading={conversationsLoading}
             onNewChat={handleNewChat}
             onSelectConversation={handleSelectConversation}
             onDeleteConversation={deleteConversation}
             onRenameConversation={renameConversation}
+            onPinConversation={pinConversation}
             roles={roles}
+            selectedRoleFilter="all"
+            onRoleFilterChange={() => {}}
             conversationRolesMap={conversationRolesMap}
           />
         )}

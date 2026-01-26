@@ -261,3 +261,25 @@ export function useDeleteConversation(userId: string | undefined) {
     },
   });
 }
+
+export function usePinConversation(userId: string | undefined) {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: async ({ id, isPinned }: { id: string; isPinned: boolean }) => {
+      const { error } = await supabase
+        .from("conversations")
+        .update({ is_pinned: isPinned })
+        .eq("id", id);
+
+      if (error) throw error;
+      return { id, isPinned };
+    },
+    onSuccess: ({ id, isPinned }) => {
+      queryClient.setQueryData<Conversation[]>(
+        chatQueryKeys.conversations(userId!),
+        (old) => old?.map((c) => c.id === id ? { ...c, is_pinned: isPinned } : c)
+      );
+    },
+  });
+}

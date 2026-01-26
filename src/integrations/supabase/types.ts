@@ -235,6 +235,7 @@ export type Database = {
           created_at: string | null
           id: string
           is_active: boolean | null
+          is_pinned: boolean | null
           role_id: string | null
           title: string
           updated_at: string | null
@@ -244,6 +245,7 @@ export type Database = {
           created_at?: string | null
           id?: string
           is_active?: boolean | null
+          is_pinned?: boolean | null
           role_id?: string | null
           title?: string
           updated_at?: string | null
@@ -253,6 +255,7 @@ export type Database = {
           created_at?: string | null
           id?: string
           is_active?: boolean | null
+          is_pinned?: boolean | null
           role_id?: string | null
           title?: string
           updated_at?: string | null
