@@ -203,7 +203,7 @@ export function ChatSidebarEnhanced({
       <div
         key={conversation.id}
         className={cn(
-          "group flex items-center gap-2 px-2 py-2 rounded-lg cursor-pointer transition-colors",
+          "group flex items-center gap-2 px-2 py-2 rounded-lg cursor-pointer transition-colors overflow-hidden",
           isActive
             ? "bg-sidebar-accent text-sidebar-accent-foreground"
             : "hover:bg-sidebar-accent/50"
@@ -244,53 +244,57 @@ export function ChatSidebarEnhanced({
             {conversation.is_pinned && (
               <Pin className="h-3 w-3 shrink-0 text-muted-foreground" />
             )}
-            <span className="flex-1 min-w-0 truncate text-sm text-sidebar-foreground">
-              {conversation.title || "Без названия"}
-            </span>
-            <DropdownMenu>
-              <DropdownMenuTrigger asChild>
-                <Button
-                  variant="ghost"
-                  size="icon"
-                  className="h-6 w-6 shrink-0 opacity-40 hover:opacity-100 transition-opacity"
-                  onClick={(e) => e.stopPropagation()}
-                >
-                  <MoreHorizontal className="h-4 w-4" />
-                </Button>
-              </DropdownMenuTrigger>
-              <DropdownMenuContent align="end" className="w-40">
-                <DropdownMenuItem onClick={(e) => {
-                  e.stopPropagation();
-                  handleTogglePin(conversation.id, !conversation.is_pinned);
-                }}>
-                  {conversation.is_pinned ? (
-                    <>
-                      <PinOff className="h-4 w-4 mr-2" />
-                      Открепить
-                    </>
-                  ) : (
-                    <>
-                      <Pin className="h-4 w-4 mr-2" />
-                      Закрепить
-                    </>
-                  )}
-                </DropdownMenuItem>
-                <DropdownMenuItem onClick={(e) => {
-                  e.stopPropagation();
-                  handleStartRename(conversation);
-                }}>
-                  <Pencil className="h-4 w-4 mr-2" />
-                  Переименовать
-                </DropdownMenuItem>
-                <DropdownMenuItem 
-                  onClick={(e) => handleDeleteClick(conversation.id, e)}
-                  className="text-destructive focus:text-destructive"
-                >
-                  <Trash2 className="h-4 w-4 mr-2" />
-                  Удалить
-                </DropdownMenuItem>
-              </DropdownMenuContent>
-            </DropdownMenu>
+            <div className="flex-1 min-w-0 overflow-hidden">
+              <span className="block truncate text-sm text-sidebar-foreground">
+                {conversation.title || "Без названия"}
+              </span>
+            </div>
+            <div className="shrink-0 ml-1">
+              <DropdownMenu>
+                <DropdownMenuTrigger asChild>
+                  <Button
+                    variant="ghost"
+                    size="icon"
+                    className="h-6 w-6 opacity-50 hover:opacity-100 transition-opacity"
+                    onClick={(e) => e.stopPropagation()}
+                  >
+                    <MoreHorizontal className="h-4 w-4" />
+                  </Button>
+                </DropdownMenuTrigger>
+                <DropdownMenuContent align="end" className="w-40">
+                  <DropdownMenuItem onClick={(e) => {
+                    e.stopPropagation();
+                    handleTogglePin(conversation.id, !conversation.is_pinned);
+                  }}>
+                    {conversation.is_pinned ? (
+                      <>
+                        <PinOff className="h-4 w-4 mr-2" />
+                        Открепить
+                      </>
+                    ) : (
+                      <>
+                        <Pin className="h-4 w-4 mr-2" />
+                        Закрепить
+                      </>
+                    )}
+                  </DropdownMenuItem>
+                  <DropdownMenuItem onClick={(e) => {
+                    e.stopPropagation();
+                    handleStartRename(conversation);
+                  }}>
+                    <Pencil className="h-4 w-4 mr-2" />
+                    Переименовать
+                  </DropdownMenuItem>
+                  <DropdownMenuItem 
+                    onClick={(e) => handleDeleteClick(conversation.id, e)}
+                    className="text-destructive focus:text-destructive"
+                  >
+                    <Trash2 className="h-4 w-4 mr-2" />
+                    Удалить
+                  </DropdownMenuItem>
+                </DropdownMenuContent>
+              </DropdownMenu>
+            </div>
           </>
         )}
       </div>
