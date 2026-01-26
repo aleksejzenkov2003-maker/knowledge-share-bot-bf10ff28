@@ -273,6 +273,12 @@ function DocumentGroupItem({
   );
 }
 
+// Helper function to extract base name from document name
+function extractBaseName(name: string): string {
+  // "Практика ППС - 1-1483-2024 (часть 1/46, стр. 1-50)" -> "Практика ППС - 1-1483-2024"
+  return name.replace(/\s*\(часть\s*\d+\/\d+.*\)$/i, '').trim();
+}
+
 export function DocumentTree({
   documents,
   folders,
@@ -333,7 +339,35 @@ export function DocumentTree({
     docs.forEach(d => processedIds.add(d.id));
   }
   
-  // Add remaining standalone documents
+  // NEW: Group remaining multi-part documents by base name (fallback for docs without parent_document_id)
+  const orphanMultiPartDocs = documents.filter(
+    d => !processedIds.has(d.id) && d.total_parts && d.total_parts > 1
+  );
+  
+  const baseNameGroups = new Map<string, Document[]>();
+  for (const doc of orphanMultiPartDocs) {
+    const baseName = extractBaseName(doc.name);
+    if (!baseNameGroups.has(baseName)) {
+      baseNameGroups.set(baseName, []);
+    }
+    baseNameGroups.get(baseName)!.push(doc);
+    processedIds.add(doc.id);
+  }
+  
+  // Create groups from base name grouping
+  for (const [baseName, docs] of baseNameGroups) {
+    if (docs.length > 0) {
+      // Sort by part_number
+      docs.sort((a, b) => (a.part_number || 0) - (b.part_number || 0));
+      groups.push({
+        parentDocument: null,
+        documents: docs,
+        isMultiPart: true,
+      });
+    }
+  }
+  
+  // Add remaining standalone documents (single documents without parts)
   for (const doc of documents) {
     if (!processedIds.has(doc.id)) {
       groups.push({
