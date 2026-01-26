@@ -7,6 +7,7 @@ import { ExternalLink, FileText, BookOpen, Globe, Eye, Loader2 } from "lucide-re
 import { Citation } from "@/types/chat";
 import { supabase } from "@/integrations/supabase/client";
 import { DocumentViewer } from "@/components/documents/DocumentViewer";
+import { toast } from "@/hooks/use-toast";
 
 interface SourcesPanelProps {
   ragContext?: string[];
@@ -86,24 +87,44 @@ export function SourcesPanel({
         return;
       }
 
-      // Extract document name from header like "[1] DocName | Section | Article"
-      const docMatch = documentInfo.match(/^\[?\d+\]?\s*(.+?)(?:\s*\||\s*\(|$)/);
-      const docName = docMatch?.[1]?.trim();
+      // Clean document name - remove leading index like "[1]" if present
+      let searchName = documentInfo.replace(/^\[\d+\]\s*/, '').trim();
       
-      if (!docName) {
-        console.log('Could not extract document name from:', documentInfo);
-        setLoadingSource(null);
-        return;
-      }
-      
-      // Query for document in database
-      const { data: docs } = await supabase
+      // First try exact match
+      let { data: docs } = await supabase
         .from('documents')
         .select('id, storage_path, name, file_name')
-        .or(`name.ilike.%${docName}%,file_name.ilike.%${docName}%`)
+        .eq('name', searchName)
         .limit(1);
       
+      // If not found, try without the part/page suffix
+      if (!docs?.length) {
+        const baseName = searchName.replace(/\s*\(часть.*$/, '').replace(/\s*\(стр\..*$/, '').trim();
+        console.log('Trying base name search:', baseName);
+        
+        ({ data: docs } = await supabase
+          .from('documents')
+          .select('id, storage_path, name, file_name')
+          .or(`name.ilike.%${baseName}%,file_name.ilike.%${baseName}%`)
+          .limit(5));
+        
+        // If multiple results, prefer one that matches the part number
+        if (docs && docs.length > 1) {
+          const partMatch = searchName.match(/часть\s*(\d+)/i);
+          if (partMatch) {
+            const partNum = partMatch[1];
+            const exactPart = docs.find(d => 
+              d.name?.includes(`часть ${partNum}`) || d.name?.includes(`часть${partNum}`)
+            );
+            if (exactPart) {
+              docs = [exactPart];
+            }
+          }
+        }
+      }
+      
       if (docs && docs.length > 0 && docs[0].storage_path) {
+        console.log('Found document:', docs[0].name);
         setViewerState({
           isOpen: true,
           documentId: docs[0].id,
@@ -113,10 +134,20 @@ export function SourcesPanel({
           pageNumber: extractPageNumber(documentInfo),
         });
       } else {
-        console.log('Document not found in storage:', docName);
+        console.log('Document not found in storage:', searchName);
+        toast({
+          title: "Документ не найден",
+          description: "Не удалось найти документ в хранилище",
+          variant: "destructive",
+        });
       }
     } catch (error) {
       console.error('Error opening document:', error);
+      toast({
+        title: "Ошибка",
+        description: "Не удалось открыть документ",
+        variant: "destructive",
+      });
     } finally {
       setLoadingSource(null);
     }

@@ -14,6 +14,7 @@ import { Citation } from "@/types/chat";
 import { Document, Packer, Paragraph, TextRun, HeadingLevel, AlignmentType } from "docx";
 import { saveAs } from "file-saver";
 import jsPDF from "jspdf";
+import html2canvas from "html2canvas";
 
 interface DownloadDropdownProps {
   content: string;
@@ -237,68 +238,77 @@ export function DownloadDropdown({
     }
   };
 
+  const date = new Date().toISOString().slice(0, 10);
+
   const handleDownloadPDF = async () => {
     setIsGenerating('pdf');
     try {
-      const doc = new jsPDF();
-      const pageWidth = doc.internal.pageSize.getWidth();
-      const margin = 20;
-      const maxWidth = pageWidth - 2 * margin;
-      let yPos = margin;
+      // Create a temporary container for rendering
+      const container = document.createElement('div');
+      container.style.cssText = `
+        position: fixed;
+        left: -9999px;
+        top: 0;
+        width: 800px;
+        padding: 40px;
+        font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+        font-size: 14px;
+        line-height: 1.6;
+        background: white;
+        color: black;
+      `;
       
-      // Add content
-      const fullContent = content + formatSources();
-      const lines = fullContent.split('\n');
+      // Convert markdown to HTML
+      const htmlContent = convertMarkdownToHtml(content);
+      const sourcesHtml = formatSourcesAsHtml();
       
-      for (const line of lines) {
-        if (yPos > doc.internal.pageSize.getHeight() - margin) {
-          doc.addPage();
-          yPos = margin;
-        }
-        
-        if (line.startsWith('# ')) {
-          doc.setFontSize(18);
-          doc.setFont('helvetica', 'bold');
-          const text = line.slice(2);
-          const splitText = doc.splitTextToSize(text, maxWidth);
-          doc.text(splitText, margin, yPos);
-          yPos += splitText.length * 8 + 6;
-        } else if (line.startsWith('## ')) {
-          doc.setFontSize(14);
-          doc.setFont('helvetica', 'bold');
-          const text = line.slice(3);
-          const splitText = doc.splitTextToSize(text, maxWidth);
-          doc.text(splitText, margin, yPos);
-          yPos += splitText.length * 6 + 4;
-        } else if (line.startsWith('### ')) {
-          doc.setFontSize(12);
-          doc.setFont('helvetica', 'bold');
-          const text = line.slice(4);
-          const splitText = doc.splitTextToSize(text, maxWidth);
-          doc.text(splitText, margin, yPos);
-          yPos += splitText.length * 5 + 3;
-        } else if (line.startsWith('---')) {
-          doc.setDrawColor(200);
-          doc.line(margin, yPos, pageWidth - margin, yPos);
-          yPos += 6;
-        } else if (line.trim() === '') {
-          yPos += 4;
-        } else {
-          doc.setFontSize(10);
-          doc.setFont('helvetica', 'normal');
-          // Remove markdown formatting for PDF
-          const cleanLine = line
-            .replace(/\*\*([^*]+)\*\*/g, '$1')
-            .replace(/\*([^*]+)\*/g, '$1')
-            .replace(/__([^_]+)__/g, '$1')
-            .replace(/_([^_]+)_/g, '$1');
-          const splitText = doc.splitTextToSize(cleanLine, maxWidth);
-          doc.text(splitText, margin, yPos);
-          yPos += splitText.length * 5;
-        }
+      container.innerHTML = `
+        <div style="margin-bottom: 20px;">
+          ${htmlContent}
+        </div>
+        ${sourcesHtml ? `
+          <hr style="margin: 30px 0; border: none; border-top: 1px solid #e5e7eb;" />
+          <div>
+            <h2 style="font-size: 18px; font-weight: bold; margin-bottom: 15px;">Источники ответа</h2>
+            ${sourcesHtml}
+          </div>
+        ` : ''}
+      `;
+      
+      document.body.appendChild(container);
+      
+      // Render to canvas
+      const canvas = await html2canvas(container, { 
+        scale: 2,
+        useCORS: true,
+        logging: false,
+      });
+      
+      document.body.removeChild(container);
+      
+      // Create PDF from canvas
+      const imgData = canvas.toDataURL('image/png');
+      const pdf = new jsPDF('p', 'mm', 'a4');
+      const pdfWidth = pdf.internal.pageSize.getWidth();
+      const pdfHeight = pdf.internal.pageSize.getHeight();
+      const imgWidth = pdfWidth - 20; // 10mm margin on each side
+      const imgHeight = (canvas.height * imgWidth) / canvas.width;
+      
+      // Handle multi-page PDFs
+      let heightLeft = imgHeight;
+      let position = 10; // Top margin
+      
+      pdf.addImage(imgData, 'PNG', 10, position, imgWidth, imgHeight);
+      heightLeft -= pdfHeight - 20;
+      
+      while (heightLeft > 0) {
+        position = heightLeft - imgHeight + 10;
+        pdf.addPage();
+        pdf.addImage(imgData, 'PNG', 10, position, imgWidth, imgHeight);
+        heightLeft -= pdfHeight - 20;
       }
       
-      doc.save(`response-${new Date().toISOString().slice(0, 10)}.pdf`);
+      pdf.save(`response-${date}.pdf`);
       
       toast({
         title: "Скачано",
@@ -314,6 +324,63 @@ export function DownloadDropdown({
     } finally {
       setIsGenerating(null);
     }
+  };
+
+  // Convert markdown to HTML for PDF rendering
+  const convertMarkdownToHtml = (text: string): string => {
+    return text
+      .replace(/^### (.+)$/gm, '<h3 style="font-size: 16px; font-weight: bold; margin: 15px 0 10px;">$1</h3>')
+      .replace(/^## (.+)$/gm, '<h2 style="font-size: 18px; font-weight: bold; margin: 18px 0 12px;">$1</h2>')
+      .replace(/^# (.+)$/gm, '<h1 style="font-size: 22px; font-weight: bold; margin: 20px 0 15px;">$1</h1>')
+      .replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>')
+      .replace(/\*(.+?)\*/g, '<em>$1</em>')
+      .replace(/^[-*] (.+)$/gm, '<li style="margin-left: 20px; margin-bottom: 5px;">$1</li>')
+      .replace(/^\d+\. (.+)$/gm, '<li style="margin-left: 20px; margin-bottom: 5px; list-style-type: decimal;">$1</li>')
+      .replace(/\n\n/g, '</p><p style="margin: 10px 0;">')
+      .replace(/\n/g, '<br/>')
+      .replace(/^/, '<p style="margin: 10px 0;">')
+      .replace(/$/, '</p>');
+  };
+
+  // Format sources as HTML for PDF
+  const formatSourcesAsHtml = (): string => {
+    const parts: string[] = [];
+    
+    if (ragContext && ragContext.length > 0) {
+      parts.push('<div style="margin-bottom: 15px;">');
+      parts.push('<h3 style="font-size: 14px; font-weight: bold; margin-bottom: 10px;">RAG-источники:</h3>');
+      parts.push('<ul style="margin: 0; padding-left: 20px;">');
+      ragContext.forEach((source, idx) => {
+        const firstLine = source.split('\n')[0] || source.slice(0, 100);
+        parts.push(`<li style="margin-bottom: 5px; font-size: 12px;">${firstLine}</li>`);
+      });
+      parts.push('</ul></div>');
+    }
+    
+    if (citations && citations.length > 0) {
+      parts.push('<div style="margin-bottom: 15px;">');
+      parts.push('<h3 style="font-size: 14px; font-weight: bold; margin-bottom: 10px;">Цитаты:</h3>');
+      parts.push('<ul style="margin: 0; padding-left: 20px;">');
+      citations.forEach((citation) => {
+        let citationText = `[${citation.index}] ${citation.document}`;
+        if (citation.section) citationText += ` | ${citation.section}`;
+        if (citation.article) citationText += ` | Ст. ${citation.article}`;
+        parts.push(`<li style="margin-bottom: 5px; font-size: 12px;">${citationText}</li>`);
+      });
+      parts.push('</ul></div>');
+    }
+    
+    if (webSearchCitations && webSearchCitations.length > 0) {
+      parts.push('<div style="margin-bottom: 15px;">');
+      parts.push('<h3 style="font-size: 14px; font-weight: bold; margin-bottom: 10px;">Веб-источники:</h3>');
+      parts.push('<ul style="margin: 0; padding-left: 20px;">');
+      webSearchCitations.forEach((url, idx) => {
+        parts.push(`<li style="margin-bottom: 5px; font-size: 12px;"><a href="${url}">${url}</a></li>`);
+      });
+      parts.push('</ul></div>');
+    }
+    
+    return parts.join('');
   };
 
   return (
