@@ -54,7 +54,7 @@ import {
 import { toast } from "sonner";
 import { Plus, Upload, FileText, Trash2, Eye, Loader2, RefreshCw, ImageIcon, X, Split, AlertTriangle, LayoutList, LayoutGrid } from "lucide-react";
 import { splitPdf, getPdfPageCount, generatePartFileName, SplitProgress, estimatePdfParts } from "@/components/documents/pdfSplitter";
-import { DocumentTree, Document as TreeDocument, DocumentFolder as TreeFolder } from "@/components/documents/DocumentTree";
+import { DocumentTree, Document as TreeDocument, DocumentFolder as TreeFolder, MissingPartsInfo } from "@/components/documents/DocumentTree";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 
 interface DocumentFolder {
@@ -143,6 +143,11 @@ export default function Documents() {
   const [splitWarningOpen, setSplitWarningOpen] = useState(false);
   const [pendingFile, setPendingFile] = useState<File | null>(null);
   const [estimatedParts, setEstimatedParts] = useState<number>(0);
+  
+  // Missing parts upload state
+  const [missingPartsDialogOpen, setMissingPartsDialogOpen] = useState(false);
+  const [missingPartsInfo, setMissingPartsInfo] = useState<MissingPartsInfo | null>(null);
+  const missingPartsFileInputRef = useRef<HTMLInputElement>(null);
 
   const [formData, setFormData] = useState({
     name: "",
@@ -575,6 +580,171 @@ export default function Documents() {
     return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
   };
 
+  // Handle upload missing parts
+  const handleUploadMissingParts = (info: MissingPartsInfo) => {
+    setMissingPartsInfo(info);
+    setMissingPartsDialogOpen(true);
+  };
+
+  const handleMissingPartsFileSelect = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file || !missingPartsInfo) return;
+
+    if (file.type !== 'application/pdf') {
+      toast.error("Выберите PDF файл");
+      return;
+    }
+
+    setUploading(true);
+    setMissingPartsDialogOpen(false);
+
+    try {
+      setUploadProgress({ stage: 'analyzing', message: 'Анализ PDF...', percent: 5 });
+      
+      const pageCount = await getPdfPageCount(file);
+      const parts = await splitPdf(file, PAGES_PER_PART, (progress: SplitProgress) => {
+        const percent = 10 + (progress.currentPart / progress.totalParts) * 30;
+        setUploadProgress({
+          stage: 'splitting',
+          currentPart: progress.currentPart,
+          totalParts: progress.totalParts,
+          message: `Разбиение: часть ${progress.currentPart} из ${progress.totalParts}`,
+          percent,
+        });
+      });
+
+      // Filter to only missing parts
+      const missingPartNumbers = new Set(missingPartsInfo.missingParts);
+      const partsToUpload = parts.filter(p => missingPartNumbers.has(p.partNumber));
+
+      if (partsToUpload.length === 0) {
+        toast.error("В выбранном файле нет недостающих частей");
+        setUploading(false);
+        setUploadProgress({ stage: 'idle', message: '', percent: 0 });
+        return;
+      }
+
+      toast.info(`Найдено ${partsToUpload.length} недостающих частей для загрузки`);
+
+      // Upload missing parts
+      const docIds: string[] = [];
+      for (let i = 0; i < partsToUpload.length; i++) {
+        const part = partsToUpload[i];
+        const partFileName = generatePartFileName(file.name, part.partNumber, missingPartsInfo.expectedParts);
+        const partDocName = `${missingPartsInfo.baseName} (часть ${part.partNumber}/${missingPartsInfo.expectedParts}, стр. ${part.pageStart}-${part.pageEnd})`;
+        
+        setUploadProgress({
+          stage: 'uploading',
+          currentPart: i + 1,
+          totalParts: partsToUpload.length,
+          message: `Загрузка части ${part.partNumber} (${i + 1} из ${partsToUpload.length})...`,
+          percent: 40 + ((i + 1) / partsToUpload.length) * 30,
+        });
+
+        // Upload with parent link
+        const docId = await uploadMissingPart(
+          part.blob,
+          partFileName,
+          partDocName,
+          missingPartsInfo.parentDocumentId,
+          part.partNumber,
+          missingPartsInfo.expectedParts,
+          missingPartsInfo.folderId,
+          missingPartsInfo.documentType
+        );
+        
+        if (docId) {
+          docIds.push(docId);
+        }
+      }
+
+      // Process uploaded parts
+      let successCount = 0;
+      for (let i = 0; i < docIds.length; i++) {
+        setUploadProgress({
+          stage: 'processing',
+          currentPart: i + 1,
+          totalParts: docIds.length,
+          message: `Обработка части ${i + 1} из ${docIds.length}...`,
+          percent: 70 + ((i + 1) / docIds.length) * 25,
+        });
+        
+        const success = await processDocument(docIds[i]);
+        if (success) successCount++;
+      }
+
+      setUploadProgress({ stage: 'complete', message: 'Готово!', percent: 100 });
+      
+      if (successCount === docIds.length) {
+        toast.success(`Успешно загружено и обработано ${docIds.length} недостающих частей`);
+      } else {
+        toast.warning(`Загружено ${docIds.length} частей. Успешно обработано: ${successCount}`);
+      }
+
+      fetchData();
+    } catch (error: any) {
+      console.error("Error uploading missing parts:", error);
+      toast.error(error.message || "Ошибка загрузки недостающих частей");
+    } finally {
+      setUploading(false);
+      setMissingPartsInfo(null);
+      if (missingPartsFileInputRef.current) {
+        missingPartsFileInputRef.current.value = "";
+      }
+      setTimeout(() => {
+        setUploadProgress({ stage: 'idle', message: '', percent: 0 });
+      }, 2000);
+    }
+  };
+
+  // Upload a single missing part
+  const uploadMissingPart = async (
+    file: Blob,
+    fileName: string,
+    docName: string,
+    parentId: string | null,
+    partNumber: number,
+    totalParts: number,
+    folderId: string | null,
+    documentType: string | null
+  ): Promise<string | null> => {
+    try {
+      const sanitizedName = sanitizeFileName(fileName);
+      const storagePath = `${Date.now()}-${sanitizedName}`;
+      
+      const { error: uploadError } = await supabase.storage
+        .from("rag-documents")
+        .upload(storagePath, file);
+
+      if (uploadError) throw uploadError;
+
+      const { data: doc, error: docError } = await supabase
+        .from("documents")
+        .insert({
+          name: docName,
+          file_name: fileName,
+          file_type: 'application/pdf',
+          file_size: file.size,
+          storage_path: storagePath,
+          folder_id: folderId,
+          document_type: documentType || 'auto',
+          status: "pending",
+          parent_document_id: parentId,
+          part_number: partNumber,
+          total_parts: totalParts,
+        })
+        .select()
+        .single();
+
+      if (docError) throw docError;
+
+      return doc.id;
+    } catch (error) {
+      console.error("Error uploading missing part:", error);
+      throw error;
+    }
+  };
+
   if (loading) {
     return (
       <div className="flex items-center justify-center h-64">
@@ -849,6 +1019,7 @@ export default function Documents() {
               onReprocess={handleReprocess}
               onViewChunks={handleViewChunks}
               onDelete={handleDelete}
+              onUploadMissingParts={handleUploadMissingParts}
               formatFileSize={formatFileSize}
             />
           ) : documents.length === 0 ? (
@@ -996,6 +1167,53 @@ export default function Documents() {
                   </CardContent>
                 </Card>
               ))
+            )}
+          </div>
+        </DialogContent>
+      </Dialog>
+
+      {/* Missing parts upload dialog */}
+      <Dialog open={missingPartsDialogOpen} onOpenChange={setMissingPartsDialogOpen}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Дозагрузить недостающие части</DialogTitle>
+          </DialogHeader>
+          <div className="space-y-4">
+            {missingPartsInfo && (
+              <>
+                <div className="p-3 bg-muted/50 rounded-lg space-y-2">
+                  <p className="font-medium">{missingPartsInfo.baseName}</p>
+                  <p className="text-sm text-muted-foreground">
+                    Загружено: {missingPartsInfo.existingParts.length} из {missingPartsInfo.expectedParts} частей
+                  </p>
+                  <p className="text-sm text-orange-600">
+                    Недостающие части: {missingPartsInfo.missingParts.slice(0, 10).join(', ')}
+                    {missingPartsInfo.missingParts.length > 10 ? ` и ещё ${missingPartsInfo.missingParts.length - 10}...` : ''}
+                  </p>
+                </div>
+                <div className="space-y-2">
+                  <Label>Выберите исходный PDF файл</Label>
+                  <Input
+                    type="file"
+                    ref={missingPartsFileInputRef}
+                    accept=".pdf"
+                    onChange={handleMissingPartsFileSelect}
+                  />
+                  <p className="text-xs text-muted-foreground">
+                    Система автоматически разобьёт файл и загрузит только недостающие части.
+                  </p>
+                </div>
+              </>
+            )}
+            
+            {uploading && uploadProgress.stage !== 'idle' && (
+              <div className="space-y-2 p-3 bg-muted/50 rounded-lg">
+                <div className="flex items-center gap-2">
+                  <Loader2 className="h-4 w-4 animate-spin" />
+                  <span className="text-sm font-medium">{uploadProgress.message}</span>
+                </div>
+                <Progress value={uploadProgress.percent} className="h-2" />
+              </div>
             )}
           </div>
         </DialogContent>
