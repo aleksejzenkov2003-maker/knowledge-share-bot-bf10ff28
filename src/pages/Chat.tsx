@@ -31,12 +31,15 @@ export default function Chat() {
   const [selectedRoleFilter, setSelectedRoleFilter] = useState("all");
   const messagesEndRef = useRef<HTMLDivElement>(null);
 
+  const initialConversationId = searchParams.get('conversationId');
+
   const {
     roles,
     selectedRoleId,
     setSelectedRoleId,
     conversations,
     activeConversationId,
+    setActiveConversationId,
     messages,
     isLoading,
     rolesLoading,
@@ -55,6 +58,16 @@ export default function Chat() {
     removeAttachment,
     clearAttachments,
   } = useOptimizedChat(user?.id, departmentId);
+
+  // Restore conversation from URL param on mount
+  useEffect(() => {
+    if (initialConversationId && !activeConversationId && conversations.length > 0) {
+      const exists = conversations.find(c => c.id === initialConversationId);
+      if (exists) {
+        setActiveConversationId(initialConversationId);
+      }
+    }
+  }, [initialConversationId, activeConversationId, conversations, setActiveConversationId]);
 
   // Fetch roles used in messages for each conversation
   const conversationIds = useMemo(() => conversations.map(c => c.id), [conversations]);
