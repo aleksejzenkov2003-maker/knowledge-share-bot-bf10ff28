@@ -20,6 +20,7 @@ export default defineConfig(({ mode }) => ({
   },
   optimizeDeps: {
     exclude: ['pdf-lib'],
+    include: ['pako'],
   },
   build: {
     rollupOptions: {
