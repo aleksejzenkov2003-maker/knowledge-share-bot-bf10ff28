@@ -84,6 +84,14 @@ export function DocumentViewer({
     setCurrentPage(pageNumber);
   }, [pageNumber]);
 
+  // Fallback: reset to page 1 if requested page exceeds total pages
+  useEffect(() => {
+    if (numPages > 0 && currentPage > numPages) {
+      console.log(`Page ${currentPage} exceeds numPages ${numPages}, resetting to 1`);
+      setCurrentPage(1);
+    }
+  }, [numPages, currentPage]);
+
   useEffect(() => {
     if (searchText) {
       setSearchQuery(searchText);
@@ -168,6 +176,7 @@ export function DocumentViewer({
     const searchLower = query.toLowerCase();
 
     try {
+      // First attempt: full phrase search
       for (let pageNum = 1; pageNum <= numPages; pageNum++) {
         const page = await pdfDocRef.current.getPage(pageNum);
         const textContent = await page.getTextContent();
@@ -179,6 +188,39 @@ export function DocumentViewer({
           matches.push({ pageIndex: pageNum, matchIndex });
           matchIndex++;
           startIndex += searchLower.length;
+        }
+      }
+
+      // Fallback: if no matches and query is long, try keyword search
+      if (matches.length === 0 && query.length > 20) {
+        const keywords = query
+          .split(/\s+/)
+          .filter(word => word.length > 4)
+          .slice(0, 3);
+        
+        if (keywords.length > 0) {
+          console.log('Trying keyword search with:', keywords);
+          
+          for (let pageNum = 1; pageNum <= numPages; pageNum++) {
+            const page = await pdfDocRef.current.getPage(pageNum);
+            const textContent = await page.getTextContent();
+            const pageText = textContent.items.map((item: any) => item.str).join(' ').toLowerCase();
+            
+            // Count how many keywords match on this page
+            const matchingKeywords = keywords.filter(kw => 
+              pageText.includes(kw.toLowerCase())
+            );
+            
+            // If at least 2 keywords match (or 1 if only 1 keyword), consider it a match
+            if (matchingKeywords.length >= Math.min(2, keywords.length)) {
+              matches.push({ pageIndex: pageNum, matchIndex: 0 });
+            }
+          }
+          
+          // Update highlighted text to first keyword for visual highlighting
+          if (matches.length > 0 && keywords[0]) {
+            setHighlightedText(keywords[0]);
+          }
         }
       }
 

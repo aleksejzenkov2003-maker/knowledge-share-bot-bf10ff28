@@ -52,15 +52,42 @@ export function SourcesPanel({
     }
   };
 
-  // Extract page number from document info (e.g., "стр. 1-10" or "часть 2/5")
+  // Extract page number from document info
+  // For document parts (e.g., "часть 2/46, стр. 51-100"), the internal PDF numbering starts from 1
   const extractPageNumber = (docInfo: string): number => {
-    const pageMatch = docInfo.match(/стр\.?\s*(\d+)/i);
-    if (pageMatch) return parseInt(pageMatch[1], 10);
-    
+    // Check if this is a document part
     const partMatch = docInfo.match(/часть\s*(\d+)/i);
-    if (partMatch) return parseInt(partMatch[1], 10) * 10 - 9; // Approximate page
+    const pageRangeMatch = docInfo.match(/стр\.?\s*(\d+)(?:\s*-\s*(\d+))?/i);
+    
+    if (pageRangeMatch) {
+      const pageStart = parseInt(pageRangeMatch[1], 10);
+      
+      // If this is a part with page range starting > 1, it means the PDF is split
+      // Each part has internal numbering starting from 1
+      if (partMatch && pageStart > 1) {
+        return 1; // Start from page 1 of this part
+      }
+      
+      // For non-split documents or first part, use the actual page number
+      return pageStart;
+    }
+    
+    // If only part is specified without page range, start from page 1
+    if (partMatch) {
+      return 1;
+    }
     
     return 1;
+  };
+
+  // Clean and truncate search text for better matching
+  const cleanSearchText = (text?: string): string | undefined => {
+    if (!text) return undefined;
+    
+    return text
+      .slice(0, 80) // First 80 characters
+      .replace(/\s+/g, ' ') // Normalize whitespace
+      .trim();
   };
 
   // Open document with highlight
@@ -80,7 +107,7 @@ export function SourcesPanel({
           documentId: citationData.document_id,
           storagePath: citationData.storage_path,
           documentName: citationData.document,
-          searchText: citationData.content_preview || contentPreview?.slice(0, 100),
+          searchText: cleanSearchText(citationData.content_preview || contentPreview),
           pageNumber: citationData.page_start || extractPageNumber(documentInfo),
         });
         setLoadingSource(null);
@@ -130,7 +157,7 @@ export function SourcesPanel({
           documentId: docs[0].id,
           storagePath: docs[0].storage_path,
           documentName: docs[0].name || docs[0].file_name,
-          searchText: contentPreview?.slice(0, 100),
+          searchText: cleanSearchText(contentPreview),
           pageNumber: extractPageNumber(documentInfo),
         });
       } else {
