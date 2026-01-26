@@ -244,8 +244,10 @@ export function ChatSidebarEnhanced({
             {conversation.is_pinned && (
               <Pin className="h-3 w-3 shrink-0 text-muted-foreground" />
             )}
-            <span className="flex-1 truncate text-sm text-sidebar-foreground min-w-0">
-              {conversation.title || "Без названия"}
+            <span className="flex-1 text-sm text-sidebar-foreground">
+              {(conversation.title || "Без названия").length > 28 
+                ? (conversation.title || "Без названия").slice(0, 28) + "..." 
+                : (conversation.title || "Без названия")}
             </span>
             <div className="shrink-0 w-6 flex-none">
               <DropdownMenu>
