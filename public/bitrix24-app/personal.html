@@ -100,7 +100,7 @@
   <script src="//api.bitrix24.com/api/v1/"></script>
   
   <!-- Knowledge Chat Widget SDK v3 -->
-  <script src="https://knowledge-share-bot.lovable.app/widget/bitrix-chat-widget-v3.js"></script>
+  <script src="https://admin.artpatent-content.ru/widget/bitrix-chat-widget-v3.js"></script>
   
   <script>
     (function() {
@@ -123,12 +123,43 @@
         // Initialize Bitrix24 SDK
         BX24.init(function() {
           try {
-            // Get placement info (portal domain, etc.)
-            var placement = BX24.placement.info();
-            var portal = placement.DOMAIN;
+            // Get portal domain using multiple methods with fallback
+            var portal = null;
+
+            console.log('[AI Assistant Personal] Определение домена портала...');
+
+            // Метод 1: BX24.getDomain() - основной для локальных приложений
+            if (typeof BX24.getDomain === 'function') {
+              portal = BX24.getDomain();
+              console.log('[AI Assistant Personal] BX24.getDomain():', portal);
+            }
+
+            // Метод 2: placement.info().DOMAIN - для placement-приложений
+            if (!portal) {
+              try {
+                var placement = BX24.placement.info();
+                portal = placement.DOMAIN || placement.domain;
+                console.log('[AI Assistant Personal] placement.info():', portal);
+              } catch (e) {
+                console.log('[AI Assistant Personal] placement.info() не доступен');
+              }
+            }
+
+            // Метод 3: Парсинг referrer
+            if (!portal && document.referrer) {
+              try {
+                var url = new URL(document.referrer);
+                if (url.hostname.includes('bitrix24')) {
+                  portal = url.hostname;
+                  console.log('[AI Assistant Personal] referrer:', portal);
+                }
+              } catch (e) {}
+            }
+
+            console.log('[AI Assistant Personal] Итоговый portal:', portal);
 
             if (!portal) {
-              showError('Не удалось определить домен портала Bitrix24.');
+              showError('Не удалось определить домен портала Bitrix24. Попробуйте перезагрузить страницу.');
               return;
             }
 
