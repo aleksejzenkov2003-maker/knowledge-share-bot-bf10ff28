@@ -516,6 +516,22 @@ export function useOptimizedChat(userId: string | undefined, departmentId: strin
       clearInterval(updateIntervalRef.current);
       updateIntervalRef.current = null;
     }
+    
+    // Preserve accumulated content instead of clearing it
+    const currentContent = streamingContentRef.current;
+    if (currentContent) {
+      setLocalMessages(prev => prev.map(m =>
+        m.isStreaming
+          ? { 
+              ...m, 
+              content: currentContent + "\n\n_[Генерация остановлена]_", 
+              isStreaming: false 
+            }
+          : m
+      ));
+    }
+    
+    setIsLoading(false);
   }, []);
 
   // Редактирование сообщения пользователя (удаляет последующие сообщения и отправляет новое)

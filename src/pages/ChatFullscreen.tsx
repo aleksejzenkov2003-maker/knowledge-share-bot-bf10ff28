@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef, useMemo } from "react";
-import { useNavigate } from "react-router-dom";
+import { useNavigate, useSearchParams } from "react-router-dom";
 import { Button } from "@/components/ui/button";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { 
@@ -20,9 +20,12 @@ import { useConversationRolesQuery } from "@/hooks/queries/useChatQueries";
 
 export default function ChatFullscreen() {
   const navigate = useNavigate();
+  const [searchParams] = useSearchParams();
+  const initialConversationId = searchParams.get('conversationId');
   const { user, isLoading: authLoading } = useAuth();
   const [sidebarOpen, setSidebarOpen] = useState(true);
   const [inputValue, setInputValue] = useState("");
+  const [selectedRoleFilter, setSelectedRoleFilter] = useState("all");
   const messagesEndRef = useRef<HTMLDivElement>(null);
 
   // Get user profile to fetch departmentId
@@ -34,6 +37,7 @@ export default function ChatFullscreen() {
     setSelectedRoleId,
     conversations,
     activeConversationId,
+    setActiveConversationId,
     messages,
     isLoading,
     conversationsLoading,
@@ -51,6 +55,13 @@ export default function ChatFullscreen() {
     editMessage,
     regenerateResponse,
   } = useOptimizedChat(user?.id, departmentId);
+
+  // Restore conversation from URL param on mount
+  useEffect(() => {
+    if (initialConversationId && !activeConversationId) {
+      setActiveConversationId(initialConversationId);
+    }
+  }, [initialConversationId, activeConversationId, setActiveConversationId]);
 
   // Fetch roles used in messages for each conversation
   const conversationIds = useMemo(() => conversations.map(c => c.id), [conversations]);
@@ -109,8 +120,8 @@ export default function ChatFullscreen() {
             onRenameConversation={renameConversation}
             onPinConversation={pinConversation}
             roles={roles}
-            selectedRoleFilter="all"
-            onRoleFilterChange={() => {}}
+            selectedRoleFilter={selectedRoleFilter}
+            onRoleFilterChange={setSelectedRoleFilter}
             conversationRolesMap={conversationRolesMap}
           />
         )}

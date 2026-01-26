@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef, useMemo } from "react";
-import { useNavigate } from "react-router-dom";
+import { useNavigate, useSearchParams } from "react-router-dom";
 import { useAuth } from "@/contexts/AuthContext";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -24,9 +24,11 @@ import { useConversationRolesQuery } from "@/hooks/queries/useChatQueries";
 
 export default function Chat() {
   const navigate = useNavigate();
+  const [searchParams] = useSearchParams();
   const { user, departmentId, isLoading: authLoading } = useAuth();
   const [sidebarOpen, setSidebarOpen] = useState(true);
   const [inputValue, setInputValue] = useState("");
+  const [selectedRoleFilter, setSelectedRoleFilter] = useState("all");
   const messagesEndRef = useRef<HTMLDivElement>(null);
 
   const {
@@ -119,8 +121,8 @@ export default function Chat() {
           onRenameConversation={renameConversation}
           onPinConversation={pinConversation}
           roles={roles}
-          selectedRoleFilter="all"
-          onRoleFilterChange={() => {}}
+          selectedRoleFilter={selectedRoleFilter}
+          onRoleFilterChange={setSelectedRoleFilter}
           conversationRolesMap={conversationRolesMap}
         />
       </div>
@@ -172,7 +174,7 @@ export default function Chat() {
             <Button 
               variant="ghost" 
               size="icon" 
-              onClick={() => navigate("/chat-fullscreen")}
+              onClick={() => navigate(`/chat-fullscreen${activeConversationId ? `?conversationId=${activeConversationId}` : ''}`)}
               className="h-8 w-8"
               title="Полноэкранный режим"
             >
