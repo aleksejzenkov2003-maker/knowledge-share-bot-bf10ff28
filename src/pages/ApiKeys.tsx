@@ -112,7 +112,11 @@ const ApiKeys = () => {
       .single();
 
     if (error) {
-      toast({ title: 'Ошибка', description: error.message, variant: 'destructive' });
+      let errorMessage = error.message;
+      if (error.code === '23505' || error.message.includes('idx_department_api_keys_portal_domain')) {
+        errorMessage = `Домен "${cleanDomain}" уже используется другим API-ключом. Каждый портал может иметь только один ключ.`;
+      }
+      toast({ title: 'Ошибка', description: errorMessage, variant: 'destructive' });
       return;
     }
 
