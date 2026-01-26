@@ -105,24 +105,27 @@ All colors MUST be HSL.
 }
 
 /* PDF Viewer highlight styles */
-.pdf-highlight {
-  background-color: hsl(50 100% 50% / 0.7) !important;
-  color: hsl(0 0% 0%) !important;
-  padding: 0 2px;
-  border-radius: 2px;
-  mix-blend-mode: multiply;
-}
-
 .react-pdf__Page__textContent {
-  opacity: 0.4;
+  opacity: 0.2; /* More transparent for regular text */
 }
 
 .react-pdf__Page__textContent span {
   position: relative;
 }
 
-.react-pdf__Page__textContent .pdf-highlight {
-  opacity: 1;
+.pdf-highlight {
+  opacity: 1 !important;
+  background-color: hsl(50 100% 50% / 0.9) !important;
+  color: hsl(0 0% 0%) !important;
+  padding: 2px 4px;
+  border-radius: 3px;
+  box-shadow: 0 0 8px hsl(50 100% 50% / 0.6);
+  animation: highlight-pulse 1.5s ease-in-out 2;
   position: relative;
-  z-index: 10;
+  z-index: 100;
+}
+
+@keyframes highlight-pulse {
+  0%, 100% { box-shadow: 0 0 8px hsl(50 100% 50% / 0.6); }
+  50% { box-shadow: 0 0 20px hsl(50 100% 50% / 1); }
 }
