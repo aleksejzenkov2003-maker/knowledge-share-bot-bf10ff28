@@ -1,7 +1,7 @@
 import React, { useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
-import { Pencil, RefreshCw, Check, X, Copy, CheckCheck, ChevronDown, Bot, Download } from "lucide-react";
+import { Pencil, RefreshCw, Check, X, Copy, CheckCheck, ChevronDown, Bot } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { toast } from "@/hooks/use-toast";
 import {
@@ -12,7 +12,8 @@ import {
   DropdownMenuSeparator,
   DropdownMenuLabel,
 } from "@/components/ui/dropdown-menu";
-import { ChatRole } from "@/types/chat";
+import { ChatRole, Citation } from "@/types/chat";
+import { DownloadDropdown } from "./DownloadDropdown";
 
 interface MessageActionsProps {
   messageId: string;
@@ -23,6 +24,9 @@ interface MessageActionsProps {
   onRegenerateResponse?: (messageId: string, roleId?: string) => void;
   availableRoles?: ChatRole[];
   currentRoleId?: string;
+  ragContext?: string[];
+  citations?: Citation[];
+  webSearchCitations?: string[];
 }
 
 export function MessageActions({
@@ -34,11 +38,13 @@ export function MessageActions({
   onRegenerateResponse,
   availableRoles = [],
   currentRoleId,
+  ragContext,
+  citations,
+  webSearchCitations,
 }: MessageActionsProps) {
   const [isEditing, setIsEditing] = useState(false);
   const [editContent, setEditContent] = useState(content);
   const [copied, setCopied] = useState(false);
-
   const handleCopy = async () => {
     try {
       // Try to copy as rich text (HTML + plain text)
@@ -67,23 +73,7 @@ export function MessageActions({
     }
   };
 
-  const handleDownload = () => {
-    const blob = new Blob([content], { type: 'text/markdown;charset=utf-8' });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = `response-${new Date().toISOString().slice(0, 10)}.md`;
-    document.body.appendChild(a);
-    a.click();
-    document.body.removeChild(a);
-    URL.revokeObjectURL(url);
-    
-    toast({
-      title: "Скачано",
-      description: "Файл сохранён",
-    });
-  };
-
+  // handleDownload removed - now using DownloadDropdown component
   const handleEdit = () => {
     setEditContent(content);
     setIsEditing(true);
@@ -154,15 +144,12 @@ export function MessageActions({
       </Button>
 
       {role === "assistant" && (
-        <Button
-          variant="ghost"
-          size="sm"
-          className="h-7 px-2 text-xs"
-          onClick={handleDownload}
-        >
-          <Download className="h-3 w-3 mr-1" />
-          Скачать
-        </Button>
+        <DownloadDropdown
+          content={content}
+          ragContext={ragContext}
+          citations={citations}
+          webSearchCitations={webSearchCitations}
+        />
       )}
 
       {role === "user" && onEditMessage && (
