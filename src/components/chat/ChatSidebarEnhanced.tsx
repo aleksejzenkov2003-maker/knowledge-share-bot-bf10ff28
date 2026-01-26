@@ -252,12 +252,7 @@ export function ChatSidebarEnhanced({
                 <Button
                   variant="ghost"
                   size="icon"
-                  className={cn(
-                    "h-6 w-6 shrink-0 relative z-10",
-                    isActive 
-                      ? "opacity-70 hover:opacity-100" 
-                      : "opacity-0 group-hover:opacity-70 hover:!opacity-100"
-                  )}
+                  className="h-6 w-6 shrink-0 opacity-40 hover:opacity-100 transition-opacity"
                   onClick={(e) => e.stopPropagation()}
                 >
                   <MoreHorizontal className="h-4 w-4" />
