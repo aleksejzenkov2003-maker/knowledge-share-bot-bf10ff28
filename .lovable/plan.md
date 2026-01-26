@@ -1,111 +1,112 @@
 
-# План исправления навигации по страницам в PDF Viewer
+# План улучшения подсветки текста в PDF Viewer
 
 ## Проблема
-При открытии документа "Практика ППС - 1-1483-2024 (часть 2/46, стр. 51-100)" система передаёт номер страницы **51** в PDF viewer, но сам PDF-файл этой части содержит только 50 страниц (внутренняя нумерация 1-50). Это приводит к ошибке "Invalid page request".
+При открытии документа с цитатой, найденный текст должен быть подсвечен желтым цветом, но это не работает корректно.
 
-## Причина
-Функция `extractPageNumber` в `SourcesPanel.tsx` парсит название документа и извлекает первое число после "стр." — то есть 51 для диапазона "стр. 51-100". Но каждая часть PDF внутри себя нумеруется с 1.
+## Причины
+
+1. **Текст разбит между span'ами** — PDF.js разбивает текст на множество элементов `<span>`, и искомая фраза часто распределена между несколькими span. Текущий код ищет совпадение только внутри одного span.
+
+2. **Низкая видимость** — CSS правило `opacity: 0.4` делает весь текстовый слой почти невидимым, включая подсветку.
+
+3. **Недостаточное время ожидания** — 500мс может быть мало для отрисовки текстового слоя.
 
 ---
 
 ## Решение
 
-### 1. Исправить `extractPageNumber` в `SourcesPanel.tsx`
+### 1. Улучшить алгоритм подсветки (DocumentViewer.tsx)
 
-Изменить логику так, чтобы вычислять **внутреннюю страницу** файла:
-
-```typescript
-const extractPageNumber = (docInfo: string): number => {
-  // Извлекаем диапазон страниц "стр. 51-100"
-  const pageRangeMatch = docInfo.match(/стр\.?\s*(\d+)(?:\s*-\s*(\d+))?/i);
-  
-  if (pageRangeMatch) {
-    const pageStart = parseInt(pageRangeMatch[1], 10);
-    const pageEnd = pageRangeMatch[2] ? parseInt(pageRangeMatch[2], 10) : pageStart;
-    const pagesPerPart = pageEnd - pageStart + 1; // 50 страниц на часть
-    
-    // Для частей: внутренняя нумерация всегда начинается с 1
-    // Если это не первая часть (pageStart > 1), возвращаем 1
-    if (pageStart > 1) {
-      return 1; // Начинаем с первой страницы внутри части
-    }
-  }
-  
-  // Fallback для "часть X"
-  const partMatch = docInfo.match(/часть\s*(\d+)/i);
-  if (partMatch) {
-    return 1; // Каждая часть начинается со страницы 1
-  }
-  
-  return 1;
-};
-```
-
-### 2. Улучшить поиск текста
-
-Проблема: поиск слишком длинного/специфичного текста не даёт результатов.
-
-**Решение в `SourcesPanel.tsx`:**
-
-```typescript
-// Ограничить searchText до первых 50-80 символов
-// и убрать спецсимволы которые могут мешать поиску
-const cleanSearchText = (text?: string): string | undefined => {
-  if (!text) return undefined;
-  
-  return text
-    .slice(0, 80) // Первые 80 символов
-    .replace(/\s+/g, ' ') // Нормализовать пробелы
-    .trim();
-};
-```
-
-### 3. Добавить fallback на первую страницу в `DocumentViewer.tsx`
+Использовать поиск по всему тексту страницы и подсвечивать отдельные слова:
 
 ```typescript
 useEffect(() => {
-  // Если переданный pageNumber больше чем numPages, сбросить на 1
-  if (numPages > 0 && currentPage > numPages) {
-    console.log(`Page ${currentPage} exceeds numPages ${numPages}, resetting to 1`);
-    setCurrentPage(1);
-  }
-}, [numPages, currentPage]);
-```
+  if (!highlightedText || !containerRef.current) return;
 
-### 4. Улучшить логику поиска в `DocumentViewer.tsx`
+  const timeoutId = setTimeout(() => {
+    const textLayer = containerRef.current?.querySelector('.react-pdf__Page__textContent');
+    if (!textLayer) return;
 
-Если полный текст не найден, пробовать искать по ключевым словам:
+    const spans = textLayer.querySelectorAll('span');
+    
+    // Разбиваем искомый текст на слова для более надежного поиска
+    const searchWords = highlightedText
+      .toLowerCase()
+      .split(/\s+/)
+      .filter(w => w.length > 3); // Слова длиннее 3 символов
+    
+    if (searchWords.length === 0) return;
 
-```typescript
-const performSearch = async (query: string) => {
-  // ... существующий код ...
-  
-  // Если ничего не найдено, попробовать поиск по отдельным словам
-  if (matches.length === 0 && query.length > 20) {
-    const keywords = query.split(/\s+/).filter(w => w.length > 4).slice(0, 3);
-    for (const keyword of keywords) {
-      // Повторить поиск по ключевому слову
+    spans.forEach((span) => {
+      const text = span.textContent || '';
+      const textLower = text.toLowerCase();
+      
+      // Проверяем, содержит ли span любое из ключевых слов
+      const matchingWord = searchWords.find(word => textLower.includes(word));
+      
+      if (matchingWord) {
+        // Подсвечиваем найденное слово
+        const regex = new RegExp(`(${matchingWord.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')})`, 'gi');
+        span.innerHTML = text.replace(regex, '<mark class="pdf-highlight">$1</mark>');
+      }
+    });
+
+    // Прокрутка к первому совпадению
+    const firstHighlight = textLayer.querySelector('.pdf-highlight');
+    if (firstHighlight) {
+      firstHighlight.scrollIntoView({ behavior: 'smooth', block: 'center' });
     }
-  }
-};
+  }, 800); // Увеличить задержку для надежности
+
+  return () => clearTimeout(timeoutId);
+}, [highlightedText, currentPage, numPages]);
 ```
+
+### 2. Улучшить CSS для видимости подсветки (index.css)
+
+```css
+/* Сделать текстовый слой более прозрачным, но подсветку яркой */
+.react-pdf__Page__textContent {
+  opacity: 0.2; /* Еще прозрачнее для обычного текста */
+}
+
+.react-pdf__Page__textContent .pdf-highlight {
+  opacity: 1 !important;
+  background-color: hsl(50 100% 50% / 0.9) !important; /* Ярче */
+  color: hsl(0 0% 0%) !important;
+  padding: 2px 4px;
+  border-radius: 3px;
+  box-shadow: 0 0 8px hsl(50 100% 50% / 0.6); /* Свечение */
+  animation: highlight-pulse 1.5s ease-in-out 2; /* Анимация пульсации */
+  position: relative;
+  z-index: 100;
+}
+
+@keyframes highlight-pulse {
+  0%, 100% { box-shadow: 0 0 8px hsl(50 100% 50% / 0.6); }
+  50% { box-shadow: 0 0 20px hsl(50 100% 50% / 1); }
+}
+```
+
+### 3. Добавить автопрокрутку к найденному тексту
+
+Добавить `scrollIntoView` после применения подсветки, чтобы пользователь сразу видел результат.
 
 ---
 
-## Файлы для изменения
+## Итоговые изменения
 
 | Файл | Изменение |
 |------|-----------|
-| `src/components/chat/SourcesPanel.tsx` | Исправить `extractPageNumber` — всегда возвращать страницу 1 для частей документа |
-| `src/components/documents/DocumentViewer.tsx` | Добавить проверку: если `currentPage > numPages`, сбросить на 1 |
-| `src/components/documents/DocumentViewer.tsx` | Улучшить поиск — использовать более короткий текст и fallback на ключевые слова |
+| `src/components/documents/DocumentViewer.tsx` | Улучшить алгоритм подсветки — искать по отдельным словам, добавить автопрокрутку к первому совпадению |
+| `src/index.css` | Усилить визуальный эффект подсветки — добавить свечение и анимацию пульсации |
 
 ---
 
 ## Ожидаемый результат
 
-1. При клике на "часть 2/46, стр. 51-100" откроется страница **1** (не 51)
-2. Поиск будет работать по первым 50-80 символам текста
-3. Если страница превышает количество страниц в документе — автоматический сброс на страницу 1
-4. Если полный текст не найден — поиск по ключевым словам
+1. При открытии документа ключевые слова из цитаты будут подсвечены желтым
+2. Подсветка будет яркой и заметной благодаря свечению
+3. Страница автоматически прокрутится к первому найденному слову
+4. Анимация пульсации привлечет внимание к подсвеченному тексту
