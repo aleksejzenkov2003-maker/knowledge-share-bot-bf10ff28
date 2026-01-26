@@ -1,5 +1,5 @@
-import { useState } from "react";
-import { ChevronRight, ChevronDown, FileText, Folder, MoreVertical, RefreshCw, Eye, Trash2, AlertCircle, CheckCircle, Loader2 } from "lucide-react";
+import { useState, forwardRef } from "react";
+import { ChevronRight, ChevronDown, FileText, Folder, MoreVertical, RefreshCw, Eye, Trash2, AlertCircle, CheckCircle, Loader2, Upload } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import {
@@ -15,6 +15,15 @@ import {
 } from "@/components/ui/collapsible";
 import { cn } from "@/lib/utils";
 
+export interface MissingPartsInfo {
+  parentDocumentId: string | null;
+  baseName: string;
+  folderId: string | null;
+  documentType: string | null;
+  expectedParts: number;
+  existingParts: number[];
+  missingParts: number[];
+}
 export interface Document {
   id: string;
   name: string;
@@ -50,6 +59,7 @@ interface DocumentTreeProps {
   onReprocess: (doc: Document) => void;
   onViewChunks: (doc: Document) => void;
   onDelete: (doc: Document) => void;
+  onUploadMissingParts?: (info: MissingPartsInfo) => void;
   formatFileSize: (bytes: number | null) => string;
 }
 
@@ -162,6 +172,7 @@ function DocumentGroupItem({
   onReprocess,
   onViewChunks,
   onDelete,
+  onUploadMissingParts,
   formatFileSize,
   folders,
 }: {
@@ -169,6 +180,7 @@ function DocumentGroupItem({
   onReprocess: (doc: Document) => void;
   onViewChunks: (doc: Document) => void;
   onDelete: (doc: Document) => void;
+  onUploadMissingParts?: (info: MissingPartsInfo) => void;
   formatFileSize: (bytes: number | null) => string;
   folders: DocumentFolder[];
 }) {
@@ -205,8 +217,32 @@ function DocumentGroupItem({
   const actualParts = group.documents.length;
   const isIncomplete = expectedParts > 1 && actualParts < expectedParts;
   
+  // Calculate missing parts
+  const existingParts = group.documents.map(d => d.part_number || 0).filter(n => n > 0);
+  const missingParts: number[] = [];
+  for (let i = 1; i <= expectedParts; i++) {
+    if (!existingParts.includes(i)) {
+      missingParts.push(i);
+    }
+  }
+  
   // Extract base name without part info for display
   const baseName = parentDoc.name.replace(/\s*\(часть\s*\d+\/\d+.*\)$/i, '').trim();
+  
+  const handleUploadMissing = (e: React.MouseEvent) => {
+    e.stopPropagation();
+    if (onUploadMissingParts) {
+      onUploadMissingParts({
+        parentDocumentId: group.parentDocument?.id || group.documents[0]?.parent_document_id || null,
+        baseName,
+        folderId: parentDoc.folder_id,
+        documentType: parentDoc.document_type,
+        expectedParts,
+        existingParts,
+        missingParts,
+      });
+    }
+  };
   
   return (
     <Collapsible open={isOpen} onOpenChange={setIsOpen}>
@@ -249,10 +285,26 @@ function DocumentGroupItem({
               </div>
             </div>
           </div>
+          {isIncomplete && onUploadMissingParts && (
+            <Button 
+              variant="outline" 
+              size="sm" 
+              className="ml-2 text-orange-600 border-orange-400 hover:bg-orange-50"
+              onClick={handleUploadMissing}
+            >
+              <Upload className="h-3 w-3 mr-1" />
+              Дозагрузить
+            </Button>
+          )}
         </div>
       </CollapsibleTrigger>
       <CollapsibleContent>
         <div className="space-y-1 mt-1">
+          {isIncomplete && missingParts.length > 0 && (
+            <div className="ml-6 border-l-2 border-orange-300 pl-4 py-2 text-sm text-orange-600">
+              Недостающие части: {missingParts.slice(0, 10).join(', ')}{missingParts.length > 10 ? ` и ещё ${missingParts.length - 10}...` : ''}
+            </div>
+          )}
           {group.documents
             .sort((a, b) => (a.part_number || 0) - (b.part_number || 0))
             .map(doc => (
@@ -285,6 +337,7 @@ export function DocumentTree({
   onReprocess,
   onViewChunks,
   onDelete,
+  onUploadMissingParts,
   formatFileSize,
 }: DocumentTreeProps) {
   // Group documents by parent_document_id
@@ -400,6 +453,7 @@ export function DocumentTree({
           onReprocess={onReprocess}
           onViewChunks={onViewChunks}
           onDelete={onDelete}
+          onUploadMissingParts={onUploadMissingParts}
           formatFileSize={formatFileSize}
           folders={folders}
         />
