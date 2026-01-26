@@ -1,7 +1,7 @@
 import React, { useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
-import { Pencil, RefreshCw, Check, X, Copy, CheckCheck, ChevronDown, Bot } from "lucide-react";
+import { Pencil, RefreshCw, Check, X, Copy, CheckCheck, ChevronDown, Bot, Download } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { toast } from "@/hooks/use-toast";
 import {
@@ -41,7 +41,21 @@ export function MessageActions({
 
   const handleCopy = async () => {
     try {
-      await navigator.clipboard.writeText(content);
+      // Try to copy as rich text (HTML + plain text)
+      const htmlContent = `<div style="white-space: pre-wrap; font-family: system-ui, -apple-system, sans-serif;">${content.replace(/\n/g, '<br>')}</div>`;
+      
+      try {
+        await navigator.clipboard.write([
+          new ClipboardItem({
+            'text/html': new Blob([htmlContent], { type: 'text/html' }),
+            'text/plain': new Blob([content], { type: 'text/plain' }),
+          }),
+        ]);
+      } catch {
+        // Fallback to plain text
+        await navigator.clipboard.writeText(content);
+      }
+      
       setCopied(true);
       setTimeout(() => setCopied(false), 2000);
     } catch {
@@ -51,6 +65,23 @@ export function MessageActions({
         variant: "destructive",
       });
     }
+  };
+
+  const handleDownload = () => {
+    const blob = new Blob([content], { type: 'text/markdown;charset=utf-8' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `response-${new Date().toISOString().slice(0, 10)}.md`;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+    
+    toast({
+      title: "Скачано",
+      description: "Файл сохранён",
+    });
   };
 
   const handleEdit = () => {
@@ -121,6 +152,18 @@ export function MessageActions({
         )}
         {copied ? "Скопировано" : "Копировать"}
       </Button>
+
+      {role === "assistant" && (
+        <Button
+          variant="ghost"
+          size="sm"
+          className="h-7 px-2 text-xs"
+          onClick={handleDownload}
+        >
+          <Download className="h-3 w-3 mr-1" />
+          Скачать
+        </Button>
+      )}
 
       {role === "user" && onEditMessage && (
         <Button

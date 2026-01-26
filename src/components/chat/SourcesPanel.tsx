@@ -2,8 +2,10 @@ import React from "react";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Badge } from "@/components/ui/badge";
-import { ExternalLink, FileText, BookOpen, Globe } from "lucide-react";
+import { Button } from "@/components/ui/button";
+import { ExternalLink, FileText, BookOpen, Globe, Eye } from "lucide-react";
 import { Citation } from "@/types/chat";
+import { supabase } from "@/integrations/supabase/client";
 
 interface SourcesPanelProps {
   ragContext?: string[];
@@ -31,6 +33,45 @@ export function SourcesPanel({
       return new URL(url).hostname.replace('www.', '');
     } catch {
       return url;
+    }
+  };
+
+  // Open document from storage
+  const openDocument = async (documentInfo: string) => {
+    try {
+      // Try to extract document name and find it in storage
+      // Format: "[1] DocName | Section | Article"
+      const docMatch = documentInfo.match(/^\[?\d+\]?\s*(.+?)(?:\s*\||\s*\(|$)/);
+      const docName = docMatch?.[1]?.trim();
+      
+      if (!docName) {
+        console.log('Could not extract document name from:', documentInfo);
+        return;
+      }
+      
+      // Query for document in database
+      const { data: docs } = await supabase
+        .from('documents')
+        .select('id, storage_path, file_name')
+        .or(`name.ilike.%${docName}%,file_name.ilike.%${docName}%`)
+        .limit(1);
+      
+      if (docs && docs.length > 0 && docs[0].storage_path) {
+        // Get signed URL for the document
+        const { data: signedUrl } = await supabase.storage
+          .from('rag-documents')
+          .createSignedUrl(docs[0].storage_path, 3600); // 1 hour expiry
+        
+        if (signedUrl?.signedUrl) {
+          window.open(signedUrl.signedUrl, '_blank');
+          return;
+        }
+      }
+      
+      // If not found, show message
+      console.log('Document not found in storage:', docName);
+    } catch (error) {
+      console.error('Error opening document:', error);
     }
   };
 
@@ -85,13 +126,24 @@ export function SourcesPanel({
                   key={idx}
                   className="p-3 rounded-lg bg-muted/50 border border-border/50"
                 >
-                  <div className="flex items-start gap-2 mb-2">
-                    <Badge variant="outline" className="shrink-0 font-mono">
-                      [{docNum}]
-                    </Badge>
-                    <span className="text-sm font-medium text-foreground line-clamp-2">
-                      {docInfo}
-                    </span>
+                  <div className="flex items-start justify-between gap-2 mb-2">
+                    <div className="flex items-start gap-2 min-w-0 flex-1">
+                      <Badge variant="outline" className="shrink-0 font-mono">
+                        [{docNum}]
+                      </Badge>
+                      <span className="text-sm font-medium text-foreground line-clamp-2">
+                        {docInfo}
+                      </span>
+                    </div>
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      className="h-7 px-2 shrink-0"
+                      onClick={() => openDocument(docInfo)}
+                      title="Открыть документ"
+                    >
+                      <Eye className="h-3.5 w-3.5" />
+                    </Button>
                   </div>
                   <p className="text-xs text-muted-foreground line-clamp-4">
                     {content}
