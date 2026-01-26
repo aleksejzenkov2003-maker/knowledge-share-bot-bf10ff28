@@ -11,9 +11,15 @@ import {
   Loader2,
   Search,
   X,
-  Filter,
+  MoreHorizontal,
   Bot
 } from "lucide-react";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
 import {
   Select,
   SelectContent,
@@ -34,6 +40,7 @@ interface ChatSidebarEnhancedProps {
   onDeleteConversation: (id: string) => void;
   onRenameConversation: (id: string, title: string) => void;
   roles?: ChatRole[];
+  conversationRolesMap?: Map<string, string[]>;
 }
 
 interface ConversationGroup {
@@ -69,7 +76,6 @@ function groupConversationsByDate(conversations: Conversation[]): ConversationGr
     }
   });
 
-  // Return only non-empty groups
   return groups.filter(g => g.conversations.length > 0);
 }
 
@@ -82,25 +88,38 @@ export function ChatSidebarEnhanced({
   onDeleteConversation,
   onRenameConversation,
   roles = [],
+  conversationRolesMap = new Map(),
 }: ChatSidebarEnhancedProps) {
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editingTitle, setEditingTitle] = useState("");
   const [searchQuery, setSearchQuery] = useState("");
   const [selectedRoleFilter, setSelectedRoleFilter] = useState<string>("all");
+  const [isSearchOpen, setIsSearchOpen] = useState(false);
 
-  // Get unique roles used in conversations
+  // Get all unique roles used across all conversations (from conversation.role_id + message metadata)
   const usedRoles = useMemo(() => {
-    const roleIds = new Set(conversations.map(c => c.role_id).filter(Boolean));
+    const roleIds = new Set<string>();
+    
+    conversations.forEach(c => {
+      if (c.role_id) roleIds.add(c.role_id);
+      const messageRoles = conversationRolesMap.get(c.id) || [];
+      messageRoles.forEach(rid => roleIds.add(rid));
+    });
+    
     return roles.filter(r => roleIds.has(r.id));
-  }, [conversations, roles]);
+  }, [conversations, roles, conversationRolesMap]);
 
-  // Filter conversations by search query and role
+  // Filter conversations by search query and role (including roles used in messages)
   const filteredConversations = useMemo(() => {
     let filtered = conversations;
     
-    // Filter by role
+    // Filter by role - check conversation.role_id AND roles used in messages
     if (selectedRoleFilter !== "all") {
-      filtered = filtered.filter(conv => conv.role_id === selectedRoleFilter);
+      filtered = filtered.filter(conv => {
+        if (conv.role_id === selectedRoleFilter) return true;
+        const messageRoles = conversationRolesMap.get(conv.id) || [];
+        return messageRoles.includes(selectedRoleFilter);
+      });
     }
     
     // Filter by search query
@@ -112,16 +131,15 @@ export function ChatSidebarEnhanced({
     }
     
     return filtered;
-  }, [conversations, searchQuery, selectedRoleFilter]);
+  }, [conversations, searchQuery, selectedRoleFilter, conversationRolesMap]);
 
-  // Group filtered conversations by date
   const groupedConversations = useMemo(() => 
     groupConversationsByDate(filteredConversations),
     [filteredConversations]
   );
 
-  const handleStartEdit = (conversation: Conversation, e: React.MouseEvent) => {
-    e.stopPropagation();
+  const handleStartEdit = (conversation: Conversation, e?: React.MouseEvent) => {
+    e?.stopPropagation();
     setEditingId(conversation.id);
     setEditingTitle(conversation.title);
   };
@@ -133,87 +151,94 @@ export function ChatSidebarEnhanced({
     setEditingId(null);
   };
 
-  const handleDelete = (id: string, e: React.MouseEvent) => {
-    e.stopPropagation();
+  const handleDelete = (id: string, e?: React.MouseEvent) => {
+    e?.stopPropagation();
     onDeleteConversation(id);
   };
 
-  const getRoleName = (roleId: string | null) => {
-    if (!roleId) return null;
-    const role = roles.find(r => r.id === roleId);
-    return role?.name || null;
+  const toggleSearch = () => {
+    setIsSearchOpen(!isSearchOpen);
+    if (isSearchOpen) {
+      setSearchQuery("");
+    }
   };
 
   return (
     <div className="flex flex-col h-full bg-sidebar">
-      {/* New Chat Button */}
-      <div className="p-3">
-        <Button 
-          onClick={onNewChat} 
-          className="w-full justify-start gap-2 rounded-lg"
-          variant="outline"
-        >
-          <Plus className="h-4 w-4" />
-          Новый чат
-        </Button>
-      </div>
-
-      {/* Search */}
-      <div className="px-3 pb-2">
-        <div className="relative">
-          <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
-          <Input
-            value={searchQuery}
-            onChange={(e) => setSearchQuery(e.target.value)}
-            placeholder="Поиск в чатах..."
-            className="pl-9 pr-8 h-9 bg-sidebar-accent/50 border-sidebar-border rounded-lg"
-          />
-          {searchQuery && (
-            <Button
-              variant="ghost"
-              size="icon"
-              className="absolute right-1 top-1/2 -translate-y-1/2 h-6 w-6"
-              onClick={() => setSearchQuery("")}
-            >
-              <X className="h-3 w-3" />
-            </Button>
-          )}
+      {/* Header with New Chat + Search + Filter */}
+      <div className="p-2 space-y-2">
+        {/* Top row: New Chat + Search toggle */}
+        <div className="flex items-center gap-1">
+          <Button 
+            onClick={onNewChat} 
+            className="flex-1 justify-start gap-2 h-9"
+            variant="outline"
+            size="sm"
+          >
+            <Plus className="h-4 w-4" />
+            Новый чат
+          </Button>
+          
+          <Button
+            variant="ghost"
+            size="icon"
+            className="h-9 w-9 shrink-0"
+            onClick={toggleSearch}
+          >
+            <Search className="h-4 w-4" />
+          </Button>
         </div>
-      </div>
 
-      {/* Role Filter */}
-      {usedRoles.length > 0 && (
-        <div className="px-3 pb-2">
+        {/* Collapsible search */}
+        {isSearchOpen && (
+          <div className="relative">
+            <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-muted-foreground" />
+            <Input
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+              placeholder="Поиск..."
+              className="pl-8 pr-7 h-8 text-sm bg-sidebar-accent/50 border-sidebar-border"
+              autoFocus
+            />
+            {searchQuery && (
+              <Button
+                variant="ghost"
+                size="icon"
+                className="absolute right-0.5 top-1/2 -translate-y-1/2 h-6 w-6"
+                onClick={() => setSearchQuery("")}
+              >
+                <X className="h-3 w-3" />
+              </Button>
+            )}
+          </div>
+        )}
+
+        {/* Role filter - only show if there are roles to filter */}
+        {usedRoles.length > 1 && (
           <Select value={selectedRoleFilter} onValueChange={setSelectedRoleFilter}>
-            <SelectTrigger className="h-9 bg-sidebar-accent/50 border-sidebar-border rounded-lg">
-              <div className="flex items-center gap-2">
-                <Filter className="h-4 w-4 text-muted-foreground" />
+            <SelectTrigger className="h-8 text-xs bg-sidebar-accent/50 border-sidebar-border">
+              <div className="flex items-center gap-1.5 truncate">
+                <Bot className="h-3.5 w-3.5 text-muted-foreground shrink-0" />
                 <SelectValue placeholder="Все помощники" />
               </div>
             </SelectTrigger>
             <SelectContent>
               <SelectItem value="all">
-                <div className="flex items-center gap-2">
-                  <Bot className="h-4 w-4" />
-                  <span>Все помощники</span>
-                </div>
+                <span className="text-sm">Все помощники</span>
               </SelectItem>
               {usedRoles.map(role => (
                 <SelectItem key={role.id} value={role.id}>
-                  <div className="flex items-center gap-2">
-                    <Bot className="h-4 w-4" />
-                    <span>{role.name}</span>
-                  </div>
+                  <span className="text-sm">{role.name}</span>
                 </SelectItem>
               ))}
             </SelectContent>
           </Select>
-        </div>
-      )}
+        )}
+      </div>
       
       {/* Conversations List */}
       <ScrollArea className="flex-1">
-        <div className="px-2 pb-2">
+        <div className="px-1.5 pb-2">
           {isLoading ? (
             <div className="flex items-center justify-center py-8">
               <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" />
@@ -225,9 +250,9 @@ export function ChatSidebarEnhanced({
             </div>
           ) : (
             groupedConversations.map((group) => (
-              <div key={group.label} className="mb-4">
+              <div key={group.label} className="mb-3">
                 {/* Group Label */}
-                <div className="px-2 py-1.5 text-xs font-medium text-muted-foreground uppercase tracking-wider">
+                <div className="px-2 py-1 text-[11px] font-medium text-muted-foreground uppercase tracking-wider">
                   {group.label}
                 </div>
                 
@@ -238,7 +263,7 @@ export function ChatSidebarEnhanced({
                       key={conversation.id}
                       onClick={() => onSelectConversation(conversation)}
                       className={cn(
-                        "group flex items-center gap-2 px-2 py-2 rounded-lg cursor-pointer transition-colors",
+                        "group flex items-center gap-2 px-2 py-1.5 rounded-md cursor-pointer transition-colors",
                         "hover:bg-sidebar-accent",
                         activeConversationId === conversation.id && "bg-sidebar-accent"
                       )}
@@ -255,47 +280,53 @@ export function ChatSidebarEnhanced({
                             if (e.key === "Escape") setEditingId(null);
                           }}
                           onClick={(e) => e.stopPropagation()}
-                          className="h-6 text-sm bg-background"
+                          className="h-6 text-sm bg-background flex-1"
                           autoFocus
                         />
                       ) : (
-                        <div className="flex-1 min-w-0">
-                          <span className="block truncate text-sm text-sidebar-foreground">
-                            {conversation.title || "Без названия"}
-                          </span>
-                          {/* Show role name as subtle badge */}
-                          {getRoleName(conversation.role_id) && (
-                            <span className="text-xs text-muted-foreground truncate">
-                              {getRoleName(conversation.role_id)}
-                            </span>
-                          )}
-                        </div>
+                        <span className="flex-1 truncate text-sm text-sidebar-foreground">
+                          {conversation.title || "Без названия"}
+                        </span>
                       )}
                       
-                      {/* Actions - always visible on active, hover on others */}
-                      <div className={cn(
-                        "flex items-center gap-0.5 transition-opacity",
-                        activeConversationId === conversation.id 
-                          ? "opacity-100" 
-                          : "opacity-0 group-hover:opacity-100"
-                      )}>
-                        <Button
-                          variant="ghost"
-                          size="icon"
-                          className="h-6 w-6 hover:bg-background/50"
-                          onClick={(e) => handleStartEdit(conversation, e)}
-                        >
-                          <Pencil className="h-3 w-3" />
-                        </Button>
-                        <Button
-                          variant="ghost"
-                          size="icon"
-                          className="h-6 w-6 text-destructive hover:text-destructive hover:bg-destructive/10"
-                          onClick={(e) => handleDelete(conversation.id, e)}
-                        >
-                          <Trash2 className="h-3 w-3" />
-                        </Button>
-                      </div>
+                      {/* Three-dot menu - ChatGPT style */}
+                      {editingId !== conversation.id && (
+                        <DropdownMenu>
+                          <DropdownMenuTrigger asChild>
+                            <Button
+                              variant="ghost"
+                              size="icon"
+                              className={cn(
+                                "h-6 w-6 shrink-0 transition-opacity",
+                                activeConversationId === conversation.id 
+                                  ? "opacity-100" 
+                                  : "opacity-0 group-hover:opacity-100"
+                              )}
+                              onClick={(e) => e.stopPropagation()}
+                            >
+                              <MoreHorizontal className="h-4 w-4" />
+                            </Button>
+                          </DropdownMenuTrigger>
+                          <DropdownMenuContent align="end" className="w-40">
+                            <DropdownMenuItem 
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                handleStartEdit(conversation);
+                              }}
+                            >
+                              <Pencil className="h-4 w-4 mr-2" />
+                              Переименовать
+                            </DropdownMenuItem>
+                            <DropdownMenuItem 
+                              onClick={(e) => handleDelete(conversation.id, e)}
+                              className="text-destructive focus:text-destructive"
+                            >
+                              <Trash2 className="h-4 w-4 mr-2" />
+                              Удалить
+                            </DropdownMenuItem>
+                          </DropdownMenuContent>
+                        </DropdownMenu>
+                      )}
                     </div>
                   ))}
                 </div>
