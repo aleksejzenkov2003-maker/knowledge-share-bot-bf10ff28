@@ -321,25 +321,46 @@ export function DocumentViewer({
   useEffect(() => {
     if (!highlightedText || !containerRef.current) return;
 
-    // Small delay to ensure text layer is rendered
+    // Longer delay to ensure text layer is fully rendered
     const timeoutId = setTimeout(() => {
       const textLayer = containerRef.current?.querySelector('.react-pdf__Page__textContent');
       if (!textLayer) return;
 
       const spans = textLayer.querySelectorAll('span');
-      const searchLower = highlightedText.toLowerCase();
+      
+      // Split search text into keywords for more reliable matching
+      const searchWords = highlightedText
+        .toLowerCase()
+        .split(/\s+/)
+        .filter(w => w.length > 3); // Words longer than 3 characters
+      
+      if (searchWords.length === 0) return;
+
+      let highlightCount = 0;
 
       spans.forEach((span) => {
         const text = span.textContent || '';
         const textLower = text.toLowerCase();
         
-        if (textLower.includes(searchLower)) {
-          // Wrap matching text in mark elements
-          const regex = new RegExp(`(${highlightedText.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')})`, 'gi');
+        // Check if span contains any of the keywords
+        const matchingWord = searchWords.find(word => textLower.includes(word));
+        
+        if (matchingWord) {
+          // Highlight the matching word
+          const regex = new RegExp(`(${matchingWord.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')})`, 'gi');
           span.innerHTML = text.replace(regex, '<mark class="pdf-highlight">$1</mark>');
+          highlightCount++;
         }
       });
-    }, 500);
+
+      console.log(`Highlighted ${highlightCount} spans with keywords from: "${highlightedText.slice(0, 50)}..."`);
+
+      // Scroll to first match
+      const firstHighlight = textLayer.querySelector('.pdf-highlight');
+      if (firstHighlight) {
+        firstHighlight.scrollIntoView({ behavior: 'smooth', block: 'center' });
+      }
+    }, 800); // Increased delay for reliability
 
     return () => clearTimeout(timeoutId);
   }, [highlightedText, currentPage, numPages]);
