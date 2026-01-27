@@ -328,10 +328,17 @@ export function useOptimizedDepartmentChat(userId: string | undefined, departmen
     setIsGenerating(true);
     streamingContentRef.current = "";
 
+    // Формируем историю сообщений с attachments для персистентного контекста документов
     const historyForContext = localMessages.slice(-20).map(m => ({
       role: m.message_role,
       content: m.content,
-      agent_name: m.metadata?.agent_name
+      agent_name: m.metadata?.agent_name,
+      attachments: m.metadata?.attachments?.map(a => ({
+        file_path: a.file_path,
+        file_name: a.file_name,
+        file_type: a.file_type,
+        file_size: a.file_size,
+      })) || [],
     }));
 
     try {
