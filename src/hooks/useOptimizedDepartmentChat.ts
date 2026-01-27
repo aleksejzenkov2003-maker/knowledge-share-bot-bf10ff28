@@ -129,42 +129,44 @@ export function useOptimizedDepartmentChat(userId: string | undefined, departmen
     }
   }, [dbMessages, isGenerating]);
 
-  // Parse @mention from message - supports multiple formats
+  // Parse @mention from message - supports multiple formats including multi-word triggers
   const parseMention = useCallback((text: string): { agentId: string | null; cleanText: string } => {
-    // Match @trigger at the start of message (handles multi-word triggers like "ТЗ консультант")
-    const mentionRegex = /^@([^\n]+?)(?:\s+|$)/;
-    const match = text.match(mentionRegex);
-
-    if (!match) {
+    if (!text.startsWith('@')) {
       return { agentId: null, cleanText: text };
     }
 
-    const trigger = match[1].trim().toLowerCase();
-    
-    // Try to find agent by various matching strategies
-    const agent = availableAgents.find(a => {
-      const slugLower = a.slug.toLowerCase();
-      const mentionLower = a.mention_trigger?.replace('@', '').toLowerCase().trim();
-      const nameLower = a.name.toLowerCase().trim();
-      
-      // Match by: exact mention_trigger, slug, or name
-      return (
-        slugLower === trigger ||
-        mentionLower === trigger ||
-        nameLower === trigger ||
-        // Partial match for multi-word names
-        trigger.startsWith(slugLower) ||
-        (mentionLower && trigger.startsWith(mentionLower)) ||
-        trigger.startsWith(nameLower)
-      );
+    const textLower = text.toLowerCase();
+
+    // Sort agents by trigger length (longest first) to match "ТЗ консультант" before "ТЗ"
+    const sortedAgents = [...availableAgents].sort((a, b) => {
+      const aLen = (a.mention_trigger || `@${a.slug}`).length;
+      const bLen = (b.mention_trigger || `@${b.slug}`).length;
+      return bLen - aLen; // Descending order
     });
 
-    if (agent) {
-      // Remove the full matched trigger from text
-      const cleanText = text.replace(/^@[^\n]+?\s*/, '').trim();
-      return { agentId: agent.id, cleanText };
+    for (const agent of sortedAgents) {
+      // Build list of possible triggers for this agent
+      const triggers = [
+        agent.mention_trigger?.toLowerCase().trim(),
+        `@${agent.slug}`.toLowerCase(),
+        `@${agent.name.toLowerCase().trim()}`
+      ].filter((t): t is string => Boolean(t));
+
+      for (const trigger of triggers) {
+        // Normalize trigger (ensure it starts with @)
+        const normalizedTrigger = trigger.startsWith('@') ? trigger : `@${trigger}`;
+        
+        // Check if text starts with trigger followed by space or end of string
+        if (textLower.startsWith(normalizedTrigger) && 
+            (textLower.length === normalizedTrigger.length || textLower[normalizedTrigger.length] === ' ')) {
+          const cleanText = text.slice(normalizedTrigger.length).trim();
+          console.log('parseMention matched:', { trigger: normalizedTrigger, agent: agent.name, cleanText });
+          return { agentId: agent.id, cleanText };
+        }
+      }
     }
 
+    console.log('parseMention: no agent matched for text:', text.slice(0, 50));
     return { agentId: null, cleanText: text };
   }, [availableAgents]);
 
