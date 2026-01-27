@@ -2248,10 +2248,11 @@ async function handleDocumentSearch(url: URL, supabase: any): Promise<Response> 
       .trim();
 
     // Search for documents matching the name
+    // Note: Values with special characters (spaces, Cyrillic) must be quoted for PostgREST
     const { data: docs, error } = await supabase
       .from('documents')
       .select('id, storage_path, name, file_name')
-      .or(`name.eq.${name},name.ilike.%${baseName}%,file_name.ilike.%${baseName}%`)
+      .or(`name.eq."${name}",name.ilike."%${baseName}%",file_name.ilike."%${baseName}%"`)
       .eq('status', 'ready')
       .limit(10);
 
