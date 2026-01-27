@@ -211,13 +211,37 @@ export function SourcesPanel({
           const baseName = searchName.replace(/\s*\(часть.*$/, '').replace(/\s*\(стр\..*$/, '').trim();
           console.log('Trying base name search:', baseName);
           
-          // Note: Values with special characters must be quoted for PostgREST
+          // Use ilike with proper wildcard syntax for PostgREST
           const { data: partialData } = await supabase
             .from('documents')
             .select('id, storage_path, name, file_name')
-            .or(`name.ilike."%${baseName}%",file_name.ilike."%${baseName}%"`)
+            .or(`name.ilike.*${baseName}*,file_name.ilike.*${baseName}*`)
             .limit(5);
           docs = partialData;
+        }
+
+        // Still not found? Try searching via document_chunks content
+        if (!docs?.length && contentPreview) {
+          console.log('Trying reverse lookup via document_chunks content');
+          const searchContent = contentPreview.slice(0, 100).trim();
+          
+          const { data: chunkData } = await supabase
+            .from('document_chunks')
+            .select('document_id, documents!inner(id, storage_path, name, file_name)')
+            .ilike('content', `*${searchContent.slice(0, 50)}*`)
+            .limit(1);
+          
+          if (chunkData && chunkData.length > 0) {
+            const doc = chunkData[0].documents as any;
+            if (doc) {
+              docs = [{
+                id: doc.id,
+                storage_path: doc.storage_path,
+                name: doc.name,
+                file_name: doc.file_name
+              }];
+            }
+          }
         }
       }
       

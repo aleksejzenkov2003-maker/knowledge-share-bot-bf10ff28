@@ -137,14 +137,17 @@ export function DocumentViewer({
           .from('documents')
           .select('storage_path, name')
           .eq('id', documentId)
-          .single();
+          .maybeSingle();
 
         if (docError) throw docError;
+        if (!doc) {
+          throw new Error('Документ не найден в базе данных');
+        }
         path = doc?.storage_path;
       }
 
       if (!path) {
-        throw new Error('Путь к документу не найден');
+        throw new Error('Путь к документу не указан в базе данных');
       }
 
       // Get signed URL via API for Bitrix context
@@ -170,11 +173,31 @@ export function DocumentViewer({
         }
       } else {
         // Standard Supabase flow for admin context
+        // First check if file exists
+        const { data: fileList, error: listError } = await supabase.storage
+          .from('rag-documents')
+          .list('', { 
+            search: path.split('/').pop() || path,
+            limit: 1
+          });
+
+        if (listError) {
+          console.error('Storage list error:', listError);
+        }
+
+        // Create signed URL
         const { data: signedUrl, error: urlError } = await supabase.storage
           .from('rag-documents')
           .createSignedUrl(path, 3600);
 
-        if (urlError) throw urlError;
+        if (urlError) {
+          console.error('Signed URL error:', urlError);
+          // Check if it's a "not found" error
+          if (urlError.message?.includes('not found') || urlError.message?.includes('Object not found')) {
+            throw new Error(`Файл не найден в хранилище: ${path}`);
+          }
+          throw urlError;
+        }
 
         if (signedUrl?.signedUrl) {
           setDocumentUrl(signedUrl.signedUrl);
@@ -184,10 +207,11 @@ export function DocumentViewer({
       }
     } catch (err) {
       console.error('Error loading document:', err);
-      setError(err instanceof Error ? err.message : 'Ошибка загрузки документа');
+      const errorMessage = err instanceof Error ? err.message : 'Ошибка загрузки документа';
+      setError(errorMessage);
       toast({
         title: "Ошибка",
-        description: "Не удалось загрузить документ",
+        description: errorMessage,
         variant: "destructive",
       });
     } finally {
