@@ -27,6 +27,8 @@ interface MentionInputProps {
   attachments?: Attachment[];
   onAttach?: (files: File[]) => void;
   onRemoveAttachment?: (id: string) => void;
+  onToggleAttachmentKnowledgeBase?: (id: string, value: boolean) => void;
+  showKnowledgeBaseOption?: boolean;
 }
 
 export const MentionInput: React.FC<MentionInputProps> = ({
@@ -38,6 +40,8 @@ export const MentionInput: React.FC<MentionInputProps> = ({
   attachments = [],
   onAttach,
   onRemoveAttachment,
+  onToggleAttachmentKnowledgeBase,
+  showKnowledgeBaseOption = false,
 }) => {
   const [value, setValue] = useState('');
   const [showSuggestions, setShowSuggestions] = useState(false);
@@ -253,10 +257,12 @@ export const MentionInput: React.FC<MentionInputProps> = ({
       )}
 
       {/* Attachment Preview */}
-      {hasFileSupport && (
+      {hasFileSupport && attachments.length > 0 && (
         <AttachmentPreview 
           attachments={attachments} 
-          onRemove={onRemoveAttachment!} 
+          onRemove={onRemoveAttachment!}
+          onToggleKnowledgeBase={onToggleAttachmentKnowledgeBase}
+          showKnowledgeBaseOption={showKnowledgeBaseOption}
         />
       )}
 

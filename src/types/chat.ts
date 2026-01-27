@@ -42,6 +42,7 @@ export interface Attachment {
   file_size: number;
   preview_url?: string;
   status: 'pending' | 'uploading' | 'uploaded' | 'error';
+  addToKnowledgeBase?: boolean; // Whether to save this attachment to knowledge base
 }
 
 export interface Message {
