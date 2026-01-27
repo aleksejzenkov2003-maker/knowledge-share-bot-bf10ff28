@@ -61,9 +61,36 @@ function DepartmentChatMessageComponent({
   const isGenerating = isAssistant && !message.content;
 
   const handleCopy = async () => {
+    const showSuccess = () => {
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2000);
+    };
+
+    const fallbackCopy = () => {
+      try {
+        const textarea = document.createElement('textarea');
+        textarea.value = message.content;
+        textarea.style.position = 'fixed';
+        textarea.style.left = '-9999px';
+        textarea.style.opacity = '0';
+        document.body.appendChild(textarea);
+        textarea.select();
+        const success = document.execCommand('copy');
+        document.body.removeChild(textarea);
+        if (success) {
+          showSuccess();
+          return true;
+        }
+      } catch (e) {
+        console.error('execCommand copy failed:', e);
+      }
+      return false;
+    };
+
     try {
       const htmlContent = `<div style="white-space: pre-wrap; font-family: system-ui, -apple-system, sans-serif;">${message.content.replace(/\n/g, '<br>')}</div>`;
       
+      // Try modern Clipboard API with HTML + plain text
       try {
         await navigator.clipboard.write([
           new ClipboardItem({
@@ -71,16 +98,30 @@ function DepartmentChatMessageComponent({
             'text/plain': new Blob([message.content], { type: 'text/plain' }),
           }),
         ]);
-      } catch {
-        await navigator.clipboard.writeText(message.content);
+        showSuccess();
+        return;
+      } catch (clipboardWriteError) {
+        console.log('ClipboardItem not supported, trying writeText:', clipboardWriteError);
       }
-      
-      setCopied(true);
-      setTimeout(() => setCopied(false), 2000);
-    } catch {
+
+      // Fallback: plain text via writeText
+      try {
+        await navigator.clipboard.writeText(message.content);
+        showSuccess();
+        return;
+      } catch (writeTextError) {
+        console.log('writeText failed, trying execCommand:', writeTextError);
+      }
+
+      // Last resort: execCommand
+      if (fallbackCopy()) return;
+
+      throw new Error('All copy methods failed');
+    } catch (err) {
+      console.error('Copy failed:', err);
       toast({
         title: "Ошибка",
-        description: "Не удалось скопировать текст",
+        description: "Не удалось скопировать. Выделите текст и скопируйте вручную (Ctrl+C).",
         variant: "destructive",
       });
     }
