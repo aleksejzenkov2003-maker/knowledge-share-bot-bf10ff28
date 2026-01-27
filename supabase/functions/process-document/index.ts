@@ -1343,11 +1343,78 @@ serve(async (req) => {
       const fileName = doc.file_name?.toLowerCase() || '';
       
       // IMPORTANT: Check file extensions FIRST (before MIME types) since MIME can be unreliable
+      // Priority: Extension > MIME type to avoid misidentification
+      
+      // 1. DOCX - Check FIRST because MIME types for Office files are often wrong
       if (
+        fileName.endsWith('.docx') ||
+        fileName.endsWith('.doc')
+      ) {
+        console.log('Processing DOCX/Word document by extension...');
+        
+        try {
+          const arrayBuffer = await fileData.arrayBuffer();
+          const bytes = new Uint8Array(arrayBuffer);
+          
+          if (fileName.endsWith('.docx')) {
+            // DOCX - это ZIP архив. Используем библиотеку для распаковки и парсинга
+            const JSZip = (await import("https://esm.sh/jszip@3.10.1")).default;
+            const zip = await JSZip.loadAsync(bytes);
+            
+            // Главный контент находится в word/document.xml
+            const documentXml = await zip.file("word/document.xml")?.async("string");
+            
+            if (documentXml) {
+              // Восстанавливаем абзацы - каждый <w:p> это параграф
+              const paragraphs: string[] = [];
+              const pMatches = documentXml.match(/<w:p[^>]*>[\s\S]*?<\/w:p>/g) || [];
+              
+              for (const pMatch of pMatches) {
+                const textParts = pMatch.match(/<w:t[^>]*>([^<]*)<\/w:t>/g) || [];
+                const paraText = textParts
+                  .map(t => t.replace(/<w:t[^>]*>/, '').replace(/<\/w:t>/, ''))
+                  .join('');
+                if (paraText.trim()) {
+                  paragraphs.push(paraText.trim());
+                }
+              }
+              
+              text = paragraphs.join('\n\n');
+              
+              console.log(`Extracted ${paragraphs.length} paragraphs from DOCX, text length: ${text.length}`);
+            }
+            
+            // Декодируем HTML entities если есть
+            text = text
+              .replace(/&lt;/g, '<')
+              .replace(/&gt;/g, '>')
+              .replace(/&amp;/g, '&')
+              .replace(/&quot;/g, '"')
+              .replace(/&apos;/g, "'")
+              .replace(/&#(\d+);/g, (_, code) => String.fromCharCode(parseInt(code)));
+          } else {
+            // DOC (старый формат) - пробуем извлечь текст
+            console.log('Processing legacy .doc file...');
+            const decoder = new TextDecoder('utf-8', { fatal: false });
+            const rawText = decoder.decode(bytes);
+            
+            // Извлекаем читаемый текст из бинарного DOC
+            const textParts = rawText.match(/[A-Za-zА-Яа-яЁё0-9\s.,;:!?()«»"\-—–]{10,}/g) || [];
+            text = textParts.join(' ').replace(/\s+/g, ' ').trim();
+          }
+        } catch (docxError) {
+          console.error('DOCX extraction failed:', docxError);
+          text = `[DOCX Document: ${doc.file_name}] - Не удалось извлечь текст. Ошибка: ${docxError}`;
+        }
+        
+        if (text.length < 100) {
+          text = `[DOCX Document: ${doc.file_name}] - Не удалось извлечь текст из документа.`;
+        }
+      } else if (
         fileName.endsWith('.csv') || 
         fileType.includes('csv')
       ) {
-        // CSV Processing
+        // 2. CSV Processing
         console.log('Processing CSV file...');
         
         try {
@@ -1365,7 +1432,7 @@ serve(async (req) => {
         fileType.includes('excel') ||
         fileType.includes('vnd.ms-excel')
       ) {
-        // Excel XLS/XLSX Processing - MUST come before PDF check!
+        // 3. Excel XLS/XLSX Processing
         console.log('Processing Excel file:', fileName);
         
         try {
@@ -1430,8 +1497,10 @@ serve(async (req) => {
           text = `[Excel Document: ${doc.file_name}] - Не удалось извлечь данные из таблицы.`;
         }
       } else if (fileName.endsWith('.txt') || fileName.endsWith('.md') || fileType.includes('text')) {
+        // 4. Text files
         text = await fileData.text();
       } else if (fileName.endsWith('.pdf') || fileType.includes('pdf')) {
+        // 5. PDF Processing
         console.log('Processing PDF with unpdf library...');
         
         try {
@@ -1486,25 +1555,21 @@ serve(async (req) => {
         }
       } else if (
         fileType.includes('word') || 
-        fileType.includes('officedocument.wordprocessingml') ||
-        doc.file_name?.toLowerCase().endsWith('.docx') ||
-        doc.file_name?.toLowerCase().endsWith('.doc')
+        fileType.includes('officedocument.wordprocessingml')
       ) {
-        console.log('Processing DOCX/Word document...');
+        // 6. Word by MIME type (fallback if extension didn't match)
+        console.log('Processing Word document by MIME type...');
         
         try {
           const arrayBuffer = await fileData.arrayBuffer();
           const bytes = new Uint8Array(arrayBuffer);
           
-          // DOCX - это ZIP архив. Используем библиотеку для распаковки и парсинга
           const JSZip = (await import("https://esm.sh/jszip@3.10.1")).default;
           const zip = await JSZip.loadAsync(bytes);
           
-          // Главный контент находится в word/document.xml
           const documentXml = await zip.file("word/document.xml")?.async("string");
           
           if (documentXml) {
-            // Восстанавливаем абзацы - каждый <w:p> это параграф
             const paragraphs: string[] = [];
             const pMatches = documentXml.match(/<w:p[^>]*>[\s\S]*?<\/w:p>/g) || [];
             
@@ -1519,11 +1584,9 @@ serve(async (req) => {
             }
             
             text = paragraphs.join('\n\n');
-            
-            console.log(`Extracted ${paragraphs.length} paragraphs from DOCX, text length: ${text.length}`);
+            console.log(`Extracted ${paragraphs.length} paragraphs from Word doc, text length: ${text.length}`);
           }
           
-          // Декодируем HTML entities если есть
           text = text
             .replace(/&lt;/g, '<')
             .replace(/&gt;/g, '>')
@@ -1533,12 +1596,12 @@ serve(async (req) => {
             .replace(/&#(\d+);/g, (_, code) => String.fromCharCode(parseInt(code)));
             
         } catch (docxError) {
-          console.error('DOCX extraction failed:', docxError);
-          text = `[DOCX Document: ${doc.file_name}] - Не удалось извлечь текст. Ошибка: ${docxError}`;
+          console.error('Word extraction failed:', docxError);
+          text = `[Word Document: ${doc.file_name}] - Не удалось извлечь текст. Ошибка: ${docxError}`;
         }
         
         if (text.length < 100) {
-          text = `[DOCX Document: ${doc.file_name}] - Не удалось извлечь текст из документа.`;
+          text = `[Word Document: ${doc.file_name}] - Не удалось извлечь текст из документа.`;
         }
       } else {
         try {
