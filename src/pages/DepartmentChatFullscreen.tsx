@@ -1,12 +1,15 @@
-import { useState, useEffect, useRef } from "react";
+import { useState, useEffect, useRef, useMemo } from "react";
 import { useNavigate } from "react-router-dom";
 import { Button } from "@/components/ui/button";
 import { ScrollArea } from "@/components/ui/scroll-area";
+import { Input } from "@/components/ui/input";
 import { 
   Minimize2, 
   Loader2,
   Users,
-  Building2
+  Building2,
+  Filter,
+  Search
 } from "lucide-react";
 import { useAuth } from "@/contexts/AuthContext";
 import { useOptimizedDepartmentChat } from "@/hooks/useOptimizedDepartmentChat";
@@ -34,6 +37,8 @@ export default function DepartmentChatFullscreen() {
   const [departments, setDepartments] = useState<Department[]>([]);
   const [selectedDepartmentId, setSelectedDepartmentId] = useState<string | null>(null);
   const [departmentsLoading, setDepartmentsLoading] = useState(true);
+  const [agentFilter, setAgentFilter] = useState<string>("all");
+  const [searchQuery, setSearchQuery] = useState("");
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const scrollAreaRef = useRef<HTMLDivElement>(null);
 
@@ -126,6 +131,29 @@ export default function DepartmentChatFullscreen() {
 
   const currentDepartment = departments.find(d => d.id === selectedDepartmentId);
 
+  // Filter messages by agent and search query
+  const filteredMessages = useMemo(() => {
+    return messages.filter(m => {
+      if (agentFilter !== "all") {
+        if (m.message_role === 'assistant' && m.role_id !== agentFilter) return false;
+        if (m.message_role === 'user') {
+          const msgIndex = messages.indexOf(m);
+          const nextAssistant = messages.slice(msgIndex + 1).find(nm => nm.message_role === 'assistant');
+          if (nextAssistant && nextAssistant.role_id !== agentFilter) return false;
+        }
+      }
+      if (searchQuery.trim()) {
+        return m.content.toLowerCase().includes(searchQuery.toLowerCase());
+      }
+      return true;
+    });
+  }, [messages, agentFilter, searchQuery]);
+
+  const usedAgents = useMemo(() => {
+    const agentIds = new Set(messages.filter(m => m.role_id).map(m => m.role_id!));
+    return availableAgents.filter(a => agentIds.has(a.id));
+  }, [messages, availableAgents]);
+
   return (
     <div className="h-screen flex flex-col bg-background overflow-hidden">
       {/* Header */}
@@ -155,9 +183,38 @@ export default function DepartmentChatFullscreen() {
             <span className="font-medium">Чат отдела</span>
           )}
 
+          {/* Search input */}
+          <div className="relative hidden sm:block">
+            <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-muted-foreground" />
+            <Input
+              placeholder="Поиск..."
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+              className="h-8 w-32 pl-8 text-xs"
+            />
+          </div>
+
+          {/* Agent filter */}
+          {usedAgents.length > 0 && (
+            <Select value={agentFilter} onValueChange={setAgentFilter}>
+              <SelectTrigger className="w-36 h-8">
+                <Filter className="h-3.5 w-3.5 mr-1.5" />
+                <SelectValue placeholder="Фильтр" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="all">Все агенты</SelectItem>
+                {usedAgents.map(agent => (
+                  <SelectItem key={agent.id} value={agent.id}>
+                    @{agent.mention_trigger || agent.slug}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          )}
+
           {/* Available Agents */}
           {availableAgents.length > 0 && (
-            <div className="hidden md:flex items-center gap-1 ml-4">
+            <div className="hidden lg:flex items-center gap-1 ml-2">
               <span className="text-xs text-muted-foreground mr-1">Агенты:</span>
               {availableAgents.slice(0, 3).map((agent) => (
                 <Badge 
@@ -191,7 +248,7 @@ export default function DepartmentChatFullscreen() {
       {/* Messages Area */}
       <ScrollArea className="flex-1" ref={scrollAreaRef}>
         <div className="max-w-5xl mx-auto py-6 px-4 lg:px-8">
-          {messages.length === 0 ? (
+          {filteredMessages.length === 0 && messages.length === 0 ? (
             <div className="flex flex-col items-center justify-center h-[60vh] text-center">
               <div className="w-16 h-16 rounded-full bg-primary/10 flex items-center justify-center mb-4">
                 <Users className="h-8 w-8 text-primary" />
@@ -212,9 +269,23 @@ export default function DepartmentChatFullscreen() {
                 </div>
               )}
             </div>
+          ) : filteredMessages.length === 0 ? (
+            <div className="flex flex-col items-center justify-center h-[40vh] text-center">
+              <Search className="h-10 w-10 text-muted-foreground mb-3" />
+              <p className="text-muted-foreground text-sm">
+                Нет сообщений по фильтру
+              </p>
+              <Button
+                variant="link"
+                size="sm"
+                onClick={() => { setAgentFilter("all"); setSearchQuery(""); }}
+              >
+                Сбросить фильтры
+              </Button>
+            </div>
           ) : (
             <div className="space-y-4">
-              {messages.map((message) => (
+              {filteredMessages.map((message) => (
                 <DepartmentChatMessage 
                   key={message.id} 
                   message={message}

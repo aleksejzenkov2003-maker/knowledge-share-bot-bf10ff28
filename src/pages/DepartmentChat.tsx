@@ -1,4 +1,4 @@
-import React, { useEffect, useRef, useState } from 'react';
+import React, { useEffect, useRef, useState, useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '@/contexts/AuthContext';
 import { useOptimizedDepartmentChat } from '@/hooks/useOptimizedDepartmentChat';
@@ -8,8 +8,9 @@ import { ScrollArea } from '@/components/ui/scroll-area';
 import { Card, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
+import { Input } from '@/components/ui/input';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
-import { Loader2, Users, Bot, Maximize2 } from 'lucide-react';
+import { Loader2, Users, Bot, Maximize2, Filter, Search } from 'lucide-react';
 import { supabase } from '@/integrations/supabase/client';
 
 interface Department {
@@ -23,6 +24,8 @@ const DepartmentChat: React.FC = () => {
   const [departments, setDepartments] = useState<Department[]>([]);
   const [selectedDepartmentId, setSelectedDepartmentId] = useState<string | null>(null);
   const [loadingDepartments, setLoadingDepartments] = useState(false);
+  const [agentFilter, setAgentFilter] = useState<string>("all");
+  const [searchQuery, setSearchQuery] = useState("");
   const messagesEndRef = useRef<HTMLDivElement>(null);
 
   // For admins, allow selecting any department; for users, use their assigned department
@@ -128,6 +131,34 @@ const DepartmentChat: React.FC = () => {
     ? departments.find(d => d.id === selectedDepartmentId)?.name 
     : 'Ваш отдел';
 
+  // Filter messages by agent and search query
+  const filteredMessages = useMemo(() => {
+    return messages.filter(m => {
+      // Agent filter
+      if (agentFilter !== "all") {
+        if (m.message_role === 'assistant' && m.role_id !== agentFilter) return false;
+        if (m.message_role === 'user') {
+          // Find the next assistant message to check if it belongs to filtered agent
+          const msgIndex = messages.indexOf(m);
+          const nextAssistant = messages.slice(msgIndex + 1).find(nm => nm.message_role === 'assistant');
+          if (nextAssistant && nextAssistant.role_id !== agentFilter) return false;
+        }
+      }
+      // Search filter
+      if (searchQuery.trim()) {
+        const query = searchQuery.toLowerCase();
+        return m.content.toLowerCase().includes(query);
+      }
+      return true;
+    });
+  }, [messages, agentFilter, searchQuery]);
+
+  // Get unique agents from messages for filter dropdown
+  const usedAgents = useMemo(() => {
+    const agentIds = new Set(messages.filter(m => m.role_id).map(m => m.role_id!));
+    return availableAgents.filter(a => agentIds.has(a.id));
+  }, [messages, availableAgents]);
+
   return (
     <div className="flex flex-col h-[calc(100vh-120px)]">
       {/* Header */}
@@ -149,7 +180,36 @@ const DepartmentChat: React.FC = () => {
           </div>
         </div>
 
-        <div className="flex items-center gap-3">
+        <div className="flex items-center gap-2">
+          {/* Search input */}
+          <div className="relative hidden sm:block">
+            <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-muted-foreground" />
+            <Input
+              placeholder="Поиск..."
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+              className="h-8 w-32 pl-8 text-xs"
+            />
+          </div>
+
+          {/* Agent filter */}
+          {usedAgents.length > 0 && (
+            <Select value={agentFilter} onValueChange={setAgentFilter}>
+              <SelectTrigger className="w-36 h-8">
+                <Filter className="h-3.5 w-3.5 mr-1.5" />
+                <SelectValue placeholder="Фильтр" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="all">Все агенты</SelectItem>
+                {usedAgents.map(agent => (
+                  <SelectItem key={agent.id} value={agent.id}>
+                    @{agent.mention_trigger || agent.slug}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          )}
+
           {/* Admin department selector */}
           {isAdmin && departments.length > 0 && (
             <Select
@@ -170,7 +230,7 @@ const DepartmentChat: React.FC = () => {
           )}
 
           {/* Available agents badges */}
-          <div className="hidden md:flex items-center gap-1">
+          <div className="hidden lg:flex items-center gap-1">
             {availableAgents.slice(0, 3).map(agent => (
               <Badge key={agent.id} variant="secondary" className="text-xs">
                 <Bot className="h-3 w-3 mr-1" />
@@ -204,7 +264,7 @@ const DepartmentChat: React.FC = () => {
             <div className="flex items-center justify-center py-8">
               <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
             </div>
-          ) : messages.length === 0 ? (
+          ) : filteredMessages.length === 0 && messages.length === 0 ? (
             <div className="flex flex-col items-center justify-center h-[50vh] text-center">
               <div className="w-14 h-14 rounded-full bg-primary/10 flex items-center justify-center mb-4">
                 <Users className="h-7 w-7 text-primary" />
@@ -224,9 +284,23 @@ const DepartmentChat: React.FC = () => {
                 ))}
               </div>
             </div>
+          ) : filteredMessages.length === 0 ? (
+            <div className="flex flex-col items-center justify-center h-[40vh] text-center">
+              <Search className="h-10 w-10 text-muted-foreground mb-3" />
+              <p className="text-muted-foreground text-sm">
+                Нет сообщений по фильтру
+              </p>
+              <Button
+                variant="link"
+                size="sm"
+                onClick={() => { setAgentFilter("all"); setSearchQuery(""); }}
+              >
+                Сбросить фильтры
+              </Button>
+            </div>
           ) : (
             <div className="space-y-4">
-              {messages.map(message => (
+              {filteredMessages.map(message => (
                 <DepartmentChatMessage
                   key={message.id}
                   message={message}
