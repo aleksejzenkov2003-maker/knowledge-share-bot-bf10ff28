@@ -1,11 +1,13 @@
-import React from 'react';
+import React, { useState } from 'react';
 import { DepartmentChatMessage as MessageType } from '@/types/departmentChat';
-import { Bot, User, FileText, Image, Clock, BookOpen, Globe, AlertTriangle } from 'lucide-react';
+import { Bot, User, FileText, Image, Clock, BookOpen, Globe, AlertTriangle, Copy, CheckCheck, RefreshCw, ChevronDown } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import { supabase } from '@/integrations/supabase/client';
 import { Badge } from '@/components/ui/badge';
+import { Button } from '@/components/ui/button';
+import { toast } from '@/hooks/use-toast';
 import {
   Sheet,
   SheetContent,
@@ -18,25 +20,79 @@ import {
   TooltipContent,
   TooltipTrigger,
 } from "@/components/ui/tooltip";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+  DropdownMenuSeparator,
+  DropdownMenuLabel,
+} from "@/components/ui/dropdown-menu";
 import { SourcesPanel } from './SourcesPanel';
+import { DownloadDropdown } from './DownloadDropdown';
+
+interface AgentInfo {
+  id: string;
+  name: string;
+  mention_trigger?: string | null;
+  slug: string;
+  description?: string;
+}
 
 interface DepartmentChatMessageProps {
   message: MessageType;
   currentUserId?: string;
+  availableAgents?: AgentInfo[];
+  onRegenerateResponse?: (messageId: string, roleId?: string) => void;
 }
 
 function DepartmentChatMessageComponent({
   message,
-  currentUserId
+  currentUserId,
+  availableAgents = [],
+  onRegenerateResponse
 }: DepartmentChatMessageProps) {
+  const [copied, setCopied] = useState(false);
+  
   const isAssistant = message.message_role === 'assistant';
   const isOwnMessage = message.user_id === currentUserId;
   const userName = message.metadata?.user_name || 'Пользователь';
   const agentName = message.metadata?.agent_name;
+  const isGenerating = isAssistant && !message.content;
+
+  const handleCopy = async () => {
+    try {
+      const htmlContent = `<div style="white-space: pre-wrap; font-family: system-ui, -apple-system, sans-serif;">${message.content.replace(/\n/g, '<br>')}</div>`;
+      
+      try {
+        await navigator.clipboard.write([
+          new ClipboardItem({
+            'text/html': new Blob([htmlContent], { type: 'text/html' }),
+            'text/plain': new Blob([message.content], { type: 'text/plain' }),
+          }),
+        ]);
+      } catch {
+        await navigator.clipboard.writeText(message.content);
+      }
+      
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2000);
+    } catch {
+      toast({
+        title: "Ошибка",
+        description: "Не удалось скопировать текст",
+        variant: "destructive",
+      });
+    }
+  };
+
+  const handleRegenerate = (roleId?: string) => {
+    onRegenerateResponse?.(message.id, roleId);
+  };
 
   return (
     <div className={cn(
-      "flex gap-3 p-4 rounded-lg",
+      "group flex gap-3 p-4 rounded-lg",
       isAssistant 
         ? "bg-muted/50" 
         : isOwnMessage 
@@ -291,6 +347,86 @@ function DepartmentChatMessageComponent({
             )}
           </div>
         )}
+
+        {/* Actions: Copy, Download, Regenerate */}
+        {isAssistant && !isGenerating && message.content && (
+          <div className="flex items-center gap-1 mt-2 opacity-0 group-hover:opacity-100 transition-opacity">
+            <Button
+              variant="ghost"
+              size="sm"
+              className="h-7 px-2 text-xs"
+              onClick={handleCopy}
+            >
+              {copied ? (
+                <CheckCheck className="h-3 w-3 mr-1 text-green-500" />
+              ) : (
+                <Copy className="h-3 w-3 mr-1" />
+              )}
+              {copied ? "Скопировано" : "Копировать"}
+            </Button>
+
+            <DownloadDropdown
+              content={message.content}
+              ragContext={message.metadata?.rag_context}
+              citations={message.metadata?.citations}
+              webSearchCitations={message.metadata?.perplexity_citations || message.metadata?.web_search_citations}
+            />
+
+            {onRegenerateResponse && (
+              <div className="flex items-center">
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  className="h-7 px-2 text-xs"
+                  onClick={() => handleRegenerate()}
+                >
+                  <RefreshCw className="h-3 w-3 mr-1" />
+                  Обновить
+                </Button>
+                
+                {availableAgents.length > 1 && (
+                  <DropdownMenu>
+                    <DropdownMenuTrigger asChild>
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        className="h-7 px-1.5 text-xs"
+                      >
+                        <ChevronDown className="h-3 w-3" />
+                      </Button>
+                    </DropdownMenuTrigger>
+                    <DropdownMenuContent align="start" className="w-56 bg-popover z-50">
+                      <DropdownMenuLabel className="text-xs font-normal text-muted-foreground">
+                        Обновить с другим агентом
+                      </DropdownMenuLabel>
+                      <DropdownMenuSeparator />
+                      {availableAgents.map((agent) => (
+                        <DropdownMenuItem
+                          key={agent.id}
+                          onClick={() => handleRegenerate(agent.id)}
+                          className={cn(
+                            "cursor-pointer",
+                            agent.id === message.role_id && "bg-accent"
+                          )}
+                        >
+                          <Bot className="h-3 w-3 mr-2" />
+                          <div className="flex flex-col">
+                            <span className="text-sm">{agent.name}</span>
+                            {agent.description && (
+                              <span className="text-xs text-muted-foreground truncate max-w-[180px]">
+                                {agent.description}
+                              </span>
+                            )}
+                          </div>
+                        </DropdownMenuItem>
+                      ))}
+                    </DropdownMenuContent>
+                  </DropdownMenu>
+                )}
+              </div>
+            )}
+          </div>
+        )}
       </div>
     </div>
   );
@@ -307,6 +443,8 @@ export const DepartmentChatMessage = React.memo(DepartmentChatMessageComponent, 
     prev.metadata?.response_time_ms === next.metadata?.response_time_ms &&
     prev.metadata?.rag_context?.length === next.metadata?.rag_context?.length &&
     prev.metadata?.citations?.length === next.metadata?.citations?.length &&
-    prevProps.currentUserId === nextProps.currentUserId
+    prevProps.currentUserId === nextProps.currentUserId &&
+    prevProps.availableAgents === nextProps.availableAgents &&
+    prevProps.onRegenerateResponse === nextProps.onRegenerateResponse
   );
 });
