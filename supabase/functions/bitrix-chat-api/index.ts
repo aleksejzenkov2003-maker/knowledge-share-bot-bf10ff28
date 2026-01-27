@@ -1271,14 +1271,16 @@ async function handleSendPersonalMessage(
     async start(controller) {
       const encoder = new TextEncoder();
       const decoder = new TextDecoder();
+      let buffer = ''; // Buffer for incomplete SSE chunks
 
       try {
         while (true) {
           const { done, value } = await reader.read();
           if (done) break;
 
-          const chunk = decoder.decode(value);
-          const lines = chunk.split('\n');
+          buffer += decoder.decode(value, { stream: true });
+          const lines = buffer.split('\n');
+          buffer = lines.pop() || ''; // Keep last potentially incomplete line
 
           for (const line of lines) {
             if (line.startsWith('data: ')) {
@@ -1309,6 +1311,7 @@ async function handleSendPersonalMessage(
                       parsed.web_search_citations) {
                     const { type, content, ...metaFields } = parsed;
                     metadata = { ...metadata, ...metaFields };
+                    console.log('Personal send: Captured metadata keys:', Object.keys(metaFields));
                   }
                   controller.enqueue(encoder.encode(`data: ${data}\n\n`));
                 } catch {
@@ -1317,6 +1320,17 @@ async function handleSendPersonalMessage(
               }
             }
           }
+        }
+        // Process remaining buffer after stream ends
+        if (buffer.startsWith('data: ') && buffer.substring(6) !== '[DONE]') {
+          try {
+            const parsed = JSON.parse(buffer.substring(6));
+            if (parsed.type === 'metadata' || parsed.rag_context || parsed.citations || parsed.web_search_citations) {
+              const { type, content, ...metaFields } = parsed;
+              metadata = { ...metadata, ...metaFields };
+              console.log('Personal send: Captured remaining metadata keys:', Object.keys(metaFields));
+            }
+          } catch { /* ignore */ }
         }
       } catch (error) {
         console.error('Stream error:', error);
@@ -1516,14 +1530,16 @@ async function handleSendMessage(
     async start(controller) {
       const encoder = new TextEncoder();
       const decoder = new TextDecoder();
+      let buffer = ''; // Buffer for incomplete SSE chunks
 
       try {
         while (true) {
           const { done, value } = await reader.read();
           if (done) break;
 
-          const chunk = decoder.decode(value);
-          const lines = chunk.split('\n');
+          buffer += decoder.decode(value, { stream: true });
+          const lines = buffer.split('\n');
+          buffer = lines.pop() || ''; // Keep last potentially incomplete line
 
           for (const line of lines) {
             if (line.startsWith('data: ')) {
@@ -1560,6 +1576,7 @@ async function handleSendMessage(
                       parsed.web_search_citations) {
                     const { type, content, ...metaFields } = parsed;
                     metadata = { ...metadata, ...metaFields };
+                    console.log('Dept send: Captured metadata keys:', Object.keys(metaFields));
                   }
                   controller.enqueue(encoder.encode(`data: ${data}\n\n`));
                 } catch {
@@ -1568,6 +1585,17 @@ async function handleSendMessage(
               }
             }
           }
+        }
+        // Process remaining buffer after stream ends
+        if (buffer.startsWith('data: ') && buffer.substring(6) !== '[DONE]') {
+          try {
+            const parsed = JSON.parse(buffer.substring(6));
+            if (parsed.type === 'metadata' || parsed.rag_context || parsed.citations || parsed.web_search_citations) {
+              const { type, content, ...metaFields } = parsed;
+              metadata = { ...metadata, ...metaFields };
+              console.log('Dept send: Captured remaining metadata keys:', Object.keys(metaFields));
+            }
+          } catch { /* ignore */ }
         }
       } catch (error) {
         console.error('Stream error:', error);
@@ -1886,14 +1914,16 @@ async function handleRegeneratePersonalMessage(
     async start(controller) {
       const encoder = new TextEncoder();
       const decoder = new TextDecoder();
+      let buffer = ''; // Buffer for incomplete SSE chunks
 
       try {
         while (true) {
           const { done, value } = await reader.read();
           if (done) break;
 
-          const chunk = decoder.decode(value);
-          const lines = chunk.split('\n');
+          buffer += decoder.decode(value, { stream: true });
+          const lines = buffer.split('\n');
+          buffer = lines.pop() || ''; // Keep last potentially incomplete line
 
           for (const line of lines) {
             if (line.startsWith('data: ')) {
@@ -1924,6 +1954,7 @@ async function handleRegeneratePersonalMessage(
                       parsed.web_search_citations) {
                     const { type, content, ...metaFields } = parsed;
                     metadata = { ...metadata, ...metaFields };
+                    console.log('Personal regen: Captured metadata keys:', Object.keys(metaFields));
                   }
                   controller.enqueue(encoder.encode(`data: ${data}\n\n`));
                 } catch {
@@ -1932,6 +1963,17 @@ async function handleRegeneratePersonalMessage(
               }
             }
           }
+        }
+        // Process remaining buffer after stream ends
+        if (buffer.startsWith('data: ') && buffer.substring(6) !== '[DONE]') {
+          try {
+            const parsed = JSON.parse(buffer.substring(6));
+            if (parsed.type === 'metadata' || parsed.rag_context || parsed.citations || parsed.web_search_citations) {
+              const { type, content, ...metaFields } = parsed;
+              metadata = { ...metadata, ...metaFields };
+              console.log('Personal regen: Captured remaining metadata keys:', Object.keys(metaFields));
+            }
+          } catch { /* ignore */ }
         }
       } catch (error) {
         console.error('Regenerate stream error:', error);
@@ -2157,14 +2199,16 @@ async function handleRegenerateDepartmentMessage(
     async start(controller) {
       const encoder = new TextEncoder();
       const decoder = new TextDecoder();
+      let buffer = ''; // Buffer for incomplete SSE chunks
 
       try {
         while (true) {
           const { done, value } = await reader.read();
           if (done) break;
 
-          const chunk = decoder.decode(value);
-          const lines = chunk.split('\n');
+          buffer += decoder.decode(value, { stream: true });
+          const lines = buffer.split('\n');
+          buffer = lines.pop() || ''; // Keep last potentially incomplete line
 
           for (const line of lines) {
             if (line.startsWith('data: ')) {
@@ -2201,6 +2245,7 @@ async function handleRegenerateDepartmentMessage(
                       parsed.web_search_citations) {
                     const { type, content, ...metaFields } = parsed;
                     metadata = { ...metadata, ...metaFields };
+                    console.log('Dept regen: Captured metadata keys:', Object.keys(metaFields));
                   }
                   controller.enqueue(encoder.encode(`data: ${data}\n\n`));
                 } catch {
@@ -2209,6 +2254,17 @@ async function handleRegenerateDepartmentMessage(
               }
             }
           }
+        }
+        // Process remaining buffer after stream ends
+        if (buffer.startsWith('data: ') && buffer.substring(6) !== '[DONE]') {
+          try {
+            const parsed = JSON.parse(buffer.substring(6));
+            if (parsed.type === 'metadata' || parsed.rag_context || parsed.citations || parsed.web_search_citations) {
+              const { type, content, ...metaFields } = parsed;
+              metadata = { ...metadata, ...metaFields };
+              console.log('Dept regen: Captured remaining metadata keys:', Object.keys(metaFields));
+            }
+          } catch { /* ignore */ }
         }
       } catch (error) {
         console.error('Regenerate stream error:', error);
