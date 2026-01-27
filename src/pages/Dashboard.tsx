@@ -37,6 +37,15 @@ const COLORS = ['hsl(var(--primary))', 'hsl(var(--secondary))', 'hsl(210, 80%, 6
 
 const Dashboard = () => {
   const navigate = useNavigate();
+  const { isAdmin, isModerator, user, role } = useAuth();
+
+  // Redirect employee to chat
+  useEffect(() => {
+    if (role === 'employee') {
+      navigate('/chat', { replace: true });
+    }
+  }, [role, navigate]);
+
   const [stats, setStats] = useState<Stats>({
     usersCount: 0,
     departmentsCount: 0,
@@ -51,7 +60,6 @@ const Dashboard = () => {
   const [providerUsage, setProviderUsage] = useState<ProviderUsage[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [isInitializing, setIsInitializing] = useState(false);
-  const { isAdmin, isModerator, user } = useAuth();
 
   const initializeSystem = async () => {
     setIsInitializing(true);
