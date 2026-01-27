@@ -23,7 +23,12 @@ interface ChatRequest {
   model?: string;
   provider_id?: string;
   conversation_id?: string;
-  message_history?: { role: string; content: string; agent_name?: string }[];
+  message_history?: { 
+    role: string; 
+    content: string; 
+    agent_name?: string;
+    attachments?: AttachmentInput[];  // Attachments from message history for persistent context
+  }[];
   attachments?: AttachmentInput[];
   is_department_chat?: boolean;
 }
@@ -563,6 +568,48 @@ serve(async (req) => {
       finalPrompt = `${contextParts.join('\n\n---\n\n')}\n\n---\n${instructions}\n\n---\n\nВОПРОС ПОЛЬЗОВАТЕЛЯ: ${message || 'Проанализируй прикрепленные файлы'}`;
     }
 
+    // =====================================================
+    // PERSISTENT DOCUMENT CONTEXT - Collect attachments from current request + history
+    // =====================================================
+    const allAttachments: AttachmentInput[] = [];
+    
+    // Add attachments from current request first (highest priority)
+    if (attachments && attachments.length > 0) {
+      allAttachments.push(...attachments);
+    }
+    
+    // Collect attachments from message history (persistent context)
+    if (message_history && message_history.length > 0) {
+      for (const msg of message_history) {
+        if (msg.attachments && Array.isArray(msg.attachments)) {
+          for (const att of msg.attachments) {
+            // Only add if has valid file_path
+            if (att.file_path) {
+              allAttachments.push(att);
+            }
+          }
+        }
+      }
+    }
+    
+    // Deduplicate by file_path (keep first occurrence - most recent)
+    const uniqueAttachments = Array.from(
+      new Map(allAttachments.map(a => [a.file_path, a])).values()
+    );
+    
+    // Limit to prevent context overflow: max 5 documents or 20MB total
+    let totalSize = 0;
+    const MAX_ATTACHMENTS = 5;
+    const MAX_TOTAL_SIZE = 20 * 1024 * 1024; // 20MB
+    
+    const limitedAttachments = uniqueAttachments.filter(a => {
+      if (totalSize + a.file_size > MAX_TOTAL_SIZE) return false;
+      totalSize += a.file_size;
+      return true;
+    }).slice(0, MAX_ATTACHMENTS);
+    
+    console.log(`Persistent context: ${allAttachments.length} total attachments, ${uniqueAttachments.length} unique, ${limitedAttachments.length} after limits`);
+    
     // Load attachments and build multimodal content for Anthropic
     type MultimodalContentPart = 
       | { type: 'text'; text: string }
@@ -571,10 +618,10 @@ serve(async (req) => {
     
     const attachmentParts: MultimodalContentPart[] = [];
     
-    if (attachments && attachments.length > 0) {
-      console.log(`Processing ${attachments.length} attachments`);
+    if (limitedAttachments.length > 0) {
+      console.log(`Processing ${limitedAttachments.length} attachments (from current + history)`);
       
-      for (const attachment of attachments) {
+      for (const attachment of limitedAttachments) {
         try {
           const { data: fileData, error: downloadError } = await supabase.storage
             .from('chat-attachments')

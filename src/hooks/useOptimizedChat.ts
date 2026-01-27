@@ -265,9 +265,16 @@ export function useOptimizedChat(userId: string | undefined, departmentId: strin
 
     try {
       // ВСЕГДА передаём историю сообщений для поддержания контекста
+      // Включаем attachments из каждого сообщения для персистентного контекста документов
       const messageHistory = [...messages, userMessage].map(m => ({
         role: m.role,
         content: m.content,
+        attachments: m.attachments?.filter(a => a.status === 'uploaded' && a.file_path).map(a => ({
+          file_path: a.file_path!,
+          file_name: a.file_name,
+          file_type: a.file_type,
+          file_size: a.file_size,
+        })) || [],
       }));
 
       const { data: sessionData } = await supabase.auth.getSession();
