@@ -378,6 +378,7 @@ export type Database = {
           department_id: string
           id: string
           is_active: boolean | null
+          is_pinned: boolean | null
           title: string
           updated_at: string | null
         }
@@ -386,6 +387,7 @@ export type Database = {
           department_id: string
           id?: string
           is_active?: boolean | null
+          is_pinned?: boolean | null
           title?: string
           updated_at?: string | null
         }
@@ -394,6 +396,7 @@ export type Database = {
           department_id?: string
           id?: string
           is_active?: boolean | null
+          is_pinned?: boolean | null
           title?: string
           updated_at?: string | null
         }

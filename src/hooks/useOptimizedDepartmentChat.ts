@@ -1,93 +1,29 @@
 import { useState, useCallback, useRef, useEffect } from "react";
-import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { useQueryClient } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
 import { toast } from "sonner";
 import { DepartmentChat, DepartmentChatMessage, AgentMention, DepartmentChatAttachment } from "@/types/departmentChat";
 import { Attachment } from "@/types/chat";
 import type { Json } from "@/integrations/supabase/types";
+import {
+  useDepartmentChatsQuery,
+  useDepartmentMessagesQuery,
+  useDepartmentAgentsQuery,
+  useDepartmentChatAgentsQuery,
+  useCreateDepartmentChat,
+  useUpdateDepartmentChat,
+  useDeleteDepartmentChat,
+  usePinDepartmentChat,
+  departmentChatQueryKeys,
+} from "@/hooks/queries/useDepartmentChatQueries";
 
 // Throttle interval for streaming updates (ms)
 const STREAM_UPDATE_INTERVAL = 50;
 
-// Query keys
-const departmentChatKeys = {
-  chat: (departmentId: string) => ['department-chat', departmentId] as const,
-  messages: (chatId: string) => ['department-messages', chatId] as const,
-  agents: (departmentId: string) => ['department-agents', departmentId] as const,
-};
-
-// Fetch department chat
-async function fetchDepartmentChatData(departmentId: string): Promise<DepartmentChat | null> {
-  const { data, error } = await supabase
-    .from('department_chats')
-    .select('*')
-    .eq('department_id', departmentId)
-    .eq('is_active', true)
-    .single();
-
-  if (error) {
-    if (error.code === 'PGRST116') {
-      // Create chat if doesn't exist
-      const { data: newChat, error: createError } = await supabase
-        .from('department_chats')
-        .insert({ department_id: departmentId, title: 'Чат отдела' })
-        .select()
-        .single();
-
-      if (createError) throw createError;
-      return newChat;
-    }
-    throw error;
-  }
-
-  return data;
-}
-
-// Fetch available agents - gets ALL active agents with mention_trigger
-// RLS policy handles access control (admins see all, users see their department)
-async function fetchAgentsData(departmentId: string): Promise<AgentMention[]> {
-  const { data, error } = await supabase
-    .from('chat_roles')
-    .select('id, name, mention_trigger, slug')
-    .eq('is_active', true)
-    .not('mention_trigger', 'is', null); // Only agents with mention triggers
-
-  if (error) {
-    console.error('Error fetching agents:', error);
-    throw error;
-  }
-
-  console.log('Fetched agents for department chat:', data?.length, data);
-
-  return (data || []).map(role => ({
-    id: role.id,
-    name: role.name,
-    mention_trigger: role.mention_trigger || `@${role.slug}`,
-    slug: role.slug
-  }));
-}
-
-// Fetch messages
-async function fetchMessagesData(chatId: string): Promise<DepartmentChatMessage[]> {
-  const { data, error } = await supabase
-    .from('department_chat_messages')
-    .select('*')
-    .eq('chat_id', chatId)
-    .order('created_at', { ascending: true })
-    .limit(500);
-
-  if (error) throw error;
-
-  return (data || []).map(m => ({
-    ...m,
-    message_role: m.message_role as 'user' | 'assistant',
-    metadata: m.metadata as DepartmentChatMessage['metadata']
-  }));
-}
-
 export function useOptimizedDepartmentChat(userId: string | undefined, departmentId: string | undefined) {
   const queryClient = useQueryClient();
   
+  const [activeChatId, setActiveChatId] = useState<string | null>(null);
   const [localMessages, setLocalMessages] = useState<DepartmentChatMessage[]>([]);
   const [isGenerating, setIsGenerating] = useState(false);
   const [attachments, setAttachments] = useState<Attachment[]>([]);
@@ -97,27 +33,42 @@ export function useOptimizedDepartmentChat(userId: string | undefined, departmen
   const updateIntervalRef = useRef<number | null>(null);
   const abortControllerRef = useRef<AbortController | null>(null);
 
-  // React Query hooks - load in parallel
-  const { data: chat } = useQuery({
-    queryKey: departmentChatKeys.chat(departmentId || ''),
-    queryFn: () => fetchDepartmentChatData(departmentId!),
-    enabled: !!departmentId,
-    staleTime: 5 * 60 * 1000,
-  });
+  // React Query hooks
+  const { data: departmentChats = [], isLoading: isLoadingChats } = useDepartmentChatsQuery(departmentId);
+  const { data: availableAgents = [] } = useDepartmentAgentsQuery(departmentId);
+  
+  // Get chat IDs for agents query
+  const chatIds = departmentChats.map(c => c.id);
+  const { data: chatAgentsMap = new Map() } = useDepartmentChatAgentsQuery(chatIds);
+  
+  // Messages for active chat
+  const { data: dbMessages, isLoading: isLoadingMessages } = useDepartmentMessagesQuery(activeChatId);
 
-  const { data: availableAgents = [] } = useQuery({
-    queryKey: departmentChatKeys.agents(departmentId || ''),
-    queryFn: () => fetchAgentsData(departmentId!),
-    enabled: !!departmentId,
-    staleTime: 5 * 60 * 1000,
-  });
+  // Mutations
+  const createChatMutation = useCreateDepartmentChat(departmentId);
+  const updateChatMutation = useUpdateDepartmentChat(departmentId);
+  const deleteChatMutation = useDeleteDepartmentChat(departmentId);
+  const pinChatMutation = usePinDepartmentChat(departmentId);
 
-  const { data: dbMessages, isLoading } = useQuery({
-    queryKey: departmentChatKeys.messages(chat?.id || ''),
-    queryFn: () => fetchMessagesData(chat!.id),
-    enabled: !!chat?.id,
-    staleTime: 30 * 1000,
-  });
+  // Auto-select the most recent chat or create one
+  useEffect(() => {
+    if (!departmentId || isLoadingChats) return;
+    
+    if (departmentChats.length > 0 && !activeChatId) {
+      // Select the most recent chat
+      setActiveChatId(departmentChats[0].id);
+    } else if (departmentChats.length === 0 && !isLoadingChats && departmentId) {
+      // Create first chat for department
+      createChatMutation.mutate({ title: 'Чат отдела' }, {
+        onSuccess: (newChat) => {
+          setActiveChatId(newChat.id);
+        }
+      });
+    }
+  }, [departmentChats, departmentId, isLoadingChats, activeChatId]);
+
+  // Get active chat object
+  const chat = departmentChats.find(c => c.id === activeChatId) || null;
 
   // Sync messages when not generating
   const messages = isGenerating ? localMessages : (dbMessages || localMessages);
@@ -129,7 +80,49 @@ export function useOptimizedDepartmentChat(userId: string | undefined, departmen
     }
   }, [dbMessages, isGenerating]);
 
-  // Parse @mention from message - supports multiple formats including multi-word triggers
+  // Chat management functions
+  const createNewChat = useCallback(async () => {
+    if (!departmentId) return;
+    
+    createChatMutation.mutate({ title: 'Новый чат' }, {
+      onSuccess: (newChat) => {
+        setActiveChatId(newChat.id);
+        setLocalMessages([]);
+      }
+    });
+  }, [departmentId, createChatMutation]);
+
+  const selectChat = useCallback((chatOrId: DepartmentChat | string) => {
+    const id = typeof chatOrId === 'string' ? chatOrId : chatOrId.id;
+    setActiveChatId(id);
+    setLocalMessages([]);
+  }, []);
+
+  const renameChat = useCallback((id: string, newTitle: string) => {
+    updateChatMutation.mutate({ id, title: newTitle });
+  }, [updateChatMutation]);
+
+  const deleteChat = useCallback((id: string) => {
+    deleteChatMutation.mutate(id, {
+      onSuccess: () => {
+        if (activeChatId === id) {
+          // Select another chat or create new
+          const remaining = departmentChats.filter(c => c.id !== id);
+          if (remaining.length > 0) {
+            setActiveChatId(remaining[0].id);
+          } else {
+            setActiveChatId(null);
+          }
+        }
+      }
+    });
+  }, [deleteChatMutation, activeChatId, departmentChats]);
+
+  const pinChat = useCallback((id: string, isPinned: boolean) => {
+    pinChatMutation.mutate({ id, isPinned });
+  }, [pinChatMutation]);
+
+  // Parse @mention from message
   const parseMention = useCallback((text: string): { agentId: string | null; cleanText: string } => {
     if (!text.startsWith('@')) {
       return { agentId: null, cleanText: text };
@@ -137,15 +130,14 @@ export function useOptimizedDepartmentChat(userId: string | undefined, departmen
 
     const textLower = text.toLowerCase();
 
-    // Sort agents by trigger length (longest first) to match "ТЗ консультант" before "ТЗ"
+    // Sort agents by trigger length (longest first)
     const sortedAgents = [...availableAgents].sort((a, b) => {
       const aLen = (a.mention_trigger || `@${a.slug}`).length;
       const bLen = (b.mention_trigger || `@${b.slug}`).length;
-      return bLen - aLen; // Descending order
+      return bLen - aLen;
     });
 
     for (const agent of sortedAgents) {
-      // Build list of possible triggers for this agent
       const triggers = [
         agent.mention_trigger?.toLowerCase().trim(),
         `@${agent.slug}`.toLowerCase(),
@@ -153,24 +145,20 @@ export function useOptimizedDepartmentChat(userId: string | undefined, departmen
       ].filter((t): t is string => Boolean(t));
 
       for (const trigger of triggers) {
-        // Normalize trigger (ensure it starts with @)
         const normalizedTrigger = trigger.startsWith('@') ? trigger : `@${trigger}`;
         
-        // Check if text starts with trigger followed by space or end of string
         if (textLower.startsWith(normalizedTrigger) && 
             (textLower.length === normalizedTrigger.length || textLower[normalizedTrigger.length] === ' ')) {
           const cleanText = text.slice(normalizedTrigger.length).trim();
-          console.log('parseMention matched:', { trigger: normalizedTrigger, agent: agent.name, cleanText });
           return { agentId: agent.id, cleanText };
         }
       }
     }
 
-    console.log('parseMention: no agent matched for text:', text.slice(0, 50));
     return { agentId: null, cleanText: text };
   }, [availableAgents]);
 
-  // Handle file attachments - parallel upload
+  // Handle file attachments
   const handleAttach = useCallback(async (files: File[]) => {
     if (!userId) return;
 
@@ -186,7 +174,6 @@ export function useOptimizedDepartmentChat(userId: string | undefined, departmen
 
     setAttachments(prev => [...prev, ...newAttachments]);
 
-    // Upload all files in parallel
     const uploadPromises = newAttachments.map(async (attachment) => {
       try {
         setAttachments(prev => prev.map(a => 
@@ -239,7 +226,7 @@ export function useOptimizedDepartmentChat(userId: string | undefined, departmen
     });
   }, []);
 
-  // Get cached user profile
+  // Get user name
   const getUserName = useCallback(async (uid: string): Promise<string> => {
     try {
       const { data } = await supabase
@@ -256,7 +243,7 @@ export function useOptimizedDepartmentChat(userId: string | undefined, departmen
 
   // Send message with streaming
   const sendMessage = useCallback(async (text: string, messageAttachments?: Attachment[]) => {
-    if (!chat?.id || !userId) return;
+    if (!activeChatId || !userId) return;
     
     const hasAttachments = messageAttachments && messageAttachments.length > 0;
     if (!text.trim() && !hasAttachments) return;
@@ -271,7 +258,6 @@ export function useOptimizedDepartmentChat(userId: string | undefined, departmen
     const agent = availableAgents.find(a => a.id === agentId);
     const userName = await getUserName(userId);
 
-    // Prepare attachments metadata
     const attachmentsMetadata: DepartmentChatAttachment[] = hasAttachments
       ? messageAttachments.filter(a => a.status === 'uploaded' && a.file_path).map(a => ({
           file_path: a.file_path!,
@@ -281,10 +267,9 @@ export function useOptimizedDepartmentChat(userId: string | undefined, departmen
         }))
       : [];
 
-    // Add user message to UI immediately
     const userMessage: DepartmentChatMessage = {
       id: crypto.randomUUID(),
-      chat_id: chat.id,
+      chat_id: activeChatId,
       user_id: userId,
       role_id: null,
       message_role: 'user',
@@ -299,7 +284,6 @@ export function useOptimizedDepartmentChat(userId: string | undefined, departmen
     setLocalMessages(prev => [...prev, userMessage]);
     clearAttachments();
 
-    // Save user message to DB
     const userMsgMetadata = { 
       user_name: userName,
       attachments: attachmentsMetadata.length > 0 ? attachmentsMetadata : undefined
@@ -307,7 +291,7 @@ export function useOptimizedDepartmentChat(userId: string | undefined, departmen
     const { error: userMsgError } = await supabase
       .from('department_chat_messages')
       .insert([{
-        chat_id: chat.id,
+        chat_id: activeChatId,
         user_id: userId,
         role_id: null,
         message_role: 'user',
@@ -322,11 +306,16 @@ export function useOptimizedDepartmentChat(userId: string | undefined, departmen
       return;
     }
 
-    // Create streaming assistant message
+    // Update chat's updated_at
+    await supabase
+      .from('department_chats')
+      .update({ updated_at: new Date().toISOString() })
+      .eq('id', activeChatId);
+
     const assistantMessageId = crypto.randomUUID();
     const assistantMessage: DepartmentChatMessage = {
       id: assistantMessageId,
-      chat_id: chat.id,
+      chat_id: activeChatId,
       user_id: userId,
       role_id: agentId,
       message_role: 'assistant',
@@ -339,7 +328,6 @@ export function useOptimizedDepartmentChat(userId: string | undefined, departmen
     setIsGenerating(true);
     streamingContentRef.current = "";
 
-    // Prepare message history for context (last 20 messages)
     const historyForContext = localMessages.slice(-20).map(m => ({
       role: m.message_role,
       content: m.content,
@@ -391,7 +379,6 @@ export function useOptimizedDepartmentChat(userId: string | undefined, departmen
       let metadata: any = {};
       let buffer = '';
 
-      // Set up throttled UI updates
       updateIntervalRef.current = window.setInterval(() => {
         setLocalMessages(prev => prev.map(m =>
           m.id === assistantMessageId
@@ -437,7 +424,6 @@ export function useOptimizedDepartmentChat(userId: string | undefined, departmen
         }
       }
       
-      // Process remaining buffer
       if (buffer.startsWith('data: ')) {
         const data = buffer.slice(6).trim();
         if (data && data !== '[DONE]') {
@@ -462,7 +448,6 @@ export function useOptimizedDepartmentChat(userId: string | undefined, departmen
         }
       }
 
-      // Clear interval
       if (updateIntervalRef.current) {
         clearInterval(updateIntervalRef.current);
         updateIntervalRef.current = null;
@@ -470,7 +455,6 @@ export function useOptimizedDepartmentChat(userId: string | undefined, departmen
 
       const finalContent = streamingContentRef.current;
 
-      // Save assistant message to DB
       const assistantMsgMetadata = {
         ...metadata,
         agent_name: agent?.name
@@ -478,7 +462,7 @@ export function useOptimizedDepartmentChat(userId: string | undefined, departmen
       await supabase
         .from('department_chat_messages')
         .insert([{
-          chat_id: chat.id,
+          chat_id: activeChatId,
           user_id: userId,
           role_id: agentId,
           message_role: 'assistant',
@@ -487,15 +471,14 @@ export function useOptimizedDepartmentChat(userId: string | undefined, departmen
           metadata: assistantMsgMetadata as unknown as Json
         }]);
 
-      // Update the message in state with final content
       setLocalMessages(prev => prev.map(m =>
         m.id === assistantMessageId
           ? { ...m, content: finalContent, metadata: { ...m.metadata, ...metadata } }
           : m
       ));
 
-      // Invalidate query to sync
-      queryClient.invalidateQueries({ queryKey: departmentChatKeys.messages(chat.id) });
+      queryClient.invalidateQueries({ queryKey: departmentChatQueryKeys.messages(activeChatId) });
+      queryClient.invalidateQueries({ queryKey: departmentChatQueryKeys.chats(departmentId!) });
 
     } catch (error: any) {
       if (updateIntervalRef.current) {
@@ -513,7 +496,7 @@ export function useOptimizedDepartmentChat(userId: string | undefined, departmen
       setIsGenerating(false);
       abortControllerRef.current = null;
     }
-  }, [chat?.id, userId, parseMention, availableAgents, localMessages, getUserName, clearAttachments, queryClient]);
+  }, [activeChatId, userId, parseMention, availableAgents, localMessages, getUserName, clearAttachments, queryClient, departmentId]);
 
   const stopGeneration = useCallback(() => {
     if (abortControllerRef.current) {
@@ -526,85 +509,61 @@ export function useOptimizedDepartmentChat(userId: string | undefined, departmen
     setIsGenerating(false);
   }, []);
 
-  // Regenerate response with the same or different agent
+  // Regenerate response
   const regenerateResponse = useCallback(async (messageId: string, roleId?: string) => {
-    console.log('regenerateResponse called:', { messageId, roleId, messagesCount: localMessages.length });
-    
     try {
       const messageIndex = localMessages.findIndex(m => m.id === messageId);
       if (messageIndex === -1) {
-        console.error('Message not found for regeneration:', messageId);
         toast.error('Сообщение не найдено');
         return;
       }
       
       const targetMessage = localMessages[messageIndex];
-      console.log('Target message:', { role: targetMessage.message_role, roleId: targetMessage.role_id });
       
       if (targetMessage.message_role !== 'assistant') {
-        console.error('Cannot regenerate non-assistant message');
         toast.error('Можно обновить только ответ ассистента');
         return;
       }
 
-      // Find previous user message
       const prevUserMessage = localMessages.slice(0, messageIndex).reverse()
         .find(m => m.message_role === 'user');
       
       if (!prevUserMessage) {
-        console.error('No user message found before assistant message');
         toast.error('Не найден исходный вопрос');
         return;
       }
-
-      console.log('Found user message:', prevUserMessage.id, prevUserMessage.content.slice(0, 50));
       
-      // Get original message content (remove @mention prefix if present)
       let originalContent = prevUserMessage.content;
       const mentionMatch = originalContent.match(/^@[^\s]+\s*/);
       if (mentionMatch) {
         originalContent = originalContent.slice(mentionMatch[0].length);
       }
 
-      // Get attachments from original message
       const originalAttachments = prevUserMessage.metadata?.attachments;
       
-      // Delete messages from DB after the user message
       const userMsgIndex = localMessages.indexOf(prevUserMessage);
       const messagesToDelete = localMessages.slice(userMsgIndex + 1);
       
-      console.log('Deleting', messagesToDelete.length, 'messages from DB');
-      
       for (const msg of messagesToDelete) {
-        const { error } = await supabase
+        await supabase
           .from('department_chat_messages')
           .delete()
           .eq('id', msg.id);
-        
-        if (error) {
-          console.error('Error deleting message:', msg.id, error);
-        }
       }
       
-      // Update local state
       setLocalMessages(prev => prev.slice(0, userMsgIndex + 1));
       
-      // Resend with new agent
       const agentToUse = roleId || targetMessage.role_id;
       const agent = availableAgents.find(a => a.id === agentToUse);
       
       if (!agent) {
-        console.error('Agent not found:', agentToUse);
         toast.error('Агент не найден');
         return;
       }
 
       const mentionPrefix = `@${agent.mention_trigger || agent.slug} `;
-      console.log('Resending with agent:', agent.name, 'prefix:', mentionPrefix);
-      
       toast.info(`Обновление ответа от ${agent.name}...`);
       
-      // Pass original attachments if any
       const attachmentsForResend = originalAttachments?.map(a => ({
         id: crypto.randomUUID(),
         file_path: a.file_path,
@@ -622,21 +581,34 @@ export function useOptimizedDepartmentChat(userId: string | undefined, departmen
     }
   }, [localMessages, availableAgents, sendMessage]);
 
-  // Backward compatibility - no-op since we use React Query
-  const loadMessages = useCallback(() => {}, []);
+  const isLoading = isLoadingChats || isLoadingMessages;
 
   return {
+    // Current chat
     chat,
     messages,
     availableAgents,
     isLoading,
     isGenerating,
+    
+    // Message operations
     sendMessage,
     stopGeneration,
-    loadMessages,
+    regenerateResponse,
+    
+    // Attachment operations
     attachments,
     handleAttach,
     removeAttachment,
-    regenerateResponse
+    
+    // Multi-chat support
+    departmentChats,
+    activeChatId,
+    chatAgentsMap,
+    createNewChat,
+    selectChat,
+    renameChat,
+    deleteChat,
+    pinChat,
   };
 }
