@@ -56,6 +56,7 @@ export default function DepartmentChatFullscreen() {
     attachments,
     handleAttach,
     removeAttachment,
+    regenerateResponse,
   } = useOptimizedDepartmentChat(user?.id, activeDepartmentId);
 
   // Fetch departments for admin
@@ -289,6 +290,9 @@ export default function DepartmentChatFullscreen() {
                 <DepartmentChatMessage 
                   key={message.id} 
                   message={message}
+                  currentUserId={user?.id}
+                  availableAgents={availableAgents}
+                  onRegenerateResponse={regenerateResponse}
                 />
               ))}
               {isGenerating && (

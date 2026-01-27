@@ -41,7 +41,8 @@ const DepartmentChat: React.FC = () => {
     stopGeneration,
     attachments,
     handleAttach,
-    removeAttachment
+    removeAttachment,
+    regenerateResponse
   } = useOptimizedDepartmentChat(user?.id, activeDepartmentId || undefined);
 
   // Fetch departments for admin selection
@@ -305,6 +306,8 @@ const DepartmentChat: React.FC = () => {
                   key={message.id}
                   message={message}
                   currentUserId={user?.id}
+                  availableAgents={availableAgents}
+                  onRegenerateResponse={regenerateResponse}
                 />
               ))}
               {isGenerating && (

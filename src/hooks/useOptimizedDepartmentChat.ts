@@ -422,6 +422,8 @@ export function useOptimizedDepartmentChat(userId: string | undefined, departmen
                   rag_context: parsed.rag_context,
                   citations: parsed.citations,
                   perplexity_citations: parsed.perplexity_citations,
+                  web_search_citations: parsed.web_search_citations,
+                  web_search_used: parsed.web_search_used,
                   smart_search: parsed.smart_search,
                   stop_reason: parsed.stop_reason,
                 };
@@ -447,6 +449,8 @@ export function useOptimizedDepartmentChat(userId: string | undefined, departmen
                 rag_context: parsed.rag_context,
                 citations: parsed.citations,
                 perplexity_citations: parsed.perplexity_citations,
+                web_search_citations: parsed.web_search_citations,
+                web_search_used: parsed.web_search_used,
                 smart_search: parsed.smart_search,
               };
             }
@@ -520,6 +524,50 @@ export function useOptimizedDepartmentChat(userId: string | undefined, departmen
     setIsGenerating(false);
   }, []);
 
+  // Regenerate response with the same or different agent
+  const regenerateResponse = useCallback(async (messageId: string, roleId?: string) => {
+    const messageIndex = localMessages.findIndex(m => m.id === messageId);
+    if (messageIndex === -1) return;
+    
+    const targetMessage = localMessages[messageIndex];
+    
+    if (targetMessage.message_role === 'assistant') {
+      // Find previous user message
+      const prevUserMessage = localMessages.slice(0, messageIndex).reverse()
+        .find(m => m.message_role === 'user');
+      
+      if (prevUserMessage) {
+        // Get original message content (remove @mention prefix if present)
+        let originalContent = prevUserMessage.content;
+        const mentionMatch = originalContent.match(/^@[^\s]+\s*/);
+        if (mentionMatch) {
+          originalContent = originalContent.slice(mentionMatch[0].length);
+        }
+        
+        // Delete messages from DB after the user message
+        const userMsgIndex = localMessages.indexOf(prevUserMessage);
+        const messagesToDelete = localMessages.slice(userMsgIndex + 1);
+        
+        for (const msg of messagesToDelete) {
+          await supabase
+            .from('department_chat_messages')
+            .delete()
+            .eq('id', msg.id);
+        }
+        
+        // Update local state
+        setLocalMessages(prev => prev.slice(0, userMsgIndex + 1));
+        
+        // Resend with new agent
+        const agentToUse = roleId || targetMessage.role_id;
+        const agent = availableAgents.find(a => a.id === agentToUse);
+        const mentionPrefix = agent ? `@${agent.mention_trigger || agent.slug} ` : '';
+        
+        await sendMessage(mentionPrefix + originalContent);
+      }
+    }
+  }, [localMessages, availableAgents, sendMessage]);
+
   // Backward compatibility - no-op since we use React Query
   const loadMessages = useCallback(() => {}, []);
 
@@ -534,6 +582,7 @@ export function useOptimizedDepartmentChat(userId: string | undefined, departmen
     loadMessages,
     attachments,
     handleAttach,
-    removeAttachment
+    removeAttachment,
+    regenerateResponse
   };
 }
