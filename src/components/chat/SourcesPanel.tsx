@@ -211,10 +211,11 @@ export function SourcesPanel({
           const baseName = searchName.replace(/\s*\(часть.*$/, '').replace(/\s*\(стр\..*$/, '').trim();
           console.log('Trying base name search:', baseName);
           
+          // Note: Values with special characters must be quoted for PostgREST
           const { data: partialData } = await supabase
             .from('documents')
             .select('id, storage_path, name, file_name')
-            .or(`name.ilike.%${baseName}%,file_name.ilike.%${baseName}%`)
+            .or(`name.ilike."%${baseName}%",file_name.ilike."%${baseName}%"`)
             .limit(5);
           docs = partialData;
         }
