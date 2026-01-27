@@ -1,183 +1,103 @@
 
-# План: Исправление копирования, обновления и открытия документов в чате отделов
 
-## Обнаруженные проблемы
+# План: Исправление выбора агента в чате отделов
 
-### Проблема 1: Копирование текста не работает
+## Обнаруженная проблема
 
-**Причина**: Clipboard API может блокироваться браузером, если:
-- Страница не в фокусе
-- Нет user gesture (клик должен инициировать действие)
-- Ошибка в try-catch не обрабатывает fallback корректно
+При выборе агента из выпадающего списка и отправке сообщения появляется ошибка "Укажите агента через @упоминание".
 
-Текущий код (строки 63-86 в `DepartmentChatMessage.tsx`):
-```typescript
-const handleCopy = async () => {
-  try {
-    // ... clipboard write
-  } catch {
-    toast({ title: "Ошибка" });  // Ловит ВСЕ ошибки, включая NotAllowed
-  }
-};
-```
+### Причина
 
-**Решение**: Добавить более надёжный fallback через `document.execCommand('copy')` для старых браузеров и улучшить обработку ошибок.
-
----
-
-### Проблема 2: Кнопка "Обновить" не работает
-
-При проверке кода вижу, что:
-1. `onRegenerateResponse` передаётся корректно (строки 309-310 в `DepartmentChat.tsx`)
-2. `regenerateResponse` реализована в хуке (строки 515-569 в `useOptimizedDepartmentChat.ts`)
-3. В `DepartmentChatMessage.tsx` условие `onRegenerateResponse &&` на строке 375 — проверка есть
-
-**Потенциальная причина**: Функция вызывается, но `localMessages` может не содержать корректного индекса или есть ошибка при удалении сообщений из БД.
-
-**Решение**: Добавить логирование и toast-уведомления для отслеживания ошибок в процессе regenerate.
-
----
-
-### Проблема 3: Документ не открывается ("Object not found")
-
-**Корневая причина**: Неправильная RLS политика для `storage.objects`:
-
-```sql
--- ТЕКУЩАЯ (НЕПРАВИЛЬНАЯ) политика:
-WHERE ((d.storage_path = d.name) AND ...)
--- Сравнивает storage_path с name документа (всегда FALSE!)
-```
-
-Должно быть:
-```sql
--- ПРАВИЛЬНАЯ политика:
-WHERE (storage.objects.name = d.storage_path) AND (
-  is_admin() 
-  OR has_role(auth.uid(), 'moderator')
-  OR d.department_id IS NULL           -- публичные документы
-  OR d.department_id = get_user_department(auth.uid())
-)
-```
-
-**Также отсутствует**: Проверка `department_id IS NULL` в storage политике — публичные документы недоступны для employee.
-
----
-
-## Файлы для изменения
-
-### 1. Миграция БД — исправить RLS политику storage
-
-```sql
--- Удалить неправильную политику
-DROP POLICY IF EXISTS "Users can view files in their department" ON storage.objects;
-
--- Создать правильную политику
-CREATE POLICY "Users can view accessible documents"
-ON storage.objects FOR SELECT
-TO authenticated
-USING (
-  bucket_id = 'rag-documents' AND EXISTS (
-    SELECT 1 FROM documents d
-    WHERE d.storage_path = storage.objects.name
-    AND (
-      is_admin() 
-      OR has_role(auth.uid(), 'moderator'::app_role)
-      OR d.department_id IS NULL
-      OR d.department_id = get_user_department(auth.uid())
-    )
-  )
-);
-```
-
-### 2. src/components/chat/DepartmentChatMessage.tsx
-
-Улучшить `handleCopy` с fallback и логированием:
+Функция `parseMention` в `useOptimizedDepartmentChat.ts` использует **ленивый regex**, который не может распознать триггеры с пробелами:
 
 ```typescript
-const handleCopy = async () => {
-  try {
-    // Modern Clipboard API
-    try {
-      await navigator.clipboard.write([
-        new ClipboardItem({
-          'text/html': new Blob([htmlContent], { type: 'text/html' }),
-          'text/plain': new Blob([message.content], { type: 'text/plain' }),
-        }),
-      ]);
-    } catch (clipboardError) {
-      // Fallback to simple text copy
-      await navigator.clipboard.writeText(message.content);
-    }
-    setCopied(true);
-    setTimeout(() => setCopied(false), 2000);
-  } catch (err) {
-    console.error('Copy failed:', err);
-    // Last resort: execCommand fallback
-    try {
-      const textarea = document.createElement('textarea');
-      textarea.value = message.content;
-      textarea.style.position = 'fixed';
-      textarea.style.opacity = '0';
-      document.body.appendChild(textarea);
-      textarea.select();
-      document.execCommand('copy');
-      document.body.removeChild(textarea);
-      setCopied(true);
-      setTimeout(() => setCopied(false), 2000);
-    } catch {
-      toast({
-        title: "Ошибка",
-        description: "Не удалось скопировать текст. Попробуйте выделить и скопировать вручную.",
-        variant: "destructive",
-      });
-    }
-  }
-};
+const mentionRegex = /^@([^\n]+?)(?:\s+|$)/;
 ```
 
-### 3. src/hooks/useOptimizedDepartmentChat.ts
+Для сообщения `@ТЗ консультант вопрос` regex захватывает только `ТЗ`, а не `ТЗ консультант`.
 
-Добавить обработку ошибок и уведомления в `regenerateResponse`:
+### Агенты с многословными триггерами:
+- `@ТЗ консультант` (15 символов)
+- `@Отказы ТЗ` (10 символов)
+
+Эти агенты не распознаются при парсинге.
+
+---
+
+## Решение
+
+Изменить логику `parseMention` для поддержки многословных триггеров:
+
+### Изменение 1: Новый алгоритм парсинга
+
+Вместо regex, который пытается угадать границу триггера, использовать **прямое сопоставление** со списком известных триггеров:
 
 ```typescript
-const regenerateResponse = useCallback(async (messageId: string, roleId?: string) => {
-  console.log('regenerateResponse called:', { messageId, roleId });
-  
-  try {
-    const messageIndex = localMessages.findIndex(m => m.id === messageId);
-    if (messageIndex === -1) {
-      console.error('Message not found:', messageId);
-      toast.error('Сообщение не найдено');
-      return;
-    }
-    
-    // ... existing logic with added error handling
-    
-    toast.success('Генерация нового ответа...');
-    
-  } catch (error) {
-    console.error('Regenerate error:', error);
-    toast.error('Не удалось обновить ответ');
+const parseMention = useCallback((text: string): { agentId: string | null; cleanText: string } => {
+  if (!text.startsWith('@')) {
+    return { agentId: null, cleanText: text };
   }
-}, [localMessages, availableAgents, sendMessage]);
+
+  const textLower = text.toLowerCase();
+
+  // Sort agents by trigger length (longest first) to match "ТЗ консультант" before "ТЗ"
+  const sortedAgents = [...availableAgents].sort((a, b) => {
+    const aLen = (a.mention_trigger || a.slug).length;
+    const bLen = (b.mention_trigger || b.slug).length;
+    return bLen - aLen; // Descending order
+  });
+
+  for (const agent of sortedAgents) {
+    const triggers = [
+      agent.mention_trigger?.toLowerCase().trim(),
+      `@${agent.slug}`.toLowerCase(),
+      `@${agent.name.toLowerCase().trim()}`
+    ].filter(Boolean);
+
+    for (const trigger of triggers) {
+      // Check if text starts with trigger followed by space or end
+      if (textLower.startsWith(trigger!) && 
+          (textLower.length === trigger!.length || textLower[trigger!.length] === ' ')) {
+        const cleanText = text.slice(trigger!.length).trim();
+        return { agentId: agent.id, cleanText };
+      }
+    }
+  }
+
+  return { agentId: null, cleanText: text };
+}, [availableAgents]);
+```
+
+### Почему это работает:
+
+1. **Сортировка по длине триггера** — `@ТЗ консультант` проверяется раньше гипотетического `@ТЗ`
+2. **Точное сопоставление** — проверяем, что после триггера идёт пробел или конец строки
+3. **Множественные варианты** — проверяем `mention_trigger`, `slug` и `name`
+
+---
+
+## Файл для изменения
+
+**`src/hooks/useOptimizedDepartmentChat.ts`** (строки 133-169)
+
+Заменить функцию `parseMention` на новую версию с прямым сопоставлением вместо regex.
+
+---
+
+## Дополнительно: Очистка данных
+
+В базе данных есть агенты с trailing spaces в именах (например `Поисковик `). Рекомендуется очистить через миграцию:
+
+```sql
+UPDATE chat_roles SET name = TRIM(name) WHERE name != TRIM(name);
 ```
 
 ---
 
-## Итоговый результат
+## Ожидаемый результат
 
-После применения изменений:
+После исправления:
+- Агенты с многословными триггерами (`@ТЗ консультант`, `@Отказы ТЗ`) будут корректно распознаваться
+- Выбор агента из списка и последующая отправка сообщения будут работать без ошибок
+- Улучшенная отладка через console.log для диагностики проблем
 
-```text
-┌─────────────────────────────────────────────────────────────────┐
-│ ✅ Копирование       — работает с fallback для всех браузеров  │
-│ ✅ Обновить агентом  — работает с уведомлениями об ошибках     │
-│ ✅ Открыть документ  — RLS политика исправлена для storage     │
-└─────────────────────────────────────────────────────────────────┘
-```
-
-## Приоритет исправлений
-
-1. **КРИТИЧНО**: Миграция БД для storage RLS — без неё документы не откроются
-2. **ВАЖНО**: Fallback для копирования — обеспечит работу во всех контекстах
-3. **УЛУЧШЕНИЕ**: Логирование и уведомления для regenerate — облегчит диагностику
