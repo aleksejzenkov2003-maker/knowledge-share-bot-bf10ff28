@@ -52,6 +52,37 @@ interface BitrixChatMessageProps {
   bitrixToken?: string;
 }
 
+// Normalize malformed ASCII tables to valid GFM format
+const normalizeMarkdownTables = (content: string): string => {
+  // Pattern 1: Tables where separator is on same line as header
+  // e.g., "| Cell1 | Cell2 |------|------|"
+  let normalized = content.replace(
+    /(\|[^\n|]+\|)(-+\|)+\s*\n/g,
+    (match, header) => {
+      const columns = (header.match(/\|/g) || []).length - 1;
+      const separator = '|' + Array(columns).fill('---').join('|') + '|\n';
+      return header + '\n' + separator;
+    }
+  );
+  
+  // Pattern 2: Missing separator line between header and content
+  // Look for table rows and ensure there's a separator after first row
+  normalized = normalized.replace(
+    /(\|[^\n]+\|\n)(?!\|[\s:-]+\|)(\|[^\n]+\|)/g,
+    (match, headerLine, contentLine) => {
+      // Count columns from header
+      const columns = (headerLine.match(/\|/g) || []).length - 1;
+      if (columns > 0) {
+        const separator = '|' + Array(columns).fill('---').join('|') + '|\n';
+        return headerLine + separator + contentLine;
+      }
+      return match;
+    }
+  );
+  
+  return normalized;
+};
+
 function BitrixChatMessageComponent({ 
   message, 
   onEditMessage, 
@@ -170,7 +201,7 @@ function BitrixChatMessageComponent({
                     ),
                   }}
                 >
-                  {message.content}
+                  {normalizeMarkdownTables(message.content)}
                 </ReactMarkdown>
               )}
               {message.isStreaming && message.content && (
