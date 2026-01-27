@@ -1,215 +1,110 @@
 
-# План: Добавление доступа к документам в Bitrix-чатах
+# План: Исправление поиска документов в Bitrix-чатах
 
 ## Обнаруженная проблема
 
-В Bitrix-чатах источники **не будут открываться**, потому что:
+При клике на источник в Bitrix-чате появляется ошибка "Документ не найден", хотя документ существует в базе данных.
 
-1. `SourcesPanel` и `DocumentViewer` используют Supabase клиент напрямую
-2. В Bitrix-контексте пользователь авторизован через JWT от `bitrix-chat-api`, но **НЕ через Supabase Auth**
-3. Таблица `documents` защищена RLS: `get_user_department(auth.uid())` - но `auth.uid()` = NULL
-4. Storage bucket `rag-documents` приватный - требует авторизации
+**Причина:** Некорректный синтаксис PostgREST фильтра `.or()`. Значения, содержащие специальные символы (пробелы, кириллица), должны быть заключены в двойные кавычки.
 
-**Результат:** При клике на источник будет ошибка "Документ не найден" или "Не удалось загрузить документ"
+### Текущий (неработающий) синтаксис
 
----
+```typescript
+// Edge Function
+.or(`name.eq.${name},name.ilike.%${baseName}%,file_name.ilike.%${baseName}%`)
 
-## Решение
+// Frontend (SourcesPanel)
+.or(`name.ilike.%${baseName}%,file_name.ilike.%${baseName}%`)
+```
 
-Создать API endpoints в `bitrix-chat-api` для поиска документов и получения signed URL, затем модифицировать компоненты чтобы использовать эти endpoints в Bitrix-контексте.
+При имени документа "Правила возраж в ППС" PostgREST интерпретирует пробелы как разделители, что приводит к ошибке парсинга.
 
-### Архитектура решения
+### Требуемый синтаксис
 
-```text
-Админка (Supabase Auth):
-  SourcesPanel → supabase.from('documents') → RLS OK → DocumentViewer → Storage → OK
-
-Bitrix (JWT Auth):
-  SourcesPanel → bitrix-chat-api/documents/search → Service Role → OK
-                 bitrix-chat-api/documents/signed-url → Service Role → OK
+```typescript
+// Правильно - значения в кавычках
+.or(`name.eq."${name}",name.ilike."%${baseName}%",file_name.ilike."%${baseName}%"`)
 ```
 
 ---
 
 ## Детальные изменения
 
-### 1. Edge Function: Новые endpoints
+### 1. Edge Function: Исправить handleDocumentSearch
 
-**Файл:** `supabase/functions/bitrix-chat-api/index.ts`
+**Файл:** `supabase/functions/bitrix-chat-api/index.ts`  
+**Строка:** ~2254
 
-Добавить 2 новых роута:
-
-#### GET /documents/search
+**Было:**
 ```typescript
-// Поиск документа по имени
-async function handleDocumentSearch(req: Request, token: JWTPayload) {
-  const url = new URL(req.url);
-  const name = url.searchParams.get('name');
-  
-  // Поиск документа (используем service role, игнорируя RLS)
-  const { data: docs } = await supabase
-    .from('documents')
-    .select('id, storage_path, name, file_name')
-    .or(`name.eq.${name},name.ilike.%${baseName}%,file_name.ilike.%${baseName}%`)
-    .limit(5);
-  
-  return new Response(JSON.stringify({ documents: docs }), { headers });
-}
+const { data: docs, error } = await supabase
+  .from('documents')
+  .select('id, storage_path, name, file_name')
+  .or(`name.eq.${name},name.ilike.%${baseName}%,file_name.ilike.%${baseName}%`)
+  .eq('status', 'ready')
+  .limit(10);
 ```
 
-#### POST /documents/signed-url
+**Станет:**
 ```typescript
-// Получение signed URL для документа
-async function handleDocumentSignedUrl(req: Request, token: JWTPayload) {
-  const { storage_path } = await req.json();
-  
-  // Создаём signed URL через service role
-  const { data, error } = await supabase.storage
-    .from('rag-documents')
-    .createSignedUrl(storage_path, 3600);
-  
-  return new Response(JSON.stringify({ signed_url: data?.signedUrl }), { headers });
-}
+const { data: docs, error } = await supabase
+  .from('documents')
+  .select('id, storage_path, name, file_name')
+  .or(`name.eq."${name}",name.ilike."%${baseName}%",file_name.ilike."%${baseName}%"`)
+  .eq('status', 'ready')
+  .limit(10);
 ```
 
-### 2. Компонент SourcesPanel: Контекст-aware логика
+### 2. Frontend: Исправить SourcesPanel (для админки)
 
-**Файл:** `src/components/chat/SourcesPanel.tsx`
+**Файл:** `src/components/chat/SourcesPanel.tsx`  
+**Строка:** ~217
 
-Добавить prop для Bitrix-контекста и использовать API вместо прямого Supabase:
-
+**Было:**
 ```typescript
-interface SourcesPanelProps {
-  ragContext?: string[];
-  citations?: Citation[];
-  webSearchCitations?: string[];
-  webSearchUsed?: boolean;
-  // Новые пропсы для Bitrix
-  isBitrixContext?: boolean;
-  bitrixApiBaseUrl?: string;
-  bitrixToken?: string;
-}
-
-const openDocumentWithHighlight = async (...) => {
-  if (isBitrixContext && bitrixApiBaseUrl && bitrixToken) {
-    // Используем API
-    const searchRes = await fetch(`${bitrixApiBaseUrl}/documents/search?name=${encodeURIComponent(searchName)}`, {
-      headers: { 'Authorization': `Bearer ${bitrixToken}` }
-    });
-    const { documents } = await searchRes.json();
-    // ... далее работаем с documents
-  } else {
-    // Стандартная логика через Supabase
-    const { data: docs } = await supabase.from('documents')...
-  }
-};
+const { data: partialData } = await supabase
+  .from('documents')
+  .select('id, storage_path, name, file_name')
+  .or(`name.ilike.%${baseName}%,file_name.ilike.%${baseName}%`)
+  .limit(5);
 ```
 
-### 3. Компонент DocumentViewer: API-режим
-
-**Файл:** `src/components/documents/DocumentViewer.tsx`
-
-Добавить возможность получать URL через API:
-
+**Станет:**
 ```typescript
-interface DocumentViewerProps {
-  // ... existing props
-  // Новые для Bitrix
-  isBitrixContext?: boolean;
-  bitrixApiBaseUrl?: string;
-  bitrixToken?: string;
-  preSignedUrl?: string; // Уже готовый URL
-}
-
-const loadDocument = async () => {
-  if (preSignedUrl) {
-    setDocumentUrl(preSignedUrl);
-    return;
-  }
-  
-  if (isBitrixContext && bitrixApiBaseUrl && bitrixToken) {
-    const res = await fetch(`${bitrixApiBaseUrl}/documents/signed-url`, {
-      method: 'POST',
-      headers: { 
-        'Authorization': `Bearer ${bitrixToken}`,
-        'Content-Type': 'application/json'
-      },
-      body: JSON.stringify({ storage_path: storagePath })
-    });
-    const { signed_url } = await res.json();
-    setDocumentUrl(signed_url);
-  } else {
-    // Стандартная логика
-  }
-};
-```
-
-### 4. BitrixChatMessage: Передача контекста
-
-**Файл:** `src/components/chat/BitrixChatMessage.tsx`
-
-Передать Bitrix-специфичные пропсы в SourcesPanel:
-
-```typescript
-interface BitrixChatMessageProps {
-  // ... existing
-  bitrixApiBaseUrl?: string;
-  bitrixToken?: string;
-}
-
-// В рендере:
-<SourcesPanel 
-  ragContext={message.ragContext}
-  citations={message.citations}
-  webSearchCitations={message.webSearchCitations}
-  webSearchUsed={message.webSearchUsed}
-  isBitrixContext={true}
-  bitrixApiBaseUrl={bitrixApiBaseUrl}
-  bitrixToken={bitrixToken}
-/>
-```
-
-### 5. BitrixPersonalChat & BitrixDepartmentChat: Передача токена
-
-**Файлы:** 
-- `src/pages/BitrixPersonalChat.tsx`
-- `src/pages/BitrixDepartmentChat.tsx`
-
-Передать `token` и `apiBaseUrl` в BitrixChatMessage:
-
-```typescript
-<BitrixChatMessage
-  message={msg}
-  // ... existing props
-  bitrixApiBaseUrl={apiBaseUrl}
-  bitrixToken={token}
-/>
+const { data: partialData } = await supabase
+  .from('documents')
+  .select('id, storage_path, name, file_name')
+  .or(`name.ilike."%${baseName}%",file_name.ilike."%${baseName}%"`)
+  .limit(5);
 ```
 
 ---
 
 ## Порядок реализации
 
-1. **Edge Function:** Добавить endpoints `/documents/search` и `/documents/signed-url`
-2. **Deploy Edge Function**
-3. **SourcesPanel:** Добавить Bitrix-aware логику с fallback на Supabase
-4. **DocumentViewer:** Добавить поддержку pre-signed URL и API режима
-5. **BitrixChatMessage:** Передать контекстные пропсы
-6. **BitrixPersonalChat/DepartmentChat:** Передать token/apiBaseUrl в сообщения
-7. **Тестирование** открытия документов в Bitrix-чате
+1. Исправить синтаксис `.or()` в `handleDocumentSearch` (Edge Function)
+2. Исправить синтаксис `.or()` в `SourcesPanel` (Frontend)
+3. Деплой Edge Function `bitrix-chat-api`
+4. Протестировать открытие документов в Bitrix-чате и админке
+
+---
+
+## Техническое пояснение
+
+PostgREST использует запятую как разделитель условий в `.or()`. Когда значение содержит специальные символы, оно должно быть заключено в двойные кавычки:
+
+```text
+❌ name.eq.Правила возраж в ППС   → парсится как несколько токенов
+✓ name.eq."Правила возраж в ППС" → парсится как одно значение
+```
+
+Документация: https://postgrest.org/en/stable/references/api/resource_embedding.html#reserved-characters
 
 ---
 
 ## Ожидаемый результат
 
-После реализации:
-- При клике на источник в Bitrix-чате откроется DocumentViewer с PDF
-- Поиск текста в PDF будет работать
-- Подсветка цитаты будет работать
-- Функциональность полностью идентична админке
-
----
-
-## Примечание по безопасности
-
-Endpoint `/documents/signed-url` защищён JWT авторизацией - только авторизованные пользователи Bitrix24 смогут получить ссылки на документы. Signed URL действителен 1 час.
+После исправления:
+- Клик на источник в Bitrix-чате откроет DocumentViewer с PDF
+- Поиск и подсветка цитаты будут работать
+- Функциональность идентична админке
