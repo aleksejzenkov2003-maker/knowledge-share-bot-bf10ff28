@@ -1007,6 +1007,8 @@ export default function BitrixPersonalChat() {
                     onStopGeneration={message.isStreaming ? handleStopGeneration : undefined}
                     availableRoles={user?.available_roles}
                     currentRoleId={selectedRoleId}
+                    bitrixApiBaseUrl={apiBaseUrl}
+                    bitrixToken={token || undefined}
                   />
                 ))}
                 <div ref={messagesEndRef} />

@@ -375,6 +375,25 @@ serve(async (req: Request) => {
         }
         return await handleLogout(token, supabase, jwtSecret);
 
+      // === DOCUMENT ACCESS ENDPOINTS (for Bitrix context) ===
+      case 'documents/search':
+        if (req.method !== 'GET') {
+          return new Response(JSON.stringify({ error: 'Method not allowed' }), {
+            status: 405,
+            headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+          });
+        }
+        return await handleDocumentSearch(url, supabase);
+
+      case 'documents/signed-url':
+        if (req.method !== 'POST') {
+          return new Response(JSON.stringify({ error: 'Method not allowed' }), {
+            status: 405,
+            headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+          });
+        }
+        return await handleDocumentSignedUrl(req, supabase);
+
       default:
         return new Response(JSON.stringify({ 
           error: 'Not found',
@@ -396,6 +415,9 @@ serve(async (req: Request) => {
             'DELETE /department/messages/:id',
             'POST /department/regenerate',
             'GET /department/agents (or /agents)',
+            // Document access
+            'GET /documents/search',
+            'POST /documents/signed-url',
             // User
             'POST /sync-user',
             'POST /logout'
@@ -2203,4 +2225,96 @@ async function handleRegenerateDepartmentMessage(
       'Connection': 'keep-alive',
     },
   });
+}
+
+// ============ DOCUMENT ACCESS HANDLERS ============
+
+// Search documents by name (for Bitrix context - bypasses RLS)
+async function handleDocumentSearch(url: URL, supabase: any): Promise<Response> {
+  const name = url.searchParams.get('name');
+  
+  if (!name) {
+    return new Response(JSON.stringify({ error: 'Missing name parameter' }), {
+      status: 400,
+      headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+    });
+  }
+
+  try {
+    // Extract base name for search
+    const baseName = name
+      .replace(/\s*\(часть.*$/, '')
+      .replace(/\s*\(стр\..*$/, '')
+      .trim();
+
+    // Search for documents matching the name
+    const { data: docs, error } = await supabase
+      .from('documents')
+      .select('id, storage_path, name, file_name')
+      .or(`name.eq.${name},name.ilike.%${baseName}%,file_name.ilike.%${baseName}%`)
+      .eq('status', 'ready')
+      .limit(10);
+
+    if (error) {
+      console.error('Document search error:', error);
+      throw error;
+    }
+
+    return new Response(JSON.stringify({ documents: docs || [] }), {
+      status: 200,
+      headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+    });
+  } catch (error) {
+    console.error('handleDocumentSearch error:', error);
+    return new Response(JSON.stringify({ error: 'Failed to search documents' }), {
+      status: 500,
+      headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+    });
+  }
+}
+
+// Get signed URL for document (for Bitrix context - bypasses RLS)
+async function handleDocumentSignedUrl(req: Request, supabase: any): Promise<Response> {
+  let body: { storage_path?: string };
+  
+  try {
+    body = await req.json();
+  } catch {
+    return new Response(JSON.stringify({ error: 'Invalid JSON body' }), {
+      status: 400,
+      headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+    });
+  }
+
+  const { storage_path } = body;
+  
+  if (!storage_path) {
+    return new Response(JSON.stringify({ error: 'Missing storage_path in request body' }), {
+      status: 400,
+      headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+    });
+  }
+
+  try {
+    // Create signed URL using service role (bypasses RLS)
+    const { data, error } = await supabase.storage
+      .from('rag-documents')
+      .createSignedUrl(storage_path, 3600); // 1 hour expiry
+
+    if (error) {
+      console.error('Signed URL error:', error);
+      throw error;
+    }
+
+    return new Response(JSON.stringify({ signed_url: data?.signedUrl }), {
+      status: 200,
+      headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+    });
+  } catch (error) {
+    console.error('handleDocumentSignedUrl error:', error);
+    return new Response(JSON.stringify({ error: 'Failed to generate signed URL' }), {
+      status: 500,
+      headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+    });
+  }
 }

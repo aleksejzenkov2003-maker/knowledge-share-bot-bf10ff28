@@ -39,6 +39,11 @@ interface DocumentViewerProps {
   documentName?: string;
   searchText?: string;
   pageNumber?: number;
+  // Bitrix context props
+  isBitrixContext?: boolean;
+  bitrixApiBaseUrl?: string;
+  bitrixToken?: string;
+  preSignedUrl?: string;
 }
 
 interface TextMatch {
@@ -54,6 +59,10 @@ export function DocumentViewer({
   documentName,
   searchText,
   pageNumber = 1,
+  isBitrixContext,
+  bitrixApiBaseUrl,
+  bitrixToken,
+  preSignedUrl,
 }: DocumentViewerProps) {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -113,9 +122,17 @@ export function DocumentViewer({
     setSearchResults([]);
 
     try {
+      // If pre-signed URL is provided, use it directly
+      if (preSignedUrl) {
+        setDocumentUrl(preSignedUrl);
+        setLoading(false);
+        return;
+      }
+
       let path = storagePath;
 
-      if (!path && documentId) {
+      // Get storage path if not provided (admin context only)
+      if (!path && documentId && !isBitrixContext) {
         const { data: doc, error: docError } = await supabase
           .from('documents')
           .select('storage_path, name')
@@ -130,16 +147,40 @@ export function DocumentViewer({
         throw new Error('Путь к документу не найден');
       }
 
-      const { data: signedUrl, error: urlError } = await supabase.storage
-        .from('rag-documents')
-        .createSignedUrl(path, 3600);
-
-      if (urlError) throw urlError;
-
-      if (signedUrl?.signedUrl) {
-        setDocumentUrl(signedUrl.signedUrl);
+      // Get signed URL via API for Bitrix context
+      if (isBitrixContext && bitrixApiBaseUrl && bitrixToken) {
+        const response = await fetch(`${bitrixApiBaseUrl}/documents/signed-url`, {
+          method: 'POST',
+          headers: { 
+            'Authorization': `Bearer ${bitrixToken}`,
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({ storage_path: path }),
+        });
+        
+        if (!response.ok) {
+          throw new Error('Не удалось получить доступ к документу');
+        }
+        
+        const { signed_url } = await response.json();
+        if (signed_url) {
+          setDocumentUrl(signed_url);
+        } else {
+          throw new Error('Не удалось получить ссылку на документ');
+        }
       } else {
-        throw new Error('Не удалось получить ссылку на документ');
+        // Standard Supabase flow for admin context
+        const { data: signedUrl, error: urlError } = await supabase.storage
+          .from('rag-documents')
+          .createSignedUrl(path, 3600);
+
+        if (urlError) throw urlError;
+
+        if (signedUrl?.signedUrl) {
+          setDocumentUrl(signedUrl.signedUrl);
+        } else {
+          throw new Error('Не удалось получить ссылку на документ');
+        }
       }
     } catch (err) {
       console.error('Error loading document:', err);

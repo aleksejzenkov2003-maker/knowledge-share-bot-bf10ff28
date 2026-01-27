@@ -14,6 +14,10 @@ interface SourcesPanelProps {
   citations?: Citation[];
   webSearchCitations?: string[];
   webSearchUsed?: boolean;
+  // Bitrix context props
+  isBitrixContext?: boolean;
+  bitrixApiBaseUrl?: string;
+  bitrixToken?: string;
 }
 
 interface DocumentViewerState {
@@ -29,12 +33,16 @@ export function SourcesPanel({
   ragContext, 
   citations, 
   webSearchCitations,
-  webSearchUsed 
+  webSearchUsed,
+  isBitrixContext,
+  bitrixApiBaseUrl,
+  bitrixToken,
 }: SourcesPanelProps) {
   const [loadingSource, setLoadingSource] = useState<string | null>(null);
   const [viewerState, setViewerState] = useState<DocumentViewerState>({
     isOpen: false,
   });
+  const [preSignedUrl, setPreSignedUrl] = useState<string | undefined>(undefined);
 
   const hasRagSources = ragContext && ragContext.length > 0;
   const hasCitations = citations && citations.length > 0;
@@ -90,6 +98,56 @@ export function SourcesPanel({
       .trim();
   };
 
+  // Search documents via API (for Bitrix context)
+  const searchDocumentsViaApi = async (searchName: string) => {
+    if (!bitrixApiBaseUrl || !bitrixToken) return null;
+    
+    try {
+      const response = await fetch(
+        `${bitrixApiBaseUrl}/documents/search?name=${encodeURIComponent(searchName)}`,
+        {
+          headers: { 'Authorization': `Bearer ${bitrixToken}` },
+        }
+      );
+      
+      if (!response.ok) {
+        throw new Error('Failed to search documents');
+      }
+      
+      const { documents } = await response.json();
+      return documents;
+    } catch (error) {
+      console.error('API document search error:', error);
+      return null;
+    }
+  };
+
+  // Get signed URL via API (for Bitrix context)
+  const getSignedUrlViaApi = async (storagePath: string): Promise<string | null> => {
+    if (!bitrixApiBaseUrl || !bitrixToken) return null;
+    
+    try {
+      const response = await fetch(`${bitrixApiBaseUrl}/documents/signed-url`, {
+        method: 'POST',
+        headers: { 
+          'Authorization': `Bearer ${bitrixToken}`,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ storage_path: storagePath }),
+      });
+      
+      if (!response.ok) {
+        throw new Error('Failed to get signed URL');
+      }
+      
+      const { signed_url } = await response.json();
+      return signed_url;
+    } catch (error) {
+      console.error('API signed URL error:', error);
+      return null;
+    }
+  };
+
   // Open document with highlight
   const openDocumentWithHighlight = async (
     documentInfo: string, 
@@ -98,10 +156,19 @@ export function SourcesPanel({
   ) => {
     const sourceId = documentInfo + (contentPreview || '');
     setLoadingSource(sourceId);
+    setPreSignedUrl(undefined);
 
     try {
       // Try to use citation data first if available
       if (citationData?.document_id && citationData?.storage_path) {
+        // For Bitrix context, pre-fetch signed URL
+        if (isBitrixContext && bitrixApiBaseUrl && bitrixToken) {
+          const signedUrl = await getSignedUrlViaApi(citationData.storage_path);
+          if (signedUrl) {
+            setPreSignedUrl(signedUrl);
+          }
+        }
+        
         setViewerState({
           isOpen: true,
           documentId: citationData.document_id,
@@ -117,41 +184,67 @@ export function SourcesPanel({
       // Clean document name - remove leading index like "[1]" if present
       let searchName = documentInfo.replace(/^\[\d+\]\s*/, '').trim();
       
-      // First try exact match
-      let { data: docs } = await supabase
-        .from('documents')
-        .select('id, storage_path, name, file_name')
-        .eq('name', searchName)
-        .limit(1);
+      let docs: Array<{ id: string; storage_path: string; name: string; file_name: string }> | null = null;
       
-      // If not found, try without the part/page suffix
-      if (!docs?.length) {
-        const baseName = searchName.replace(/\s*\(часть.*$/, '').replace(/\s*\(стр\..*$/, '').trim();
-        console.log('Trying base name search:', baseName);
+      // Use API for Bitrix context, direct Supabase for admin
+      if (isBitrixContext && bitrixApiBaseUrl && bitrixToken) {
+        // Try exact match first via API
+        docs = await searchDocumentsViaApi(searchName);
         
-        ({ data: docs } = await supabase
+        // If not found, try without the part/page suffix
+        if (!docs?.length) {
+          const baseName = searchName.replace(/\s*\(часть.*$/, '').replace(/\s*\(стр\..*$/, '').trim();
+          console.log('Trying base name search via API:', baseName);
+          docs = await searchDocumentsViaApi(baseName);
+        }
+      } else {
+        // Standard Supabase flow for admin
+        const { data } = await supabase
           .from('documents')
           .select('id, storage_path, name, file_name')
-          .or(`name.ilike.%${baseName}%,file_name.ilike.%${baseName}%`)
-          .limit(5));
+          .eq('name', searchName)
+          .limit(1);
+        docs = data;
         
-        // If multiple results, prefer one that matches the part number
-        if (docs && docs.length > 1) {
-          const partMatch = searchName.match(/часть\s*(\d+)/i);
-          if (partMatch) {
-            const partNum = partMatch[1];
-            const exactPart = docs.find(d => 
-              d.name?.includes(`часть ${partNum}`) || d.name?.includes(`часть${partNum}`)
-            );
-            if (exactPart) {
-              docs = [exactPart];
-            }
+        // If not found, try without the part/page suffix
+        if (!docs?.length) {
+          const baseName = searchName.replace(/\s*\(часть.*$/, '').replace(/\s*\(стр\..*$/, '').trim();
+          console.log('Trying base name search:', baseName);
+          
+          const { data: partialData } = await supabase
+            .from('documents')
+            .select('id, storage_path, name, file_name')
+            .or(`name.ilike.%${baseName}%,file_name.ilike.%${baseName}%`)
+            .limit(5);
+          docs = partialData;
+        }
+      }
+      
+      // If multiple results, prefer one that matches the part number
+      if (docs && docs.length > 1) {
+        const partMatch = searchName.match(/часть\s*(\d+)/i);
+        if (partMatch) {
+          const partNum = partMatch[1];
+          const exactPart = docs.find(d => 
+            d.name?.includes(`часть ${partNum}`) || d.name?.includes(`часть${partNum}`)
+          );
+          if (exactPart) {
+            docs = [exactPart];
           }
         }
       }
       
       if (docs && docs.length > 0 && docs[0].storage_path) {
         console.log('Found document:', docs[0].name);
+        
+        // For Bitrix context, pre-fetch signed URL
+        if (isBitrixContext && bitrixApiBaseUrl && bitrixToken) {
+          const signedUrl = await getSignedUrlViaApi(docs[0].storage_path);
+          if (signedUrl) {
+            setPreSignedUrl(signedUrl);
+          }
+        }
+        
         setViewerState({
           isOpen: true,
           documentId: docs[0].id,
@@ -371,6 +464,10 @@ export function SourcesPanel({
         documentName={viewerState.documentName}
         searchText={viewerState.searchText}
         pageNumber={viewerState.pageNumber}
+        isBitrixContext={isBitrixContext}
+        bitrixApiBaseUrl={bitrixApiBaseUrl}
+        bitrixToken={bitrixToken}
+        preSignedUrl={preSignedUrl}
       />
     </>
   );
