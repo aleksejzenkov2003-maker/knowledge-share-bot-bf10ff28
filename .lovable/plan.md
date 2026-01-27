@@ -1,281 +1,208 @@
 
-# План: Добавление демо-режима для тестирования Bitrix-чатов
+# План: Исправление авторизации и доступа к агентам в демо-режиме Bitrix-чатов
 
-## Обзор
+## Обнаруженные проблемы
 
-Добавить в страницу `/bitrix-sessions` возможность запускать демо-версии Bitrix-чатов (Личный и Общий) прямо из админки для тестирования.
+### Проблема 1: Игнорирование `department_id` при демо-авторизации
+**Причина:** В функции `handleAuth` (строки 464-491) если пользователь уже существует с `department_id` в профиле, система **всегда** использует сохранённый `department_id`, игнорируя переданный `explicitDepartmentId`.
 
-## Текущая архитектура
-
-Bitrix-чаты (`/bitrix-personal`, `/bitrix-department`) работают так:
-1. Получают параметры через URL: `portal`, `bitrixUserId`, `userName`, `userEmail`
-2. Делают POST на `/auth` в `bitrix-chat-api`
-3. API проверяет portal_domain в `department_api_keys`, создаёт JWT-токен
-4. Далее все запросы идут с этим токеном
-
-## Реализация
-
-### 1. Добавить UI-панель "Демо-режим"
-
-В начало страницы `BitrixSessions.tsx` добавить карточку с:
-- Dropdown для выбора отдела (из существующих `department_api_keys`)
-- Dropdown для выбора типа чата (Личный / Общий)
-- Поля для ввода тестовых данных:
-  - Bitrix User ID (по умолчанию: "demo-admin-123")
-  - Имя пользователя (по умолчанию: "Администратор Тест")
-- Кнопка "Открыть демо" (открывает в новом окне/iframe)
-
+**Лог показывает:**
 ```
-┌─────────────────────────────────────────────────────────┐
-│ 🧪 Демо-режим тестирования                              │
-├─────────────────────────────────────────────────────────┤
-│ Отдел:    [▼ Юридический          ]                     │
-│ Чат:      [▼ Личный чат           ]                     │
-│ User ID:  [demo-admin-123________]                      │
-│ Имя:      [Тестовый Администратор]                      │
-│                                                         │
-│ [🚀 Открыть в новом окне]  [📺 Показать здесь]          │
-└─────────────────────────────────────────────────────────┘
+[AUTH] User already has department_id: 880d183f-a900-420b-917f-cb40972787fe
 ```
+Но запрос содержит другой `department_id: "c5e7b85c-0040-47b0-9f54-e4ef3001cd52"`.
 
-### 2. Логика открытия демо
+### Проблема 2: Нет агентов для отдела "Патенты"
+Данные показывают, что все агенты (`chat_roles`) привязаны к department_ids:
+- `c5e7b85c-0040-47b0-9f54-e4ef3001cd52` (Товарные знаки)
+- `31edb6ea-889c-4205-8fa7-f0e0bfc5570e` (Юридический)
 
-При нажатии формируется URL:
-```typescript
-const portal = selectedApiKey.portal_domain; // например: "bitrix.artpatent.ru"
-const url = `/bitrix-personal?portal=${portal}&bitrixUserId=${userId}&userName=${encodeURIComponent(userName)}&userEmail=${email}`;
-```
+Но **НИ ОДИН агент не имеет** `880d183f-a900-420b-917f-cb40972787fe` (Патенты) в своём `department_ids`.
 
-Варианты открытия:
-1. **Новое окно** - `window.open(url, '_blank', 'width=800,height=700')`
-2. **Iframe внутри Dialog** - показывает чат прямо на странице
-
-### 3. Необходимые данные
-
-Нужно загрузить `department_api_keys` с информацией об отделах:
-```typescript
-const { data } = await supabase
-  .from('department_api_keys')
-  .select(`
-    id,
-    portal_domain,
-    department_id,
-    is_active,
-    departments(name)
-  `)
-  .eq('is_active', true)
-  .order('created_at', { ascending: false });
-```
-
-### 4. Структура состояний
-
-```typescript
-// Demo state
-const [demoPortal, setDemoPortal] = useState<string>('');
-const [demoChatType, setDemoChatType] = useState<'personal' | 'department'>('personal');
-const [demoUserId, setDemoUserId] = useState<string>('demo-admin-123');
-const [demoUserName, setDemoUserName] = useState<string>('Тестовый Администратор');
-const [demoUserEmail, setDemoUserEmail] = useState<string>('admin@test.local');
-const [showDemoIframe, setShowDemoIframe] = useState(false);
-const [demoUrl, setDemoUrl] = useState<string>('');
-
-// API keys with departments
-const [apiKeys, setApiKeys] = useState<Array<{
-  id: string;
-  portal_domain: string;
-  department_id: string;
-  department_name: string;
-}>>([]);
-```
-
-### 5. Компонент Iframe Dialog
-
-```tsx
-<Dialog open={showDemoIframe} onOpenChange={setShowDemoIframe}>
-  <DialogContent className="max-w-4xl h-[80vh] p-0">
-    <DialogHeader className="p-4 border-b">
-      <DialogTitle className="flex items-center gap-2">
-        <PlayCircle className="h-5 w-5" />
-        Демо: {demoChatType === 'personal' ? 'Личный чат' : 'Общий чат'}
-      </DialogTitle>
-    </DialogHeader>
-    <iframe
-      src={demoUrl}
-      className="w-full h-full border-0"
-      title="Demo Chat"
-    />
-  </DialogContent>
-</Dialog>
-```
+### Проблема 3: Создание диалога не работает
+Это следствие проблемы 1 - неверный `department_id` в JWT токене влияет на все последующие запросы.
 
 ---
 
-## Файлы для изменения
+## Решение
 
-| Файл | Изменения |
-|------|-----------|
-| `src/pages/BitrixSessions.tsx` | Добавить демо-панель с формой и iframe dialog |
+### Изменение 1: Приоритет `explicitDepartmentId` в авторизации
 
----
+**Файл:** `supabase/functions/bitrix-chat-api/index.ts`
+**Функция:** `handleAuth` (строки 464-491)
 
-## Технические детали
+Логика должна быть изменена:
 
-### Загрузка API ключей
+```
+Текущая логика:
+1. Если пользователь существует с department_id → использовать его
+2. Иначе → искать по API key
+
+Новая логика:
+1. Если передан explicitDepartmentId (демо-режим) → использовать его
+2. Иначе если пользователь существует с department_id → использовать его
+3. Иначе → искать по API key
+```
+
+**Изменения в коде:**
 
 ```typescript
-const fetchApiKeys = async () => {
-  const { data, error } = await supabase
+// STEP 0: If explicit department_id passed (demo/admin mode), prioritize it
+if (explicitDepartmentId) {
+  console.log('[AUTH] Explicit department_id requested (demo mode):', explicitDepartmentId);
+  
+  // Verify this department exists and has API key for the portal
+  const { data: apiKeyData } = await supabase
     .from('department_api_keys')
-    .select(`
-      id,
-      portal_domain,
-      department_id,
-      departments(name)
-    `)
+    .select('id, department_id, request_count')
+    .eq('portal_domain', normalizedPortal)
+    .eq('department_id', explicitDepartmentId)
     .eq('is_active', true)
-    .order('created_at', { ascending: false });
+    .maybeSingle();
 
-  if (data) {
-    const keys = data.map((k: any) => ({
-      id: k.id,
-      portal_domain: k.portal_domain,
-      department_id: k.department_id,
-      department_name: k.departments?.name || 'Неизвестный'
-    }));
-    setApiKeys(keys);
-    if (keys.length > 0) {
-      setDemoPortal(keys[0].portal_domain);
+  if (apiKeyData) {
+    departmentId = explicitDepartmentId;
+    apiKeyId = apiKeyData.id;
+    console.log('[AUTH] Using explicit department_id:', departmentId);
+    
+    // Update usage stats
+    await supabase
+      .from('department_api_keys')
+      .update({ 
+        last_used_at: new Date().toISOString(),
+        request_count: (apiKeyData.request_count || 0) + 1
+      })
+      .eq('id', apiKeyData.id);
+  } else {
+    console.log('[AUTH] Explicit department not found for this portal, will try fallback');
+  }
+}
+
+// STEP 1: If no explicit department set, check existing user
+if (!departmentId && existingProfile?.department_id) {
+  // ... existing logic
+}
+
+// STEP 2: If still no department - find API key by portal
+if (!departmentId) {
+  // ... existing logic
+}
+```
+
+### Изменение 2: Добавить агента "Поисковик" для отдела "Патенты"
+
+Нужно обновить один из существующих агентов или добавить новый для отдела "Патенты" (`880d183f-a900-420b-917f-cb40972787fe`).
+
+Агент "Поисковик" уже имеет все 4 отдела включая Патенты:
+```
+department_ids:[31edb6ea-889c-4205-8fa7-f0e0bfc5570e, c5e7b85c-0040-47b0-9f54-e4ef3001cd52, ed0822ad-e656-4162-b1c6-a0a992ab29e1, 880d183f-a900-420b-917f-cb40972787fe]
+```
+
+Но другие агенты (Юрист, МКТУ, ТЗ консультант) **не имеют** Патенты в списке.
+
+**Действие:** Добавить Патенты в department_ids для агентов, которые должны быть доступны в этом отделе, ИЛИ создать специфических агентов для Патентов.
+
+---
+
+## Детальные изменения кода
+
+### Файл: `supabase/functions/bitrix-chat-api/index.ts`
+
+**Строки 460-491 → Заменить на:**
+
+```typescript
+  let departmentId: string | null = null;
+  let apiKeyId: string | null = null;
+  let isUserDepartmentDetected = false;
+
+  // STEP 0: If explicit department_id passed (demo/admin mode), prioritize it
+  if (explicitDepartmentId) {
+    console.log('[AUTH] Explicit department_id requested (demo mode):', explicitDepartmentId);
+    
+    // Verify this department exists and has API key for the portal
+    const { data: apiKeyData } = await supabase
+      .from('department_api_keys')
+      .select('id, department_id, request_count')
+      .eq('portal_domain', normalizedPortal)
+      .eq('department_id', explicitDepartmentId)
+      .eq('is_active', true)
+      .maybeSingle();
+
+    if (apiKeyData) {
+      departmentId = explicitDepartmentId;
+      apiKeyId = apiKeyData.id;
+      isUserDepartmentDetected = true;
+      console.log('[AUTH] Using explicit department_id:', departmentId);
+      
+      // Update usage stats
+      await supabase
+        .from('department_api_keys')
+        .update({ 
+          last_used_at: new Date().toISOString(),
+          request_count: (apiKeyData.request_count || 0) + 1
+        })
+        .eq('id', apiKeyData.id);
+    } else {
+      console.log('[AUTH] Explicit department not found for this portal, will try user profile or fallback');
     }
   }
-};
-```
 
-### Открытие демо
+  // STEP 1: If no explicit department set, check existing user's department
+  if (!departmentId && existingProfile?.department_id) {
+    console.log('[AUTH] User already has department_id:', existingProfile.department_id);
+    departmentId = existingProfile.department_id;
+    isUserDepartmentDetected = true;
 
-```typescript
-const openDemo = (inIframe: boolean) => {
-  const baseUrl = demoChatType === 'personal' ? '/bitrix-personal' : '/bitrix-department';
-  const params = new URLSearchParams({
-    portal: demoPortal,
-    bitrixUserId: demoUserId,
-    userName: demoUserName,
-    userEmail: demoUserEmail,
-  });
-  
-  const url = `${baseUrl}?${params.toString()}`;
-  
-  if (inIframe) {
-    setDemoUrl(url);
-    setShowDemoIframe(true);
-  } else {
-    window.open(url, '_blank', 'width=900,height=700,resizable=yes');
+    // Verify this portal has an API key for this department
+    const { data: apiKeyForDept } = await supabase
+      .from('department_api_keys')
+      .select('id, request_count')
+      .eq('portal_domain', normalizedPortal)
+      .eq('department_id', departmentId)
+      .eq('is_active', true)
+      .maybeSingle();
+
+    if (apiKeyForDept) {
+      apiKeyId = apiKeyForDept.id;
+      // Update usage stats
+      await supabase
+        .from('department_api_keys')
+        .update({ 
+          last_used_at: new Date().toISOString(),
+          request_count: (apiKeyForDept.request_count || 0) + 1
+        })
+        .eq('id', apiKeyForDept.id);
+    }
   }
-};
-```
 
-### UI компонент демо-панели
-
-```tsx
-<Card className="mb-6 border-primary/20 bg-primary/5">
-  <CardHeader>
-    <CardTitle className="flex items-center gap-2 text-lg">
-      <PlayCircle className="h-5 w-5 text-primary" />
-      Демо-режим тестирования
-    </CardTitle>
-    <CardDescription>
-      Откройте чат как тестовый пользователь Bitrix24
-    </CardDescription>
-  </CardHeader>
-  <CardContent>
-    <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-5 gap-4">
-      {/* Portal/Department selector */}
-      <div className="space-y-2">
-        <label className="text-sm font-medium">Портал / Отдел</label>
-        <Select value={demoPortal} onValueChange={setDemoPortal}>
-          <SelectTrigger>
-            <SelectValue placeholder="Выберите портал" />
-          </SelectTrigger>
-          <SelectContent>
-            {apiKeys.map(k => (
-              <SelectItem key={k.id} value={k.portal_domain}>
-                {k.department_name} ({k.portal_domain})
-              </SelectItem>
-            ))}
-          </SelectContent>
-        </Select>
-      </div>
-      
-      {/* Chat type */}
-      <div className="space-y-2">
-        <label className="text-sm font-medium">Тип чата</label>
-        <Select value={demoChatType} onValueChange={(v) => setDemoChatType(v as 'personal' | 'department')}>
-          <SelectTrigger>
-            <SelectValue />
-          </SelectTrigger>
-          <SelectContent>
-            <SelectItem value="personal">Личный чат</SelectItem>
-            <SelectItem value="department">Общий чат</SelectItem>
-          </SelectContent>
-        </Select>
-      </div>
-      
-      {/* User ID */}
-      <div className="space-y-2">
-        <label className="text-sm font-medium">Bitrix User ID</label>
-        <Input 
-          value={demoUserId} 
-          onChange={(e) => setDemoUserId(e.target.value)}
-          placeholder="demo-123"
-        />
-      </div>
-      
-      {/* User Name */}
-      <div className="space-y-2">
-        <label className="text-sm font-medium">Имя пользователя</label>
-        <Input 
-          value={demoUserName} 
-          onChange={(e) => setDemoUserName(e.target.value)}
-          placeholder="Тест Тестов"
-        />
-      </div>
-      
-      {/* Buttons */}
-      <div className="space-y-2">
-        <label className="text-sm font-medium">&nbsp;</label>
-        <div className="flex gap-2">
-          <Button onClick={() => openDemo(false)} disabled={!demoPortal}>
-            <ExternalLink className="h-4 w-4 mr-2" />
-            Окно
-          </Button>
-          <Button variant="outline" onClick={() => openDemo(true)} disabled={!demoPortal}>
-            <Tv className="h-4 w-4 mr-2" />
-            Здесь
-          </Button>
-        </div>
-      </div>
-    </div>
-  </CardContent>
-</Card>
+  // STEP 2: If user doesn't have department - find API key by portal (legacy flow / first login)
+  if (!departmentId) {
+    // ... keep existing STEP 2 logic unchanged
+  }
 ```
 
 ---
 
 ## Порядок реализации
 
-1. Добавить импорты (PlayCircle, ExternalLink, Tv)
-2. Добавить состояния для демо-режима
-3. Добавить функцию загрузки API ключей
-4. Добавить функцию открытия демо
-5. Добавить UI карточку демо-режима
-6. Добавить Dialog с iframe
+1. **Edge Function:** Изменить `handleAuth` - дать приоритет `explicitDepartmentId`
+2. **Deploy Edge Function**
+3. **Тестирование** демо-режима - проверить что переключение отделов работает
 
 ---
 
 ## Ожидаемый результат
 
-После реализации администратор сможет:
-- Выбрать портал/отдел из списка зарегистрированных
-- Выбрать тип чата (Личный или Общий)
-- Указать тестовые данные пользователя
-- Открыть чат в новом окне или прямо на странице в iframe
-- Тестировать функционал без реального Bitrix24
+После исправления:
+- При выборе отдела в демо-режиме JWT будет содержать выбранный `department_id`
+- Агенты будут загружаться для правильного отдела
+- Создание диалогов будет работать
+- Администратор сможет тестировать любой отдел без пересоздания пользователя
+
+---
+
+## Примечание: Отсутствие агентов для "Патенты"
+
+Если после исправления агенты всё равно не появляются для отдела "Патенты" - это означает, что в `chat_roles` нет агентов с `department_ids` содержащим `880d183f-a900-420b-917f-cb40972787fe`.
+
+Решение: Добавить этот отдел в `department_ids` нужных агентов через админ-панель (страница ChatRoles).
