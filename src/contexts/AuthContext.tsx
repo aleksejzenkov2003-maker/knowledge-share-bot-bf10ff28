@@ -68,24 +68,38 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     // Get initial session first, then set up listener
     const initializeAuth = async () => {
       try {
-        const { data: { session: initialSession } } = await supabase.auth.getSession();
+        // Try to get session from storage first
+        const { data: { session: initialSession }, error: sessionError } = await supabase.auth.getSession();
+        
+        if (sessionError) {
+          console.error('Error getting session:', sessionError);
+        }
         
         if (!isMounted) return;
 
         if (initialSession?.user) {
+          console.log('Session restored for user:', initialSession.user.email);
           setSession(initialSession);
           setUser(initialSession.user);
           
-          // Load metadata in parallel
+          // Load metadata in parallel with timeout
           try {
-            const metadata = await loadUserMetadata(initialSession.user.id);
+            const metadataPromise = loadUserMetadata(initialSession.user.id);
+            const timeoutPromise = new Promise<{ role: AppRole | null; departmentId: string | null }>((_, reject) => 
+              setTimeout(() => reject(new Error('Metadata load timeout')), 10000)
+            );
+            
+            const metadata = await Promise.race([metadataPromise, timeoutPromise]);
             if (isMounted) {
               setRole(metadata.role);
               setDepartmentId(metadata.departmentId);
             }
           } catch (metaError) {
             console.error('Error loading metadata:', metaError);
+            // Don't block auth flow on metadata failure
           }
+        } else {
+          console.log('No active session found');
         }
       } catch (error) {
         console.error('Error initializing auth:', error);

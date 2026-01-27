@@ -31,7 +31,7 @@ const Login = () => {
     } else {
       toast({
         title: 'Успешный вход',
-        description: 'Добро пожаловать в админ-панель',
+        description: 'Добро пожаловать!',
       });
       navigate('/');
     }
@@ -46,9 +46,9 @@ const Login = () => {
           <div className="mx-auto mb-4 flex h-12 w-12 items-center justify-center rounded-full bg-primary/10">
             <Bot className="h-6 w-6 text-primary" />
           </div>
-          <CardTitle className="text-2xl">Админ-панель AI Chat</CardTitle>
+          <CardTitle className="text-2xl">AI Chat</CardTitle>
           <CardDescription>
-            Войдите для управления AI-системой
+            Войдите в систему
           </CardDescription>
         </CardHeader>
         <form onSubmit={handleSubmit}>
