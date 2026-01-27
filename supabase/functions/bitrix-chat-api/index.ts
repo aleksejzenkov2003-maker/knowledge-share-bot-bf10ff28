@@ -588,16 +588,7 @@ async function handleAuth(
         apiKeys.length > 1 ? `(${apiKeys.length} departments available)` : '');
     }
 
-    // Update API key usage stats
-    if (apiKeyId) {
-      await supabase
-        .from('department_api_keys')
-        .update({ 
-          last_used_at: new Date().toISOString(),
-          request_count: supabase.sql`request_count + 1`
-        })
-        .eq('id', apiKeyId);
-    }
+    // Update API key usage stats - note: we already updated in STEP 0/1/2 where apiKeyId was set
   }
 
   // Get or create user
