@@ -1,101 +1,215 @@
 
-
-# План: Исправление отображения источников в Bitrix-чатах
+# План: Добавление доступа к документам в Bitrix-чатах
 
 ## Обнаруженная проблема
 
-Edge Function `bitrix-chat-api` **не захватывает метаданные с источниками** из ответа `chat-stream`.
+В Bitrix-чатах источники **не будут открываться**, потому что:
 
-### Как `chat-stream` отправляет данные
+1. `SourcesPanel` и `DocumentViewer` используют Supabase клиент напрямую
+2. В Bitrix-контексте пользователь авторизован через JWT от `bitrix-chat-api`, но **НЕ через Supabase Auth**
+3. Таблица `documents` защищена RLS: `get_user_department(auth.uid())` - но `auth.uid()` = NULL
+4. Storage bucket `rag-documents` приватный - требует авторизации
 
-```javascript
-// Отдельный chunk типа 'metadata'
-data: {"type":"metadata","response_time_ms":500,"rag_context":["..."],"citations":[...],"web_search_citations":[...],"web_search_used":true}
-```
-
-### Как `bitrix-chat-api` их обрабатывает (текущий код)
-
-```typescript
-// Строки 1282-1284 (personal chat) и 1527-1529 (department chat)
-if (parsed.citations || parsed.response_time_ms) {
-  metadata = { ...metadata, ...parsed };
-}
-```
-
-Этот код **пропускает** chunk с `type: 'metadata'`, потому что:
-1. Он проверяет только `citations` и `response_time_ms`
-2. Но metadata chunk содержит `type`, `rag_context`, `web_search_citations`, `smart_search` и т.д.
+**Результат:** При клике на источник будет ошибка "Документ не найден" или "Не удалось загрузить документ"
 
 ---
 
 ## Решение
 
-Изменить условие для захвата метаданных в 4 местах:
+Создать API endpoints в `bitrix-chat-api` для поиска документов и получения signed URL, затем модифицировать компоненты чтобы использовать эти endpoints в Bitrix-контексте.
 
-### Файл: `supabase/functions/bitrix-chat-api/index.ts`
+### Архитектура решения
 
-| Место | Строки | Функция |
-|-------|--------|---------|
-| 1 | ~1282-1284 | `handleSendPersonalMessage` |
-| 2 | ~1527-1529 | `handleSendDepartmentMessage` |
-| 3 | ~1835-1837 | `handleRegeneratePersonalMessage` |
-| 4 | ~1885-1887 | `handleRegenerateDepartmentMessage` |
+```text
+Админка (Supabase Auth):
+  SourcesPanel → supabase.from('documents') → RLS OK → DocumentViewer → Storage → OK
 
-### Изменение кода
-
-**Было:**
-```typescript
-if (parsed.citations || parsed.response_time_ms) {
-  metadata = { ...metadata, ...parsed };
-}
-```
-
-**Станет:**
-```typescript
-// Захватываем metadata chunk ИЛИ отдельные поля
-if (parsed.type === 'metadata' || 
-    parsed.citations || 
-    parsed.response_time_ms || 
-    parsed.rag_context || 
-    parsed.web_search_citations) {
-  // Не копируем поля type и content в metadata
-  const { type, content, ...metaFields } = parsed;
-  metadata = { ...metadata, ...metaFields };
-}
+Bitrix (JWT Auth):
+  SourcesPanel → bitrix-chat-api/documents/search → Service Role → OK
+                 bitrix-chat-api/documents/signed-url → Service Role → OK
 ```
 
 ---
 
-## Дополнительная проверка
+## Детальные изменения
 
-Убедимся, что фронтенд правильно обрабатывает данные. В `BitrixPersonalChat.tsx` (строки 546-550) логика уже корректная:
+### 1. Edge Function: Новые endpoints
 
+**Файл:** `supabase/functions/bitrix-chat-api/index.ts`
+
+Добавить 2 новых роута:
+
+#### GET /documents/search
 ```typescript
-if (parsed.citations) metadata.citations = parsed.citations;
-if (parsed.response_time_ms) metadata.responseTime = parsed.response_time_ms;
-if (parsed.web_search_citations) metadata.webSearchCitations = parsed.web_search_citations;
-if (parsed.web_search_used) metadata.webSearchUsed = parsed.web_search_used;
-if (parsed.rag_context) metadata.ragContext = parsed.rag_context;
+// Поиск документа по имени
+async function handleDocumentSearch(req: Request, token: JWTPayload) {
+  const url = new URL(req.url);
+  const name = url.searchParams.get('name');
+  
+  // Поиск документа (используем service role, игнорируя RLS)
+  const { data: docs } = await supabase
+    .from('documents')
+    .select('id, storage_path, name, file_name')
+    .or(`name.eq.${name},name.ilike.%${baseName}%,file_name.ilike.%${baseName}%`)
+    .limit(5);
+  
+  return new Response(JSON.stringify({ documents: docs }), { headers });
+}
 ```
 
-Этот код работает, но данные не доходят из-за проблемы в Edge Function.
+#### POST /documents/signed-url
+```typescript
+// Получение signed URL для документа
+async function handleDocumentSignedUrl(req: Request, token: JWTPayload) {
+  const { storage_path } = await req.json();
+  
+  // Создаём signed URL через service role
+  const { data, error } = await supabase.storage
+    .from('rag-documents')
+    .createSignedUrl(storage_path, 3600);
+  
+  return new Response(JSON.stringify({ signed_url: data?.signedUrl }), { headers });
+}
+```
+
+### 2. Компонент SourcesPanel: Контекст-aware логика
+
+**Файл:** `src/components/chat/SourcesPanel.tsx`
+
+Добавить prop для Bitrix-контекста и использовать API вместо прямого Supabase:
+
+```typescript
+interface SourcesPanelProps {
+  ragContext?: string[];
+  citations?: Citation[];
+  webSearchCitations?: string[];
+  webSearchUsed?: boolean;
+  // Новые пропсы для Bitrix
+  isBitrixContext?: boolean;
+  bitrixApiBaseUrl?: string;
+  bitrixToken?: string;
+}
+
+const openDocumentWithHighlight = async (...) => {
+  if (isBitrixContext && bitrixApiBaseUrl && bitrixToken) {
+    // Используем API
+    const searchRes = await fetch(`${bitrixApiBaseUrl}/documents/search?name=${encodeURIComponent(searchName)}`, {
+      headers: { 'Authorization': `Bearer ${bitrixToken}` }
+    });
+    const { documents } = await searchRes.json();
+    // ... далее работаем с documents
+  } else {
+    // Стандартная логика через Supabase
+    const { data: docs } = await supabase.from('documents')...
+  }
+};
+```
+
+### 3. Компонент DocumentViewer: API-режим
+
+**Файл:** `src/components/documents/DocumentViewer.tsx`
+
+Добавить возможность получать URL через API:
+
+```typescript
+interface DocumentViewerProps {
+  // ... existing props
+  // Новые для Bitrix
+  isBitrixContext?: boolean;
+  bitrixApiBaseUrl?: string;
+  bitrixToken?: string;
+  preSignedUrl?: string; // Уже готовый URL
+}
+
+const loadDocument = async () => {
+  if (preSignedUrl) {
+    setDocumentUrl(preSignedUrl);
+    return;
+  }
+  
+  if (isBitrixContext && bitrixApiBaseUrl && bitrixToken) {
+    const res = await fetch(`${bitrixApiBaseUrl}/documents/signed-url`, {
+      method: 'POST',
+      headers: { 
+        'Authorization': `Bearer ${bitrixToken}`,
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify({ storage_path: storagePath })
+    });
+    const { signed_url } = await res.json();
+    setDocumentUrl(signed_url);
+  } else {
+    // Стандартная логика
+  }
+};
+```
+
+### 4. BitrixChatMessage: Передача контекста
+
+**Файл:** `src/components/chat/BitrixChatMessage.tsx`
+
+Передать Bitrix-специфичные пропсы в SourcesPanel:
+
+```typescript
+interface BitrixChatMessageProps {
+  // ... existing
+  bitrixApiBaseUrl?: string;
+  bitrixToken?: string;
+}
+
+// В рендере:
+<SourcesPanel 
+  ragContext={message.ragContext}
+  citations={message.citations}
+  webSearchCitations={message.webSearchCitations}
+  webSearchUsed={message.webSearchUsed}
+  isBitrixContext={true}
+  bitrixApiBaseUrl={bitrixApiBaseUrl}
+  bitrixToken={bitrixToken}
+/>
+```
+
+### 5. BitrixPersonalChat & BitrixDepartmentChat: Передача токена
+
+**Файлы:** 
+- `src/pages/BitrixPersonalChat.tsx`
+- `src/pages/BitrixDepartmentChat.tsx`
+
+Передать `token` и `apiBaseUrl` в BitrixChatMessage:
+
+```typescript
+<BitrixChatMessage
+  message={msg}
+  // ... existing props
+  bitrixApiBaseUrl={apiBaseUrl}
+  bitrixToken={token}
+/>
+```
 
 ---
 
 ## Порядок реализации
 
-1. Обновить `handleSendPersonalMessage` (строки ~1282-1284)
-2. Обновить `handleSendDepartmentMessage` (строки ~1527-1529)
-3. Обновить `handleRegeneratePersonalMessage` (строки ~1835-1837)
-4. Обновить `handleRegenerateDepartmentMessage` (строки ~1885-1887)
-5. Деплой Edge Function `bitrix-chat-api`
+1. **Edge Function:** Добавить endpoints `/documents/search` и `/documents/signed-url`
+2. **Deploy Edge Function**
+3. **SourcesPanel:** Добавить Bitrix-aware логику с fallback на Supabase
+4. **DocumentViewer:** Добавить поддержку pre-signed URL и API режима
+5. **BitrixChatMessage:** Передать контекстные пропсы
+6. **BitrixPersonalChat/DepartmentChat:** Передать token/apiBaseUrl в сообщения
+7. **Тестирование** открытия документов в Bitrix-чате
 
 ---
 
 ## Ожидаемый результат
 
-После исправления:
-- В ответах появятся badges "X источников", "X цитат", "X веб"
-- При клике откроется Sheet с SourcesPanel
-- Источники будут кликабельными для навигации
+После реализации:
+- При клике на источник в Bitrix-чате откроется DocumentViewer с PDF
+- Поиск текста в PDF будет работать
+- Подсветка цитаты будет работать
+- Функциональность полностью идентична админке
 
+---
+
+## Примечание по безопасности
+
+Endpoint `/documents/signed-url` защищён JWT авторизацией - только авторизованные пользователи Bitrix24 смогут получить ссылки на документы. Signed URL действителен 1 час.
