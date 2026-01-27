@@ -1,145 +1,194 @@
 
-# План: Исправление потери источников в Bitrix-чатах
+# План: Упрощённый интерфейс для employee + iframe Bitrix24
 
-## Диагностика
+## Текущее состояние
 
-Проанализировал данные в БД и обнаружил, что все сообщения за сегодня (27 января) имеют пустые поля `rag_context`, `citations`, `web_search_citations` в metadata - хотя в логах chat-stream видно, что RAG работает ("RAG: Final context has 10 chunks").
+Система уже поддерживает роли (`admin`, `moderator`, `employee`) через таблицу `user_roles`. AuthContext загружает роль пользователя при аутентификации. AdminSidebar фильтрует пункты меню по ролям.
 
-**Корневая причина:** В функции `handleSendMessage` в `bitrix-chat-api` отсутствует буферизация при чтении SSE стрима. Когда metadata чанк (который может быть большим, т.к. содержит 10+ контекстных строк) приходит разбитым на несколько TCP пакетов, `JSON.parse()` падает на неполном JSON, и metadata теряется.
+**Что нужно изменить:**
+1. Ограничить меню для `employee` - только "Чат" и "Чат отдела"
+2. Настроить CSP для работы в iframe Bitrix24
+3. Редирект employee на /chat вместо дашборда
 
-### Сравнение кода
+---
 
-**chat-stream (правильно - с буфером):**
+## Изменение 1: Ограничить пункты меню для employee
+
+**Файл:** `src/components/layout/AdminSidebar.tsx`
+
+Добавить `roles` к пунктам главного меню:
+
 ```typescript
-let buffer = '';
-while (true) {
-  const { done, value } = await reader.read();
-  if (done) break;
-  buffer += decoder.decode(value, { stream: true });
-  const lines = buffer.split('\n');
-  buffer = lines.pop() || ''; // Сохраняем неполную строку
+const mainMenuItems = [
+  { title: 'Дашборд', url: '/', icon: LayoutDashboard, roles: ['admin', 'moderator'] },
+  { title: 'Чат', url: '/chat', icon: MessageSquare },  // доступен всем
+  { title: 'Чат отдела', url: '/department-chat', icon: MessagesSquare },  // доступен всем
+];
+
+// Также скрыть "Отделы" для employee
+const adminItems = [
+  { title: 'Пользователи', url: '/users', icon: Users, roles: ['admin', 'moderator'] },
+  { title: 'Отделы', url: '/departments', icon: Building2, roles: ['admin', 'moderator'] },  // добавить roles
   // ...
-}
+];
 ```
 
-**bitrix-chat-api (проблема - без буфера):**
+Также обновить заголовок sidebar для employee:
+
 ```typescript
-while (true) {
-  const { done, value } = await reader.read();
-  if (done) break;
-  const chunk = decoder.decode(value);  // ❌ Без буфера!
-  const lines = chunk.split('\n');       // ❌ Неполные строки теряются!
-  // ...
-}
+{!collapsed && (
+  <div className="flex flex-col">
+    <span className="text-sm font-semibold">AI Chat</span>
+    <span className="text-xs text-muted-foreground">
+      {role === 'employee' ? 'Чат-бот' : 'Админ-панель'}
+    </span>
+  </div>
+)}
 ```
 
 ---
 
-## Решение
+## Изменение 2: Редирект employee на /chat
 
-### Изменение 1: Добавить буферизацию в handleSendMessage
+**Файл:** `src/pages/Dashboard.tsx` или `src/App.tsx`
 
-**Файл:** `supabase/functions/bitrix-chat-api/index.ts`  
-**Строки:** ~1515-1575
+Для роли `employee` - автоматический редирект с `/` на `/chat`:
 
-Добавить буфер для корректного чтения SSE:
-
+**Вариант A - в Dashboard:**
 ```typescript
-const stream = new ReadableStream({
-  async start(controller) {
-    const encoder = new TextEncoder();
-    const decoder = new TextDecoder();
-    let buffer = ''; // ← Добавить буфер
+const Dashboard = () => {
+  const { role } = useAuth();
+  const navigate = useNavigate();
 
-    try {
-      while (true) {
-        const { done, value } = await reader.read();
-        if (done) break;
-
-        buffer += decoder.decode(value, { stream: true }); // ← Накапливать в буфер
-        const lines = buffer.split('\n');
-        buffer = lines.pop() || ''; // ← Сохранить неполную строку
-
-        for (const line of lines) {
-          if (line.startsWith('data: ')) {
-            // ... existing logic
-          }
-        }
-      }
-      
-      // Обработать остаток буфера после завершения стрима
-      if (buffer.startsWith('data: ')) {
-        const data = buffer.substring(6);
-        // ... process remaining data
-      }
-    } catch (error) {
-      console.error('Stream error:', error);
-    } finally {
-      controller.close();
+  useEffect(() => {
+    if (role === 'employee') {
+      navigate('/chat', { replace: true });
     }
-  }
-});
+  }, [role, navigate]);
+
+  // ... остальной код для admin/moderator
+};
 ```
 
-### Изменение 2: Применить такое же исправление к handleRegenerateMessage (Department)
+**Вариант B - в App.tsx (добавить отдельный роут):**
+```typescript
+<Route path="/" element={
+  <ProtectedRoute>
+    <RoleBasedRedirect />
+  </ProtectedRoute>
+} />
+```
 
-**Файл:** `supabase/functions/bitrix-chat-api/index.ts`  
-**Строки:** ~2050-2130
+Выберу вариант A как менее инвазивный.
 
-Аналогичное добавление буферизации.
+---
 
-### Изменение 3: Применить исправление к Personal Chat функциям
+## Изменение 3: Настройка X-Frame-Options для iframe
 
-**Файл:** `supabase/functions/bitrix-chat-api/index.ts`
+**Файл:** `index.html`
 
-- `handleSendPersonalMessage` (~1270-1330)
-- `handleRegeneratePersonalMessage` (~1880-1940)
+Добавить meta-тег Content-Security-Policy:
 
-### Изменение 4: Добавить логирование для отладки
+```html
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <!-- Разрешить iframe для Bitrix24 -->
+  <meta http-equiv="Content-Security-Policy" 
+        content="frame-ancestors 'self' https://*.bitrix24.ru https://*.bitrix24.com https://*.bitrix24.by https://*.bitrix24.kz;" />
+  <!-- ... остальное -->
+</head>
+```
 
-Для диагностики добавить console.log при получении metadata:
+**Важно:** Meta-тег CSP с `frame-ancestors` игнорируется большинством браузеров (работает только заголовок). Поэтому также нужна Edge Function для прокси или настройка Lovable publish.
+
+**Альтернатива - Edge Function прокси:**
+```typescript
+// supabase/functions/app-proxy/index.ts
+// Эта функция будет отдавать HTML с правильными заголовками
+```
+
+Но для Lovable проще использовать прямую ссылку на preview - X-Frame-Options не блокируется по умолчанию.
+
+---
+
+## Изменение 4: Компактный лейаут для iframe (опционально)
+
+Создать альтернативный лейаут без header и с минимальным sidebar:
+
+**Файл:** `src/components/layout/EmployeeLayout.tsx`
 
 ```typescript
-if (parsed.type === 'metadata' || parsed.rag_context || parsed.citations) {
-  const { type, content, ...metaFields } = parsed;
-  metadata = { ...metadata, ...metaFields };
-  console.log('Captured metadata:', JSON.stringify(Object.keys(metaFields)));
-}
+export const EmployeeLayout: React.FC<{ children: React.ReactNode }> = ({ children }) => {
+  return (
+    <SidebarProvider>
+      <div className="min-h-screen flex w-full bg-background">
+        <EmployeeSidebar />  {/* Компактный sidebar */}
+        <div className="flex-1 flex flex-col">
+          <main className="flex-1">
+            {children}
+          </main>
+        </div>
+      </div>
+    </SidebarProvider>
+  );
+};
 ```
 
----
-
-## Технические детали
-
-### Почему metadata теряется именно у неё:
-
-1. **Контент** приходит маленькими чанками (по 1-3 слова), каждый влезает в один TCP пакет
-2. **Metadata** - один большой JSON объект (10 rag_context строк, citations, web_search_citations)
-3. Большой JSON может разбиться на границе TCP пакета
-4. Без буфера: `JSON.parse('{"type":"metadata","rag_cont')` → SyntaxError
-5. Catch block проглатывает ошибку, metadata = {} остаётся пустым
-
-### Почему раньше работало (до 22 января):
-
-Возможно, меньший объём контекста или другие сетевые условия. Также возможно что изменения в deployment повлияли на размер TCP пакетов.
+Или использовать существующий AdminLayout - он уже скрывает ненужные пункты меню.
 
 ---
 
-## Порядок реализации
+## Изменение 5: Динамический выбор лейаута в App.tsx
 
-1. Исправить `handleSendMessage` - добавить буферизацию SSE стрима
-2. Исправить `handleRegenerateDepartmentMessage` - аналогично
-3. Исправить `handleSendPersonalMessage` - аналогично  
-4. Исправить `handleRegeneratePersonalMessage` - аналогично
-5. Добавить логирование для подтверждения захвата metadata
-6. Деплой edge function `bitrix-chat-api`
-7. Тестирование - отправить сообщение и проверить что источники появляются
+**Файл:** `src/App.tsx`
+
+Можно создать обёртку, которая выбирает лейаут на основе роли:
+
+```typescript
+const LayoutWrapper: React.FC<{ children: React.ReactNode }> = ({ children }) => {
+  const { role } = useAuth();
+  
+  // Для employee используем тот же AdminLayout, но sidebar уже фильтрует пункты
+  return <AdminLayout>{children}</AdminLayout>;
+};
+```
+
+Либо оставить как есть - AdminSidebar уже адаптивный.
+
+---
+
+## Файлы для изменения
+
+1. **src/components/layout/AdminSidebar.tsx** - добавить `roles` к mainMenuItems
+2. **src/pages/Dashboard.tsx** - редирект employee на /chat
+3. **index.html** - добавить CSP meta-тег (ограниченная поддержка)
+
+---
+
+## Тестирование в Bitrix24
+
+1. В админке Bitrix24 создать локальное приложение
+2. URL приложения: `https://knowledge-share-bot.lovable.app/login`
+3. После логина employee попадает на `/chat`
+4. Sidebar показывает только "Чат" и "Чат отдела"
 
 ---
 
 ## Ожидаемый результат
 
-После исправления:
-- Metadata (rag_context, citations, web_search_citations) будет корректно парситься
-- Sources badges ("X источников", "X цитат", "X веб") появятся в Bitrix-чатах
-- Данные будут сохраняться в БД и отображаться после перезагрузки страницы
+```text
+Для employee:
+┌─────────────────────────────────────────┐
+│ [≡]           AI Chat - Чат-бот    [U] │
+├──────────┬──────────────────────────────┤
+│ Основное │                              │
+│ ▶ Чат    │      [ Интерфейс чата ]      │
+│   Чат    │                              │
+│   отдела │                              │
+│──────────│                              │
+│ [Выйти]  │                              │
+└──────────┴──────────────────────────────┘
+```
+
+Для admin/moderator - всё остаётся как прежде.
