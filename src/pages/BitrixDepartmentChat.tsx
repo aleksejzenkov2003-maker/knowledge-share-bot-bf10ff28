@@ -436,20 +436,144 @@ export default function BitrixDepartmentChat() {
   };
 
   // Delete message
-  const handleDeleteMessage = useCallback((messageId: string) => {
-    setMessages(prev => {
-      const idx = prev.findIndex(m => m.id === messageId);
-      if (idx === -1) return prev;
+  const handleDeleteMessage = useCallback(async (messageId: string) => {
+    if (!token) return;
+
+    try {
+      const response = await fetch(`${apiBaseUrl}/department/messages/${messageId}`, {
+        method: 'DELETE',
+        headers: { 'Authorization': `Bearer ${token}` },
+      });
+
+      if (!response.ok) throw new Error('Failed to delete');
+
+      setMessages(prev => {
+        const idx = prev.findIndex(m => m.id === messageId);
+        if (idx === -1) return prev;
+        
+        if (prev[idx].message_role === 'user' && prev[idx + 1]?.message_role === 'assistant') {
+          return [...prev.slice(0, idx), ...prev.slice(idx + 2)];
+        }
+        return prev.filter(m => m.id !== messageId);
+      });
       
-      if (prev[idx].message_role === 'user' && prev[idx + 1]?.message_role === 'assistant') {
-        return [...prev.slice(0, idx), ...prev.slice(idx + 2)];
+      toast({
+        title: "Сообщение удалено",
+      });
+    } catch (error) {
+      console.error('Failed to delete message:', error);
+      toast({
+        title: "Ошибка",
+        description: "Не удалось удалить сообщение",
+        variant: "destructive",
+      });
+    }
+  }, [token, apiBaseUrl, toast]);
+
+  // Regenerate assistant response
+  const handleRegenerate = useCallback(async (messageId: string, newRoleId?: string) => {
+    if (!token) return;
+
+    setIsLoading(true);
+    streamingContentRef.current = "";
+    abortControllerRef.current = new AbortController();
+
+    // Remove old message from UI
+    setMessages(prev => prev.filter(m => m.id !== messageId));
+
+    // Create new streaming message
+    const streamingId = crypto.randomUUID();
+    setStreamingMessage({
+      id: streamingId,
+      role: 'assistant',
+      content: '',
+      timestamp: new Date(),
+      isStreaming: true,
+    });
+
+    try {
+      const response = await fetch(`${apiBaseUrl}/department/regenerate`, {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${token}`,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ 
+          message_id: messageId, 
+          role_id: newRoleId 
+        }),
+        signal: abortControllerRef.current.signal,
+      });
+
+      if (!response.ok || !response.body) {
+        throw new Error('Failed to regenerate');
       }
-      return prev.filter(m => m.id !== messageId);
-    });
-    toast({
-      title: "Сообщение удалено",
-    });
-  }, [toast]);
+
+      const reader = response.body.getReader();
+      const decoder = new TextDecoder();
+      let fullContent = '';
+      let metadata: any = {};
+
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+
+        const chunk = decoder.decode(value);
+        const lines = chunk.split('\n');
+
+        for (const line of lines) {
+          if (line.startsWith('data: ')) {
+            const data = line.substring(6);
+            if (data === '[DONE]') {
+              const assistantMessage: DepartmentMessage = {
+                id: streamingId,
+                message_role: 'assistant',
+                content: fullContent,
+                metadata: metadata,
+                created_at: new Date().toISOString(),
+                role_id: newRoleId || null,
+              };
+              setMessages(prev => [...prev, assistantMessage]);
+              setStreamingMessage(null);
+            } else {
+              try {
+                const parsed = JSON.parse(data);
+                if (parsed.content) {
+                  fullContent += parsed.content;
+                  streamingContentRef.current = fullContent;
+                  setStreamingMessage(prev => prev ? {
+                    ...prev,
+                    content: fullContent,
+                  } : null);
+                }
+                if (parsed.citations) metadata.citations = parsed.citations;
+                if (parsed.response_time_ms) metadata.response_time_ms = parsed.response_time_ms;
+                if (parsed.agent_name) metadata.agent_name = parsed.agent_name;
+                if (parsed.rag_context) metadata.rag_context = parsed.rag_context;
+                if (parsed.web_search_citations) metadata.web_search_citations = parsed.web_search_citations;
+                if (parsed.web_search_used) metadata.web_search_used = parsed.web_search_used;
+              } catch {}
+            }
+          }
+        }
+      }
+    } catch (error) {
+      if ((error as Error).name === 'AbortError') {
+        console.log('Regenerate aborted');
+      } else {
+        console.error('Regenerate error:', error);
+        setStreamingMessage(null);
+        toast({
+          title: "Ошибка",
+          description: "Не удалось перегенерировать ответ",
+          variant: "destructive",
+        });
+      }
+    } finally {
+      setIsLoading(false);
+      abortControllerRef.current = null;
+    }
+  }, [token, apiBaseUrl, toast]);
 
   // Convert department message to Message format for BitrixChatMessage
   const convertToMessage = (msg: DepartmentMessage): Message => ({
@@ -764,6 +888,7 @@ export default function BitrixDepartmentChat() {
                     <BitrixChatMessage
                       message={convertToMessage(message)}
                       onDeleteMessage={handleDeleteMessage}
+                      onRegenerateResponse={handleRegenerate}
                       availableRoles={agents.map(a => ({
                         id: a.id,
                         name: a.name,

@@ -282,6 +282,29 @@ serve(async (req: Request) => {
       const conversationId = path.split('/')[2];
       return await handleSendPersonalMessage(req, supabase, userId, conversationId, departmentId);
     }
+    
+    // === NEW: DELETE PERSONAL MESSAGE ===
+    if (path.match(/^personal\/messages\/[^/]+$/) && req.method === 'DELETE') {
+      const messageId = path.split('/')[2];
+      return await handleDeletePersonalMessage(supabase, userId, messageId);
+    }
+    
+    // === NEW: REGENERATE PERSONAL MESSAGE ===
+    if (path.match(/^personal\/conversations\/[^/]+\/regenerate$/) && req.method === 'POST') {
+      const conversationId = path.split('/')[2];
+      return await handleRegeneratePersonalMessage(req, supabase, userId, conversationId, departmentId);
+    }
+    
+    // === NEW: DELETE DEPARTMENT MESSAGE ===
+    if (path.match(/^department\/messages\/[^/]+$/) && req.method === 'DELETE') {
+      const messageId = path.split('/')[2];
+      return await handleDeleteDepartmentMessage(supabase, userId, departmentId, messageId, userRole);
+    }
+    
+    // === NEW: REGENERATE DEPARTMENT MESSAGE ===
+    if (path === 'department/regenerate' && req.method === 'POST') {
+      return await handleRegenerateDepartmentMessage(req, supabase, userId, departmentId, userRole);
+    }
 
     // === EXISTING + NEW DEPARTMENT CHAT ENDPOINTS ===
     switch (path) {
@@ -363,10 +386,14 @@ serve(async (req: Request) => {
             'GET /personal/conversations/:id',
             'DELETE /personal/conversations/:id',
             'POST /personal/conversations/:id/messages',
+            'DELETE /personal/messages/:id',
+            'POST /personal/conversations/:id/regenerate',
             'GET /personal/roles',
             // Department chat
             'POST /department/send-message (or /send-message)',
             'GET /department/messages (or /messages)',
+            'DELETE /department/messages/:id',
+            'POST /department/regenerate',
             'GET /department/agents (or /agents)',
             // User
             'POST /sync-user',
@@ -1562,5 +1589,531 @@ async function handleSyncUser(
     bitrix_user_id: bitrixUserInfo.bitrix_user_id
   }), {
     headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+  });
+}
+
+// ============ DELETE PERSONAL MESSAGE HANDLER ============
+async function handleDeletePersonalMessage(
+  supabase: any,
+  userId: string,
+  messageId: string
+): Promise<Response> {
+  // Get message with conversation ownership check
+  const { data: message, error: msgError } = await supabase
+    .from('messages')
+    .select('id, role, conversation_id, created_at, conversations!inner(user_id)')
+    .eq('id', messageId)
+    .single();
+
+  if (msgError || !message) {
+    return new Response(JSON.stringify({ error: 'Message not found' }), {
+      status: 404,
+      headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+    });
+  }
+
+  // Verify ownership
+  if (message.conversations.user_id !== userId) {
+    return new Response(JSON.stringify({ error: 'Not authorized' }), {
+      status: 403,
+      headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+    });
+  }
+
+  // If user message, also delete the next assistant message
+  if (message.role === 'user') {
+    const { data: nextMessage } = await supabase
+      .from('messages')
+      .select('id, role')
+      .eq('conversation_id', message.conversation_id)
+      .gt('created_at', message.created_at)
+      .order('created_at', { ascending: true })
+      .limit(1)
+      .maybeSingle();
+
+    if (nextMessage && nextMessage.role === 'assistant') {
+      await supabase.from('messages').delete().eq('id', nextMessage.id);
+    }
+  }
+
+  // Delete the message
+  const { error: deleteError } = await supabase
+    .from('messages')
+    .delete()
+    .eq('id', messageId);
+
+  if (deleteError) {
+    return new Response(JSON.stringify({ error: 'Failed to delete message' }), {
+      status: 500,
+      headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+    });
+  }
+
+  return new Response(JSON.stringify({ success: true }), {
+    headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+  });
+}
+
+// ============ REGENERATE PERSONAL MESSAGE HANDLER ============
+async function handleRegeneratePersonalMessage(
+  req: Request,
+  supabase: any,
+  userId: string,
+  conversationId: string,
+  departmentId: string
+): Promise<Response> {
+  const body = await req.json();
+  const { message_id, role_id } = body;
+
+  if (!message_id) {
+    return new Response(JSON.stringify({ error: 'message_id required' }), {
+      status: 400,
+      headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+    });
+  }
+
+  // Verify conversation ownership
+  const { data: conversation, error: convError } = await supabase
+    .from('conversations')
+    .select('id, role_id')
+    .eq('id', conversationId)
+    .eq('user_id', userId)
+    .single();
+
+  if (convError || !conversation) {
+    return new Response(JSON.stringify({ error: 'Conversation not found' }), {
+      status: 404,
+      headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+    });
+  }
+
+  // Get the target assistant message
+  const { data: targetMessage, error: msgError } = await supabase
+    .from('messages')
+    .select('id, role, content, created_at')
+    .eq('id', message_id)
+    .eq('conversation_id', conversationId)
+    .single();
+
+  if (msgError || !targetMessage) {
+    return new Response(JSON.stringify({ error: 'Message not found' }), {
+      status: 404,
+      headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+    });
+  }
+
+  if (targetMessage.role !== 'assistant') {
+    return new Response(JSON.stringify({ error: 'Can only regenerate assistant messages' }), {
+      status: 400,
+      headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+    });
+  }
+
+  // Find the previous user message
+  const { data: userMessage } = await supabase
+    .from('messages')
+    .select('id, content, metadata')
+    .eq('conversation_id', conversationId)
+    .eq('role', 'user')
+    .lt('created_at', targetMessage.created_at)
+    .order('created_at', { ascending: false })
+    .limit(1)
+    .maybeSingle();
+
+  if (!userMessage) {
+    return new Response(JSON.stringify({ error: 'No user message found to regenerate from' }), {
+      status: 400,
+      headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+    });
+  }
+
+  // Delete the assistant message
+  await supabase.from('messages').delete().eq('id', message_id);
+
+  // Get history before the deleted message
+  const { data: history } = await supabase
+    .from('messages')
+    .select('role, content')
+    .eq('conversation_id', conversationId)
+    .lt('created_at', targetMessage.created_at)
+    .order('created_at', { ascending: true });
+
+  const messages = (history || []).map((m: any) => ({
+    role: m.role,
+    content: m.content
+  }));
+
+  // Get attachments from user message if any
+  const attachments = userMessage.metadata?.attachments || [];
+
+  // Determine the effective role
+  const effectiveRoleId = role_id || conversation.role_id;
+
+  // Call chat-stream function
+  const chatStreamUrl = `${Deno.env.get('SUPABASE_URL')}/functions/v1/chat-stream`;
+  
+  const chatRequest = {
+    message: userMessage.content,
+    role_id: effectiveRoleId,
+    department_id: departmentId,
+    messages: messages,
+    attachments: attachments.map((a: any) => ({
+      file_name: a.file_name,
+      file_type: a.file_type,
+      file_path: a.file_path
+    }))
+  };
+
+  const chatResponse = await fetch(chatStreamUrl, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'Authorization': `Bearer ${Deno.env.get('SUPABASE_ANON_KEY')}`
+    },
+    body: JSON.stringify(chatRequest)
+  });
+
+  if (!chatResponse.ok || !chatResponse.body) {
+    return new Response(JSON.stringify({ error: 'Failed to regenerate response' }), {
+      status: 500,
+      headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+    });
+  }
+
+  // Stream response back to client
+  const reader = chatResponse.body.getReader();
+  let fullResponse = '';
+  let metadata: any = {};
+
+  const stream = new ReadableStream({
+    async start(controller) {
+      const encoder = new TextEncoder();
+      const decoder = new TextDecoder();
+
+      try {
+        while (true) {
+          const { done, value } = await reader.read();
+          if (done) break;
+
+          const chunk = decoder.decode(value);
+          const lines = chunk.split('\n');
+
+          for (const line of lines) {
+            if (line.startsWith('data: ')) {
+              const data = line.substring(6);
+              if (data === '[DONE]') {
+                // Save new assistant message
+                await supabase
+                  .from('messages')
+                  .insert({
+                    conversation_id: conversationId,
+                    role: 'assistant',
+                    content: fullResponse,
+                    metadata: metadata
+                  });
+
+                controller.enqueue(encoder.encode('data: [DONE]\n\n'));
+              } else {
+                try {
+                  const parsed = JSON.parse(data);
+                  if (parsed.content) {
+                    fullResponse += parsed.content;
+                  }
+                  if (parsed.citations || parsed.response_time_ms || parsed.web_search_citations || parsed.rag_context) {
+                    metadata = { ...metadata, ...parsed };
+                  }
+                  controller.enqueue(encoder.encode(`data: ${data}\n\n`));
+                } catch {
+                  controller.enqueue(encoder.encode(line + '\n'));
+                }
+              }
+            }
+          }
+        }
+      } catch (error) {
+        console.error('Regenerate stream error:', error);
+      } finally {
+        controller.close();
+      }
+    }
+  });
+
+  return new Response(stream, {
+    headers: {
+      ...corsHeaders,
+      'Content-Type': 'text/event-stream',
+      'Cache-Control': 'no-cache',
+      'Connection': 'keep-alive',
+    },
+  });
+}
+
+// ============ DELETE DEPARTMENT MESSAGE HANDLER ============
+async function handleDeleteDepartmentMessage(
+  supabase: any,
+  userId: string,
+  departmentId: string,
+  messageId: string,
+  userRole: string
+): Promise<Response> {
+  // Get message with chat info
+  const { data: message, error: msgError } = await supabase
+    .from('department_chat_messages')
+    .select('id, message_role, chat_id, created_at, user_id, department_chats!inner(department_id)')
+    .eq('id', messageId)
+    .single();
+
+  if (msgError || !message) {
+    return new Response(JSON.stringify({ error: 'Message not found' }), {
+      status: 404,
+      headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+    });
+  }
+
+  // Check access: admin can delete any, others can only delete from their department
+  const msgDepartmentId = message.department_chats.department_id;
+  if (userRole !== 'admin' && msgDepartmentId !== departmentId) {
+    return new Response(JSON.stringify({ error: 'Not authorized' }), {
+      status: 403,
+      headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+    });
+  }
+
+  // If user message, also delete the next assistant message
+  if (message.message_role === 'user') {
+    const { data: nextMessage } = await supabase
+      .from('department_chat_messages')
+      .select('id, message_role')
+      .eq('chat_id', message.chat_id)
+      .gt('created_at', message.created_at)
+      .order('created_at', { ascending: true })
+      .limit(1)
+      .maybeSingle();
+
+    if (nextMessage && nextMessage.message_role === 'assistant') {
+      await supabase.from('department_chat_messages').delete().eq('id', nextMessage.id);
+    }
+  }
+
+  // Delete the message
+  const { error: deleteError } = await supabase
+    .from('department_chat_messages')
+    .delete()
+    .eq('id', messageId);
+
+  if (deleteError) {
+    return new Response(JSON.stringify({ error: 'Failed to delete message' }), {
+      status: 500,
+      headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+    });
+  }
+
+  return new Response(JSON.stringify({ success: true }), {
+    headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+  });
+}
+
+// ============ REGENERATE DEPARTMENT MESSAGE HANDLER ============
+async function handleRegenerateDepartmentMessage(
+  req: Request,
+  supabase: any,
+  userId: string,
+  departmentId: string,
+  userRole: string
+): Promise<Response> {
+  const body = await req.json();
+  const { message_id, role_id } = body;
+
+  if (!message_id) {
+    return new Response(JSON.stringify({ error: 'message_id required' }), {
+      status: 400,
+      headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+    });
+  }
+
+  // Get the target assistant message
+  const { data: targetMessage, error: msgError } = await supabase
+    .from('department_chat_messages')
+    .select('id, message_role, chat_id, content, created_at, role_id, department_chats!inner(department_id)')
+    .eq('id', message_id)
+    .single();
+
+  if (msgError || !targetMessage) {
+    return new Response(JSON.stringify({ error: 'Message not found' }), {
+      status: 404,
+      headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+    });
+  }
+
+  // Check access
+  const msgDepartmentId = targetMessage.department_chats.department_id;
+  if (userRole !== 'admin' && msgDepartmentId !== departmentId) {
+    return new Response(JSON.stringify({ error: 'Not authorized' }), {
+      status: 403,
+      headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+    });
+  }
+
+  if (targetMessage.message_role !== 'assistant') {
+    return new Response(JSON.stringify({ error: 'Can only regenerate assistant messages' }), {
+      status: 400,
+      headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+    });
+  }
+
+  const chatId = targetMessage.chat_id;
+
+  // Find the previous user message
+  const { data: userMessage } = await supabase
+    .from('department_chat_messages')
+    .select('id, content, metadata')
+    .eq('chat_id', chatId)
+    .eq('message_role', 'user')
+    .lt('created_at', targetMessage.created_at)
+    .order('created_at', { ascending: false })
+    .limit(1)
+    .maybeSingle();
+
+  if (!userMessage) {
+    return new Response(JSON.stringify({ error: 'No user message found to regenerate from' }), {
+      status: 400,
+      headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+    });
+  }
+
+  // Delete the assistant message
+  await supabase.from('department_chat_messages').delete().eq('id', message_id);
+
+  // Get role info for agent name
+  const effectiveRoleId = role_id || targetMessage.role_id;
+  let roleName: string | null = null;
+  
+  if (effectiveRoleId) {
+    const { data: role } = await supabase
+      .from('chat_roles')
+      .select('name')
+      .eq('id', effectiveRoleId)
+      .single();
+    roleName = role?.name || null;
+  }
+
+  // Get history before the deleted message
+  const { data: history } = await supabase
+    .from('department_chat_messages')
+    .select('message_role, content')
+    .eq('chat_id', chatId)
+    .lt('created_at', targetMessage.created_at)
+    .order('created_at', { ascending: true });
+
+  const messages = (history || []).map((m: any) => ({
+    role: m.message_role,
+    content: m.content
+  }));
+
+  // Get attachments from user message if any
+  const attachments = userMessage.metadata?.attachments || [];
+
+  // Call chat-stream function
+  const chatStreamUrl = `${Deno.env.get('SUPABASE_URL')}/functions/v1/chat-stream`;
+  
+  const chatRequest = {
+    message: userMessage.content,
+    role_id: effectiveRoleId,
+    department_id: departmentId,
+    messages: messages,
+    attachments: attachments.map((a: any) => ({
+      file_name: a.file_name,
+      file_type: a.file_type,
+      file_path: a.file_path
+    }))
+  };
+
+  const chatResponse = await fetch(chatStreamUrl, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'Authorization': `Bearer ${Deno.env.get('SUPABASE_ANON_KEY')}`
+    },
+    body: JSON.stringify(chatRequest)
+  });
+
+  if (!chatResponse.ok || !chatResponse.body) {
+    return new Response(JSON.stringify({ error: 'Failed to regenerate response' }), {
+      status: 500,
+      headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+    });
+  }
+
+  // Stream response back to client
+  const reader = chatResponse.body.getReader();
+  let fullResponse = '';
+  let metadata: any = {};
+
+  const stream = new ReadableStream({
+    async start(controller) {
+      const encoder = new TextEncoder();
+      const decoder = new TextDecoder();
+
+      try {
+        while (true) {
+          const { done, value } = await reader.read();
+          if (done) break;
+
+          const chunk = decoder.decode(value);
+          const lines = chunk.split('\n');
+
+          for (const line of lines) {
+            if (line.startsWith('data: ')) {
+              const data = line.substring(6);
+              if (data === '[DONE]') {
+                // Save new assistant message
+                await supabase
+                  .from('department_chat_messages')
+                  .insert({
+                    chat_id: chatId,
+                    user_id: userId,
+                    role_id: effectiveRoleId,
+                    message_role: 'assistant',
+                    content: fullResponse,
+                    source: 'bitrix',
+                    metadata: {
+                      ...metadata,
+                      agent_name: roleName,
+                    }
+                  });
+
+                controller.enqueue(encoder.encode('data: [DONE]\n\n'));
+              } else {
+                try {
+                  const parsed = JSON.parse(data);
+                  if (parsed.content) {
+                    fullResponse += parsed.content;
+                  }
+                  if (parsed.citations || parsed.response_time_ms || parsed.web_search_citations || parsed.rag_context) {
+                    metadata = { ...metadata, ...parsed };
+                  }
+                  controller.enqueue(encoder.encode(`data: ${data}\n\n`));
+                } catch {
+                  controller.enqueue(encoder.encode(line + '\n'));
+                }
+              }
+            }
+          }
+        }
+      } catch (error) {
+        console.error('Regenerate stream error:', error);
+      } finally {
+        controller.close();
+      }
+    }
+  });
+
+  return new Response(stream, {
+    headers: {
+      ...corsHeaders,
+      'Content-Type': 'text/event-stream',
+      'Cache-Control': 'no-cache',
+      'Connection': 'keep-alive',
+    },
   });
 }
