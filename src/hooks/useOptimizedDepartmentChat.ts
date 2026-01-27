@@ -303,7 +303,7 @@ export function useOptimizedDepartmentChat(userId: string | undefined, departmen
       user_name: userName,
       attachments: attachmentsMetadata.length > 0 ? attachmentsMetadata : undefined
     };
-    const { error: userMsgError } = await supabase
+    const { data: insertedMsg, error: userMsgError } = await supabase
       .from('department_chat_messages')
       .insert([{
         chat_id: activeChatId,
@@ -312,13 +312,38 @@ export function useOptimizedDepartmentChat(userId: string | undefined, departmen
         message_role: 'user',
         content: text,
         source: 'web' as const,
-        metadata: userMsgMetadata as unknown as Json
-      }]);
+        metadata: userMsgMetadata as unknown as Json,
+        reply_to_message_id: replyTo?.id || null
+      }])
+      .select('id')
+      .single();
 
     if (userMsgError) {
       console.error('Error saving user message:', userMsgError);
       toast.error('Ошибка сохранения сообщения');
       return;
+    }
+
+    // Save NEW attachments (not from knowledge base) to the knowledge base for future reuse
+    if (hasAttachments && departmentId && insertedMsg) {
+      const newAttachmentsToSave = messageAttachments.filter(a => a.status === 'uploaded' && a.file_path);
+      for (const att of newAttachmentsToSave) {
+        const { error: kbError } = await supabase.from('chat_knowledge_base').upsert({
+          department_id: departmentId,
+          source_message_id: insertedMsg.id,
+          file_path: att.file_path!,
+          file_name: att.file_name,
+          file_type: att.file_type,
+          file_size: att.file_size,
+          created_by: userId,
+        }, { 
+          onConflict: 'file_path',
+          ignoreDuplicates: true 
+        });
+        if (kbError) {
+          console.error('Error saving to knowledge base:', kbError);
+        }
+      }
     }
 
     // Update chat's updated_at
