@@ -1,175 +1,236 @@
 
-# План: Исправление доступа к документам и добавление истории в чат отделов
+# План: Исправление веб-источников и добавление действий в чат отделов
 
 ## Обнаруженные проблемы
 
-### Проблема 1: "Документ не найден" для employee
+### Проблема 1: Perplexity API возвращает 401 (ключ недействителен)
 
-**Причина**: RLS политика таблицы `documents` требует `department_id = get_user_department(auth.uid())`, но **все документы в базе имеют `department_id = NULL`**. Для employee-пользователей NULL ≠ их department_id, поэтому запрос не возвращает документы.
-
-```sql
--- Текущая политика (строка 267-274 миграции):
-USING (
-    is_admin() 
-    OR has_role(auth.uid(), 'moderator')
-    OR department_id = get_user_department(auth.uid())  -- NULL ≠ user's dept!
-);
+Из логов edge function:
+```
+2026-01-27T07:34:19Z INFO Perplexity 401 error, attempting fallback...
+2026-01-27T07:34:19Z INFO Perplexity response status: 401
 ```
 
-### Проблема 2: Нет истории и фильтра в чатах отделов
+Когда Perplexity API возвращает 401, система делает fallback на Lovable AI (Gemini) или Anthropic (Claude). Эти провайдеры **не возвращают нативные веб-источники** в формате `perplexity_citations`.
 
-**Причина**: Страница `DepartmentChat.tsx` использует архитектуру **единого общего чата** для всего отдела (один `department_chat` на отдел), в отличие от `Chat.tsx`, где каждый пользователь имеет множество личных диалогов.
+### Проблема 2: `web_search_citations` не захватываются в Department Chat
 
-Текущая структура:
-- Обычный чат: `conversations` → много диалогов на пользователя → sidebar с историей
-- Чат отдела: `department_chats` → один чат на отдел → без sidebar
+В `useOptimizedDepartmentChat.ts` (строки 419-428) парсится только `perplexity_citations`:
+```typescript
+metadata = {
+  perplexity_citations: parsed.perplexity_citations, // ✅ есть
+  // web_search_citations: parsed.web_search_citations, // ❌ ОТСУТСТВУЕТ!
+};
+```
+
+Когда Claude выполняет web search через Perplexity, источники приходят в `web_search_citations`, но хук их игнорирует.
+
+### Проблема 3: Отсутствуют кнопки Скачать/Обновить/Копировать
+
+Компонент `DepartmentChatMessage.tsx` **не включает `MessageActions`**, в отличие от `ChatMessage.tsx` (строки 264-276).
+
+Это означает, что в чате отделов нельзя:
+- Скачать ответ (MD/DOCX/PDF)
+- Обновить ответ другим агентом (regenerate)
+- Удобно скопировать (без hover-кнопки)
 
 ---
 
-## Решение 1: Исправить доступ к документам
+## Решение
 
-### Вариант A: Обновить RLS политику (рекомендуется)
+### Часть 1: Добавить захват `web_search_citations` в хук
 
-Разрешить просмотр документов с `department_id = NULL` всем авторизованным пользователям:
+**Файл:** `src/hooks/useOptimizedDepartmentChat.ts`
 
-```sql
-CREATE POLICY "Users can view documents in their department or public"
-ON public.documents FOR SELECT
-TO authenticated
-USING (
-    is_admin() 
-    OR has_role(auth.uid(), 'moderator')
-    OR department_id IS NULL  -- Документы без отдела доступны всем
-    OR department_id = get_user_department(auth.uid())
-);
+Изменить обработку metadata (строки 419-428 и 444-452):
+
+```typescript
+// Было:
+metadata = {
+  perplexity_citations: parsed.perplexity_citations,
+  // ...
+};
+
+// Станет:
+metadata = {
+  perplexity_citations: parsed.perplexity_citations,
+  web_search_citations: parsed.web_search_citations, // ← ДОБАВИТЬ
+  web_search_used: parsed.web_search_used,           // ← ДОБАВИТЬ
+  // ...
+};
 ```
 
-Аналогичные изменения для:
-- `document_chunks` (зависит от `documents`)
-- Storage bucket `rag-documents`
+### Часть 2: Добавить MessageActions в DepartmentChatMessage
 
-### Вариант B: Назначить department_id всем документам
+**Файл:** `src/components/chat/DepartmentChatMessage.tsx`
 
-```sql
-UPDATE documents SET department_id = 'юридический-id' WHERE department_id IS NULL;
+1. Импортировать компоненты:
+```typescript
+import { MessageActions } from './MessageActions';
+import { DownloadDropdown } from './DownloadDropdown';
+import { ChatRole } from '@/types/chat';
 ```
 
-**Минус**: документы станут доступны только одному отделу.
+2. Добавить props для regenerate и availableAgents:
+```typescript
+interface DepartmentChatMessageProps {
+  message: MessageType;
+  currentUserId?: string;
+  availableAgents?: { id: string; name: string; description?: string }[]; // ← НОВОЕ
+  onRegenerateResponse?: (messageId: string, roleId?: string) => void;    // ← НОВОЕ
+}
+```
 
-**Рекомендация**: Вариант A — общие документы доступны всем, при этом можно создавать отдельные документы для конкретных отделов.
+3. Добавить `MessageActions` в JSX после блока metadata (перед закрывающим `</div>`):
+```tsx
+{/* Actions: Copy, Download, Regenerate */}
+{isAssistant && !isGenerating && message.content && (
+  <div className="flex items-center gap-1 mt-2 opacity-0 group-hover:opacity-100 transition-opacity">
+    <Button variant="ghost" size="sm" onClick={handleCopy}>
+      <Copy className="h-3 w-3 mr-1" />
+      Копировать
+    </Button>
+    <DownloadDropdown
+      content={message.content}
+      ragContext={message.metadata?.rag_context}
+      citations={message.metadata?.citations}
+      webSearchCitations={message.metadata?.perplexity_citations || message.metadata?.web_search_citations}
+    />
+    {onRegenerateResponse && availableAgents && availableAgents.length > 0 && (
+      // Dropdown для выбора агента при regenerate
+    )}
+  </div>
+)}
+```
+
+### Часть 3: Реализовать `regenerateResponse` в хуке
+
+**Файл:** `src/hooks/useOptimizedDepartmentChat.ts`
+
+Добавить функцию regenerate:
+```typescript
+const regenerateResponse = useCallback(async (messageId: string, roleId?: string) => {
+  // Найти сообщение по ID
+  const messageIndex = localMessages.findIndex(m => m.id === messageId);
+  if (messageIndex === -1) return;
+  
+  const targetMessage = localMessages[messageIndex];
+  
+  // Для assistant сообщения - найти предыдущее user сообщение
+  if (targetMessage.message_role === 'assistant') {
+    const prevUserMessage = localMessages.slice(0, messageIndex).reverse()
+      .find(m => m.message_role === 'user');
+    
+    if (prevUserMessage) {
+      // Удалить все сообщения после user message
+      setLocalMessages(prev => prev.slice(0, localMessages.indexOf(prevUserMessage) + 1));
+      
+      // Переотправить с новым агентом
+      const agentToUse = roleId || targetMessage.role_id;
+      const agent = availableAgents.find(a => a.id === agentToUse);
+      const mentionPrefix = agent ? `@${agent.mention_trigger || agent.slug} ` : '';
+      
+      await sendMessage(mentionPrefix + prevUserMessage.content);
+    }
+  }
+}, [localMessages, availableAgents, sendMessage]);
+```
+
+Вернуть функцию из хука:
+```typescript
+return {
+  // ... existing
+  regenerateResponse, // ← НОВОЕ
+};
+```
+
+### Часть 4: Обновить типы метаданных
+
+**Файл:** `src/types/departmentChat.ts`
+
+Убедиться что все поля присутствуют:
+```typescript
+interface DepartmentChatMessage {
+  metadata: {
+    // ... existing
+    perplexity_citations?: string[];
+    web_search_citations?: string[];  // ← ПРОВЕРИТЬ
+    web_search_used?: boolean;        // ← ПРОВЕРИТЬ
+  } | null;
+}
+```
+
+### Часть 5: Передать props в DepartmentChatMessage
+
+**Файлы:** `src/pages/DepartmentChat.tsx`, `src/pages/DepartmentChatFullscreen.tsx`
+
+1. Получить `regenerateResponse` из хука
+2. Передать props в компонент:
+```tsx
+<DepartmentChatMessage
+  key={message.id}
+  message={message}
+  currentUserId={user?.id}
+  availableAgents={availableAgents}              // ← НОВОЕ
+  onRegenerateResponse={regenerateResponse}      // ← НОВОЕ
+/>
+```
 
 ---
 
-## Решение 2: Добавить историю и фильтр в чат отделов
+## Дополнительно: Проверить Perplexity API ключ
 
-### Подход A: Sidebar с историей сообщений (внутри одного чата)
+Ошибка 401 означает недействительный API ключ. Рекомендации:
+1. Проверить значение `PERPLEXITY_API_KEY` в Supabase Secrets
+2. Убедиться, что ключ активен в Perplexity Dashboard
+3. При необходимости обновить ключ
 
-Добавить боковую панель с группировкой сообщений по дате и поиском:
+---
+
+## Итоговые изменения
 
 ```text
-┌─────────────────────────────────────────────────┐
-│ [≡] Чат отдела — Юридический          [Filter] │
-├──────────┬──────────────────────────────────────┤
-│ Q        │                                      │
-│ Поиск... │     [ Сообщения чата ]               │
-│          │                                      │
-│ ──────── │                                      │
-│ СЕГОДНЯ  │                                      │
-│ @юрист..│                                      │
-│ @ТЗ конс│                                      │
-│ ──────── │                                      │
-│ ВЧЕРА    │                                      │
-│ @поиск..│                                      │
-└──────────┴──────────────────────────────────────┘
+┌──────────────────────────────────────────────────────────────────────┐
+│ Файлы для изменения:                                                 │
+├──────────────────────────────────────────────────────────────────────┤
+│ 1. src/hooks/useOptimizedDepartmentChat.ts                          │
+│    - Добавить web_search_citations в metadata parsing               │
+│    - Реализовать regenerateResponse                                  │
+│                                                                       │
+│ 2. src/components/chat/DepartmentChatMessage.tsx                    │
+│    - Добавить props: availableAgents, onRegenerateResponse         │
+│    - Добавить кнопки Copy/Download/Regenerate                       │
+│    - Добавить className="group" для hover эффекта                   │
+│                                                                       │
+│ 3. src/types/departmentChat.ts                                      │
+│    - Проверить/добавить web_search_citations в metadata             │
+│                                                                       │
+│ 4. src/pages/DepartmentChat.tsx                                     │
+│    - Получить regenerateResponse из хука                            │
+│    - Передать новые props в DepartmentChatMessage                   │
+│                                                                       │
+│ 5. src/pages/DepartmentChatFullscreen.tsx                           │
+│    - Аналогичные изменения                                           │
+└──────────────────────────────────────────────────────────────────────┘
 ```
 
-### Подход B: Фильтр по агентам в header
+## Результат после изменений
 
-Добавить dropdown для фильтрации сообщений по использованному агенту:
-
-```tsx
-<Select value={agentFilter} onValueChange={setAgentFilter}>
-  <SelectItem value="all">Все агенты</SelectItem>
-  {availableAgents.map(agent => (
-    <SelectItem value={agent.id}>@{agent.mention_trigger}</SelectItem>
-  ))}
-</Select>
-```
-
-**Рекомендация**: Подход B проще в реализации и соответствует концепции единого группового чата.
-
----
-
-## Файлы для изменения
-
-### 1. Миграция БД
-Создать новую миграцию для обновления RLS политик:
-
-```sql
--- Удалить старую политику
-DROP POLICY IF EXISTS "Users can view documents in their department or admins can view" ON documents;
-
--- Создать новую с поддержкой NULL department
-CREATE POLICY "Users can view documents in their department or public"
-ON documents FOR SELECT TO authenticated
-USING (
-    is_admin() 
-    OR has_role(auth.uid(), 'moderator')
-    OR department_id IS NULL
-    OR department_id = get_user_department(auth.uid())
-);
-
--- Аналогично для document_chunks
-DROP POLICY IF EXISTS "Users can view chunks for accessible documents" ON document_chunks;
-
-CREATE POLICY "Users can view chunks for accessible documents"
-ON document_chunks FOR SELECT TO authenticated
-USING (
-    EXISTS (
-        SELECT 1 FROM documents d 
-        WHERE d.id = document_id 
-        AND (
-            is_admin() 
-            OR has_role(auth.uid(), 'moderator')
-            OR d.department_id IS NULL
-            OR d.department_id = get_user_department(auth.uid())
-        )
-    )
-);
-```
-
-### 2. src/pages/DepartmentChat.tsx
-Добавить:
-- State для фильтра агентов: `const [agentFilter, setAgentFilter] = useState("all")`
-- Фильтрация сообщений: `messages.filter(m => agentFilter === "all" || m.role_id === agentFilter)`
-- Dropdown в header для выбора агента
-- Опционально: поиск по содержимому сообщений
-
-### 3. src/pages/DepartmentChatFullscreen.tsx
-Аналогичные изменения для полноэкранного режима.
-
-### 4. src/hooks/useOptimizedDepartmentChat.ts
-- Увеличить лимит загрузки с 100 до 200+ сообщений
-- Добавить пагинацию или виртуализацию для больших историй
-
----
-
-## Итоговый результат
-
-После применения изменений:
-
-1. **Документы доступны**: Employee-пользователи смогут открывать источники в SourcesPanel
-2. **Фильтр по агентам**: Dropdown в header позволит просматривать сообщения от конкретного агента
-3. **Поиск**: Опциональное поле поиска для навигации по истории
+1. **Веб-источники отображаются** — даже при fallback на Claude с web search
+2. **Кнопка "Скачать"** — MD/DOCX/PDF экспорт ответов
+3. **Кнопка "Обновить"** — regenerate с текущим или другим агентом
+4. **Кнопка "Копировать"** — быстрое копирование текста
 
 ```text
 ┌─────────────────────────────────────────────────────────────┐
-│ 👥 Юридический  │ 🔍 │ [Все агенты ▼]  │ @юрист @ТЗ +2  🔲│
+│ 👥 Юридический  │ 🔍 │ [Все агенты ▼]                    🔲│
 ├─────────────────────────────────────────────────────────────┤
+│ 🤖 @поисковик                                     12:45    │
 │                                                              │
-│    [ Отфильтрованные сообщения чата отдела ]                │
+│ [Ответ агента с источниками...]                             │
 │                                                              │
-├─────────────────────────────────────────────────────────────┤
-│ [📎] Напишите @агент и ваш вопрос...                    [➤]│
+│ ⏱ 7691ms  📄 0 источников  🌐 5 веб                        │
+│ ─────────────────────────────────────────────────────────── │
+│ [📋 Копировать] [⬇ Скачать ▼] [🔄 Обновить ▼]  ← НОВОЕ!   │
 └─────────────────────────────────────────────────────────────┘
 ```
