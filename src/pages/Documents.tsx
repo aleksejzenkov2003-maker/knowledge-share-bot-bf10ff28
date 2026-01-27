@@ -781,12 +781,12 @@ export default function Documents() {
                   id="file"
                   type="file"
                   ref={fileInputRef}
-                  accept=".pdf,.doc,.docx,.txt,.md"
+                  accept=".pdf,.doc,.docx,.txt,.md,.csv,.xls,.xlsx"
                   onChange={handleFileSelect}
                   required
                 />
                 <p className="text-xs text-muted-foreground">
-                  Поддерживаются: PDF (до {MAX_FILE_SIZE_MB} MB), DOC, DOCX, TXT, MD.
+                  Поддерживаются: PDF (до {MAX_FILE_SIZE_MB} MB), DOC, DOCX, TXT, MD, CSV, XLS, XLSX.
                   PDF больше {SPLIT_THRESHOLD_MB} MB будут автоматически разбиты на части.
                 </p>
               </div>

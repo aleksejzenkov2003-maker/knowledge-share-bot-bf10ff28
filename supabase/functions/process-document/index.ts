@@ -744,6 +744,145 @@ function parseCourtDocumentByReferences(
 
 // ============= FALLBACK: SIMPLE CHUNKING FOR GENERAL DOCUMENTS =============
 
+// ============= CSV PARSER =============
+
+function parseCSVToText(csvText: string, fileName: string): string {
+  const lines = csvText.split(/\r?\n/).filter(line => line.trim());
+  if (lines.length === 0) return '';
+  
+  // Detect delimiter (comma, semicolon, or tab)
+  const firstLine = lines[0];
+  let delimiter = ',';
+  if (firstLine.includes(';') && !firstLine.includes(',')) {
+    delimiter = ';';
+  } else if (firstLine.includes('\t')) {
+    delimiter = '\t';
+  }
+  
+  // Parse CSV with simple split (handles most cases)
+  const parseCSVLine = (line: string): string[] => {
+    const result: string[] = [];
+    let current = '';
+    let inQuotes = false;
+    
+    for (let i = 0; i < line.length; i++) {
+      const char = line[i];
+      if (char === '"') {
+        inQuotes = !inQuotes;
+      } else if (char === delimiter && !inQuotes) {
+        result.push(current.trim());
+        current = '';
+      } else {
+        current += char;
+      }
+    }
+    result.push(current.trim());
+    return result;
+  };
+  
+  const headers = parseCSVLine(lines[0]);
+  const rows = lines.slice(1).map(line => parseCSVLine(line));
+  
+  // Format as structured text for better chunking
+  const textParts: string[] = [`[CSV Document: ${fileName}]`, `Столбцы: ${headers.join(', ')}`, ''];
+  
+  // Group rows into chunks of 20 for readability
+  for (let i = 0; i < rows.length; i++) {
+    const row = rows[i];
+    const rowText = headers.map((header, idx) => {
+      const value = row[idx] || '';
+      return value ? `${header}: ${value}` : null;
+    }).filter(Boolean).join('; ');
+    
+    if (rowText) {
+      textParts.push(`Строка ${i + 1}: ${rowText}`);
+    }
+    
+    // Add blank line every 20 rows for chunking
+    if ((i + 1) % 20 === 0 && i < rows.length - 1) {
+      textParts.push('');
+    }
+  }
+  
+  return textParts.join('\n');
+}
+
+// ============= XLSX PARSER =============
+
+function parseXLSXSheetToText(sheetXml: string, sharedStrings: string[], fileName: string): string {
+  const rows: string[][] = [];
+  
+  // Parse rows from sheet XML
+  const rowMatches = sheetXml.match(/<row[^>]*>[\s\S]*?<\/row>/g) || [];
+  
+  for (const rowXml of rowMatches) {
+    const cells: { col: number; value: string }[] = [];
+    const cellMatches = rowXml.match(/<c[^>]*>[\s\S]*?<\/c>/g) || [];
+    
+    for (const cellXml of cellMatches) {
+      // Get cell reference (e.g., "A1", "B2")
+      const refMatch = cellXml.match(/r="([A-Z]+)(\d+)"/);
+      if (!refMatch) continue;
+      
+      const colLetter = refMatch[1];
+      const colNum = colLetter.split('').reduce((acc, char, i, arr) => {
+        return acc + (char.charCodeAt(0) - 64) * Math.pow(26, arr.length - 1 - i);
+      }, 0) - 1;
+      
+      // Get cell value
+      const valueMatch = cellXml.match(/<v>([^<]*)<\/v>/);
+      let value = valueMatch ? valueMatch[1] : '';
+      
+      // Check if it's a shared string reference
+      const isSharedString = cellXml.includes('t="s"');
+      if (isSharedString && sharedStrings.length > 0) {
+        const ssIndex = parseInt(value, 10);
+        if (!isNaN(ssIndex) && ssIndex < sharedStrings.length) {
+          value = sharedStrings[ssIndex];
+        }
+      }
+      
+      cells.push({ col: colNum, value });
+    }
+    
+    if (cells.length > 0) {
+      const maxCol = Math.max(...cells.map(c => c.col));
+      const rowArr = new Array(maxCol + 1).fill('');
+      cells.forEach(c => { rowArr[c.col] = c.value; });
+      rows.push(rowArr);
+    }
+  }
+  
+  if (rows.length === 0) return '';
+  
+  // Assume first row is headers
+  const headers = rows[0];
+  const dataRows = rows.slice(1);
+  
+  // Format as structured text
+  const textParts: string[] = [`[Excel Document: ${fileName}]`, `Столбцы: ${headers.filter(h => h).join(', ')}`, ''];
+  
+  for (let i = 0; i < dataRows.length; i++) {
+    const row = dataRows[i];
+    const rowText = headers.map((header, idx) => {
+      const value = row[idx] || '';
+      return value && header ? `${header}: ${value}` : null;
+    }).filter(Boolean).join('; ');
+    
+    if (rowText) {
+      textParts.push(`Строка ${i + 1}: ${rowText}`);
+    }
+    
+    if ((i + 1) % 20 === 0 && i < dataRows.length - 1) {
+      textParts.push('');
+    }
+  }
+  
+  return textParts.join('\n');
+}
+
+// ============= SIMPLE CHUNKING FALLBACK =============
+
 function chunkTextSimple(text: string, chunkSize: number = 2000): StructuredChunk[] {
   const chunks: StructuredChunk[] = [];
   
@@ -1312,6 +1451,78 @@ serve(async (req) => {
         
         if (text.length < 100) {
           text = `[DOCX Document: ${doc.file_name}] - Не удалось извлечь текст из документа.`;
+        }
+      } else if (
+        fileType.includes('csv') || 
+        doc.file_name?.toLowerCase().endsWith('.csv')
+      ) {
+        // CSV Processing
+        console.log('Processing CSV file...');
+        
+        try {
+          const csvText = await fileData.text();
+          text = parseCSVToText(csvText, doc.file_name || 'data.csv');
+          console.log(`Parsed CSV, text length: ${text.length}`);
+        } catch (csvError) {
+          console.error('CSV extraction failed:', csvError);
+          text = `[CSV Document: ${doc.file_name}] - Не удалось извлечь текст. Ошибка: ${csvError}`;
+        }
+      } else if (
+        fileType.includes('spreadsheet') ||
+        fileType.includes('excel') ||
+        fileType.includes('vnd.ms-excel') ||
+        doc.file_name?.toLowerCase().endsWith('.xlsx') ||
+        doc.file_name?.toLowerCase().endsWith('.xls')
+      ) {
+        // Excel XLS/XLSX Processing
+        console.log('Processing Excel file...');
+        
+        try {
+          const arrayBuffer = await fileData.arrayBuffer();
+          const bytes = new Uint8Array(arrayBuffer);
+          
+          if (doc.file_name?.toLowerCase().endsWith('.xlsx')) {
+            // XLSX is a ZIP archive with XML inside
+            const JSZip = (await import("https://esm.sh/jszip@3.10.1")).default;
+            const zip = await JSZip.loadAsync(bytes);
+            
+            // Get shared strings (for cell text values)
+            const sharedStringsXml = await zip.file("xl/sharedStrings.xml")?.async("string");
+            const sharedStrings: string[] = [];
+            if (sharedStringsXml) {
+              const siMatches = sharedStringsXml.match(/<si>[\s\S]*?<\/si>/g) || [];
+              for (const si of siMatches) {
+                const textMatch = si.match(/<t[^>]*>([^<]*)<\/t>/);
+                if (textMatch) {
+                  sharedStrings.push(textMatch[1]);
+                }
+              }
+            }
+            
+            // Get worksheet data (sheet1.xml)
+            const sheet1Xml = await zip.file("xl/worksheets/sheet1.xml")?.async("string");
+            if (sheet1Xml) {
+              text = parseXLSXSheetToText(sheet1Xml, sharedStrings, doc.file_name || 'data.xlsx');
+            }
+            
+            console.log(`Parsed XLSX, text length: ${text.length}`);
+          } else {
+            // XLS (binary format) - limited support, read as text
+            console.log('XLS binary format - attempting basic extraction...');
+            const decoder = new TextDecoder('utf-8', { fatal: false });
+            const rawText = decoder.decode(bytes);
+            
+            // Extract readable text from binary
+            const textParts = rawText.match(/[A-Za-zА-Яа-яЁё0-9\s.,;:!?()-]{5,}/g) || [];
+            text = `[Excel Document: ${doc.file_name}]\n\n` + textParts.join(' ');
+          }
+        } catch (xlsError) {
+          console.error('Excel extraction failed:', xlsError);
+          text = `[Excel Document: ${doc.file_name}] - Не удалось извлечь текст. Ошибка: ${xlsError}`;
+        }
+        
+        if (text.length < 100) {
+          text = `[Excel Document: ${doc.file_name}] - Не удалось извлечь данные из таблицы.`;
         }
       } else {
         try {
