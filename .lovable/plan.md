@@ -1,201 +1,145 @@
 
-# План: Исправление Bitrix-чата (Источники, Перегенерация, Таблицы)
+# План: Исправление потери источников в Bitrix-чатах
 
-## Обнаруженные проблемы
+## Диагностика
 
-### 1. Источники не отображаются в ответах
+Проанализировал данные в БД и обнаружил, что все сообщения за сегодня (27 января) имеют пустые поля `rag_context`, `citations`, `web_search_citations` в metadata - хотя в логах chat-stream видно, что RAG работает ("RAG: Final context has 10 chunks").
 
-**Корневая причина:** При отправке сообщений в Department Chat и перегенерации metadata корректно парсится из стрима и сохраняется в БД, но на фронтенде есть несколько мест, где источники теряются:
+**Корневая причина:** В функции `handleSendMessage` в `bitrix-chat-api` отсутствует буферизация при чтении SSE стрима. Когда metadata чанк (который может быть большим, т.к. содержит 10+ контекстных строк) приходит разбитым на несколько TCP пакетов, `JSON.parse()` падает на неполном JSON, и metadata теряется.
 
-1. **BitrixDepartmentChat**: При загрузке сообщений из API (`handleGetMessages`), данные не маппятся в формат, который использует `BitrixChatMessage`
-2. **API endpoint `/department/messages`** (строка ~1601-1621): Возвращает `messages.reverse()`, но не включает все необходимые поля metadata для отображения
+### Сравнение кода
 
-**Проверка API-ответа:**
+**chat-stream (правильно - с буфером):**
 ```typescript
-// Текущий возврат:
-return new Response(JSON.stringify({
-  messages: messages.reverse(),
-  chat_id: chatId,
-  user_id: userId
-}), { ... });
-```
-
-Сообщения возвращаются, но фронтенд их не конвертирует в нужный формат.
-
-**Место проблемы на фронтенде:**
-```typescript
-// BitrixDepartmentChat.tsx линии 246-248
-const messagesResponse = await fetch(`${apiBaseUrl}/department/messages?limit=100`, ...);
-if (messagesResponse.ok) {
-  const messagesData = await messagesResponse.json();
-  setMessages(messagesData.messages || []); // ← Нет маппинга metadata!
+let buffer = '';
+while (true) {
+  const { done, value } = await reader.read();
+  if (done) break;
+  buffer += decoder.decode(value, { stream: true });
+  const lines = buffer.split('\n');
+  buffer = lines.pop() || ''; // Сохраняем неполную строку
+  // ...
 }
 ```
 
-### 2. Перегенерация вызывает того же агента
-
-**Корневая причина:** В Personal Chat отсутствует флаг `is_department_chat: true` при перегенерации, что приводит к неправильной работе RAG.
-
-Смотрим на строки 1852-1862:
+**bitrix-chat-api (проблема - без буфера):**
 ```typescript
-const chatRequest = {
-  message: userMessage.content,
-  role_id: effectiveRoleId,
-  department_id: departmentId,
-  message_history: messages,
-  // НЕТ is_department_chat для Personal Chat (возможно, это ожидаемо)
-  attachments: ...
-};
+while (true) {
+  const { done, value } = await reader.read();
+  if (done) break;
+  const chunk = decoder.decode(value);  // ❌ Без буфера!
+  const lines = chunk.split('\n');       // ❌ Неполные строки теряются!
+  // ...
+}
 ```
-
-Но более важная проблема - в Personal Chat сохранение метаданных в сообщение не включает `role_id`, поэтому последующие запросы не знают, какой агент использовался.
-
-### 3. Таблицы отображаются некорректно
-
-**Корневая причина:** LLM генерирует ASCII-таблицы (с `|------|`), которые не являются валидными GFM (GitHub Flavored Markdown) таблицами.
-
-Пример невалидной таблицы от LLM:
-```
-| Компы МКТУ | Оценка полноты |------------|---------------|
-```
-
-Валидная GFM таблица требует:
-```
-| Компы МКТУ | Оценка полноты |
-|------------|---------------|
-```
-
-**ReactMarkdown с remark-gfm** строго следует GFM спецификации и не может парсить нестандартные ASCII-таблицы.
 
 ---
 
 ## Решение
 
-### Изменение 1: Исправить загрузку сообщений в BitrixDepartmentChat
+### Изменение 1: Добавить буферизацию в handleSendMessage
 
-**Файл:** `src/pages/BitrixDepartmentChat.tsx`
-**Строки:** ~242-252
+**Файл:** `supabase/functions/bitrix-chat-api/index.ts`  
+**Строки:** ~1515-1575
 
-Добавить правильный маппинг при загрузке сообщений:
+Добавить буфер для корректного чтения SSE:
 
 ```typescript
-const messagesResponse = await fetch(`${apiBaseUrl}/department/messages?limit=100`, {
-  headers: { 'Authorization': `Bearer ${token}` },
+const stream = new ReadableStream({
+  async start(controller) {
+    const encoder = new TextEncoder();
+    const decoder = new TextDecoder();
+    let buffer = ''; // ← Добавить буфер
+
+    try {
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+
+        buffer += decoder.decode(value, { stream: true }); // ← Накапливать в буфер
+        const lines = buffer.split('\n');
+        buffer = lines.pop() || ''; // ← Сохранить неполную строку
+
+        for (const line of lines) {
+          if (line.startsWith('data: ')) {
+            // ... existing logic
+          }
+        }
+      }
+      
+      // Обработать остаток буфера после завершения стрима
+      if (buffer.startsWith('data: ')) {
+        const data = buffer.substring(6);
+        // ... process remaining data
+      }
+    } catch (error) {
+      console.error('Stream error:', error);
+    } finally {
+      controller.close();
+    }
+  }
 });
-if (messagesResponse.ok) {
-  const messagesData = await messagesResponse.json();
-  // Маппим сообщения в правильный формат с metadata
-  const mappedMessages: DepartmentMessage[] = (messagesData.messages || []).map((m: any) => ({
-    id: m.id,
-    message_role: m.message_role,
-    content: m.content,
-    created_at: m.created_at,
-    role_id: m.role_id,
-    metadata: m.metadata || {},
-  }));
-  setMessages(mappedMessages);
-}
 ```
 
-### Изменение 2: Добавить role_id в сохраняемые метаданные Personal Chat
+### Изменение 2: Применить такое же исправление к handleRegenerateMessage (Department)
+
+**Файл:** `supabase/functions/bitrix-chat-api/index.ts`  
+**Строки:** ~2050-2130
+
+Аналогичное добавление буферизации.
+
+### Изменение 3: Применить исправление к Personal Chat функциям
 
 **Файл:** `supabase/functions/bitrix-chat-api/index.ts`
 
-В функции `handleSendPersonalMessage` (строка ~1287-1295) и `handleRegeneratePersonalMessage` (строка ~1903-1910) добавить `role_id` в метаданные:
+- `handleSendPersonalMessage` (~1270-1330)
+- `handleRegeneratePersonalMessage` (~1880-1940)
+
+### Изменение 4: Добавить логирование для отладки
+
+Для диагностики добавить console.log при получении metadata:
 
 ```typescript
-// При сохранении сообщения ассистента
-await supabase
-  .from('messages')
-  .insert({
-    conversation_id: conversationId,
-    role: 'assistant',
-    content: fullResponse,
-    metadata: {
-      ...metadata,
-      role_id: roleId,  // ← Добавить!
-    }
-  });
+if (parsed.type === 'metadata' || parsed.rag_context || parsed.citations) {
+  const { type, content, ...metaFields } = parsed;
+  metadata = { ...metadata, ...metaFields };
+  console.log('Captured metadata:', JSON.stringify(Object.keys(metaFields)));
+}
 ```
 
-### Изменение 3: Улучшить парсинг ASCII-таблиц
+---
 
-**Файл:** `src/components/chat/BitrixChatMessage.tsx`
+## Технические детали
 
-Добавить препроцессор Markdown перед рендерингом для конвертации ASCII-таблиц в GFM формат:
+### Почему metadata теряется именно у неё:
 
-```typescript
-// Функция для нормализации таблиц
-const normalizeMarkdownTables = (content: string): string => {
-  // Паттерн для поиска строк с разделителями в середине вместо отдельной строки
-  // Например: "| Cell1 | Cell2 |------|------|"
-  const malformedTablePattern = /(\|[^\n|]+\|)(-+\|)+\s*\n/g;
-  
-  return content.replace(malformedTablePattern, (match, header) => {
-    // Подсчитываем количество колонок в заголовке
-    const columns = (header.match(/\|/g) || []).length - 1;
-    const separator = '|' + Array(columns).fill('---').join('|') + '|\n';
-    return header + '\n' + separator;
-  });
-};
+1. **Контент** приходит маленькими чанками (по 1-3 слова), каждый влезает в один TCP пакет
+2. **Metadata** - один большой JSON объект (10 rag_context строк, citations, web_search_citations)
+3. Большой JSON может разбиться на границе TCP пакета
+4. Без буфера: `JSON.parse('{"type":"metadata","rag_cont')` → SyntaxError
+5. Catch block проглатывает ошибку, metadata = {} остаётся пустым
 
-// В рендере:
-<ReactMarkdown
-  remarkPlugins={[remarkGfm]}
-  ...
->
-  {normalizeMarkdownTables(message.content)}
-</ReactMarkdown>
-```
+### Почему раньше работало (до 22 января):
 
-### Изменение 4: Исправить передачу roleId при рендере сообщений
-
-**Файл:** `src/pages/BitrixDepartmentChat.tsx`
-
-В функции `convertToMessage` добавить `roleId`:
-
-```typescript
-const convertToMessage = (msg: DepartmentMessage): Message => ({
-  id: msg.id,
-  role: msg.message_role,
-  content: msg.content,
-  timestamp: new Date(msg.created_at),
-  responseTime: msg.metadata?.response_time_ms,
-  ragContext: msg.metadata?.rag_context,
-  citations: msg.metadata?.citations,
-  webSearchCitations: msg.metadata?.web_search_citations,
-  webSearchUsed: msg.metadata?.web_search_used,
-  roleId: msg.role_id || msg.metadata?.role_id,  // ← Добавить!
-});
-```
-
-И передать `currentRoleId` в `BitrixChatMessage`:
-
-```typescript
-<BitrixChatMessage
-  message={convertToMessage(message)}
-  currentRoleId={message.role_id}  // ← Добавить!
-  ...
-/>
-```
+Возможно, меньший объём контекста или другие сетевые условия. Также возможно что изменения в deployment повлияли на размер TCP пакетов.
 
 ---
 
 ## Порядок реализации
 
-1. Исправить маппинг сообщений при загрузке в `BitrixDepartmentChat.tsx`
-2. Добавить `role_id` в метаданные при сохранении в `bitrix-chat-api`
-3. Добавить нормализацию таблиц в `BitrixChatMessage.tsx`
-4. Передать `currentRoleId` в компонент для корректной подсветки текущего агента
-5. Деплой Edge Function
-6. Тестирование
+1. Исправить `handleSendMessage` - добавить буферизацию SSE стрима
+2. Исправить `handleRegenerateDepartmentMessage` - аналогично
+3. Исправить `handleSendPersonalMessage` - аналогично  
+4. Исправить `handleRegeneratePersonalMessage` - аналогично
+5. Добавить логирование для подтверждения захвата metadata
+6. Деплой edge function `bitrix-chat-api`
+7. Тестирование - отправить сообщение и проверить что источники появляются
 
 ---
 
 ## Ожидаемый результат
 
-После реализации:
-- Источники будут отображаться в Bitrix-чатах (badges "X источников", "X цитат", "X веб")
-- При перегенерации другим агентом будет вызван выбранный агент
-- Таблицы будут корректно отображаться в большинстве случаев (GFM-совместимые)
-- В dropdown перегенерации будет подсвечен текущий агент
+После исправления:
+- Metadata (rag_context, citations, web_search_citations) будет корректно парситься
+- Sources badges ("X источников", "X цитат", "X веб") появятся в Bitrix-чатах
+- Данные будут сохраняться в БД и отображаться после перезагрузки страницы
