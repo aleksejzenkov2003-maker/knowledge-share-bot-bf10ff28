@@ -16,7 +16,8 @@ import {
   Square,
   Paperclip,
   X,
-  Send
+  Send,
+  FileText
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { BitrixChatMessage } from "@/components/chat/BitrixChatMessage";
@@ -100,8 +101,25 @@ export default function BitrixPersonalChat() {
   const abortControllerRef = useRef<AbortController | null>(null);
   const streamingContentRef = useRef<string>("");
 
+  // Attachments state
+  const [attachments, setAttachments] = useState<Attachment[]>([]);
+  const fileInputRef = useRef<HTMLInputElement>(null);
+
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
+
+  // File upload constants
+  const MAX_FILE_SIZE = 10 * 1024 * 1024; // 10MB
+  const MAX_FILES = 5;
+  const ALLOWED_TYPES = [
+    'application/pdf',
+    'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+    'text/markdown',
+    'text/plain',
+    'image/jpeg',
+    'image/png',
+    'image/webp'
+  ];
 
   const apiBaseUrl = import.meta.env.VITE_SUPABASE_URL + '/functions/v1/bitrix-chat-api';
 
@@ -317,9 +335,53 @@ export default function BitrixPersonalChat() {
     }
   }, []);
 
+  // Handle file selection
+  const handleFileSelect = useCallback((files: File[]) => {
+    const validFiles: File[] = [];
+    
+    for (const file of files) {
+      if (attachments.length + validFiles.length >= MAX_FILES) {
+        toast({ title: `Максимум ${MAX_FILES} файлов`, variant: "destructive" });
+        break;
+      }
+      
+      if (!ALLOWED_TYPES.includes(file.type)) {
+        toast({ 
+          title: "Неподдерживаемый формат", 
+          description: file.name,
+          variant: "destructive" 
+        });
+        continue;
+      }
+      
+      if (file.size > MAX_FILE_SIZE) {
+        toast({ 
+          title: "Файл слишком большой", 
+          description: "Максимум 10MB",
+          variant: "destructive" 
+        });
+        continue;
+      }
+      
+      validFiles.push(file);
+    }
+    
+    const newAttachments: Attachment[] = validFiles.map(file => ({
+      id: crypto.randomUUID(),
+      file,
+      file_name: file.name,
+      file_type: file.type,
+      file_size: file.size,
+      status: 'pending',
+      preview_url: file.type.startsWith('image/') ? URL.createObjectURL(file) : undefined
+    }));
+    
+    setAttachments(prev => [...prev, ...newAttachments]);
+  }, [attachments.length, toast]);
+
   // Handle send message
   const handleSend = useCallback(async () => {
-    if (!token || !inputValue.trim() || isLoading) return;
+    if (!token || (!inputValue.trim() && attachments.length === 0) || isLoading) return;
 
     let conversationId = activeConversationId;
 
@@ -351,15 +413,65 @@ export default function BitrixPersonalChat() {
       }
     }
 
+    // Convert attachments to base64 for API
+    const attachmentsForApi: Array<{
+      file_name: string;
+      file_type: string;
+      file_base64: string;
+    }> = [];
+
+    for (const att of attachments) {
+      if (!att.file) continue;
+      
+      setAttachments(prev => prev.map(a => 
+        a.id === att.id ? { ...a, status: 'uploading' as const } : a
+      ));
+
+      try {
+        const base64 = await new Promise<string>((resolve, reject) => {
+          const reader = new FileReader();
+          reader.onload = () => {
+            const result = reader.result as string;
+            resolve(result.split(',')[1]);
+          };
+          reader.onerror = reject;
+          reader.readAsDataURL(att.file!);
+        });
+
+        attachmentsForApi.push({
+          file_name: att.file_name,
+          file_type: att.file_type,
+          file_base64: base64
+        });
+
+        setAttachments(prev => prev.map(a => 
+          a.id === att.id ? { ...a, status: 'uploaded' as const } : a
+        ));
+      } catch (error) {
+        console.error('Error reading file:', error);
+        setAttachments(prev => prev.map(a => 
+          a.id === att.id ? { ...a, status: 'error' as const } : a
+        ));
+      }
+    }
+
     const userMessage: Message = {
       id: crypto.randomUUID(),
       role: 'user',
       content: inputValue,
       timestamp: new Date(),
+      attachments: attachments.map(a => ({
+        id: a.id,
+        file_name: a.file_name,
+        file_type: a.file_type,
+        file_size: a.file_size,
+        status: 'uploaded' as const,
+      })),
     };
 
     setMessages(prev => [...prev, userMessage]);
     setInputValue("");
+    setAttachments([]);
     setIsLoading(true);
     streamingContentRef.current = "";
 
@@ -387,6 +499,7 @@ export default function BitrixPersonalChat() {
         body: JSON.stringify({
           message: userMessage.content,
           role_id: selectedRoleId || null,
+          attachments: attachmentsForApi.length > 0 ? attachmentsForApi : undefined,
         }),
         signal: abortControllerRef.current.signal,
       });
@@ -922,6 +1035,57 @@ export default function BitrixPersonalChat() {
                 </Select>
               )}
             </div>
+            
+            {/* Attachments Preview */}
+            {attachments.length > 0 && (
+              <div className="flex flex-wrap gap-2 p-2 mb-2 border border-border rounded-lg bg-muted/30">
+                {attachments.map(att => (
+                  <div key={att.id} className="relative group">
+                    {att.preview_url ? (
+                      <img 
+                        src={att.preview_url} 
+                        alt={att.file_name}
+                        className="h-14 w-14 rounded-lg object-cover border"
+                      />
+                    ) : (
+                      <div className="h-14 w-14 rounded-lg bg-muted border flex flex-col items-center justify-center p-1">
+                        <FileText className="h-5 w-5 text-muted-foreground" />
+                        <span className="text-[8px] text-muted-foreground truncate w-full text-center">
+                          {att.file_name.split('.').pop()?.toUpperCase()}
+                        </span>
+                      </div>
+                    )}
+                    <Button
+                      size="icon"
+                      variant="destructive"
+                      className="absolute -top-1.5 -right-1.5 h-5 w-5 rounded-full opacity-0 group-hover:opacity-100 transition-opacity"
+                      onClick={() => setAttachments(prev => prev.filter(a => a.id !== att.id))}
+                    >
+                      <X className="h-3 w-3" />
+                    </Button>
+                    {att.status === 'uploading' && (
+                      <div className="absolute inset-0 bg-black/50 rounded-lg flex items-center justify-center">
+                        <Loader2 className="h-4 w-4 animate-spin text-white" />
+                      </div>
+                    )}
+                  </div>
+                ))}
+              </div>
+            )}
+
+            {/* File Input */}
+            <input
+              ref={fileInputRef}
+              type="file"
+              multiple
+              accept=".pdf,.docx,.md,.txt,image/jpeg,image/png,image/webp"
+              className="hidden"
+              onChange={(e) => {
+                handleFileSelect(Array.from(e.target.files || []));
+                e.target.value = '';
+              }}
+            />
+            
             <div className="relative">
               <Textarea
                 ref={textareaRef}
@@ -929,10 +1093,19 @@ export default function BitrixPersonalChat() {
                 onChange={(e) => setInputValue(e.target.value)}
                 onKeyDown={handleKeyDown}
                 placeholder="Напишите сообщение..."
-                className="min-h-[60px] max-h-[200px] resize-none pr-24"
+                className="min-h-[60px] max-h-[200px] resize-none pr-28"
                 disabled={isLoading}
               />
               <div className="absolute bottom-2 right-2 flex gap-1">
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  className="h-8 w-8"
+                  onClick={() => fileInputRef.current?.click()}
+                  disabled={isLoading || attachments.length >= MAX_FILES}
+                >
+                  <Paperclip className="h-4 w-4" />
+                </Button>
                 {isLoading ? (
                   <Button
                     onClick={handleStopGeneration}
@@ -946,7 +1119,7 @@ export default function BitrixPersonalChat() {
                 ) : (
                   <Button
                     onClick={handleSend}
-                    disabled={!inputValue.trim()}
+                    disabled={!inputValue.trim() && attachments.length === 0}
                     size="sm"
                   >
                     <Send className="h-4 w-4" />
