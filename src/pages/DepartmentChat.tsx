@@ -1,19 +1,22 @@
-import React, { useEffect, useRef, useState, useMemo } from 'react';
+import React, { useEffect, useRef, useState, useMemo, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '@/contexts/AuthContext';
 import { useOptimizedDepartmentChat } from '@/hooks/useOptimizedDepartmentChat';
 import { MentionInput } from '@/components/chat/MentionInput';
 import { DepartmentChatMessage } from '@/components/chat/DepartmentChatMessage';
 import { DepartmentChatSidebar } from '@/components/chat/DepartmentChatSidebar';
+import { ReplyPreview } from '@/components/chat/ReplyPreview';
+import { KnowledgeBaseSelector } from '@/components/chat/KnowledgeBaseSelector';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { Card, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
-import { Loader2, Users, Bot, Maximize2, Filter, Search, PanelLeftClose, PanelLeft } from 'lucide-react';
+import { Loader2, Users, Bot, Maximize2, Filter, Search, PanelLeftClose, PanelLeft, BookOpen } from 'lucide-react';
 import { supabase } from '@/integrations/supabase/client';
 import { cn } from '@/lib/utils';
+import { DepartmentChatMessage as DepartmentChatMessageType } from '@/types/departmentChat';
 
 interface Department {
   id: string;
@@ -29,6 +32,7 @@ const DepartmentChat: React.FC = () => {
   const [agentFilter, setAgentFilter] = useState<string>("all");
   const [searchQuery, setSearchQuery] = useState("");
   const [sidebarOpen, setSidebarOpen] = useState(true);
+  const [knowledgeBaseOpen, setKnowledgeBaseOpen] = useState(false);
   const messagesEndRef = useRef<HTMLDivElement>(null);
 
   // For admins, allow selecting any department; for users, use their assigned department
@@ -45,6 +49,7 @@ const DepartmentChat: React.FC = () => {
     attachments,
     handleAttach,
     removeAttachment,
+    toggleAttachmentKnowledgeBase,
     regenerateResponse,
     // Multi-chat support
     departmentChats,
@@ -55,6 +60,11 @@ const DepartmentChat: React.FC = () => {
     renameChat,
     deleteChat,
     pinChat,
+    // Reply-to and Knowledge Base
+    replyToMessage,
+    setReplyToMessage,
+    selectedKnowledgeDocs,
+    setSelectedKnowledgeDocs,
   } = useOptimizedDepartmentChat(user?.id, activeDepartmentId || undefined);
 
   // Fetch departments for admin selection
@@ -109,6 +119,18 @@ const DepartmentChat: React.FC = () => {
     const agentIds = new Set(messages.filter(m => m.role_id).map(m => m.role_id!));
     return availableAgents.filter(a => agentIds.has(a.id));
   }, [messages, availableAgents]);
+
+  // Handle send with reply and knowledge base
+  const handleSend = useCallback(async (text: string) => {
+    await sendMessage(text, attachments, selectedKnowledgeDocs, replyToMessage);
+    setReplyToMessage(null);
+    setSelectedKnowledgeDocs([]);
+  }, [sendMessage, attachments, selectedKnowledgeDocs, replyToMessage, setReplyToMessage, setSelectedKnowledgeDocs]);
+
+  // Handle reply action
+  const handleReply = useCallback((message: DepartmentChatMessageType) => {
+    setReplyToMessage(message);
+  }, [setReplyToMessage]);
 
   // Wait for auth to complete first
   if (authLoading) {
@@ -344,15 +366,22 @@ const DepartmentChat: React.FC = () => {
               </div>
             ) : (
               <div className="space-y-4">
-                {filteredMessages.map(message => (
-                  <DepartmentChatMessage
-                    key={message.id}
-                    message={message}
-                    currentUserId={user?.id}
-                    availableAgents={availableAgents}
-                    onRegenerateResponse={regenerateResponse}
-                  />
-                ))}
+                {filteredMessages.map(message => {
+                  const replyTo = message.reply_to_message_id 
+                    ? messages.find(m => m.id === message.reply_to_message_id) 
+                    : undefined;
+                  return (
+                    <DepartmentChatMessage
+                      key={message.id}
+                      message={message}
+                      currentUserId={user?.id}
+                      availableAgents={availableAgents}
+                      onRegenerateResponse={regenerateResponse}
+                      onReply={handleReply}
+                      replyToMessage={replyTo}
+                    />
+                  );
+                })}
                 {isGenerating && (
                   <div className="flex items-center gap-2 text-sm text-muted-foreground">
                     <Loader2 className="h-4 w-4 animate-spin" />
@@ -367,19 +396,86 @@ const DepartmentChat: React.FC = () => {
 
         {/* Input area */}
         <div className="border-t p-4 bg-background">
-          <div className="max-w-3xl mx-auto">
-            <MentionInput
-              availableAgents={availableAgents}
-              onSend={sendMessage}
-              isGenerating={isGenerating}
-              onStop={stopGeneration}
-              attachments={attachments}
-              onAttach={handleAttach}
-              onRemoveAttachment={removeAttachment}
+          <div className="max-w-3xl mx-auto space-y-2">
+            {/* Reply Preview */}
+            <ReplyPreview 
+              replyTo={replyToMessage} 
+              onClear={() => setReplyToMessage(null)} 
             />
+            
+            {/* Knowledge Base Selected Docs Indicator */}
+            {selectedKnowledgeDocs.length > 0 && (
+              <div className="flex items-center gap-2 px-3 py-2 bg-primary/5 rounded-lg border border-primary/20">
+                <BookOpen className="h-4 w-4 text-primary" />
+                <span className="text-sm text-muted-foreground">
+                  База знаний: {selectedKnowledgeDocs.length} док.
+                </span>
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  className="h-6 px-2 ml-auto"
+                  onClick={() => setKnowledgeBaseOpen(true)}
+                >
+                  Изменить
+                </Button>
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  className="h-6 px-2 text-destructive hover:text-destructive"
+                  onClick={() => setSelectedKnowledgeDocs([])}
+                >
+                  Очистить
+                </Button>
+              </div>
+            )}
+            
+            <div className="flex gap-2">
+              {/* Knowledge Base Button */}
+              <Button
+                type="button"
+                variant="outline"
+                size="icon"
+                className="h-[60px] w-12 flex-shrink-0 relative"
+                onClick={() => setKnowledgeBaseOpen(true)}
+                title="База знаний"
+              >
+                <BookOpen className="h-5 w-5" />
+                {selectedKnowledgeDocs.length > 0 && (
+                  <Badge 
+                    variant="secondary" 
+                    className="absolute -top-1 -right-1 h-5 w-5 p-0 flex items-center justify-center text-xs"
+                  >
+                    {selectedKnowledgeDocs.length}
+                  </Badge>
+                )}
+              </Button>
+              
+              <div className="flex-1">
+                <MentionInput
+                  availableAgents={availableAgents}
+                  onSend={handleSend}
+                  isGenerating={isGenerating}
+                  onStop={stopGeneration}
+                  attachments={attachments}
+                  onAttach={handleAttach}
+                  onRemoveAttachment={removeAttachment}
+                  onToggleAttachmentKnowledgeBase={toggleAttachmentKnowledgeBase}
+                  showKnowledgeBaseOption={true}
+                />
+              </div>
+            </div>
           </div>
         </div>
       </div>
+
+      {/* Knowledge Base Selector Modal */}
+      <KnowledgeBaseSelector
+        open={knowledgeBaseOpen}
+        onOpenChange={setKnowledgeBaseOpen}
+        departmentId={activeDepartmentId || undefined}
+        selectedDocs={selectedKnowledgeDocs}
+        onSelect={setSelectedKnowledgeDocs}
+      />
     </div>
   );
 };
