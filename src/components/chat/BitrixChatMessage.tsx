@@ -47,6 +47,9 @@ interface BitrixChatMessageProps {
   onStopGeneration?: () => void;
   availableRoles?: ChatRole[];
   currentRoleId?: string;
+  // Bitrix context for document access
+  bitrixApiBaseUrl?: string;
+  bitrixToken?: string;
 }
 
 function BitrixChatMessageComponent({ 
@@ -56,8 +59,12 @@ function BitrixChatMessageComponent({
   onDeleteMessage,
   onStopGeneration,
   availableRoles, 
-  currentRoleId 
+  currentRoleId,
+  bitrixApiBaseUrl,
+  bitrixToken,
 }: BitrixChatMessageProps) {
+  // Determine if we're in Bitrix context (have both URL and token)
+  const isBitrixContext = Boolean(bitrixApiBaseUrl && bitrixToken);
   return (
     <div
       className={cn(
@@ -229,6 +236,9 @@ function BitrixChatMessageComponent({
                       citations={message.citations}
                       webSearchCitations={message.webSearchCitations}
                       webSearchUsed={message.webSearchUsed}
+                      isBitrixContext={isBitrixContext}
+                      bitrixApiBaseUrl={bitrixApiBaseUrl}
+                      bitrixToken={bitrixToken}
                     />
                   </div>
                 </SheetContent>
@@ -256,6 +266,9 @@ function BitrixChatMessageComponent({
                       citations={message.citations}
                       webSearchCitations={message.webSearchCitations}
                       webSearchUsed={message.webSearchUsed}
+                      isBitrixContext={isBitrixContext}
+                      bitrixApiBaseUrl={bitrixApiBaseUrl}
+                      bitrixToken={bitrixToken}
                     />
                   </div>
                 </SheetContent>
@@ -283,6 +296,9 @@ function BitrixChatMessageComponent({
                       citations={message.citations}
                       webSearchCitations={message.webSearchCitations}
                       webSearchUsed={message.webSearchUsed}
+                      isBitrixContext={isBitrixContext}
+                      bitrixApiBaseUrl={bitrixApiBaseUrl}
+                      bitrixToken={bitrixToken}
                     />
                   </div>
                 </SheetContent>
@@ -333,6 +349,8 @@ export const BitrixChatMessage = React.memo(BitrixChatMessageComponent, (prevPro
     prevProps.onRegenerateResponse === nextProps.onRegenerateResponse &&
     prevProps.onDeleteMessage === nextProps.onDeleteMessage &&
     prevProps.availableRoles?.length === nextProps.availableRoles?.length &&
-    prevProps.currentRoleId === nextProps.currentRoleId
+    prevProps.currentRoleId === nextProps.currentRoleId &&
+    prevProps.bitrixApiBaseUrl === nextProps.bitrixApiBaseUrl &&
+    prevProps.bitrixToken === nextProps.bitrixToken
   );
 });

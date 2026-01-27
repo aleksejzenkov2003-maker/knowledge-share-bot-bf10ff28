@@ -1011,6 +1011,8 @@ export default function BitrixDepartmentChat() {
                         slug: a.slug,
                         description: a.description,
                       }))}
+                      bitrixApiBaseUrl={apiBaseUrl}
+                      bitrixToken={token || undefined}
                     />
                   </div>
                 ))}
@@ -1018,6 +1020,8 @@ export default function BitrixDepartmentChat() {
                   <BitrixChatMessage
                     message={streamingMessage}
                     onStopGeneration={handleStopGeneration}
+                    bitrixApiBaseUrl={apiBaseUrl}
+                    bitrixToken={token || undefined}
                   />
                 )}
                 <div ref={messagesEndRef} />
