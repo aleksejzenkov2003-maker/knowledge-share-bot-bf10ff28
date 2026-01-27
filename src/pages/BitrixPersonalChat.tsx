@@ -469,25 +469,142 @@ export default function BitrixPersonalChat() {
 
   // Delete individual message
   const handleDeleteMessage = useCallback(async (messageId: string) => {
+    if (!token) return;
+
+    try {
+      const response = await fetch(`${apiBaseUrl}/personal/messages/${messageId}`, {
+        method: 'DELETE',
+        headers: { 'Authorization': `Bearer ${token}` },
+      });
+
+      if (!response.ok) throw new Error('Failed to delete');
+
+      // Update local state - find and remove message pair if user message
+      setMessages(prev => {
+        const idx = prev.findIndex(m => m.id === messageId);
+        if (idx === -1) return prev;
+        
+        if (prev[idx].role === 'user' && prev[idx + 1]?.role === 'assistant') {
+          return [...prev.slice(0, idx), ...prev.slice(idx + 2)];
+        }
+        return prev.filter(m => m.id !== messageId);
+      });
+
+      toast({
+        title: "Сообщение удалено",
+      });
+    } catch (error) {
+      console.error('Failed to delete message:', error);
+      toast({
+        title: "Ошибка",
+        description: "Не удалось удалить сообщение",
+        variant: "destructive",
+      });
+    }
+  }, [token, apiBaseUrl, toast]);
+
+  // Regenerate assistant response
+  const handleRegenerate = useCallback(async (messageId: string, newRoleId?: string) => {
     if (!token || !activeConversationId) return;
 
-    // For now, just remove from local state (API endpoint to be added)
-    setMessages(prev => {
-      const idx = prev.findIndex(m => m.id === messageId);
-      if (idx === -1) return prev;
-      
-      // If user message, also remove the next assistant message
-      if (prev[idx].role === 'user' && prev[idx + 1]?.role === 'assistant') {
-        return [...prev.slice(0, idx), ...prev.slice(idx + 2)];
-      }
-      return prev.filter(m => m.id !== messageId);
-    });
+    setIsLoading(true);
+    streamingContentRef.current = "";
+    abortControllerRef.current = new AbortController();
 
-    toast({
-      title: "Сообщение удалено",
-      description: "Сообщение удалено из диалога",
-    });
-  }, [token, activeConversationId, toast]);
+    // Remove the old assistant message from UI
+    setMessages(prev => prev.filter(m => m.id !== messageId));
+
+    // Create new streaming message
+    const newAssistantMessage: Message = {
+      id: crypto.randomUUID(),
+      role: 'assistant',
+      content: '',
+      timestamp: new Date(),
+      isStreaming: true,
+    };
+    setMessages(prev => [...prev, newAssistantMessage]);
+
+    try {
+      const response = await fetch(
+        `${apiBaseUrl}/personal/conversations/${activeConversationId}/regenerate`,
+        {
+          method: 'POST',
+          headers: {
+            'Authorization': `Bearer ${token}`,
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({ 
+            message_id: messageId, 
+            role_id: newRoleId 
+          }),
+          signal: abortControllerRef.current.signal,
+        }
+      );
+
+      if (!response.ok || !response.body) {
+        throw new Error('Failed to regenerate');
+      }
+
+      const reader = response.body.getReader();
+      const decoder = new TextDecoder();
+      let fullContent = '';
+      let metadata: any = {};
+
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+
+        const chunk = decoder.decode(value);
+        const lines = chunk.split('\n');
+
+        for (const line of lines) {
+          if (line.startsWith('data: ')) {
+            const data = line.substring(6);
+            if (data === '[DONE]') {
+              setMessages(prev => prev.map(m => 
+                m.id === newAssistantMessage.id 
+                  ? { ...m, isStreaming: false, ...metadata }
+                  : m
+              ));
+            } else {
+              try {
+                const parsed = JSON.parse(data);
+                if (parsed.content) {
+                  fullContent += parsed.content;
+                  streamingContentRef.current = fullContent;
+                  setMessages(prev => prev.map(m => 
+                    m.id === newAssistantMessage.id 
+                      ? { ...m, content: fullContent }
+                      : m
+                  ));
+                }
+                if (parsed.citations) metadata.citations = parsed.citations;
+                if (parsed.response_time_ms) metadata.responseTime = parsed.response_time_ms;
+                if (parsed.web_search_citations) metadata.webSearchCitations = parsed.web_search_citations;
+                if (parsed.web_search_used) metadata.webSearchUsed = parsed.web_search_used;
+                if (parsed.rag_context) metadata.ragContext = parsed.rag_context;
+              } catch {}
+            }
+          }
+        }
+      }
+    } catch (error) {
+      if ((error as Error).name === 'AbortError') {
+        console.log('Regenerate aborted by user');
+      } else {
+        console.error('Regenerate error:', error);
+        setMessages(prev => prev.filter(m => m.id !== newAssistantMessage.id));
+        toast({
+          title: "Ошибка",
+          description: "Не удалось перегенерировать ответ",
+          variant: "destructive",
+        });
+      }
+    } finally {
+      setIsLoading(false);
+      abortControllerRef.current = null;
+    }
+  }, [token, activeConversationId, apiBaseUrl, toast]);
 
   // Group conversations by date
   const groupedConversations = useMemo((): GroupedConversations => {
@@ -771,6 +888,7 @@ export default function BitrixPersonalChat() {
                     key={message.id} 
                     message={message}
                     onDeleteMessage={handleDeleteMessage}
+                    onRegenerateResponse={handleRegenerate}
                     onStopGeneration={message.isStreaming ? handleStopGeneration : undefined}
                     availableRoles={user?.available_roles}
                     currentRoleId={selectedRoleId}
