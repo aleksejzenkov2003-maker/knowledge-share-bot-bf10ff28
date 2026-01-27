@@ -461,7 +461,40 @@ async function handleAuth(
   let apiKeyId: string | null = null;
   let isUserDepartmentDetected = false;
 
-  if (existingProfile?.department_id) {
+  // STEP 0: If explicit department_id passed (demo/admin mode), prioritize it FIRST
+  if (explicitDepartmentId) {
+    console.log('[AUTH] Explicit department_id requested (demo mode):', explicitDepartmentId);
+    
+    // Verify this department exists and has API key for the portal
+    const { data: apiKeyData } = await supabase
+      .from('department_api_keys')
+      .select('id, department_id, request_count')
+      .eq('portal_domain', normalizedPortal)
+      .eq('department_id', explicitDepartmentId)
+      .eq('is_active', true)
+      .maybeSingle();
+
+    if (apiKeyData) {
+      departmentId = explicitDepartmentId;
+      apiKeyId = apiKeyData.id;
+      isUserDepartmentDetected = true;
+      console.log('[AUTH] Using explicit department_id:', departmentId);
+      
+      // Update usage stats
+      await supabase
+        .from('department_api_keys')
+        .update({ 
+          last_used_at: new Date().toISOString(),
+          request_count: (apiKeyData.request_count || 0) + 1
+        })
+        .eq('id', apiKeyData.id);
+    } else {
+      console.log('[AUTH] Explicit department not found for this portal, will try user profile or fallback');
+    }
+  }
+
+  // STEP 1: If no explicit department set, check existing user's department
+  if (!departmentId && existingProfile?.department_id) {
     // User already has a department assigned - use it
     console.log('[AUTH] User already has department_id:', existingProfile.department_id);
     departmentId = existingProfile.department_id;
@@ -474,7 +507,7 @@ async function handleAuth(
       .eq('portal_domain', normalizedPortal)
       .eq('department_id', departmentId)
       .eq('is_active', true)
-      .single();
+      .maybeSingle();
 
     if (apiKeyForDept) {
       apiKeyId = apiKeyForDept.id;
