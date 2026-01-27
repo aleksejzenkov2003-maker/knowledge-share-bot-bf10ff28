@@ -2,6 +2,7 @@ import { useState, useEffect, useRef, useCallback, useMemo } from "react";
 import { useSearchParams } from "react-router-dom";
 import { Button } from "@/components/ui/button";
 import { ScrollArea } from "@/components/ui/scroll-area";
+import { Input } from "@/components/ui/input";
 import { 
   PanelLeftClose, 
   PanelLeft, 
@@ -10,11 +11,15 @@ import {
   Plus,
   Trash2,
   Pin,
-  PinOff,
-  MoreHorizontal
+  MoreHorizontal,
+  Search,
+  Square,
+  Paperclip,
+  X,
+  Send
 } from "lucide-react";
 import { cn } from "@/lib/utils";
-import { ChatMessage } from "@/components/chat/ChatMessage";
+import { BitrixChatMessage } from "@/components/chat/BitrixChatMessage";
 import { Textarea } from "@/components/ui/textarea";
 import {
   Select,
@@ -30,7 +35,9 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { useToast } from "@/hooks/use-toast";
-import type { Message } from "@/types/chat";
+import type { Message, Attachment } from "@/types/chat";
+import { format, isToday, isYesterday, subDays, isAfter } from "date-fns";
+import { ru } from "date-fns/locale";
 
 interface BitrixUser {
   user_id: string;
@@ -57,6 +64,14 @@ interface Conversation {
   updated_at: string;
 }
 
+interface GroupedConversations {
+  pinned: Conversation[];
+  today: Conversation[];
+  yesterday: Conversation[];
+  lastWeek: Conversation[];
+  older: Conversation[];
+}
+
 export default function BitrixPersonalChat() {
   const [searchParams] = useSearchParams();
   const { toast } = useToast();
@@ -76,6 +91,14 @@ export default function BitrixPersonalChat() {
   const [selectedRoleId, setSelectedRoleId] = useState<string>("");
   const [isLoading, setIsLoading] = useState(false);
   const [conversationsLoading, setConversationsLoading] = useState(false);
+  
+  // New: Search and filter state
+  const [searchQuery, setSearchQuery] = useState("");
+  const [filterRoleId, setFilterRoleId] = useState<string>("all");
+  
+  // New: Stop generation state
+  const abortControllerRef = useRef<AbortController | null>(null);
+  const streamingContentRef = useRef<string>("");
 
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
@@ -195,6 +218,8 @@ export default function BitrixPersonalChat() {
           ragContext: m.metadata?.rag_context,
           responseTime: m.metadata?.response_time_ms,
           attachments: m.metadata?.attachments,
+          webSearchCitations: m.metadata?.web_search_citations,
+          webSearchUsed: m.metadata?.web_search_used,
         })));
       }
     } catch (error) {
@@ -274,6 +299,24 @@ export default function BitrixPersonalChat() {
     }
   }, [token, activeConversationId, apiBaseUrl]);
 
+  // Stop generation handler
+  const handleStopGeneration = useCallback(() => {
+    if (abortControllerRef.current) {
+      abortControllerRef.current.abort();
+      abortControllerRef.current = null;
+      
+      // Save partial response
+      if (streamingContentRef.current) {
+        setMessages(prev => prev.map(m => 
+          m.isStreaming 
+            ? { ...m, content: streamingContentRef.current + '\n\n[Генерация остановлена]', isStreaming: false }
+            : m
+        ));
+      }
+      setIsLoading(false);
+    }
+  }, []);
+
   // Handle send message
   const handleSend = useCallback(async () => {
     if (!token || !inputValue.trim() || isLoading) return;
@@ -318,6 +361,7 @@ export default function BitrixPersonalChat() {
     setMessages(prev => [...prev, userMessage]);
     setInputValue("");
     setIsLoading(true);
+    streamingContentRef.current = "";
 
     // Create streaming assistant message
     const assistantMessage: Message = {
@@ -330,6 +374,9 @@ export default function BitrixPersonalChat() {
 
     setMessages(prev => [...prev, assistantMessage]);
 
+    // Create abort controller for stop functionality
+    abortControllerRef.current = new AbortController();
+
     try {
       const response = await fetch(`${apiBaseUrl}/personal/conversations/${conversationId}/messages`, {
         method: 'POST',
@@ -341,6 +388,7 @@ export default function BitrixPersonalChat() {
           message: userMessage.content,
           role_id: selectedRoleId || null,
         }),
+        signal: abortControllerRef.current.signal,
       });
 
       if (!response.ok || !response.body) {
@@ -373,6 +421,7 @@ export default function BitrixPersonalChat() {
                 const parsed = JSON.parse(data);
                 if (parsed.content) {
                   fullContent += parsed.content;
+                  streamingContentRef.current = fullContent;
                   setMessages(prev => prev.map(m => 
                     m.id === assistantMessage.id 
                       ? { ...m, content: fullContent }
@@ -381,6 +430,9 @@ export default function BitrixPersonalChat() {
                 }
                 if (parsed.citations) metadata.citations = parsed.citations;
                 if (parsed.response_time_ms) metadata.responseTime = parsed.response_time_ms;
+                if (parsed.web_search_citations) metadata.webSearchCitations = parsed.web_search_citations;
+                if (parsed.web_search_used) metadata.webSearchUsed = parsed.web_search_used;
+                if (parsed.rag_context) metadata.ragContext = parsed.rag_context;
               } catch {}
             }
           }
@@ -390,15 +442,20 @@ export default function BitrixPersonalChat() {
       // Refresh conversations to update title
       await fetchConversations();
     } catch (error) {
-      console.error('Send message error:', error);
-      setMessages(prev => prev.filter(m => m.id !== assistantMessage.id));
-      toast({
-        title: "Ошибка",
-        description: "Не удалось отправить сообщение",
-        variant: "destructive",
-      });
+      if ((error as Error).name === 'AbortError') {
+        console.log('Request aborted by user');
+      } else {
+        console.error('Send message error:', error);
+        setMessages(prev => prev.filter(m => m.id !== assistantMessage.id));
+        toast({
+          title: "Ошибка",
+          description: "Не удалось отправить сообщение",
+          variant: "destructive",
+        });
+      }
     } finally {
       setIsLoading(false);
+      abortControllerRef.current = null;
     }
   }, [token, inputValue, isLoading, activeConversationId, selectedRoleId, apiBaseUrl, fetchConversations, toast]);
 
@@ -409,6 +466,62 @@ export default function BitrixPersonalChat() {
       handleSend();
     }
   };
+
+  // Delete individual message
+  const handleDeleteMessage = useCallback(async (messageId: string) => {
+    if (!token || !activeConversationId) return;
+
+    // For now, just remove from local state (API endpoint to be added)
+    setMessages(prev => {
+      const idx = prev.findIndex(m => m.id === messageId);
+      if (idx === -1) return prev;
+      
+      // If user message, also remove the next assistant message
+      if (prev[idx].role === 'user' && prev[idx + 1]?.role === 'assistant') {
+        return [...prev.slice(0, idx), ...prev.slice(idx + 2)];
+      }
+      return prev.filter(m => m.id !== messageId);
+    });
+
+    toast({
+      title: "Сообщение удалено",
+      description: "Сообщение удалено из диалога",
+    });
+  }, [token, activeConversationId, toast]);
+
+  // Group conversations by date
+  const groupedConversations = useMemo((): GroupedConversations => {
+    const sevenDaysAgo = subDays(new Date(), 7);
+    
+    let filtered = conversations;
+    
+    // Apply search filter
+    if (searchQuery.trim()) {
+      const query = searchQuery.toLowerCase();
+      filtered = filtered.filter(c => 
+        c.title.toLowerCase().includes(query)
+      );
+    }
+    
+    // Apply role filter
+    if (filterRoleId !== "all") {
+      filtered = filtered.filter(c => c.role_id === filterRoleId);
+    }
+    
+    return {
+      pinned: filtered.filter(c => c.is_pinned),
+      today: filtered.filter(c => !c.is_pinned && isToday(new Date(c.updated_at))),
+      yesterday: filtered.filter(c => !c.is_pinned && isYesterday(new Date(c.updated_at))),
+      lastWeek: filtered.filter(c => {
+        const date = new Date(c.updated_at);
+        return !c.is_pinned && !isToday(date) && !isYesterday(date) && isAfter(date, sevenDaysAgo);
+      }),
+      older: filtered.filter(c => {
+        const date = new Date(c.updated_at);
+        return !c.is_pinned && !isAfter(date, sevenDaysAgo);
+      }),
+    };
+  }, [conversations, searchQuery, filterRoleId]);
 
   // Selected role
   const selectedRole = useMemo(() => 
@@ -421,6 +534,67 @@ export default function BitrixPersonalChat() {
     conversations.find(c => c.id === activeConversationId),
     [conversations, activeConversationId]
   );
+
+  // Render conversation group
+  const renderConversationGroup = (title: string, items: Conversation[]) => {
+    if (items.length === 0) return null;
+    
+    return (
+      <div className="mb-3">
+        <div className="text-xs font-medium text-muted-foreground px-2 mb-1">
+          {title}
+        </div>
+        {items.map((conv) => (
+          <div
+            key={conv.id}
+            className={cn(
+              "group flex items-center gap-2 px-2 py-2 rounded-lg cursor-pointer transition-colors overflow-hidden",
+              activeConversationId === conv.id
+                ? "bg-sidebar-accent text-sidebar-accent-foreground"
+                : "hover:bg-sidebar-accent/50"
+            )}
+            onClick={() => handleSelectConversation(conv.id)}
+          >
+            <MessageSquare className="h-4 w-4 shrink-0 text-muted-foreground" />
+            {conv.is_pinned && (
+              <Pin className="h-3 w-3 shrink-0 text-muted-foreground" />
+            )}
+            <div className="flex-1 min-w-0 overflow-hidden">
+              <span className="block truncate text-sm">
+                {conv.title || "Без названия"}
+              </span>
+            </div>
+            <div className="shrink-0 ml-1">
+              <DropdownMenu>
+                <DropdownMenuTrigger asChild>
+                  <Button
+                    variant="ghost"
+                    size="icon"
+                    className="h-6 w-6 opacity-0 group-hover:opacity-100"
+                    onClick={(e) => e.stopPropagation()}
+                  >
+                    <MoreHorizontal className="h-4 w-4" />
+                  </Button>
+                </DropdownMenuTrigger>
+                <DropdownMenuContent align="end" className="w-40 bg-popover">
+                  <DropdownMenuItem 
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      handleDeleteConversation(conv.id);
+                    }}
+                    className="text-destructive focus:text-destructive"
+                  >
+                    <Trash2 className="h-4 w-4 mr-2" />
+                    Удалить
+                  </DropdownMenuItem>
+                </DropdownMenuContent>
+              </DropdownMenu>
+            </div>
+          </div>
+        ))}
+      </div>
+    );
+  };
 
   if (isAuthenticating) {
     return (
@@ -450,13 +624,13 @@ export default function BitrixPersonalChat() {
       <div 
         className={cn(
           "h-full border-r border-border transition-all duration-300 flex-shrink-0 flex flex-col",
-          sidebarOpen ? "w-64" : "w-0"
+          sidebarOpen ? "w-72" : "w-0"
         )}
       >
         {sidebarOpen && (
           <>
             {/* Sidebar Header */}
-            <div className="p-3 border-b border-border">
+            <div className="p-3 border-b border-border space-y-2">
               <Button
                 onClick={handleNewChat}
                 className="w-full gap-2"
@@ -465,11 +639,42 @@ export default function BitrixPersonalChat() {
                 <Plus className="h-4 w-4" />
                 Новый диалог
               </Button>
+              
+              {/* Search */}
+              <div className="relative">
+                <Search className="absolute left-2 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+                <Input
+                  value={searchQuery}
+                  onChange={(e) => setSearchQuery(e.target.value)}
+                  placeholder="Поиск диалогов..."
+                  className="pl-8 h-8 text-sm"
+                />
+              </div>
+              
+              {/* Role filter */}
+              {user?.available_roles && user.available_roles.length > 1 && (
+                <Select
+                  value={filterRoleId}
+                  onValueChange={setFilterRoleId}
+                >
+                  <SelectTrigger className="h-8 text-sm">
+                    <SelectValue placeholder="Все агенты" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="all">Все агенты</SelectItem>
+                    {user.available_roles.map((role) => (
+                      <SelectItem key={role.id} value={role.id}>
+                        {role.name}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              )}
             </div>
 
             {/* Conversations List */}
             <ScrollArea className="flex-1">
-              <div className="p-2 space-y-1">
+              <div className="p-2">
                 {conversationsLoading ? (
                   <div className="flex items-center justify-center py-4">
                     <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" />
@@ -479,54 +684,13 @@ export default function BitrixPersonalChat() {
                     Нет диалогов
                   </div>
                 ) : (
-                  conversations.map((conv) => (
-                    <div
-                      key={conv.id}
-                      className={cn(
-                        "group flex items-center gap-2 px-2 py-2 rounded-lg cursor-pointer transition-colors overflow-hidden",
-                        activeConversationId === conv.id
-                          ? "bg-sidebar-accent text-sidebar-accent-foreground"
-                          : "hover:bg-sidebar-accent/50"
-                      )}
-                      onClick={() => handleSelectConversation(conv.id)}
-                    >
-                      <MessageSquare className="h-4 w-4 shrink-0 text-muted-foreground" />
-                      {conv.is_pinned && (
-                        <Pin className="h-3 w-3 shrink-0 text-muted-foreground" />
-                      )}
-                      <div className="flex-1 min-w-0 overflow-hidden">
-                        <span className="block truncate text-sm">
-                          {conv.title || "Без названия"}
-                        </span>
-                      </div>
-                      <div className="shrink-0 ml-1">
-                        <DropdownMenu>
-                          <DropdownMenuTrigger asChild>
-                            <Button
-                              variant="ghost"
-                              size="icon"
-                              className="h-6 w-6 opacity-50 hover:opacity-100"
-                              onClick={(e) => e.stopPropagation()}
-                            >
-                              <MoreHorizontal className="h-4 w-4" />
-                            </Button>
-                          </DropdownMenuTrigger>
-                          <DropdownMenuContent align="end" className="w-40">
-                            <DropdownMenuItem 
-                              onClick={(e) => {
-                                e.stopPropagation();
-                                handleDeleteConversation(conv.id);
-                              }}
-                              className="text-destructive focus:text-destructive"
-                            >
-                              <Trash2 className="h-4 w-4 mr-2" />
-                              Удалить
-                            </DropdownMenuItem>
-                          </DropdownMenuContent>
-                        </DropdownMenu>
-                      </div>
-                    </div>
-                  ))
+                  <>
+                    {renderConversationGroup("Закреплённые", groupedConversations.pinned)}
+                    {renderConversationGroup("Сегодня", groupedConversations.today)}
+                    {renderConversationGroup("Вчера", groupedConversations.yesterday)}
+                    {renderConversationGroup("Последние 7 дней", groupedConversations.lastWeek)}
+                    {renderConversationGroup("Ранее", groupedConversations.older)}
+                  </>
                 )}
               </div>
             </ScrollArea>
@@ -603,17 +767,15 @@ export default function BitrixPersonalChat() {
             ) : (
               <div className="space-y-4">
                 {messages.map((message) => (
-                  <ChatMessage 
+                  <BitrixChatMessage 
                     key={message.id} 
                     message={message}
+                    onDeleteMessage={handleDeleteMessage}
+                    onStopGeneration={message.isStreaming ? handleStopGeneration : undefined}
+                    availableRoles={user?.available_roles}
+                    currentRoleId={selectedRoleId}
                   />
                 ))}
-                {isLoading && messages[messages.length - 1]?.role === 'user' && (
-                  <div className="flex items-center gap-2 text-muted-foreground">
-                    <Loader2 className="h-4 w-4 animate-spin" />
-                    <span className="text-sm">Генерация ответа...</span>
-                  </div>
-                )}
                 <div ref={messagesEndRef} />
               </div>
             )}
@@ -649,21 +811,30 @@ export default function BitrixPersonalChat() {
                 onChange={(e) => setInputValue(e.target.value)}
                 onKeyDown={handleKeyDown}
                 placeholder="Напишите сообщение..."
-                className="min-h-[60px] max-h-[200px] resize-none pr-20"
+                className="min-h-[60px] max-h-[200px] resize-none pr-24"
                 disabled={isLoading}
               />
-              <Button
-                onClick={handleSend}
-                disabled={!inputValue.trim() || isLoading}
-                size="sm"
-                className="absolute bottom-2 right-2"
-              >
+              <div className="absolute bottom-2 right-2 flex gap-1">
                 {isLoading ? (
-                  <Loader2 className="h-4 w-4 animate-spin" />
+                  <Button
+                    onClick={handleStopGeneration}
+                    size="sm"
+                    variant="outline"
+                    className="gap-1"
+                  >
+                    <Square className="h-3 w-3 fill-current" />
+                    Стоп
+                  </Button>
                 ) : (
-                  "Отправить"
+                  <Button
+                    onClick={handleSend}
+                    disabled={!inputValue.trim()}
+                    size="sm"
+                  >
+                    <Send className="h-4 w-4" />
+                  </Button>
                 )}
-              </Button>
+              </div>
             </div>
           </div>
         </div>
