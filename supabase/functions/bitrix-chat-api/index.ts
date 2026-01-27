@@ -1279,8 +1279,14 @@ async function handleSendPersonalMessage(
                   if (parsed.content) {
                     fullResponse += parsed.content;
                   }
-                  if (parsed.citations || parsed.response_time_ms) {
-                    metadata = { ...metadata, ...parsed };
+                  // Capture metadata chunk OR individual metadata fields
+                  if (parsed.type === 'metadata' || 
+                      parsed.citations || 
+                      parsed.response_time_ms || 
+                      parsed.rag_context || 
+                      parsed.web_search_citations) {
+                    const { type, content, ...metaFields } = parsed;
+                    metadata = { ...metadata, ...metaFields };
                   }
                   controller.enqueue(encoder.encode(`data: ${data}\n\n`));
                 } catch {
@@ -1524,8 +1530,14 @@ async function handleSendMessage(
                   if (parsed.content) {
                     fullResponse += parsed.content;
                   }
-                  if (parsed.citations || parsed.response_time_ms) {
-                    metadata = { ...metadata, ...parsed };
+                  // Capture metadata chunk OR individual metadata fields
+                  if (parsed.type === 'metadata' || 
+                      parsed.citations || 
+                      parsed.response_time_ms || 
+                      parsed.rag_context || 
+                      parsed.web_search_citations) {
+                    const { type, content, ...metaFields } = parsed;
+                    metadata = { ...metadata, ...metaFields };
                   }
                   controller.enqueue(encoder.encode(`data: ${data}\n\n`));
                 } catch {
@@ -1882,8 +1894,14 @@ async function handleRegeneratePersonalMessage(
                   if (parsed.content) {
                     fullResponse += parsed.content;
                   }
-                  if (parsed.citations || parsed.response_time_ms || parsed.web_search_citations || parsed.rag_context) {
-                    metadata = { ...metadata, ...parsed };
+                  // Capture metadata chunk OR individual metadata fields
+                  if (parsed.type === 'metadata' || 
+                      parsed.citations || 
+                      parsed.response_time_ms || 
+                      parsed.rag_context || 
+                      parsed.web_search_citations) {
+                    const { type, content, ...metaFields } = parsed;
+                    metadata = { ...metadata, ...metaFields };
                   }
                   controller.enqueue(encoder.encode(`data: ${data}\n\n`));
                 } catch {
@@ -2152,8 +2170,14 @@ async function handleRegenerateDepartmentMessage(
                   if (parsed.content) {
                     fullResponse += parsed.content;
                   }
-                  if (parsed.citations || parsed.response_time_ms || parsed.web_search_citations || parsed.rag_context) {
-                    metadata = { ...metadata, ...parsed };
+                  // Capture metadata chunk OR individual metadata fields
+                  if (parsed.type === 'metadata' || 
+                      parsed.citations || 
+                      parsed.response_time_ms || 
+                      parsed.rag_context || 
+                      parsed.web_search_citations) {
+                    const { type, content, ...metaFields } = parsed;
+                    metadata = { ...metadata, ...metaFields };
                   }
                   controller.enqueue(encoder.encode(`data: ${data}\n\n`));
                 } catch {
