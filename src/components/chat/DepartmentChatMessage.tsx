@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { DepartmentChatMessage as MessageType } from '@/types/departmentChat';
-import { Bot, User, FileText, Image, Clock, BookOpen, Globe, AlertTriangle, Copy, CheckCheck, RefreshCw, ChevronDown } from 'lucide-react';
+import { Bot, User, FileText, Image, Clock, BookOpen, Globe, AlertTriangle, Copy, CheckCheck, RefreshCw, ChevronDown, Reply } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
@@ -44,13 +44,17 @@ interface DepartmentChatMessageProps {
   currentUserId?: string;
   availableAgents?: AgentInfo[];
   onRegenerateResponse?: (messageId: string, roleId?: string) => void;
+  onReply?: (message: MessageType) => void;
+  replyToMessage?: MessageType | null;
 }
 
 function DepartmentChatMessageComponent({
   message,
   currentUserId,
   availableAgents = [],
-  onRegenerateResponse
+  onRegenerateResponse,
+  onReply,
+  replyToMessage
 }: DepartmentChatMessageProps) {
   const [copied, setCopied] = useState(false);
   
@@ -156,6 +160,20 @@ function DepartmentChatMessageComponent({
 
       {/* Content */}
       <div className="flex-1 min-w-0">
+        {/* Reply indicator */}
+        {replyToMessage && (
+          <div className="mb-2 p-2 bg-muted/30 rounded border-l-2 border-primary/50 text-xs">
+            <div className="flex items-center gap-1 mb-0.5">
+              <Reply className="h-3 w-3 text-muted-foreground" />
+              <span className="font-medium text-muted-foreground">
+                {replyToMessage.message_role === 'assistant' ? '🤖 ' : ''}
+                {replyToMessage.metadata?.user_name || replyToMessage.metadata?.agent_name || 'Сообщение'}
+              </span>
+            </div>
+            <p className="text-muted-foreground truncate">{replyToMessage.content.slice(0, 80)}{replyToMessage.content.length > 80 ? '...' : ''}</p>
+          </div>
+        )}
+
         {/* Header */}
         <div className="flex items-center gap-2 mb-1">
           <span className="font-medium text-sm">
@@ -389,31 +407,51 @@ function DepartmentChatMessageComponent({
           </div>
         )}
 
-        {/* Actions: Copy, Download, Regenerate */}
-        {isAssistant && !isGenerating && message.content && (
+        {/* Actions: Reply, Copy, Download, Regenerate */}
+        {!isGenerating && message.content && (
           <div className="flex items-center gap-1 mt-2 opacity-0 group-hover:opacity-100 transition-opacity">
-            <Button
-              variant="ghost"
-              size="sm"
-              className="h-7 px-2 text-xs"
-              onClick={handleCopy}
-            >
-              {copied ? (
-                <CheckCheck className="h-3 w-3 mr-1 text-green-500" />
-              ) : (
-                <Copy className="h-3 w-3 mr-1" />
-              )}
-              {copied ? "Скопировано" : "Копировать"}
-            </Button>
+            {/* Reply button - available for all messages */}
+            {onReply && (
+              <Button
+                variant="ghost"
+                size="sm"
+                className="h-7 px-2 text-xs"
+                onClick={() => onReply(message)}
+              >
+                <Reply className="h-3 w-3 mr-1" />
+                Ответить
+              </Button>
+            )}
 
-            <DownloadDropdown
-              content={message.content}
-              ragContext={message.metadata?.rag_context}
-              citations={message.metadata?.citations}
-              webSearchCitations={message.metadata?.perplexity_citations || message.metadata?.web_search_citations}
-            />
+            {/* Copy button - only for assistant */}
+            {isAssistant && (
+              <Button
+                variant="ghost"
+                size="sm"
+                className="h-7 px-2 text-xs"
+                onClick={handleCopy}
+              >
+                {copied ? (
+                  <CheckCheck className="h-3 w-3 mr-1 text-green-500" />
+                ) : (
+                  <Copy className="h-3 w-3 mr-1" />
+                )}
+                {copied ? "Скопировано" : "Копировать"}
+              </Button>
+            )}
 
-            {onRegenerateResponse && (
+            {/* Download - only for assistant */}
+            {isAssistant && (
+              <DownloadDropdown
+                content={message.content}
+                ragContext={message.metadata?.rag_context}
+                citations={message.metadata?.citations}
+                webSearchCitations={message.metadata?.perplexity_citations || message.metadata?.web_search_citations}
+              />
+            )}
+
+            {/* Regenerate - only for assistant */}
+            {isAssistant && onRegenerateResponse && (
               <div className="flex items-center">
                 <Button
                   variant="ghost"
@@ -486,6 +524,8 @@ export const DepartmentChatMessage = React.memo(DepartmentChatMessageComponent, 
     prev.metadata?.citations?.length === next.metadata?.citations?.length &&
     prevProps.currentUserId === nextProps.currentUserId &&
     prevProps.availableAgents === nextProps.availableAgents &&
-    prevProps.onRegenerateResponse === nextProps.onRegenerateResponse
+    prevProps.onRegenerateResponse === nextProps.onRegenerateResponse &&
+    prevProps.onReply === nextProps.onReply &&
+    prevProps.replyToMessage?.id === nextProps.replyToMessage?.id
   );
 });

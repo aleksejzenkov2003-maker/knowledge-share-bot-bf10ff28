@@ -59,6 +59,7 @@ export interface Message {
   webSearchCitations?: string[];
   webSearchUsed?: boolean;
   roleId?: string;
+  replyToMessageId?: string | null;
 }
 
 export interface DBMessage {
