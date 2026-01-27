@@ -1,103 +1,132 @@
 
+# План: Добавление истории чатов в чат отдела
 
-# План: Исправление выбора агента в чате отделов
+## Обзор задачи
+Реализовать сайдбар с историей чатов для Department Chat, аналогичный личному чату. Это включает:
+- Список чатов отдела с группировкой по датам (Сегодня, Вчера, Последние 7 дней и т.д.)
+- Кнопка "Новый чат"
+- Поиск и фильтрация по агентам
+- Переименование и удаление чатов
+- Закрепление важных чатов
 
-## Обнаруженная проблема
+## Архитектурные изменения
 
-При выборе агента из выпадающего списка и отправке сообщения появляется ошибка "Укажите агента через @упоминание".
+### Текущее состояние
+Сейчас на один отдел создаётся один активный чат (`is_active = true`). Хук `useOptimizedDepartmentChat` всегда возвращает этот единственный чат.
 
-### Причина
-
-Функция `parseMention` в `useOptimizedDepartmentChat.ts` использует **ленивый regex**, который не может распознать триггеры с пробелами:
-
-```typescript
-const mentionRegex = /^@([^\n]+?)(?:\s+|$)/;
-```
-
-Для сообщения `@ТЗ консультант вопрос` regex захватывает только `ТЗ`, а не `ТЗ консультант`.
-
-### Агенты с многословными триггерами:
-- `@ТЗ консультант` (15 символов)
-- `@Отказы ТЗ` (10 символов)
-
-Эти агенты не распознаются при парсинге.
+### Новая архитектура
+Нужно поддержать множество чатов на один отдел (как conversations в личном чате):
+- Каждый новый чат — новая запись в `department_chats`
+- Пользователь может переключаться между чатами отдела
+- История всех чатов отдела видна всем участникам отдела
 
 ---
 
-## Решение
+## Технические шаги
 
-Изменить логику `parseMention` для поддержки многословных триггеров:
+### 1. Модификация базы данных
 
-### Изменение 1: Новый алгоритм парсинга
-
-Вместо regex, который пытается угадать границу триггера, использовать **прямое сопоставление** со списком известных триггеров:
-
-```typescript
-const parseMention = useCallback((text: string): { agentId: string | null; cleanText: string } => {
-  if (!text.startsWith('@')) {
-    return { agentId: null, cleanText: text };
-  }
-
-  const textLower = text.toLowerCase();
-
-  // Sort agents by trigger length (longest first) to match "ТЗ консультант" before "ТЗ"
-  const sortedAgents = [...availableAgents].sort((a, b) => {
-    const aLen = (a.mention_trigger || a.slug).length;
-    const bLen = (b.mention_trigger || b.slug).length;
-    return bLen - aLen; // Descending order
-  });
-
-  for (const agent of sortedAgents) {
-    const triggers = [
-      agent.mention_trigger?.toLowerCase().trim(),
-      `@${agent.slug}`.toLowerCase(),
-      `@${agent.name.toLowerCase().trim()}`
-    ].filter(Boolean);
-
-    for (const trigger of triggers) {
-      // Check if text starts with trigger followed by space or end
-      if (textLower.startsWith(trigger!) && 
-          (textLower.length === trigger!.length || textLower[trigger!.length] === ' ')) {
-        const cleanText = text.slice(trigger!.length).trim();
-        return { agentId: agent.id, cleanText };
-      }
-    }
-  }
-
-  return { agentId: null, cleanText: text };
-}, [availableAgents]);
-```
-
-### Почему это работает:
-
-1. **Сортировка по длине триггера** — `@ТЗ консультант` проверяется раньше гипотетического `@ТЗ`
-2. **Точное сопоставление** — проверяем, что после триггера идёт пробел или конец строки
-3. **Множественные варианты** — проверяем `mention_trigger`, `slug` и `name`
-
----
-
-## Файл для изменения
-
-**`src/hooks/useOptimizedDepartmentChat.ts`** (строки 133-169)
-
-Заменить функцию `parseMention` на новую версию с прямым сопоставлением вместо regex.
-
----
-
-## Дополнительно: Очистка данных
-
-В базе данных есть агенты с trailing spaces в именах (например `Поисковик `). Рекомендуется очистить через миграцию:
+Добавить в таблицу `department_chats` недостающие колонки:
 
 ```sql
-UPDATE chat_roles SET name = TRIM(name) WHERE name != TRIM(name);
+ALTER TABLE public.department_chats 
+ADD COLUMN IF NOT EXISTS is_pinned BOOLEAN DEFAULT false;
 ```
+
+### 2. Создать компонент `DepartmentChatSidebar`
+
+Новый компонент `src/components/chat/DepartmentChatSidebar.tsx`:
+
+- Принимает список чатов отдела
+- Группирует по дате (логика аналогична `ChatSidebarEnhanced`)
+- Кнопка "Новый чат"
+- Поиск по названию чата
+- Фильтр по агентам (на основе `role_id` сообщений в чате)
+- Меню действий: Переименовать, Удалить, Закрепить
+- Отображение закреплённых чатов в отдельной секции
+
+### 3. Расширить хук `useOptimizedDepartmentChat`
+
+Добавить функционал:
+
+```typescript
+// Новые данные
+departmentChats: DepartmentChat[] // Все чаты отдела
+activeDepartmentChatId: string | null // Текущий активный чат
+
+// Новые методы
+createNewDepartmentChat: () => Promise<void>
+selectDepartmentChat: (chatId: string) => void
+deleteDepartmentChat: (chatId: string) => Promise<void>
+renameDepartmentChat: (chatId: string, newTitle: string) => Promise<void>
+pinDepartmentChat: (chatId: string, isPinned: boolean) => Promise<void>
+```
+
+Изменить логику:
+- `fetchDepartmentChatData` → `fetchDepartmentChats` (получить все чаты отдела)
+- Добавить управление `activeDepartmentChatId`
+- Автовыбор последнего активного чата при загрузке
+
+### 4. Обновить страницу `DepartmentChat.tsx`
+
+Добавить:
+- Сайдбар слева (как в `Chat.tsx`)
+- Кнопка toggle сайдбара  
+- Передача всех необходимых props в `DepartmentChatSidebar`
+
+Структура:
+```text
+┌──────────────────────────────────────────────────┐
+│ [☰] Sidebar     │ Header with filters            │
+├─────────────────┼────────────────────────────────┤
+│ + Новый чат     │                                │
+│─────────────────│                                │
+│ 🔍 Поиск        │      Область сообщений         │
+│ 📋 Фильтр агент │                                │
+│─────────────────│                                │
+│ СЕГОДНЯ         │                                │
+│  • Чат 1 ...    │                                │
+│  • Чат 2 ...    │                                │
+│ ВЧЕРА           │                                │
+│  • Чат 3 ...    │──────────────────────────────────│
+│                 │      Поле ввода                │
+└─────────────────┴────────────────────────────────┘
+```
+
+### 5. Обновить страницу `DepartmentChatFullscreen.tsx`
+
+Аналогичные изменения:
+- Добавить сайдбар с toggle кнопкой
+- Использовать `DepartmentChatSidebar`
+- Сохранять `activeDepartmentChatId` в URL параметр для persistence
+
+### 6. Добавить query для получения roles по чатам
+
+По аналогии с `useConversationRolesQuery` создать `useDepartmentChatsRolesQuery`:
+- Получает `role_id` из сообщений каждого чата
+- Возвращает Map<chatId, roleIds[]> для фильтрации
+
+---
+
+## Файлы для изменения
+
+| Файл | Изменения |
+|------|-----------|
+| `supabase/migrations/...` | Добавить `is_pinned` колонку |
+| `src/types/departmentChat.ts` | Добавить `is_pinned` в тип |
+| `src/components/chat/DepartmentChatSidebar.tsx` | **Новый файл** - сайдбар |
+| `src/hooks/useOptimizedDepartmentChat.ts` | Поддержка множества чатов |
+| `src/hooks/queries/useChatQueries.ts` | Добавить query для ролей |
+| `src/pages/DepartmentChat.tsx` | Добавить сайдбар в layout |
+| `src/pages/DepartmentChatFullscreen.tsx` | Добавить сайдбар в layout |
 
 ---
 
 ## Ожидаемый результат
 
-После исправления:
-- Агенты с многословными триггерами (`@ТЗ консультант`, `@Отказы ТЗ`) будут корректно распознаваться
-- Выбор агента из списка и последующая отправка сообщения будут работать без ошибок
-- Улучшенная отладка через console.log для диагностики проблем
-
+После реализации:
+1. В левой части чата отдела появится сайдбар с историей
+2. Пользователи смогут создавать новые чаты внутри отдела
+3. История группируется по датам как в личном чате
+4. Поддерживается поиск, фильтрация по агентам, закрепление чатов
+5. Все участники отдела видят общую историю чатов
