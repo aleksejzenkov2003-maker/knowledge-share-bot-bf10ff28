@@ -74,7 +74,7 @@ async function fetchMessagesData(chatId: string): Promise<DepartmentChatMessage[
     .select('*')
     .eq('chat_id', chatId)
     .order('created_at', { ascending: true })
-    .limit(100);
+    .limit(500);
 
   if (error) throw error;
 
