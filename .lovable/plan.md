@@ -1,110 +1,123 @@
 
-# План: Исправление поиска документов в Bitrix-чатах
+# План: Исправление проблем Bitrix-чата
 
-## Обнаруженная проблема
+## Обнаруженные проблемы
 
-При клике на источник в Bitrix-чате появляется ошибка "Документ не найден", хотя документ существует в базе данных.
-
-**Причина:** Некорректный синтаксис PostgREST фильтра `.or()`. Значения, содержащие специальные символы (пробелы, кириллица), должны быть заключены в двойные кавычки.
-
-### Текущий (неработающий) синтаксис
-
+### 1. Двойной `@@` у агентов в меню
+**Причина:** API возвращает агентов с полем `mention` уже содержащим `@`:
 ```typescript
-// Edge Function
-.or(`name.eq.${name},name.ilike.%${baseName}%,file_name.ilike.%${baseName}%`)
+// supabase/functions/bitrix-chat-api/index.ts:1653
+mention: a.mention_trigger ? `@${a.mention_trigger}` : null
+```
+При этом в интерфейсе отображается `agent.mention` как есть, но значение `mention_trigger` в БД уже содержит `@` (например, `@поисковик`), что приводит к `@@поисковик`.
 
-// Frontend (SourcesPanel)
-.or(`name.ilike.%${baseName}%,file_name.ilike.%${baseName}%`)
+### 2. Агенты не видят контекст при перегенерации
+**Причина:** В функциях `handleRegeneratePersonalMessage` и `handleRegenerateDepartmentMessage` история передаётся как `messages`, но `chat-stream` ожидает параметр `message_history`:
+```typescript
+// Строка 1856 и 2126
+const chatRequest = {
+  messages: messages,  // ❌ Неверное имя параметра!
+  // Должно быть: message_history: messages
+};
 ```
 
-При имени документа "Правила возраж в ППС" PostgREST интерпретирует пробелы как разделители, что приводит к ошибке парсинга.
+### 3. Отсутствуют источники в ответах
+**Причина:** Возможно, проблема с тем, что при перегенерации не передаётся `message_history`, что мешает RAG корректно работать.
 
-### Требуемый синтаксис
-
-```typescript
-// Правильно - значения в кавычках
-.or(`name.eq."${name}",name.ilike."%${baseName}%",file_name.ilike."%${baseName}%"`)
-```
+### 4. Документы не открываются
+**Причина:** Уже исправлено ранее (синтаксис `.or()` с кавычками). Нужно проверить, что исправление задеплоено.
 
 ---
 
-## Детальные изменения
+## Решение
 
-### 1. Edge Function: Исправить handleDocumentSearch
+### Изменение 1: Исправить формирование mention в API
 
-**Файл:** `supabase/functions/bitrix-chat-api/index.ts`  
-**Строка:** ~2254
+**Файл:** `supabase/functions/bitrix-chat-api/index.ts`
+**Строка:** ~1653
 
 **Было:**
 ```typescript
-const { data: docs, error } = await supabase
-  .from('documents')
-  .select('id, storage_path, name, file_name')
-  .or(`name.eq.${name},name.ilike.%${baseName}%,file_name.ilike.%${baseName}%`)
-  .eq('status', 'ready')
-  .limit(10);
+mention: a.mention_trigger ? `@${a.mention_trigger}` : null
 ```
 
 **Станет:**
 ```typescript
-const { data: docs, error } = await supabase
-  .from('documents')
-  .select('id, storage_path, name, file_name')
-  .or(`name.eq."${name}",name.ilike."%${baseName}%",file_name.ilike."%${baseName}%"`)
-  .eq('status', 'ready')
-  .limit(10);
+// mention_trigger уже содержит @, не добавляем второй
+mention: a.mention_trigger || null
 ```
 
-### 2. Frontend: Исправить SourcesPanel (для админки)
+### Изменение 2: Исправить передачу истории при перегенерации (Personal)
 
-**Файл:** `src/components/chat/SourcesPanel.tsx`  
-**Строка:** ~217
+**Файл:** `supabase/functions/bitrix-chat-api/index.ts`
+**Строка:** ~1852-1862
 
 **Было:**
 ```typescript
-const { data: partialData } = await supabase
-  .from('documents')
-  .select('id, storage_path, name, file_name')
-  .or(`name.ilike.%${baseName}%,file_name.ilike.%${baseName}%`)
-  .limit(5);
+const chatRequest = {
+  message: userMessage.content,
+  role_id: effectiveRoleId,
+  department_id: departmentId,
+  messages: messages,  // ❌
+  attachments: ...
+};
 ```
 
 **Станет:**
 ```typescript
-const { data: partialData } = await supabase
-  .from('documents')
-  .select('id, storage_path, name, file_name')
-  .or(`name.ilike."%${baseName}%",file_name.ilike."%${baseName}%"`)
-  .limit(5);
+const chatRequest = {
+  message: userMessage.content,
+  role_id: effectiveRoleId,
+  department_id: departmentId,
+  message_history: messages,  // ✓ Правильное имя параметра
+  attachments: ...
+};
+```
+
+### Изменение 3: Исправить передачу истории при перегенерации (Department)
+
+**Файл:** `supabase/functions/bitrix-chat-api/index.ts`
+**Строка:** ~2122-2132
+
+**Было:**
+```typescript
+const chatRequest = {
+  message: userMessage.content,
+  role_id: effectiveRoleId,
+  department_id: departmentId,
+  messages: messages,  // ❌
+  attachments: ...
+};
+```
+
+**Станет:**
+```typescript
+const chatRequest = {
+  message: userMessage.content,
+  role_id: effectiveRoleId,
+  department_id: departmentId,
+  message_history: messages,  // ✓ Правильное имя параметра
+  is_department_chat: true,   // Добавляем флаг для правильной обработки
+  attachments: ...
+};
 ```
 
 ---
 
 ## Порядок реализации
 
-1. Исправить синтаксис `.or()` в `handleDocumentSearch` (Edge Function)
-2. Исправить синтаксис `.or()` в `SourcesPanel` (Frontend)
-3. Деплой Edge Function `bitrix-chat-api`
-4. Протестировать открытие документов в Bitrix-чате и админке
-
----
-
-## Техническое пояснение
-
-PostgREST использует запятую как разделитель условий в `.or()`. Когда значение содержит специальные символы, оно должно быть заключено в двойные кавычки:
-
-```text
-❌ name.eq.Правила возраж в ППС   → парсится как несколько токенов
-✓ name.eq."Правила возраж в ППС" → парсится как одно значение
-```
-
-Документация: https://postgrest.org/en/stable/references/api/resource_embedding.html#reserved-characters
+1. Исправить формирование `mention` в `handleGetDepartmentAgents` (убрать лишний `@`)
+2. Исправить `handleRegeneratePersonalMessage` — заменить `messages` на `message_history`
+3. Исправить `handleRegenerateDepartmentMessage` — заменить `messages` на `message_history` и добавить `is_department_chat: true`
+4. Деплой Edge Function `bitrix-chat-api`
 
 ---
 
 ## Ожидаемый результат
 
 После исправления:
-- Клик на источник в Bitrix-чате откроет DocumentViewer с PDF
-- Поиск и подсветка цитаты будут работать
-- Функциональность идентична админке
+- Агенты отображаются с одним `@` (`@поисковик` вместо `@@поисковик`)
+- Фильтрация по агентам работает корректно
+- При перегенерации другим агентом он видит всю историю чата
+- Источники появляются в ответах (т.к. RAG получает правильный контекст)
+- Документы открываются при клике (уже исправлено в предыдущем изменении)
