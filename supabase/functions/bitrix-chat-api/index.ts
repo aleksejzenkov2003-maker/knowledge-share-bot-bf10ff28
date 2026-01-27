@@ -1650,7 +1650,7 @@ async function handleGetAgents(
       id: a.id,
       name: a.name,
       slug: a.slug,
-      mention: a.mention_trigger ? `@${a.mention_trigger}` : null,
+      mention: a.mention_trigger || null,
       description: a.description
     }))
   }), {
@@ -1853,7 +1853,7 @@ async function handleRegeneratePersonalMessage(
     message: userMessage.content,
     role_id: effectiveRoleId,
     department_id: departmentId,
-    messages: messages,
+    message_history: messages,
     attachments: attachments.map((a: any) => ({
       file_name: a.file_name,
       file_type: a.file_type,
@@ -2123,7 +2123,8 @@ async function handleRegenerateDepartmentMessage(
     message: userMessage.content,
     role_id: effectiveRoleId,
     department_id: departmentId,
-    messages: messages,
+    message_history: messages,
+    is_department_chat: true,
     attachments: attachments.map((a: any) => ({
       file_name: a.file_name,
       file_type: a.file_type,
