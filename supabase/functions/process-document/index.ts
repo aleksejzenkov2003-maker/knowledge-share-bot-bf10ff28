@@ -1340,10 +1340,98 @@ serve(async (req) => {
       // Extract text based on file type
       let text = '';
       const fileType = doc.file_type || '';
-
-      if (fileType.includes('text') || doc.file_name?.endsWith('.txt') || doc.file_name?.endsWith('.md')) {
+      const fileName = doc.file_name?.toLowerCase() || '';
+      
+      // IMPORTANT: Check file extensions FIRST (before MIME types) since MIME can be unreliable
+      if (
+        fileName.endsWith('.csv') || 
+        fileType.includes('csv')
+      ) {
+        // CSV Processing
+        console.log('Processing CSV file...');
+        
+        try {
+          const csvText = await fileData.text();
+          text = parseCSVToText(csvText, doc.file_name || 'data.csv');
+          console.log(`Parsed CSV, text length: ${text.length}`);
+        } catch (csvError) {
+          console.error('CSV extraction failed:', csvError);
+          text = `[CSV Document: ${doc.file_name}] - Не удалось извлечь текст. Ошибка: ${csvError}`;
+        }
+      } else if (
+        fileName.endsWith('.xlsx') ||
+        fileName.endsWith('.xls') ||
+        fileType.includes('spreadsheet') ||
+        fileType.includes('excel') ||
+        fileType.includes('vnd.ms-excel')
+      ) {
+        // Excel XLS/XLSX Processing - MUST come before PDF check!
+        console.log('Processing Excel file:', fileName);
+        
+        try {
+          const arrayBuffer = await fileData.arrayBuffer();
+          const bytes = new Uint8Array(arrayBuffer);
+          
+          if (fileName.endsWith('.xlsx')) {
+            // XLSX is a ZIP archive with XML inside
+            const JSZip = (await import("https://esm.sh/jszip@3.10.1")).default;
+            const zip = await JSZip.loadAsync(bytes);
+            
+            // Get shared strings (for cell text values)
+            const sharedStringsXml = await zip.file("xl/sharedStrings.xml")?.async("string");
+            const sharedStrings: string[] = [];
+            if (sharedStringsXml) {
+              // More robust shared string parsing - handle multiple <t> tags in <si>
+              const siMatches = sharedStringsXml.match(/<si>[\s\S]*?<\/si>/g) || [];
+              for (const si of siMatches) {
+                const textMatches = si.match(/<t[^>]*>([^<]*)<\/t>/g) || [];
+                const combinedText = textMatches
+                  .map(t => t.replace(/<t[^>]*>/, '').replace(/<\/t>/, ''))
+                  .join('');
+                sharedStrings.push(combinedText);
+              }
+            }
+            console.log(`Parsed ${sharedStrings.length} shared strings from XLSX`);
+            
+            // Get all worksheets, not just sheet1
+            const sheetFiles = Object.keys(zip.files).filter(f => f.startsWith('xl/worksheets/sheet') && f.endsWith('.xml'));
+            console.log(`Found ${sheetFiles.length} worksheets:`, sheetFiles);
+            
+            const allSheetTexts: string[] = [];
+            for (const sheetFile of sheetFiles.sort()) {
+              const sheetXml = await zip.file(sheetFile)?.async("string");
+              if (sheetXml) {
+                const sheetName = sheetFile.replace('xl/worksheets/', '').replace('.xml', '');
+                const sheetText = parseXLSXSheetToText(sheetXml, sharedStrings, `${doc.file_name} - ${sheetName}`);
+                if (sheetText.length > 50) {
+                  allSheetTexts.push(sheetText);
+                }
+              }
+            }
+            
+            text = allSheetTexts.join('\n\n---\n\n');
+            console.log(`Parsed XLSX, total text length: ${text.length}`);
+          } else {
+            // XLS (binary format) - limited support
+            console.log('XLS binary format - attempting basic extraction...');
+            const decoder = new TextDecoder('utf-8', { fatal: false });
+            const rawText = decoder.decode(bytes);
+            
+            // Extract readable text from binary
+            const textParts = rawText.match(/[A-Za-zА-Яа-яЁё0-9\s.,;:!?()-]{5,}/g) || [];
+            text = `[Excel Document: ${doc.file_name}]\n\n` + textParts.join(' ');
+          }
+        } catch (xlsError) {
+          console.error('Excel extraction failed:', xlsError);
+          text = `[Excel Document: ${doc.file_name}] - Не удалось извлечь текст. Ошибка: ${xlsError}`;
+        }
+        
+        if (text.length < 100) {
+          text = `[Excel Document: ${doc.file_name}] - Не удалось извлечь данные из таблицы.`;
+        }
+      } else if (fileName.endsWith('.txt') || fileName.endsWith('.md') || fileType.includes('text')) {
         text = await fileData.text();
-      } else if (fileType.includes('pdf')) {
+      } else if (fileName.endsWith('.pdf') || fileType.includes('pdf')) {
         console.log('Processing PDF with unpdf library...');
         
         try {
@@ -1451,78 +1539,6 @@ serve(async (req) => {
         
         if (text.length < 100) {
           text = `[DOCX Document: ${doc.file_name}] - Не удалось извлечь текст из документа.`;
-        }
-      } else if (
-        fileType.includes('csv') || 
-        doc.file_name?.toLowerCase().endsWith('.csv')
-      ) {
-        // CSV Processing
-        console.log('Processing CSV file...');
-        
-        try {
-          const csvText = await fileData.text();
-          text = parseCSVToText(csvText, doc.file_name || 'data.csv');
-          console.log(`Parsed CSV, text length: ${text.length}`);
-        } catch (csvError) {
-          console.error('CSV extraction failed:', csvError);
-          text = `[CSV Document: ${doc.file_name}] - Не удалось извлечь текст. Ошибка: ${csvError}`;
-        }
-      } else if (
-        fileType.includes('spreadsheet') ||
-        fileType.includes('excel') ||
-        fileType.includes('vnd.ms-excel') ||
-        doc.file_name?.toLowerCase().endsWith('.xlsx') ||
-        doc.file_name?.toLowerCase().endsWith('.xls')
-      ) {
-        // Excel XLS/XLSX Processing
-        console.log('Processing Excel file...');
-        
-        try {
-          const arrayBuffer = await fileData.arrayBuffer();
-          const bytes = new Uint8Array(arrayBuffer);
-          
-          if (doc.file_name?.toLowerCase().endsWith('.xlsx')) {
-            // XLSX is a ZIP archive with XML inside
-            const JSZip = (await import("https://esm.sh/jszip@3.10.1")).default;
-            const zip = await JSZip.loadAsync(bytes);
-            
-            // Get shared strings (for cell text values)
-            const sharedStringsXml = await zip.file("xl/sharedStrings.xml")?.async("string");
-            const sharedStrings: string[] = [];
-            if (sharedStringsXml) {
-              const siMatches = sharedStringsXml.match(/<si>[\s\S]*?<\/si>/g) || [];
-              for (const si of siMatches) {
-                const textMatch = si.match(/<t[^>]*>([^<]*)<\/t>/);
-                if (textMatch) {
-                  sharedStrings.push(textMatch[1]);
-                }
-              }
-            }
-            
-            // Get worksheet data (sheet1.xml)
-            const sheet1Xml = await zip.file("xl/worksheets/sheet1.xml")?.async("string");
-            if (sheet1Xml) {
-              text = parseXLSXSheetToText(sheet1Xml, sharedStrings, doc.file_name || 'data.xlsx');
-            }
-            
-            console.log(`Parsed XLSX, text length: ${text.length}`);
-          } else {
-            // XLS (binary format) - limited support, read as text
-            console.log('XLS binary format - attempting basic extraction...');
-            const decoder = new TextDecoder('utf-8', { fatal: false });
-            const rawText = decoder.decode(bytes);
-            
-            // Extract readable text from binary
-            const textParts = rawText.match(/[A-Za-zА-Яа-яЁё0-9\s.,;:!?()-]{5,}/g) || [];
-            text = `[Excel Document: ${doc.file_name}]\n\n` + textParts.join(' ');
-          }
-        } catch (xlsError) {
-          console.error('Excel extraction failed:', xlsError);
-          text = `[Excel Document: ${doc.file_name}] - Не удалось извлечь текст. Ошибка: ${xlsError}`;
-        }
-        
-        if (text.length < 100) {
-          text = `[Excel Document: ${doc.file_name}] - Не удалось извлечь данные из таблицы.`;
         }
       } else {
         try {
