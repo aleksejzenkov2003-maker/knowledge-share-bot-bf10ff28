@@ -561,7 +561,8 @@ export function useOptimizedDepartmentChat(userId: string | undefined, departmen
         return;
       }
 
-      const mentionPrefix = `@${agent.mention_trigger || agent.slug} `;
+      const trigger = agent.mention_trigger || agent.slug;
+      const mentionPrefix = trigger.startsWith('@') ? `${trigger} ` : `@${trigger} `;
       toast.info(`Обновление ответа от ${agent.name}...`);
       
       const attachmentsForResend = originalAttachments?.map(a => ({
