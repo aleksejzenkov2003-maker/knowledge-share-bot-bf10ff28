@@ -107,6 +107,69 @@ export type Database = {
           },
         ]
       }
+      chat_knowledge_base: {
+        Row: {
+          conversation_id: string | null
+          created_at: string | null
+          created_by: string | null
+          department_id: string | null
+          description: string | null
+          file_name: string
+          file_path: string
+          file_size: number
+          file_type: string
+          id: string
+          source_message_id: string | null
+          tags: string[] | null
+          usage_count: number | null
+        }
+        Insert: {
+          conversation_id?: string | null
+          created_at?: string | null
+          created_by?: string | null
+          department_id?: string | null
+          description?: string | null
+          file_name: string
+          file_path: string
+          file_size: number
+          file_type: string
+          id?: string
+          source_message_id?: string | null
+          tags?: string[] | null
+          usage_count?: number | null
+        }
+        Update: {
+          conversation_id?: string | null
+          created_at?: string | null
+          created_by?: string | null
+          department_id?: string | null
+          description?: string | null
+          file_name?: string
+          file_path?: string
+          file_size?: number
+          file_type?: string
+          id?: string
+          source_message_id?: string | null
+          tags?: string[] | null
+          usage_count?: number | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "chat_knowledge_base_conversation_id_fkey"
+            columns: ["conversation_id"]
+            isOneToOne: false
+            referencedRelation: "conversations"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "chat_knowledge_base_department_id_fkey"
+            columns: ["department_id"]
+            isOneToOne: false
+            referencedRelation: "departments"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       chat_logs: {
         Row: {
           completion_tokens: number | null
@@ -329,6 +392,7 @@ export type Database = {
           id: string
           message_role: string
           metadata: Json | null
+          reply_to_message_id: string | null
           role_id: string | null
           source: string | null
           user_id: string
@@ -340,6 +404,7 @@ export type Database = {
           id?: string
           message_role: string
           metadata?: Json | null
+          reply_to_message_id?: string | null
           role_id?: string | null
           source?: string | null
           user_id: string
@@ -351,6 +416,7 @@ export type Database = {
           id?: string
           message_role?: string
           metadata?: Json | null
+          reply_to_message_id?: string | null
           role_id?: string | null
           source?: string | null
           user_id?: string
@@ -361,6 +427,13 @@ export type Database = {
             columns: ["chat_id"]
             isOneToOne: false
             referencedRelation: "department_chats"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "department_chat_messages_reply_to_message_id_fkey"
+            columns: ["reply_to_message_id"]
+            isOneToOne: false
+            referencedRelation: "department_chat_messages"
             referencedColumns: ["id"]
           },
           {
@@ -684,6 +757,7 @@ export type Database = {
           created_at: string | null
           id: string
           metadata: Json | null
+          reply_to_message_id: string | null
           role: string
         }
         Insert: {
@@ -692,6 +766,7 @@ export type Database = {
           created_at?: string | null
           id?: string
           metadata?: Json | null
+          reply_to_message_id?: string | null
           role: string
         }
         Update: {
@@ -700,6 +775,7 @@ export type Database = {
           created_at?: string | null
           id?: string
           metadata?: Json | null
+          reply_to_message_id?: string | null
           role?: string
         }
         Relationships: [
@@ -708,6 +784,13 @@ export type Database = {
             columns: ["conversation_id"]
             isOneToOne: false
             referencedRelation: "conversations"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "messages_reply_to_message_id_fkey"
+            columns: ["reply_to_message_id"]
+            isOneToOne: false
+            referencedRelation: "messages"
             referencedColumns: ["id"]
           },
         ]

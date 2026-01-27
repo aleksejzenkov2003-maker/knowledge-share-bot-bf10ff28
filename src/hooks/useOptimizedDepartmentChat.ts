@@ -1,9 +1,10 @@
-import { useState, useCallback, useRef, useEffect } from "react";
+import { useState, useCallback, useRef, useEffect, useMemo } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
 import { toast } from "sonner";
 import { DepartmentChat, DepartmentChatMessage, AgentMention, DepartmentChatAttachment } from "@/types/departmentChat";
 import { Attachment } from "@/types/chat";
+import { KnowledgeBaseDocument } from "@/types/knowledgeBase";
 import type { Json } from "@/integrations/supabase/types";
 import {
   useDepartmentChatsQuery,
@@ -27,6 +28,8 @@ export function useOptimizedDepartmentChat(userId: string | undefined, departmen
   const [localMessages, setLocalMessages] = useState<DepartmentChatMessage[]>([]);
   const [isGenerating, setIsGenerating] = useState(false);
   const [attachments, setAttachments] = useState<Attachment[]>([]);
+  const [selectedKnowledgeDocs, setSelectedKnowledgeDocs] = useState<KnowledgeBaseDocument[]>([]);
+  const [replyToMessage, setReplyToMessage] = useState<DepartmentChatMessage | null>(null);
   
   // Streaming optimization refs
   const streamingContentRef = useRef<string>("");
@@ -242,11 +245,12 @@ export function useOptimizedDepartmentChat(userId: string | undefined, departmen
   }, []);
 
   // Send message with streaming
-  const sendMessage = useCallback(async (text: string, messageAttachments?: Attachment[]) => {
+  const sendMessage = useCallback(async (text: string, messageAttachments?: Attachment[], knowledgeDocs?: KnowledgeBaseDocument[], replyTo?: DepartmentChatMessage | null) => {
     if (!activeChatId || !userId) return;
     
     const hasAttachments = messageAttachments && messageAttachments.length > 0;
-    if (!text.trim() && !hasAttachments) return;
+    const hasKnowledgeDocs = knowledgeDocs && knowledgeDocs.length > 0;
+    if (!text.trim() && !hasAttachments && !hasKnowledgeDocs) return;
 
     const { agentId, cleanText } = parseMention(text);
 
@@ -258,14 +262,25 @@ export function useOptimizedDepartmentChat(userId: string | undefined, departmen
     const agent = availableAgents.find(a => a.id === agentId);
     const userName = await getUserName(userId);
 
-    const attachmentsMetadata: DepartmentChatAttachment[] = hasAttachments
-      ? messageAttachments.filter(a => a.status === 'uploaded' && a.file_path).map(a => ({
-          file_path: a.file_path!,
-          file_name: a.file_name,
-          file_type: a.file_type,
-          file_size: a.file_size
-        }))
-      : [];
+    // Combine new attachments + knowledge base docs
+    const attachmentsMetadata: DepartmentChatAttachment[] = [
+      ...(hasAttachments
+        ? messageAttachments.filter(a => a.status === 'uploaded' && a.file_path).map(a => ({
+            file_path: a.file_path!,
+            file_name: a.file_name,
+            file_type: a.file_type,
+            file_size: a.file_size
+          }))
+        : []),
+      ...(hasKnowledgeDocs
+        ? knowledgeDocs.map(d => ({
+            file_path: d.file_path,
+            file_name: d.file_name,
+            file_type: d.file_type,
+            file_size: d.file_size
+          }))
+        : [])
+    ];
 
     const userMessage: DepartmentChatMessage = {
       id: crypto.randomUUID(),
@@ -601,10 +616,18 @@ export function useOptimizedDepartmentChat(userId: string | undefined, departmen
 
   const isLoading = isLoadingChats || isLoadingMessages;
 
+  // Build messagesWithReplies map for efficient lookup
+  const messagesMap = useMemo(() => {
+    const map = new Map<string, DepartmentChatMessage>();
+    messages.forEach(m => map.set(m.id, m));
+    return map;
+  }, [messages]);
+
   return {
     // Current chat
     chat,
     messages,
+    messagesMap,
     availableAgents,
     isLoading,
     isGenerating,
@@ -618,6 +641,14 @@ export function useOptimizedDepartmentChat(userId: string | undefined, departmen
     attachments,
     handleAttach,
     removeAttachment,
+    
+    // Knowledge base
+    selectedKnowledgeDocs,
+    setSelectedKnowledgeDocs,
+    
+    // Reply-to
+    replyToMessage,
+    setReplyToMessage,
     
     // Multi-chat support
     departmentChats,

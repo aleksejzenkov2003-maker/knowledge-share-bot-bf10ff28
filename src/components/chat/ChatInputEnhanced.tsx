@@ -1,10 +1,16 @@
 import { useRef, useEffect, useCallback, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
-import { Send, Loader2, Paperclip, ChevronDown, Bot, X, StopCircle } from "lucide-react";
+import { Send, Loader2, Paperclip, ChevronDown, Bot, X, StopCircle, BookOpen, Reply } from "lucide-react";
 import { Attachment } from "@/types/chat";
 import { AttachmentPreview } from "./AttachmentPreview";
+import { ReplyPreview } from "./ReplyPreview";
+import { KnowledgeBaseSelector } from "./KnowledgeBaseSelector";
+import { KnowledgeBaseDocument } from "@/types/knowledgeBase";
+import { DepartmentChatMessage } from "@/types/departmentChat";
+import { Message } from "@/types/chat";
 import { toast } from "sonner";
+import { Badge } from "@/components/ui/badge";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -47,6 +53,14 @@ interface ChatInputEnhancedProps {
   selectedRoleId?: string | null;
   onRoleChange?: (roleId: string) => void;
   placeholder?: string;
+  // Knowledge Base props
+  departmentId?: string;
+  conversationId?: string;
+  selectedKnowledgeDocs?: KnowledgeBaseDocument[];
+  onKnowledgeDocsChange?: (docs: KnowledgeBaseDocument[]) => void;
+  // Reply-to props
+  replyTo?: DepartmentChatMessage | Message | null;
+  onClearReply?: () => void;
 }
 
 export function ChatInputEnhanced({ 
@@ -63,10 +77,19 @@ export function ChatInputEnhanced({
   selectedRoleId,
   onRoleChange,
   placeholder = "Спросите что-нибудь...",
+  // Knowledge Base
+  departmentId,
+  conversationId,
+  selectedKnowledgeDocs = [],
+  onKnowledgeDocsChange,
+  // Reply-to
+  replyTo,
+  onClearReply,
 }: ChatInputEnhancedProps) {
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [isFocused, setIsFocused] = useState(false);
+  const [kbSelectorOpen, setKbSelectorOpen] = useState(false);
 
   const selectedRole = roles.find(r => r.id === selectedRoleId);
 
@@ -169,10 +192,33 @@ export function ChatInputEnhanced({
         </div>
       )}
 
+      {/* Knowledge Base Docs Preview */}
+      {selectedKnowledgeDocs.length > 0 && (
+        <div className="mb-2 flex flex-wrap gap-1">
+          {selectedKnowledgeDocs.map((doc) => (
+            <Badge 
+              key={doc.id} 
+              variant="secondary" 
+              className="text-xs gap-1 cursor-pointer hover:bg-destructive/20"
+              onClick={() => onKnowledgeDocsChange?.(selectedKnowledgeDocs.filter(d => d.id !== doc.id))}
+            >
+              📚 {doc.file_name.slice(0, 20)}{doc.file_name.length > 20 ? '...' : ''}
+              <X className="h-3 w-3" />
+            </Badge>
+          ))}
+        </div>
+      )}
+
+      {/* Reply Preview */}
+      {replyTo && onClearReply && (
+        <ReplyPreview replyTo={replyTo} onClear={onClearReply} />
+      )}
+
       {/* Main Input Container - ChatGPT Style */}
       <div 
         className={cn(
-          "relative flex flex-col bg-muted/50 rounded-2xl border transition-all duration-200",
+          "relative flex flex-col bg-muted/50 border transition-all duration-200",
+          replyTo ? "rounded-b-2xl" : "rounded-2xl",
           isFocused ? "border-ring shadow-sm" : "border-border",
           disabled && "opacity-50"
         )}
@@ -192,7 +238,7 @@ export function ChatInputEnhanced({
 
         {/* Bottom Toolbar */}
         <div className="absolute bottom-2 left-2 right-2 flex items-center justify-between">
-          {/* Left Side - Attach & Agent Selector */}
+          {/* Left Side - Attach, Knowledge Base & Agent Selector */}
           <div className="flex items-center gap-1">
             {/* Attach Button */}
             <Button
@@ -212,6 +258,27 @@ export function ChatInputEnhanced({
               className="hidden"
               onChange={handleFileChange}
             />
+
+            {/* Knowledge Base Button */}
+            {onKnowledgeDocsChange && (departmentId || conversationId) && (
+              <Button
+                variant="ghost"
+                size="icon"
+                className={cn(
+                  "h-8 w-8 rounded-lg hover:bg-background/80 relative",
+                  selectedKnowledgeDocs.length > 0 && "text-primary"
+                )}
+                onClick={() => setKbSelectorOpen(true)}
+                disabled={isLoading || disabled}
+              >
+                <BookOpen className="h-4 w-4" />
+                {selectedKnowledgeDocs.length > 0 && (
+                  <span className="absolute -top-1 -right-1 h-4 w-4 rounded-full bg-primary text-primary-foreground text-[10px] flex items-center justify-center">
+                    {selectedKnowledgeDocs.length}
+                  </span>
+                )}
+              </Button>
+            )}
 
             {/* Agent Selector */}
             {roles.length > 0 && onRoleChange && (
@@ -289,6 +356,16 @@ export function ChatInputEnhanced({
       <p className="text-xs text-muted-foreground text-center mt-2">
         PDF, JPG, PNG, WEBP, CSV, XLS, XLSX (до 10MB) • Enter для отправки • Shift+Enter для новой строки
       </p>
+
+      {/* Knowledge Base Selector Dialog */}
+      <KnowledgeBaseSelector
+        open={kbSelectorOpen}
+        onOpenChange={setKbSelectorOpen}
+        departmentId={departmentId}
+        conversationId={conversationId}
+        selectedDocs={selectedKnowledgeDocs}
+        onSelect={(docs) => onKnowledgeDocsChange?.(docs)}
+      />
     </div>
   );
 }

@@ -22,6 +22,7 @@ export interface DepartmentChatMessage {
   role_id: string | null;
   message_role: 'user' | 'assistant';
   content: string;
+  reply_to_message_id?: string | null;
   metadata: {
     response_time_ms?: number;
     rag_context?: string[];
