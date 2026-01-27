@@ -1139,14 +1139,15 @@ async function handleSendPersonalMessage(
   
   const { data: history } = await supabase
     .from('messages')
-    .select('role, content')
+    .select('role, content, metadata')
     .eq('conversation_id', conversationId)
     .order('created_at', { ascending: true })
-    .limit(20);
+    .limit(30);
 
   const messages = (history || []).map((m: any) => ({
     role: m.role,
-    content: m.content
+    content: m.content,
+    attachments: m.metadata?.attachments,
   }));
 
   const chatRequest = {
@@ -1154,6 +1155,7 @@ async function handleSendPersonalMessage(
     role_id: roleId,
     department_id: departmentId,
     messages: messages,
+    message_history: messages, // Ensure context is passed to chat-stream
     attachments: attachments.map(a => ({
       file_name: a.file_name,
       file_type: a.file_type,
@@ -1375,14 +1377,16 @@ async function handleSendMessage(
   
   const { data: history } = await supabase
     .from('department_chat_messages')
-    .select('message_role, content, role_id')
+    .select('message_role, content, metadata, role_id')
     .eq('chat_id', chatId)
     .order('created_at', { ascending: true })
-    .limit(20);
+    .limit(30);
 
   const messages = (history || []).map((m: any) => ({
     role: m.message_role,
-    content: m.content
+    content: m.content,
+    agent_name: m.metadata?.agent_name,
+    attachments: m.metadata?.attachments,
   }));
 
   const chatRequest = {
@@ -1390,6 +1394,7 @@ async function handleSendMessage(
     role_id: roleId,
     department_id: departmentId,
     messages: messages,
+    message_history: messages, // Ensure context is passed to chat-stream
     attachments: attachments.map(a => ({
       file_name: a.file_name,
       file_type: a.file_type,
