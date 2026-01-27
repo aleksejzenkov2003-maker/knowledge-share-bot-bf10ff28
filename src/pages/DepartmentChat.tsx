@@ -71,6 +71,34 @@ const DepartmentChat: React.FC = () => {
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [messages]);
 
+  // Filter messages by agent and search query - MUST be before any returns
+  const filteredMessages = useMemo(() => {
+    return messages.filter(m => {
+      // Agent filter
+      if (agentFilter !== "all") {
+        if (m.message_role === 'assistant' && m.role_id !== agentFilter) return false;
+        if (m.message_role === 'user') {
+          // Find the next assistant message to check if it belongs to filtered agent
+          const msgIndex = messages.indexOf(m);
+          const nextAssistant = messages.slice(msgIndex + 1).find(nm => nm.message_role === 'assistant');
+          if (nextAssistant && nextAssistant.role_id !== agentFilter) return false;
+        }
+      }
+      // Search filter
+      if (searchQuery.trim()) {
+        const query = searchQuery.toLowerCase();
+        return m.content.toLowerCase().includes(query);
+      }
+      return true;
+    });
+  }, [messages, agentFilter, searchQuery]);
+
+  // Get unique agents from messages for filter dropdown - MUST be before any returns
+  const usedAgents = useMemo(() => {
+    const agentIds = new Set(messages.filter(m => m.role_id).map(m => m.role_id!));
+    return availableAgents.filter(a => agentIds.has(a.id));
+  }, [messages, availableAgents]);
+
   // Wait for auth to complete first
   if (authLoading) {
     return (
@@ -131,34 +159,6 @@ const DepartmentChat: React.FC = () => {
   const currentDepartmentName = isAdmin 
     ? departments.find(d => d.id === selectedDepartmentId)?.name 
     : 'Ваш отдел';
-
-  // Filter messages by agent and search query
-  const filteredMessages = useMemo(() => {
-    return messages.filter(m => {
-      // Agent filter
-      if (agentFilter !== "all") {
-        if (m.message_role === 'assistant' && m.role_id !== agentFilter) return false;
-        if (m.message_role === 'user') {
-          // Find the next assistant message to check if it belongs to filtered agent
-          const msgIndex = messages.indexOf(m);
-          const nextAssistant = messages.slice(msgIndex + 1).find(nm => nm.message_role === 'assistant');
-          if (nextAssistant && nextAssistant.role_id !== agentFilter) return false;
-        }
-      }
-      // Search filter
-      if (searchQuery.trim()) {
-        const query = searchQuery.toLowerCase();
-        return m.content.toLowerCase().includes(query);
-      }
-      return true;
-    });
-  }, [messages, agentFilter, searchQuery]);
-
-  // Get unique agents from messages for filter dropdown
-  const usedAgents = useMemo(() => {
-    const agentIds = new Set(messages.filter(m => m.role_id).map(m => m.role_id!));
-    return availableAgents.filter(a => agentIds.has(a.id));
-  }, [messages, availableAgents]);
 
   return (
     <div className="flex flex-col h-[calc(100vh-120px)]">

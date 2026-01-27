@@ -93,6 +93,30 @@ export default function DepartmentChatFullscreen() {
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [messages]);
 
+  // Filter messages by agent and search query - MUST be before any returns
+  const filteredMessages = useMemo(() => {
+    return messages.filter(m => {
+      if (agentFilter !== "all") {
+        if (m.message_role === 'assistant' && m.role_id !== agentFilter) return false;
+        if (m.message_role === 'user') {
+          const msgIndex = messages.indexOf(m);
+          const nextAssistant = messages.slice(msgIndex + 1).find(nm => nm.message_role === 'assistant');
+          if (nextAssistant && nextAssistant.role_id !== agentFilter) return false;
+        }
+      }
+      if (searchQuery.trim()) {
+        return m.content.toLowerCase().includes(searchQuery.toLowerCase());
+      }
+      return true;
+    });
+  }, [messages, agentFilter, searchQuery]);
+
+  // Get unique agents from messages - MUST be before any returns
+  const usedAgents = useMemo(() => {
+    const agentIds = new Set(messages.filter(m => m.role_id).map(m => m.role_id!));
+    return availableAgents.filter(a => agentIds.has(a.id));
+  }, [messages, availableAgents]);
+
   const handleSend = async (text: string) => {
     await sendMessage(text);
   };
@@ -131,29 +155,6 @@ export default function DepartmentChatFullscreen() {
   }
 
   const currentDepartment = departments.find(d => d.id === selectedDepartmentId);
-
-  // Filter messages by agent and search query
-  const filteredMessages = useMemo(() => {
-    return messages.filter(m => {
-      if (agentFilter !== "all") {
-        if (m.message_role === 'assistant' && m.role_id !== agentFilter) return false;
-        if (m.message_role === 'user') {
-          const msgIndex = messages.indexOf(m);
-          const nextAssistant = messages.slice(msgIndex + 1).find(nm => nm.message_role === 'assistant');
-          if (nextAssistant && nextAssistant.role_id !== agentFilter) return false;
-        }
-      }
-      if (searchQuery.trim()) {
-        return m.content.toLowerCase().includes(searchQuery.toLowerCase());
-      }
-      return true;
-    });
-  }, [messages, agentFilter, searchQuery]);
-
-  const usedAgents = useMemo(() => {
-    const agentIds = new Set(messages.filter(m => m.role_id).map(m => m.role_id!));
-    return availableAgents.filter(a => agentIds.has(a.id));
-  }, [messages, availableAgents]);
 
   return (
     <div className="h-screen flex flex-col bg-background overflow-hidden">
