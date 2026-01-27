@@ -509,7 +509,7 @@ export function useOptimizedDepartmentChat(userId: string | undefined, departmen
     setIsGenerating(false);
   }, []);
 
-  // Regenerate response
+  // Regenerate response - sends a new message with different agent, keeping history
   const regenerateResponse = useCallback(async (messageId: string, roleId?: string) => {
     try {
       const messageIndex = localMessages.findIndex(m => m.id === messageId);
@@ -525,6 +525,7 @@ export function useOptimizedDepartmentChat(userId: string | undefined, departmen
         return;
       }
 
+      // Find the original user message that triggered this response
       const prevUserMessage = localMessages.slice(0, messageIndex).reverse()
         .find(m => m.message_role === 'user');
       
@@ -533,26 +534,33 @@ export function useOptimizedDepartmentChat(userId: string | undefined, departmen
         return;
       }
       
+      // Extract the clean content without the old mention
       let originalContent = prevUserMessage.content;
       const mentionMatch = originalContent.match(/^@[^\s]+\s*/);
       if (mentionMatch) {
         originalContent = originalContent.slice(mentionMatch[0].length);
       }
+      
+      // Also try to extract content after multi-word mentions like "@ТЗ консультант"
+      for (const agent of availableAgents) {
+        const triggers = [
+          agent.mention_trigger,
+          `@${agent.slug}`,
+          `@${agent.name}`
+        ].filter(Boolean);
+        
+        for (const trigger of triggers) {
+          const normalizedTrigger = trigger!.startsWith('@') ? trigger! : `@${trigger}`;
+          if (originalContent.toLowerCase().startsWith(normalizedTrigger.toLowerCase())) {
+            originalContent = originalContent.slice(normalizedTrigger.length).trim();
+            break;
+          }
+        }
+      }
 
       const originalAttachments = prevUserMessage.metadata?.attachments;
       
-      const userMsgIndex = localMessages.indexOf(prevUserMessage);
-      const messagesToDelete = localMessages.slice(userMsgIndex + 1);
-      
-      for (const msg of messagesToDelete) {
-        await supabase
-          .from('department_chat_messages')
-          .delete()
-          .eq('id', msg.id);
-      }
-      
-      setLocalMessages(prev => prev.slice(0, userMsgIndex + 1));
-      
+      // Get the agent to use
       const agentToUse = roleId || targetMessage.role_id;
       const agent = availableAgents.find(a => a.id === agentToUse);
       
@@ -563,8 +571,9 @@ export function useOptimizedDepartmentChat(userId: string | undefined, departmen
 
       const trigger = agent.mention_trigger || agent.slug;
       const mentionPrefix = trigger.startsWith('@') ? `${trigger} ` : `@${trigger} `;
-      toast.info(`Обновление ответа от ${agent.name}...`);
+      toast.info(`Запрос к ${agent.name}...`);
       
+      // Prepare attachments for resending (if any)
       const attachmentsForResend = originalAttachments?.map(a => ({
         id: crypto.randomUUID(),
         file_path: a.file_path,
@@ -574,11 +583,12 @@ export function useOptimizedDepartmentChat(userId: string | undefined, departmen
         status: 'uploaded' as const
       }));
       
+      // Send as a NEW message, keeping the old response in history
       await sendMessage(mentionPrefix + originalContent, attachmentsForResend);
       
     } catch (error) {
       console.error('Regenerate error:', error);
-      toast.error('Не удалось обновить ответ');
+      toast.error('Не удалось отправить запрос');
     }
   }, [localMessages, availableAgents, sendMessage]);
 
