@@ -60,7 +60,7 @@ const BitrixSessions = () => {
 
   // Demo mode state
   const [apiKeys, setApiKeys] = useState<ApiKeyWithDepartment[]>([]);
-  const [demoPortal, setDemoPortal] = useState<string>('');
+  const [selectedApiKeyId, setSelectedApiKeyId] = useState<string>('');
   const [demoChatType, setDemoChatType] = useState<'personal' | 'department'>('personal');
   const [demoUserId, setDemoUserId] = useState<string>('demo-admin-123');
   const [demoUserName, setDemoUserName] = useState<string>('Тестовый Администратор');
@@ -102,21 +102,24 @@ const BitrixSessions = () => {
         department_name: k.departments?.name || 'Неизвестный'
       }));
       setApiKeys(keys);
-      if (keys.length > 0 && !demoPortal) {
-        setDemoPortal(keys[0].portal_domain);
+      if (keys.length > 0 && !selectedApiKeyId) {
+        setSelectedApiKeyId(keys[0].id);
       }
     }
   };
 
+  const selectedApiKey = apiKeys.find(k => k.id === selectedApiKeyId);
+
   const openDemo = (inIframe: boolean) => {
-    if (!demoPortal) return;
+    if (!selectedApiKey) return;
     
     const baseUrl = demoChatType === 'personal' ? '/bitrix-personal' : '/bitrix-department';
     const params = new URLSearchParams({
-      portal: demoPortal,
+      portal: selectedApiKey.portal_domain,
       bitrixUserId: demoUserId,
       userName: demoUserName,
       userEmail: demoUserEmail,
+      departmentId: selectedApiKey.department_id, // Передаём department_id для правильного выбора
     });
     
     const url = `${baseUrl}?${params.toString()}`;
@@ -285,14 +288,14 @@ const BitrixSessions = () => {
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-6 gap-4">
             {/* Portal/Department selector */}
             <div className="space-y-2">
-              <label className="text-sm font-medium">Портал / Отдел</label>
-              <Select value={demoPortal} onValueChange={setDemoPortal}>
+              <label className="text-sm font-medium">Отдел</label>
+              <Select value={selectedApiKeyId} onValueChange={setSelectedApiKeyId}>
                 <SelectTrigger>
-                  <SelectValue placeholder="Выберите портал" />
+                  <SelectValue placeholder="Выберите отдел" />
                 </SelectTrigger>
                 <SelectContent>
                   {apiKeys.map(k => (
-                    <SelectItem key={k.id} value={k.portal_domain}>
+                    <SelectItem key={k.id} value={k.id}>
                       {k.department_name} ({k.portal_domain})
                     </SelectItem>
                   ))}
@@ -348,11 +351,11 @@ const BitrixSessions = () => {
             <div className="space-y-2">
               <label className="text-sm font-medium">&nbsp;</label>
               <div className="flex gap-2">
-                <Button onClick={() => openDemo(false)} disabled={!demoPortal} size="sm">
+                <Button onClick={() => openDemo(false)} disabled={!selectedApiKey} size="sm">
                   <ExternalLink className="h-4 w-4 mr-1" />
                   Окно
                 </Button>
-                <Button variant="outline" onClick={() => openDemo(true)} disabled={!demoPortal} size="sm">
+                <Button variant="outline" onClick={() => openDemo(true)} disabled={!selectedApiKey} size="sm">
                   <Monitor className="h-4 w-4 mr-1" />
                   Здесь
                 </Button>

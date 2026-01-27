@@ -35,6 +35,7 @@ interface BitrixAuthRequest {
   bitrix_user_email?: string;
   access_token?: string;
   auth_id?: string;
+  department_id?: string; // Explicit department override for demo mode
 }
 
 interface JWTPayload {
@@ -426,6 +427,7 @@ async function handleAuth(
     portal: body.portal,
     bitrix_user_id: body.bitrix_user_id,
     bitrix_user_name: body.bitrix_user_name,
+    department_id: body.department_id,
   });
 
   if (!body.portal || !body.bitrix_user_id) {
@@ -437,6 +439,9 @@ async function handleAuth(
       headers: { ...corsHeaders, 'Content-Type': 'application/json' },
     });
   }
+
+  // Get explicitly passed department_id (for demo mode / admin testing)
+  const explicitDepartmentId = body.department_id;
 
   // Normalize portal domain: extract domain only (no protocol, no path)
   let normalizedPortal = body.portal.trim().toLowerCase();
@@ -490,47 +495,76 @@ async function handleAuth(
     console.log('[AUTH] User has no department, looking up API key by portal');
     
     // For multi-department portals, we need to pick one
-    const { data: apiKeys, error: apiKeyError } = await supabase
+    let query = supabase
       .from('department_api_keys')
       .select('id, department_id, is_active, request_count, portal_domain')
       .eq('portal_domain', normalizedPortal)
       .eq('is_active', true);
 
+    // If explicit department_id passed (demo mode), prefer it
+    if (explicitDepartmentId) {
+      query = query.eq('department_id', explicitDepartmentId);
+    }
+
+    const { data: apiKeys, error: apiKeyError } = await query;
+
     console.log('[AUTH] DB lookup result:', {
       found: apiKeys?.length || 0,
       error: apiKeyError?.message,
+      explicitDepartmentId,
     });
 
     if (apiKeyError || !apiKeys || apiKeys.length === 0) {
-      console.log('[AUTH] Portal not registered - lookup failed for:', normalizedPortal);
-      return new Response(JSON.stringify({ 
-        error: 'Portal not registered',
-        details: `No active API key found for portal domain "${normalizedPortal}". Contact administrator.`,
-        received_portal: body.portal,
-        normalized_portal: normalizedPortal,
-      }), {
-        status: 401,
-        headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-      });
+      // If explicit department not found, try without filter
+      if (explicitDepartmentId) {
+        console.log('[AUTH] Explicit department not found, falling back to any available');
+        const { data: fallbackKeys } = await supabase
+          .from('department_api_keys')
+          .select('id, department_id, is_active, request_count, portal_domain')
+          .eq('portal_domain', normalizedPortal)
+          .eq('is_active', true);
+        
+        if (fallbackKeys && fallbackKeys.length > 0) {
+          const selectedApiKey = fallbackKeys[0];
+          departmentId = selectedApiKey.department_id;
+          apiKeyId = selectedApiKey.id;
+          console.log('[AUTH] Fallback API key found, department_id:', departmentId);
+        }
+      }
+      
+      if (!departmentId) {
+        console.log('[AUTH] Portal not registered - lookup failed for:', normalizedPortal);
+        return new Response(JSON.stringify({ 
+          error: 'Portal not registered',
+          details: `No active API key found for portal domain "${normalizedPortal}". Contact administrator.`,
+          received_portal: body.portal,
+          normalized_portal: normalizedPortal,
+        }), {
+          status: 401,
+          headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+        });
+      }
+    } else {
+      // If multiple departments available for this portal, use the first one for new users
+      // Admin can later reassign user to correct department
+      const selectedApiKey = apiKeys[0];
+      departmentId = selectedApiKey.department_id;
+      apiKeyId = selectedApiKey.id;
+      
+      console.log('[AUTH] API key found, department_id:', departmentId, 
+        apiKeys.length > 1 ? `(${apiKeys.length} departments available)` : '');
     }
 
-    // If multiple departments available for this portal, use the first one for new users
-    // Admin can later reassign user to correct department
-    const selectedApiKey = apiKeys[0];
-    departmentId = selectedApiKey.department_id;
-    apiKeyId = selectedApiKey.id;
-    
-    console.log('[AUTH] API key found, department_id:', departmentId, 
-      apiKeys.length > 1 ? `(${apiKeys.length} departments available)` : '');
-
     // Update API key usage stats
-    await supabase
-      .from('department_api_keys')
-      .update({ 
-        last_used_at: new Date().toISOString(),
-        request_count: (selectedApiKey.request_count || 0) + 1
-      })
-      .eq('id', selectedApiKey.id);
+    if (apiKeyId) {
+      await supabase
+        .from('department_api_keys')
+        .update({ 
+          last_used_at: new Date().toISOString(),
+          request_count: supabase.sql`request_count + 1`
+        })
+        .eq('id', apiKeyId);
+    }
   }
 
   // Get or create user

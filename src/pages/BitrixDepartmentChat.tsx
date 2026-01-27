@@ -151,6 +151,7 @@ export default function BitrixDepartmentChat() {
   const bitrixUserId = searchParams.get('bitrixUserId') || '';
   const userName = searchParams.get('userName') || '';
   const userEmail = searchParams.get('userEmail') || '';
+  const departmentIdParam = searchParams.get('departmentId') || '';
   const theme = searchParams.get('theme') || 'light';
 
   // Apply theme
@@ -187,6 +188,7 @@ export default function BitrixDepartmentChat() {
             bitrix_user_id: bitrixUserId,
             bitrix_user_name: userName,
             bitrix_user_email: userEmail,
+            department_id: departmentIdParam || undefined, // Передаём явный department_id если есть
           }),
           signal: controller.signal,
         });
