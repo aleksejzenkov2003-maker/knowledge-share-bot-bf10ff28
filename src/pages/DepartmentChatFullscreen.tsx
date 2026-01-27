@@ -67,6 +67,7 @@ export default function DepartmentChatFullscreen() {
     attachments,
     handleAttach,
     removeAttachment,
+    toggleAttachmentKnowledgeBase,
     regenerateResponse,
     // Multi-chat support
     departmentChats,
@@ -465,6 +466,8 @@ export default function DepartmentChatFullscreen() {
                   attachments={attachments}
                   onAttach={handleAttach}
                   onRemoveAttachment={removeAttachment}
+                  onToggleAttachmentKnowledgeBase={toggleAttachmentKnowledgeBase}
+                  showKnowledgeBaseOption={true}
                   placeholder="Напишите сообщение или упомяните @агента..."
                 />
               </div>

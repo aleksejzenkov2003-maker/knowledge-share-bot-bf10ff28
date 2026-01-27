@@ -172,7 +172,8 @@ export function useOptimizedDepartmentChat(userId: string | undefined, departmen
       file_type: file.type,
       file_size: file.size,
       preview_url: file.type.startsWith('image/') ? URL.createObjectURL(file) : undefined,
-      status: 'pending' as const
+      status: 'pending' as const,
+      addToKnowledgeBase: true // Default to adding to knowledge base
     }));
 
     setAttachments(prev => [...prev, ...newAttachments]);
@@ -195,7 +196,7 @@ export function useOptimizedDepartmentChat(userId: string | undefined, departmen
 
         setAttachments(prev => prev.map(a => 
           a.id === attachment.id 
-            ? { ...a, status: 'uploaded' as const, file_path: fileName } 
+            ? { ...a, status: 'uploaded' as const, file_path: fileName, addToKnowledgeBase: a.addToKnowledgeBase ?? true } 
             : a
         ));
       } catch (error) {
@@ -218,6 +219,12 @@ export function useOptimizedDepartmentChat(userId: string | undefined, departmen
       }
       return prev.filter(a => a.id !== id);
     });
+  }, []);
+
+  const toggleAttachmentKnowledgeBase = useCallback((id: string, value: boolean) => {
+    setAttachments(prev => prev.map(a => 
+      a.id === id ? { ...a, addToKnowledgeBase: value } : a
+    ));
   }, []);
 
   const clearAttachments = useCallback(() => {
@@ -325,8 +332,11 @@ export function useOptimizedDepartmentChat(userId: string | undefined, departmen
     }
 
     // Save NEW attachments (not from knowledge base) to the knowledge base for future reuse
+    // Only save attachments where user explicitly opted in (addToKnowledgeBase === true)
     if (hasAttachments && departmentId && insertedMsg) {
-      const newAttachmentsToSave = messageAttachments.filter(a => a.status === 'uploaded' && a.file_path);
+      const newAttachmentsToSave = messageAttachments.filter(
+        a => a.status === 'uploaded' && a.file_path && a.addToKnowledgeBase !== false
+      );
       for (const att of newAttachmentsToSave) {
         const { error: kbError } = await supabase.from('chat_knowledge_base').upsert({
           department_id: departmentId,
@@ -666,6 +676,7 @@ export function useOptimizedDepartmentChat(userId: string | undefined, departmen
     attachments,
     handleAttach,
     removeAttachment,
+    toggleAttachmentKnowledgeBase,
     
     // Knowledge base
     selectedKnowledgeDocs,
