@@ -13,6 +13,9 @@ const ALLOWED_TYPES = [
   'image/jpg',
   'image/png',
   'image/webp',
+  'text/csv',
+  'application/vnd.ms-excel',
+  'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
 ];
 const MAX_FILES = 5;
 
@@ -63,8 +66,13 @@ export function ChatInput({
         break;
       }
 
-      if (!ALLOWED_TYPES.includes(file.type)) {
-        toast.error(`Неподдерживаемый формат: ${file.name}. Разрешены: PDF, JPG, PNG, WEBP`);
+      // Check file extension for CSV/XLS which may have different MIME types
+      const ext = file.name.toLowerCase().split('.').pop();
+      const isAllowedByType = ALLOWED_TYPES.includes(file.type);
+      const isAllowedByExt = ['csv', 'xls', 'xlsx'].includes(ext || '');
+      
+      if (!isAllowedByType && !isAllowedByExt) {
+        toast.error(`Неподдерживаемый формат: ${file.name}. Разрешены: PDF, JPG, PNG, WEBP, CSV, XLS, XLSX`);
         continue;
       }
 
@@ -137,7 +145,7 @@ export function ChatInput({
             ref={fileInputRef}
             type="file"
             multiple
-            accept={ALLOWED_TYPES.join(',')}
+            accept={`${ALLOWED_TYPES.join(',')},.csv,.xls,.xlsx`}
             className="hidden"
             onChange={handleFileChange}
           />
@@ -166,7 +174,7 @@ export function ChatInput({
 
         {/* Help text */}
         <p className="text-xs text-muted-foreground text-center">
-          Поддерживаемые форматы: PDF, JPG, PNG, WEBP (до 10MB)
+          Поддерживаемые форматы: PDF, JPG, PNG, WEBP, CSV, XLS, XLSX (до 10MB)
         </p>
       </div>
     </div>
