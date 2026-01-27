@@ -33,7 +33,7 @@ import {
 import { Button } from '@/components/ui/button';
 
 const mainMenuItems = [
-  { title: 'Дашборд', url: '/', icon: LayoutDashboard },
+  { title: 'Дашборд', url: '/', icon: LayoutDashboard, roles: ['admin', 'moderator'] },
   { title: 'Чат', url: '/chat', icon: MessageSquare },
   { title: 'Чат отдела', url: '/department-chat', icon: MessagesSquare },
 ];
@@ -48,7 +48,7 @@ const managementItems = [
 
 const adminItems = [
   { title: 'Пользователи', url: '/users', icon: Users, roles: ['admin', 'moderator'] },
-  { title: 'Отделы', url: '/departments', icon: Building2 },
+  { title: 'Отделы', url: '/departments', icon: Building2, roles: ['admin', 'moderator'] },
   { title: 'API-ключи', url: '/api-keys', icon: KeyRound, roles: ['admin'] },
   { title: 'Битрикс-сессии', url: '/bitrix-sessions', icon: ExternalLink, roles: ['admin', 'moderator'] },
   { title: 'Логи чатов', url: '/chat-logs', icon: ClipboardList, roles: ['admin', 'moderator'] },
@@ -86,7 +86,9 @@ export const AdminSidebar = () => {
           {!collapsed && (
             <div className="flex flex-col">
               <span className="text-sm font-semibold">AI Chat</span>
-              <span className="text-xs text-muted-foreground">Админ-панель</span>
+              <span className="text-xs text-muted-foreground">
+                {role === 'employee' ? 'Чат-бот' : 'Админ-панель'}
+              </span>
             </div>
           )}
         </div>
