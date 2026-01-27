@@ -1284,14 +1284,14 @@ async function handleSendPersonalMessage(
             if (line.startsWith('data: ')) {
               const data = line.substring(6);
               if (data === '[DONE]') {
-                // Save assistant message
+                // Save assistant message with role_id in metadata
                 await supabase
                   .from('messages')
                   .insert({
                     conversation_id: conversationId,
                     role: 'assistant',
                     content: fullResponse,
-                    metadata: metadata
+                    metadata: { ...metadata, role_id: roleId }
                   });
 
                 controller.enqueue(encoder.encode('data: [DONE]\n\n'));
@@ -1899,14 +1899,14 @@ async function handleRegeneratePersonalMessage(
             if (line.startsWith('data: ')) {
               const data = line.substring(6);
               if (data === '[DONE]') {
-                // Save new assistant message
+                // Save new assistant message with role_id in metadata
                 await supabase
                   .from('messages')
                   .insert({
                     conversation_id: conversationId,
                     role: 'assistant',
                     content: fullResponse,
-                    metadata: metadata
+                    metadata: { ...metadata, role_id: effectiveRoleId }
                   });
 
                 controller.enqueue(encoder.encode('data: [DONE]\n\n'));

@@ -82,6 +82,7 @@ interface DepartmentMessage {
     rag_context?: string[];
     web_search_citations?: string[];
     web_search_used?: boolean;
+    role_id?: string;
   } | null;
   created_at: string;
   role_id: string | null;
@@ -702,6 +703,7 @@ export default function BitrixDepartmentChat() {
     citations: msg.metadata?.citations,
     webSearchCitations: msg.metadata?.web_search_citations,
     webSearchUsed: msg.metadata?.web_search_used,
+    roleId: msg.role_id || msg.metadata?.role_id,
   });
 
   // Group messages by date for sidebar
@@ -1011,6 +1013,7 @@ export default function BitrixDepartmentChat() {
                         slug: a.slug,
                         description: a.description,
                       }))}
+                      currentRoleId={message.role_id || message.metadata?.role_id || undefined}
                       bitrixApiBaseUrl={apiBaseUrl}
                       bitrixToken={token || undefined}
                     />
