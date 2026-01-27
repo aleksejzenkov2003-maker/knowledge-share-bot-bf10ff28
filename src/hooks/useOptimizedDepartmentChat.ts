@@ -526,45 +526,97 @@ export function useOptimizedDepartmentChat(userId: string | undefined, departmen
 
   // Regenerate response with the same or different agent
   const regenerateResponse = useCallback(async (messageId: string, roleId?: string) => {
-    const messageIndex = localMessages.findIndex(m => m.id === messageId);
-    if (messageIndex === -1) return;
+    console.log('regenerateResponse called:', { messageId, roleId, messagesCount: localMessages.length });
     
-    const targetMessage = localMessages[messageIndex];
-    
-    if (targetMessage.message_role === 'assistant') {
+    try {
+      const messageIndex = localMessages.findIndex(m => m.id === messageId);
+      if (messageIndex === -1) {
+        console.error('Message not found for regeneration:', messageId);
+        toast.error('Сообщение не найдено');
+        return;
+      }
+      
+      const targetMessage = localMessages[messageIndex];
+      console.log('Target message:', { role: targetMessage.message_role, roleId: targetMessage.role_id });
+      
+      if (targetMessage.message_role !== 'assistant') {
+        console.error('Cannot regenerate non-assistant message');
+        toast.error('Можно обновить только ответ ассистента');
+        return;
+      }
+
       // Find previous user message
       const prevUserMessage = localMessages.slice(0, messageIndex).reverse()
         .find(m => m.message_role === 'user');
       
-      if (prevUserMessage) {
-        // Get original message content (remove @mention prefix if present)
-        let originalContent = prevUserMessage.content;
-        const mentionMatch = originalContent.match(/^@[^\s]+\s*/);
-        if (mentionMatch) {
-          originalContent = originalContent.slice(mentionMatch[0].length);
-        }
-        
-        // Delete messages from DB after the user message
-        const userMsgIndex = localMessages.indexOf(prevUserMessage);
-        const messagesToDelete = localMessages.slice(userMsgIndex + 1);
-        
-        for (const msg of messagesToDelete) {
-          await supabase
-            .from('department_chat_messages')
-            .delete()
-            .eq('id', msg.id);
-        }
-        
-        // Update local state
-        setLocalMessages(prev => prev.slice(0, userMsgIndex + 1));
-        
-        // Resend with new agent
-        const agentToUse = roleId || targetMessage.role_id;
-        const agent = availableAgents.find(a => a.id === agentToUse);
-        const mentionPrefix = agent ? `@${agent.mention_trigger || agent.slug} ` : '';
-        
-        await sendMessage(mentionPrefix + originalContent);
+      if (!prevUserMessage) {
+        console.error('No user message found before assistant message');
+        toast.error('Не найден исходный вопрос');
+        return;
       }
+
+      console.log('Found user message:', prevUserMessage.id, prevUserMessage.content.slice(0, 50));
+      
+      // Get original message content (remove @mention prefix if present)
+      let originalContent = prevUserMessage.content;
+      const mentionMatch = originalContent.match(/^@[^\s]+\s*/);
+      if (mentionMatch) {
+        originalContent = originalContent.slice(mentionMatch[0].length);
+      }
+
+      // Get attachments from original message
+      const originalAttachments = prevUserMessage.metadata?.attachments;
+      
+      // Delete messages from DB after the user message
+      const userMsgIndex = localMessages.indexOf(prevUserMessage);
+      const messagesToDelete = localMessages.slice(userMsgIndex + 1);
+      
+      console.log('Deleting', messagesToDelete.length, 'messages from DB');
+      
+      for (const msg of messagesToDelete) {
+        const { error } = await supabase
+          .from('department_chat_messages')
+          .delete()
+          .eq('id', msg.id);
+        
+        if (error) {
+          console.error('Error deleting message:', msg.id, error);
+        }
+      }
+      
+      // Update local state
+      setLocalMessages(prev => prev.slice(0, userMsgIndex + 1));
+      
+      // Resend with new agent
+      const agentToUse = roleId || targetMessage.role_id;
+      const agent = availableAgents.find(a => a.id === agentToUse);
+      
+      if (!agent) {
+        console.error('Agent not found:', agentToUse);
+        toast.error('Агент не найден');
+        return;
+      }
+
+      const mentionPrefix = `@${agent.mention_trigger || agent.slug} `;
+      console.log('Resending with agent:', agent.name, 'prefix:', mentionPrefix);
+      
+      toast.info(`Обновление ответа от ${agent.name}...`);
+      
+      // Pass original attachments if any
+      const attachmentsForResend = originalAttachments?.map(a => ({
+        id: crypto.randomUUID(),
+        file_path: a.file_path,
+        file_name: a.file_name,
+        file_type: a.file_type,
+        file_size: a.file_size,
+        status: 'uploaded' as const
+      }));
+      
+      await sendMessage(mentionPrefix + originalContent, attachmentsForResend);
+      
+    } catch (error) {
+      console.error('Regenerate error:', error);
+      toast.error('Не удалось обновить ответ');
     }
   }, [localMessages, availableAgents, sendMessage]);
 
