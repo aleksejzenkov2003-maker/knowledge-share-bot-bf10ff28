@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef, useMemo } from "react";
+import { useState, useEffect, useRef, useMemo, useCallback } from "react";
 import { useNavigate, useSearchParams } from "react-router-dom";
 import { Button } from "@/components/ui/button";
 import { ScrollArea } from "@/components/ui/scroll-area";
@@ -12,12 +12,15 @@ import {
   Search,
   PanelLeftClose,
   PanelLeft,
+  BookOpen,
 } from "lucide-react";
 import { useAuth } from "@/contexts/AuthContext";
 import { useOptimizedDepartmentChat } from "@/hooks/useOptimizedDepartmentChat";
 import { DepartmentChatMessage } from "@/components/chat/DepartmentChatMessage";
 import { DepartmentChatSidebar } from "@/components/chat/DepartmentChatSidebar";
 import { MentionInput } from "@/components/chat/MentionInput";
+import { ReplyPreview } from "@/components/chat/ReplyPreview";
+import { KnowledgeBaseSelector } from "@/components/chat/KnowledgeBaseSelector";
 import { supabase } from "@/integrations/supabase/client";
 import {
   Select,
@@ -28,6 +31,7 @@ import {
 } from "@/components/ui/select";
 import { Badge } from "@/components/ui/badge";
 import { cn } from "@/lib/utils";
+import { DepartmentChatMessage as DepartmentChatMessageType } from "@/types/departmentChat";
 
 interface Department {
   id: string;
@@ -73,7 +77,14 @@ export default function DepartmentChatFullscreen() {
     renameChat,
     deleteChat,
     pinChat,
+    // Reply-to and Knowledge Base
+    replyToMessage,
+    setReplyToMessage,
+    selectedKnowledgeDocs,
+    setSelectedKnowledgeDocs,
   } = useOptimizedDepartmentChat(user?.id, activeDepartmentId);
+
+  const [knowledgeBaseOpen, setKnowledgeBaseOpen] = useState(false);
 
   // Restore chat from URL parameter
   useEffect(() => {
@@ -151,9 +162,16 @@ export default function DepartmentChatFullscreen() {
     return availableAgents.filter(a => agentIds.has(a.id));
   }, [messages, availableAgents]);
 
-  const handleSend = async (text: string) => {
-    await sendMessage(text);
-  };
+  const handleSend = useCallback(async (text: string) => {
+    await sendMessage(text, attachments, selectedKnowledgeDocs, replyToMessage);
+    setReplyToMessage(null);
+    setSelectedKnowledgeDocs([]);
+  }, [sendMessage, attachments, selectedKnowledgeDocs, replyToMessage, setReplyToMessage, setSelectedKnowledgeDocs]);
+
+  const handleReply = useCallback((message: DepartmentChatMessageType) => {
+    setReplyToMessage(message);
+    // Focus input after setting reply
+  }, [setReplyToMessage]);
 
   if (authLoading) {
     return (
@@ -354,15 +372,22 @@ export default function DepartmentChatFullscreen() {
               </div>
             ) : (
               <div className="space-y-4">
-                {filteredMessages.map((message) => (
-                  <DepartmentChatMessage 
-                    key={message.id} 
-                    message={message}
-                    currentUserId={user?.id}
-                    availableAgents={availableAgents}
-                    onRegenerateResponse={regenerateResponse}
-                  />
-                ))}
+                {filteredMessages.map((message) => {
+                  const replyTo = message.reply_to_message_id 
+                    ? messages.find(m => m.id === message.reply_to_message_id) 
+                    : undefined;
+                  return (
+                    <DepartmentChatMessage 
+                      key={message.id} 
+                      message={message}
+                      currentUserId={user?.id}
+                      availableAgents={availableAgents}
+                      onRegenerateResponse={regenerateResponse}
+                      onReply={handleReply}
+                      replyToMessage={replyTo}
+                    />
+                  );
+                })}
                 {isGenerating && (
                   <div className="flex items-center gap-2 text-muted-foreground">
                     <Loader2 className="h-4 w-4 animate-spin" />
@@ -377,19 +402,84 @@ export default function DepartmentChatFullscreen() {
 
         {/* Input Area */}
         <div className="border-t border-border p-4">
-          <div className="max-w-3xl mx-auto">
-            <MentionInput
-              onSend={handleSend}
-              isGenerating={isGenerating}
-              onStop={stopGeneration}
-              availableAgents={availableAgents}
-              attachments={attachments}
-              onAttach={handleAttach}
-              onRemoveAttachment={removeAttachment}
-              placeholder="Напишите сообщение или упомяните @агента..."
+          <div className="max-w-3xl mx-auto space-y-2">
+            {/* Reply Preview */}
+            <ReplyPreview 
+              replyTo={replyToMessage} 
+              onClear={() => setReplyToMessage(null)} 
             />
+            
+            {/* Knowledge Base Selected Docs Indicator */}
+            {selectedKnowledgeDocs.length > 0 && (
+              <div className="flex items-center gap-2 px-3 py-2 bg-primary/5 rounded-lg border border-primary/20">
+                <BookOpen className="h-4 w-4 text-primary" />
+                <span className="text-sm text-muted-foreground">
+                  База знаний: {selectedKnowledgeDocs.length} док.
+                </span>
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  className="h-6 px-2 ml-auto"
+                  onClick={() => setKnowledgeBaseOpen(true)}
+                >
+                  Изменить
+                </Button>
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  className="h-6 px-2 text-destructive hover:text-destructive"
+                  onClick={() => setSelectedKnowledgeDocs([])}
+                >
+                  Очистить
+                </Button>
+              </div>
+            )}
+            
+            <div className="flex gap-2">
+              {/* Knowledge Base Button */}
+              <Button
+                type="button"
+                variant="outline"
+                size="icon"
+                className="h-[60px] w-12 flex-shrink-0"
+                onClick={() => setKnowledgeBaseOpen(true)}
+                title="База знаний"
+              >
+                <BookOpen className="h-5 w-5" />
+                {selectedKnowledgeDocs.length > 0 && (
+                  <Badge 
+                    variant="secondary" 
+                    className="absolute -top-1 -right-1 h-5 w-5 p-0 flex items-center justify-center text-xs"
+                  >
+                    {selectedKnowledgeDocs.length}
+                  </Badge>
+                )}
+              </Button>
+              
+              <div className="flex-1">
+                <MentionInput
+                  onSend={handleSend}
+                  isGenerating={isGenerating}
+                  onStop={stopGeneration}
+                  availableAgents={availableAgents}
+                  attachments={attachments}
+                  onAttach={handleAttach}
+                  onRemoveAttachment={removeAttachment}
+                  placeholder="Напишите сообщение или упомяните @агента..."
+                />
+              </div>
+            </div>
           </div>
         </div>
+
+        {/* Knowledge Base Selector Dialog */}
+        <KnowledgeBaseSelector
+          open={knowledgeBaseOpen}
+          onOpenChange={setKnowledgeBaseOpen}
+          departmentId={activeDepartmentId || undefined}
+          selectedDocs={selectedKnowledgeDocs}
+          onSelect={setSelectedKnowledgeDocs}
+        />
       </div>
     </div>
   );
