@@ -412,6 +412,17 @@ export function useOptimizedDepartmentChat(userId: string | undefined, departmen
         }));
       }
 
+      // Add reply-to context if present
+      if (replyTo) {
+        requestBody.reply_to = {
+          content: replyTo.content,
+          author_name: replyTo.message_role === 'assistant' 
+            ? replyTo.metadata?.agent_name 
+            : replyTo.metadata?.user_name,
+          message_role: replyTo.message_role
+        };
+      }
+
       const response = await fetch(
         `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/chat-stream`,
         {

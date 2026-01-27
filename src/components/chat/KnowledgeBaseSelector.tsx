@@ -2,15 +2,17 @@ import { useState, useEffect } from "react";
 import { supabase } from "@/integrations/supabase/client";
 import { KnowledgeBaseDocument } from "@/types/knowledgeBase";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
+import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from "@/components/ui/alert-dialog";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Checkbox } from "@/components/ui/checkbox";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Badge } from "@/components/ui/badge";
-import { Search, FileText, Image, File, Loader2 } from "lucide-react";
+import { Search, FileText, Image, File, Loader2, Trash2 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { formatDistanceToNow } from "date-fns";
 import { ru } from "date-fns/locale";
+import { toast } from "sonner";
 
 interface KnowledgeBaseSelectorProps {
   open: boolean;
@@ -49,6 +51,8 @@ export function KnowledgeBaseSelector({
   const [loading, setLoading] = useState(false);
   const [searchQuery, setSearchQuery] = useState("");
   const [localSelection, setLocalSelection] = useState<Set<string>>(new Set());
+  const [deleteTarget, setDeleteTarget] = useState<KnowledgeBaseDocument | null>(null);
+  const [isDeleting, setIsDeleting] = useState(false);
 
   // Initialize local selection from props
   useEffect(() => {
@@ -129,6 +133,40 @@ export function KnowledgeBaseSelector({
     onOpenChange(false);
   };
 
+  const handleDelete = async (doc: KnowledgeBaseDocument) => {
+    setIsDeleting(true);
+    try {
+      // Delete from database
+      const { error: dbError } = await supabase
+        .from('chat_knowledge_base')
+        .delete()
+        .eq('id', doc.id);
+      
+      if (dbError) throw dbError;
+
+      // Optionally delete from storage (only if the file is exclusively used by this KB entry)
+      // For now, we keep the file in storage to avoid breaking other references
+      
+      // Update local state
+      setDocuments(prev => prev.filter(d => d.id !== doc.id));
+      localSelection.delete(doc.id);
+      setLocalSelection(new Set(localSelection));
+      
+      // Update parent selection if the deleted doc was selected
+      if (selectedDocs.some(d => d.id === doc.id)) {
+        onSelect(selectedDocs.filter(d => d.id !== doc.id));
+      }
+      
+      toast.success('Документ удалён из базы знаний');
+    } catch (err) {
+      console.error('Error deleting document:', err);
+      toast.error('Ошибка при удалении документа');
+    } finally {
+      setIsDeleting(false);
+      setDeleteTarget(null);
+    }
+  };
+
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="sm:max-w-[500px] max-h-[80vh] flex flex-col">
@@ -179,7 +217,7 @@ export function KnowledgeBaseSelector({
                   <div
                     key={doc.id}
                     className={cn(
-                      "flex items-center gap-3 p-2 rounded-md cursor-pointer transition-colors",
+                      "group flex items-center gap-3 p-2 rounded-md cursor-pointer transition-colors",
                       isSelected ? "bg-primary/10" : "hover:bg-muted",
                       !canSelect && !isSelected && "opacity-50 cursor-not-allowed"
                     )}
@@ -202,6 +240,17 @@ export function KnowledgeBaseSelector({
                         {doc.usage_count}×
                       </Badge>
                     )}
+                    <Button
+                      variant="ghost"
+                      size="icon"
+                      className="h-7 w-7 opacity-0 group-hover:opacity-100 hover:bg-destructive hover:text-destructive-foreground shrink-0"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        setDeleteTarget(doc);
+                      }}
+                    >
+                      <Trash2 className="h-4 w-4" />
+                    </Button>
                   </div>
                 );
               })}
@@ -225,6 +274,29 @@ export function KnowledgeBaseSelector({
           </Button>
         </DialogFooter>
       </DialogContent>
+
+      {/* Delete confirmation dialog */}
+      <AlertDialog open={!!deleteTarget} onOpenChange={(open) => !open && setDeleteTarget(null)}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Удалить документ?</AlertDialogTitle>
+            <AlertDialogDescription>
+              Документ "{deleteTarget?.file_name}" будет удалён из базы знаний чата. Это действие нельзя отменить.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={isDeleting}>Отмена</AlertDialogCancel>
+            <AlertDialogAction 
+              onClick={() => deleteTarget && handleDelete(deleteTarget)}
+              disabled={isDeleting}
+              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+            >
+              {isDeleting ? <Loader2 className="h-4 w-4 animate-spin mr-2" /> : null}
+              Удалить
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </Dialog>
   );
 }

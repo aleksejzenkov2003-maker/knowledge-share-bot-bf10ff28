@@ -31,6 +31,11 @@ interface ChatRequest {
   }[];
   attachments?: AttachmentInput[];
   is_department_chat?: boolean;
+  reply_to?: {  // Context for the message being replied to
+    content: string;
+    author_name?: string;
+    message_role: 'user' | 'assistant';
+  };
 }
 
 interface ProviderConfig {
@@ -91,7 +96,7 @@ serve(async (req) => {
       userId = user?.id || null;
     }
 
-    const { message, role_id, department_id, model, provider_id, message_history, attachments, is_department_chat }: ChatRequest = await req.json();
+    const { message, role_id, department_id, model, provider_id, message_history, attachments, is_department_chat, reply_to }: ChatRequest = await req.json();
 
     if (!message && (!attachments || attachments.length === 0)) {
       return new Response(
@@ -541,8 +546,18 @@ serve(async (req) => {
       }
     }
 
-    // Build messages with combined context (RAG + Web)
+    // Build messages with combined context (RAG + Web + Reply-to)
     let finalPrompt = message || '';
+    
+    // Add reply-to context if present
+    let replyContext = '';
+    if (reply_to && reply_to.content) {
+      const authorLabel = reply_to.message_role === 'assistant' 
+        ? (reply_to.author_name || 'Ассистент')
+        : (reply_to.author_name || 'Пользователь');
+      replyContext = `\n\n--- КОНТЕКСТ ОТВЕТА ---\nПользователь отвечает на сообщение от "${authorLabel}":\n"${reply_to.content.slice(0, 2000)}${reply_to.content.length > 2000 ? '...' : ''}"\n--- КОНЕЦ КОНТЕКСТА ОТВЕТА ---\n`;
+    }
+    
     if (ragContext.length > 0 || webSearchContext.length > 0) {
       let contextParts: string[] = [];
       
@@ -565,7 +580,10 @@ serve(async (req) => {
 4. Указывай источники: [номер] для документов, (ссылка) для веб-источников
 5. Приоритет: документы первичны, интернет — для дополнения и актуализации`;
       
-      finalPrompt = `${contextParts.join('\n\n---\n\n')}\n\n---\n${instructions}\n\n---\n\nВОПРОС ПОЛЬЗОВАТЕЛЯ: ${message || 'Проанализируй прикрепленные файлы'}`;
+      finalPrompt = `${contextParts.join('\n\n---\n\n')}\n\n---\n${instructions}${replyContext}\n\n---\n\nВОПРОС ПОЛЬЗОВАТЕЛЯ: ${message || 'Проанализируй прикрепленные файлы'}`;
+    } else if (replyContext) {
+      // No RAG/web context but has reply context
+      finalPrompt = `${replyContext}\n\nВОПРОС ПОЛЬЗОВАТЕЛЯ: ${message || 'Проанализируй прикрепленные файлы'}`;
     }
 
     // =====================================================
