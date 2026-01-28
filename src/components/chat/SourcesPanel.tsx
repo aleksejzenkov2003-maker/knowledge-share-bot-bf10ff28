@@ -161,6 +161,46 @@ export function SourcesPanel({
     try {
       // Try to use citation data first if available
       if (citationData?.document_id && citationData?.storage_path) {
+        // Check if this is an Excel file - offer download instead of viewer
+        const fileExt = citationData.storage_path.split('.').pop()?.toLowerCase();
+        if (fileExt === 'xlsx' || fileExt === 'xls' || fileExt === 'csv') {
+          setLoadingSource(null);
+          
+          // Get signed URL for download
+          let downloadUrl: string | null = null;
+          if (isBitrixContext && bitrixApiBaseUrl && bitrixToken) {
+            downloadUrl = await getSignedUrlViaApi(citationData.storage_path);
+          } else {
+            const { data: signedData } = await supabase.storage
+              .from('rag-documents')
+              .createSignedUrl(citationData.storage_path, 3600);
+            downloadUrl = signedData?.signedUrl || null;
+          }
+          
+          if (downloadUrl) {
+            toast({
+              title: "Табличный документ",
+              description: `Файл "${citationData.document}" нельзя просмотреть в браузере. Скачайте его для просмотра.`,
+              action: (
+                <Button 
+                  variant="outline" 
+                  size="sm"
+                  onClick={() => window.open(downloadUrl!, '_blank')}
+                >
+                  Скачать
+                </Button>
+              ),
+            });
+          } else {
+            toast({
+              title: "Ошибка",
+              description: "Не удалось получить ссылку на скачивание",
+              variant: "destructive",
+            });
+          }
+          return;
+        }
+        
         // For Bitrix context, pre-fetch signed URL
         if (isBitrixContext && bitrixApiBaseUrl && bitrixToken) {
           const signedUrl = await getSignedUrlViaApi(citationData.storage_path);
