@@ -154,6 +154,71 @@ export default function BitrixDepartmentChat() {
   const userEmail = searchParams.get('userEmail') || '';
   const departmentIdParam = searchParams.get('departmentId') || '';
   const theme = searchParams.get('theme') || 'light';
+  
+  // Storage key for state persistence (unique per department/portal)
+  const storageKey = `bitrix_dept_chat_${portal}_${departmentIdParam || 'default'}_${bitrixUserId}`;
+
+  // STATE PERSISTENCE: Save state on visibility change or blur
+  useEffect(() => {
+    const saveState = () => {
+      if (!token) return;
+      
+      const stateToSave = {
+        inputValue,
+        selectedAgentId,
+        sidebarOpen,
+        filterAgentId,
+        savedAt: Date.now(),
+      };
+      
+      try {
+        sessionStorage.setItem(storageKey, JSON.stringify(stateToSave));
+        console.log('Bitrix Dept: State saved to sessionStorage');
+      } catch (e) {
+        console.error('Failed to save state:', e);
+      }
+    };
+    
+    const handleVisibilityChange = () => {
+      if (document.visibilityState === 'hidden') {
+        saveState();
+      }
+    };
+    
+    const handleBeforeUnload = () => {
+      saveState();
+    };
+    
+    document.addEventListener('visibilitychange', handleVisibilityChange);
+    window.addEventListener('blur', saveState);
+    window.addEventListener('beforeunload', handleBeforeUnload);
+    
+    return () => {
+      document.removeEventListener('visibilitychange', handleVisibilityChange);
+      window.removeEventListener('blur', saveState);
+      window.removeEventListener('beforeunload', handleBeforeUnload);
+    };
+  }, [token, inputValue, selectedAgentId, sidebarOpen, filterAgentId, storageKey]);
+  
+  // STATE PERSISTENCE: Restore state on mount
+  useEffect(() => {
+    try {
+      const savedState = sessionStorage.getItem(storageKey);
+      if (savedState) {
+        const parsed = JSON.parse(savedState);
+        // Only restore if saved within the last 30 minutes
+        if (parsed.savedAt && Date.now() - parsed.savedAt < 30 * 60 * 1000) {
+          if (parsed.inputValue) setInputValue(parsed.inputValue);
+          if (parsed.selectedAgentId) setSelectedAgentId(parsed.selectedAgentId);
+          if (typeof parsed.sidebarOpen === 'boolean') setSidebarOpen(parsed.sidebarOpen);
+          if (parsed.filterAgentId) setFilterAgentId(parsed.filterAgentId);
+          console.log('Bitrix Dept: State restored from sessionStorage');
+        }
+      }
+    } catch (e) {
+      console.error('Failed to restore state:', e);
+    }
+  }, [storageKey]);
 
   // Apply theme
   useEffect(() => {

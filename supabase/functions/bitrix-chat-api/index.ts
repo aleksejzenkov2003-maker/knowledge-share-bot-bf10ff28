@@ -1217,18 +1217,38 @@ async function handleSendPersonalMessage(
   // Call chat-stream function
   const chatStreamUrl = `${Deno.env.get('SUPABASE_URL')}/functions/v1/chat-stream`;
   
+  // Increase history limit from 30 to 50 for better context
   const { data: history } = await supabase
     .from('messages')
     .select('role, content, metadata')
     .eq('conversation_id', conversationId)
     .order('created_at', { ascending: true })
-    .limit(30);
+    .limit(50);
 
   const messages = (history || []).map((m: any) => ({
     role: m.role,
     content: m.content,
     attachments: m.metadata?.attachments,
   }));
+  
+  // Aggregate all attachments from history + current (for persistent document context)
+  const allAttachments: any[] = [...attachments.map(a => ({
+    file_name: a.file_name,
+    file_type: a.file_type,
+    file_path: a.file_path,
+    file_size: a.file_size,
+  }))];
+  
+  // Collect attachments from message history
+  for (const msg of history || []) {
+    if (msg.metadata?.attachments && Array.isArray(msg.metadata.attachments)) {
+      for (const att of msg.metadata.attachments) {
+        if (att.file_path && !allAttachments.find(a => a.file_path === att.file_path)) {
+          allAttachments.push(att);
+        }
+      }
+    }
+  }
 
   const chatRequest = {
     message: body.message,
@@ -1236,11 +1256,7 @@ async function handleSendPersonalMessage(
     department_id: departmentId,
     messages: messages,
     message_history: messages, // Ensure context is passed to chat-stream
-    attachments: attachments.map(a => ({
-      file_name: a.file_name,
-      file_type: a.file_type,
-      file_path: a.file_path
-    }))
+    attachments: allAttachments // Pass aggregated attachments from current + history
   };
 
   const chatResponse = await fetch(chatStreamUrl, {
@@ -1282,20 +1298,14 @@ async function handleSendPersonalMessage(
           const lines = buffer.split('\n');
           buffer = lines.pop() || ''; // Keep last potentially incomplete line
 
+          let receivedDone = false;
+          
           for (const line of lines) {
             if (line.startsWith('data: ')) {
               const data = line.substring(6);
               if (data === '[DONE]') {
-                // Save assistant message with role_id in metadata
-                await supabase
-                  .from('messages')
-                  .insert({
-                    conversation_id: conversationId,
-                    role: 'assistant',
-                    content: fullResponse,
-                    metadata: { ...metadata, role_id: roleId }
-                  });
-
+                receivedDone = true;
+                // DO NOT save here - wait for buffer processing below
                 controller.enqueue(encoder.encode('data: [DONE]\n\n'));
               } else {
                 try {
@@ -1308,7 +1318,9 @@ async function handleSendPersonalMessage(
                       parsed.citations || 
                       parsed.response_time_ms || 
                       parsed.rag_context || 
-                      parsed.web_search_citations) {
+                      parsed.web_search_citations ||
+                      parsed.perplexity_citations ||
+                      parsed.smart_search) {
                     const { type, content, ...metaFields } = parsed;
                     metadata = { ...metadata, ...metaFields };
                     console.log('Personal send: Captured metadata keys:', Object.keys(metaFields));
@@ -1321,17 +1333,51 @@ async function handleSendPersonalMessage(
             }
           }
         }
-        // Process remaining buffer after stream ends
-        if (buffer.startsWith('data: ') && buffer.substring(6) !== '[DONE]') {
-          try {
-            const parsed = JSON.parse(buffer.substring(6));
-            if (parsed.type === 'metadata' || parsed.rag_context || parsed.citations || parsed.web_search_citations) {
-              const { type, content, ...metaFields } = parsed;
-              metadata = { ...metadata, ...metaFields };
-              console.log('Personal send: Captured remaining metadata keys:', Object.keys(metaFields));
+        
+        // CRITICAL FIX: Process remaining buffer BEFORE saving message
+        if (buffer.trim()) {
+          const bufferLines = buffer.split('\n');
+          for (const line of bufferLines) {
+            if (line.startsWith('data: ')) {
+              const data = line.substring(6);
+              if (data && data !== '[DONE]') {
+                try {
+                  const parsed = JSON.parse(data);
+                  if (parsed.content) {
+                    fullResponse += parsed.content;
+                  }
+                  if (parsed.type === 'metadata' || 
+                      parsed.rag_context || 
+                      parsed.citations || 
+                      parsed.web_search_citations ||
+                      parsed.perplexity_citations ||
+                      parsed.smart_search) {
+                    const { type, content, ...metaFields } = parsed;
+                    metadata = { ...metadata, ...metaFields };
+                    console.log('Personal send: Captured FINAL buffer metadata keys:', Object.keys(metaFields));
+                  }
+                } catch { /* ignore parse errors */ }
+              }
             }
-          } catch { /* ignore */ }
+          }
         }
+        
+        // NOW save the message with complete metadata
+        console.log('Personal send: Final metadata before save:', JSON.stringify({
+          has_rag_context: !!metadata.rag_context,
+          has_citations: !!metadata.citations,
+          has_web_citations: !!metadata.web_search_citations,
+          keys: Object.keys(metadata)
+        }));
+        
+        await supabase
+          .from('messages')
+          .insert({
+            conversation_id: conversationId,
+            role: 'assistant',
+            content: fullResponse,
+            metadata: { ...metadata, role_id: roleId }
+          });
       } catch (error) {
         console.error('Stream error:', error);
       } finally {
@@ -1475,12 +1521,13 @@ async function handleSendMessage(
   // Call chat-stream function
   const chatStreamUrl = `${Deno.env.get('SUPABASE_URL')}/functions/v1/chat-stream`;
   
+  // Increase history limit from 30 to 50 for better context
   const { data: history } = await supabase
     .from('department_chat_messages')
     .select('message_role, content, metadata, role_id')
     .eq('chat_id', chatId)
     .order('created_at', { ascending: true })
-    .limit(30);
+    .limit(50);
 
   const messages = (history || []).map((m: any) => ({
     role: m.message_role,
@@ -1488,6 +1535,25 @@ async function handleSendMessage(
     agent_name: m.metadata?.agent_name,
     attachments: m.metadata?.attachments,
   }));
+  
+  // Aggregate all attachments from history + current (for persistent document context)
+  const allAttachments: any[] = [...attachments.map(a => ({
+    file_name: a.file_name,
+    file_type: a.file_type,
+    file_path: a.file_path,
+    file_size: a.file_size,
+  }))];
+  
+  // Collect attachments from message history
+  for (const msg of history || []) {
+    if (msg.metadata?.attachments && Array.isArray(msg.metadata.attachments)) {
+      for (const att of msg.metadata.attachments) {
+        if (att.file_path && !allAttachments.find(a => a.file_path === att.file_path)) {
+          allAttachments.push(att);
+        }
+      }
+    }
+  }
 
   const chatRequest = {
     message: body.message,
@@ -1495,11 +1561,7 @@ async function handleSendMessage(
     department_id: departmentId,
     messages: messages,
     message_history: messages, // Ensure context is passed to chat-stream
-    attachments: attachments.map(a => ({
-      file_name: a.file_name,
-      file_type: a.file_type,
-      file_path: a.file_path
-    }))
+    attachments: allAttachments // Pass aggregated attachments from current + history
   };
 
   const chatResponse = await fetch(chatStreamUrl, {
@@ -1541,26 +1603,14 @@ async function handleSendMessage(
           const lines = buffer.split('\n');
           buffer = lines.pop() || ''; // Keep last potentially incomplete line
 
+          let receivedDone = false;
+          
           for (const line of lines) {
             if (line.startsWith('data: ')) {
               const data = line.substring(6);
               if (data === '[DONE]') {
-                await supabase
-                  .from('department_chat_messages')
-                  .insert({
-                    chat_id: chatId,
-                    user_id: userId,
-                    role_id: roleId,
-                    message_role: 'assistant',
-                    content: fullResponse,
-                    source: 'bitrix',
-                    metadata: {
-                      ...metadata,
-                      agent_name: roleName,
-                      bitrix_user_id: bitrixUserInfo.bitrix_user_id
-                    }
-                  });
-
+                receivedDone = true;
+                // DO NOT save here - wait for buffer processing below
                 controller.enqueue(encoder.encode('data: [DONE]\n\n'));
               } else {
                 try {
@@ -1573,7 +1623,9 @@ async function handleSendMessage(
                       parsed.citations || 
                       parsed.response_time_ms || 
                       parsed.rag_context || 
-                      parsed.web_search_citations) {
+                      parsed.web_search_citations ||
+                      parsed.perplexity_citations ||
+                      parsed.smart_search) {
                     const { type, content, ...metaFields } = parsed;
                     metadata = { ...metadata, ...metaFields };
                     console.log('Dept send: Captured metadata keys:', Object.keys(metaFields));
@@ -1586,17 +1638,59 @@ async function handleSendMessage(
             }
           }
         }
-        // Process remaining buffer after stream ends
-        if (buffer.startsWith('data: ') && buffer.substring(6) !== '[DONE]') {
-          try {
-            const parsed = JSON.parse(buffer.substring(6));
-            if (parsed.type === 'metadata' || parsed.rag_context || parsed.citations || parsed.web_search_citations) {
-              const { type, content, ...metaFields } = parsed;
-              metadata = { ...metadata, ...metaFields };
-              console.log('Dept send: Captured remaining metadata keys:', Object.keys(metaFields));
+        
+        // CRITICAL FIX: Process remaining buffer BEFORE saving message
+        // The metadata chunk often arrives in the last buffer portion
+        if (buffer.trim()) {
+          const bufferLines = buffer.split('\n');
+          for (const line of bufferLines) {
+            if (line.startsWith('data: ')) {
+              const data = line.substring(6);
+              if (data && data !== '[DONE]') {
+                try {
+                  const parsed = JSON.parse(data);
+                  if (parsed.content) {
+                    fullResponse += parsed.content;
+                  }
+                  if (parsed.type === 'metadata' || 
+                      parsed.rag_context || 
+                      parsed.citations || 
+                      parsed.web_search_citations ||
+                      parsed.perplexity_citations ||
+                      parsed.smart_search) {
+                    const { type, content, ...metaFields } = parsed;
+                    metadata = { ...metadata, ...metaFields };
+                    console.log('Dept send: Captured FINAL buffer metadata keys:', Object.keys(metaFields));
+                  }
+                } catch { /* ignore parse errors */ }
+              }
             }
-          } catch { /* ignore */ }
+          }
         }
+        
+        // NOW save the message with complete metadata
+        console.log('Dept send: Final metadata before save:', JSON.stringify({
+          has_rag_context: !!metadata.rag_context,
+          has_citations: !!metadata.citations,
+          has_web_citations: !!metadata.web_search_citations,
+          keys: Object.keys(metadata)
+        }));
+        
+        await supabase
+          .from('department_chat_messages')
+          .insert({
+            chat_id: chatId,
+            user_id: userId,
+            role_id: roleId,
+            message_role: 'assistant',
+            content: fullResponse,
+            source: 'bitrix',
+            metadata: {
+              ...metadata,
+              agent_name: roleName,
+              bitrix_user_id: bitrixUserInfo.bitrix_user_id
+            }
+          });
       } catch (error) {
         console.error('Stream error:', error);
       } finally {

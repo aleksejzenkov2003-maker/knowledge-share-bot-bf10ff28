@@ -76,6 +76,8 @@ interface ChatRole {
   model_config: unknown;
   is_project_mode: boolean;
   is_active: boolean;
+  allow_web_search: boolean;
+  strict_rag_mode: boolean;
   created_at: string;
   system_prompt?: { name: string } | null;
 }
@@ -137,6 +139,8 @@ export default function ChatRoles() {
     model: "",
     is_project_mode: false,
     is_active: true,
+    allow_web_search: true,
+    strict_rag_mode: false,
   });
 
   useEffect(() => {
@@ -239,6 +243,8 @@ export default function ChatRoles() {
       model: "",
       is_project_mode: false,
       is_active: true,
+      allow_web_search: true,
+      strict_rag_mode: false,
     });
     setEditingRole(null);
   };
@@ -261,6 +267,8 @@ export default function ChatRoles() {
       model_config: modelConfig,
       is_project_mode: formData.is_project_mode,
       is_active: formData.is_active,
+      allow_web_search: formData.allow_web_search,
+      strict_rag_mode: formData.strict_rag_mode,
     };
 
     try {
@@ -301,6 +309,8 @@ export default function ChatRoles() {
       model: modelConfig?.model || "",
       is_project_mode: role.is_project_mode,
       is_active: role.is_active,
+      allow_web_search: (role as any).allow_web_search !== false,
+      strict_rag_mode: (role as any).strict_rag_mode === true,
     });
     setDialogOpen(true);
   };
@@ -590,6 +600,43 @@ export default function ChatRoles() {
                     setFormData((prev) => ({ ...prev, is_project_mode: checked }))
                   }
                 />
+              </div>
+
+              {/* Web Search Control */}
+              <div className="space-y-3 pt-2 border-t">
+                <Label className="text-sm font-medium">Настройки источников</Label>
+                
+                <div className="flex items-center justify-between">
+                  <div>
+                    <Label htmlFor="allow_web_search" className="text-sm">Веб-поиск</Label>
+                    <p className="text-xs text-muted-foreground">
+                      Разрешить дополнять ответы из интернета
+                    </p>
+                  </div>
+                  <Switch
+                    id="allow_web_search"
+                    checked={formData.allow_web_search}
+                    onCheckedChange={(checked) =>
+                      setFormData((prev) => ({ ...prev, allow_web_search: checked }))
+                    }
+                  />
+                </div>
+                
+                <div className="flex items-center justify-between">
+                  <div>
+                    <Label htmlFor="strict_rag_mode" className="text-sm">Строгий RAG</Label>
+                    <p className="text-xs text-muted-foreground">
+                      Отвечать только на основе документов
+                    </p>
+                  </div>
+                  <Switch
+                    id="strict_rag_mode"
+                    checked={formData.strict_rag_mode}
+                    onCheckedChange={(checked) =>
+                      setFormData((prev) => ({ ...prev, strict_rag_mode: checked }))
+                    }
+                  />
+                </div>
               </div>
 
               <div className="flex items-center justify-between">
