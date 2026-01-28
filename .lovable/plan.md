@@ -1,193 +1,238 @@
 
-# План исправления системы citations и навигации по источникам
 
-## Выявленные критические проблемы
+# План исправления поиска в документах по источникам
 
-### Проблема 1: document_id и storage_path не заполняются в citations
-**Местоположение**: `supabase/functions/chat-stream/index.ts`, строки 1269-1273
+## Диагностика проблемы
 
-**Текущий код**:
-```typescript
-document_id: chunk.parent_document_id,  // null для обычных документов!
-storage_path: undefined as string | undefined, // Никогда не заполняется
+### Текущий неправильный поток данных
+
+```text
+┌────────────────────────────────────────────────────────────────────┐
+│  Запрос пользователя: "32 класс МКТУ"                               │
+└────────────────────────────────────────────────────────────────────┘
+                              │
+                              ▼
+┌────────────────────────────────────────────────────────────────────┐
+│  extractRelevantPreview(chunk.content, message, 300)               │
+│  → Находит окно с "32" в чанке                                     │
+│  → Возвращает 300 символов: "Класс 32 включает пиво..."            │
+└────────────────────────────────────────────────────────────────────┘
+                              │
+                              ▼
+┌────────────────────────────────────────────────────────────────────┐
+│  cleanSearchText() → обрезает до 150 символов                      │
+│  → "Класс 32 включает пиво, минеральные воды..."                   │
+└────────────────────────────────────────────────────────────────────┘
+                              │
+                              ▼
+┌────────────────────────────────────────────────────────────────────┐
+│  DocumentViewer.performSearch()                                     │
+│  → Ищет строку "Класс 32 включает пиво..." в PDF                   │
+│  → НЕ НАХОДИТ (разное форматирование в PDF)                        │
+│  → Fallback на keywords: ["Класс", "включает", "пиво"]             │
+│  → Находит страницу где есть "Класс" и "пиво" → НЕПРАВИЛЬНОЕ МЕСТО │
+└────────────────────────────────────────────────────────────────────┘
 ```
 
-**Причина**: `parent_document_id` используется только для split-документов. Для обычных документов это поле null. Также storage_path никогда не получается из базы.
+### Почему появляются странные фрагменты
 
-### Проблема 2: Non-streaming citations не имеют расширенных данных
-**Местоположение**: строки 1117-1123
+На скриншотах видны поисковые запросы:
+- `"подготовку следук"` → обрезанный фрагмент из content_preview
+- `"ческого лица (ОГРН"` → обрезанный фрагмент
+- `"продукции и рекламирования"` → из другого места чанка
 
-Для non-streaming ответов (Perplexity deep-research) citations формируются БЕЗ:
-- content_preview
-- chunk_id
-- document_id
-- page_start
-- storage_path
-
-### Проблема 3: extractRelevantPreview находит первое ключевое слово
-Для запроса "32 класс МКТУ" функция может найти "класс" или "мкту" раньше "32", создавая нерелевантный preview.
-
-### Проблема 4: МКТУ - это XLSX файл
-DocumentViewer оптимизирован для PDF. Для Excel файлов подсветка текста не работает.
+Это происходит потому что:
+1. `content_preview` берётся из ЧАНКА (текст в базе данных)
+2. Чанк может быть из СЕРЕДИНЫ документа (не связан с PDF страницей)
+3. Обрезание до 150 символов создаёт фрагменты без смысла
+4. PDF поиск ищет эти фрагменты и находит "где-то рядом"
 
 ---
 
-## Решение 1: Получить document_id и storage_path из базы
+## Решение: Разделить content_preview и search_keywords
 
-**Изменения в chat-stream/index.ts** (после строки 1250):
+### Идея
+
+Добавить **отдельное поле `search_keywords`** в Citation — это ключевые слова из ОРИГИНАЛЬНОГО запроса пользователя, которые используются ТОЛЬКО для навигации в PDF.
+
+### Новый поток данных
+
+```text
+┌────────────────────────────────────────────────────────────────────┐
+│  Запрос: "32 класс МКТУ"                                            │
+└────────────────────────────────────────────────────────────────────┘
+         │                              │
+         ▼                              ▼
+┌─────────────────────────┐   ┌─────────────────────────────────────┐
+│  content_preview        │   │  search_keywords                    │
+│  (для отображения UI)   │   │  (для поиска в PDF)                 │
+│  "Класс 32 включает..." │   │  ["32", "класс", "мкту"]            │
+└─────────────────────────┘   └─────────────────────────────────────┘
+                                        │
+                                        ▼
+                              ┌─────────────────────────────────────┐
+                              │  DocumentViewer.performSearch()     │
+                              │  → Ищет "32" в PDF                   │
+                              │  → Находит "Класс 32" на странице!   │
+                              └─────────────────────────────────────┘
+```
+
+---
+
+## Изменения в коде
+
+### 1. Добавить search_keywords в Citation (src/types/chat.ts)
 
 ```typescript
-// Fetch document metadata for storage_path
-const chunkDocIds = rankedChunks.map(c => c.id);
-const { data: chunkDocMeta } = await supabase
-  .from('document_chunks')
-  .select('id, document_id, documents!inner(id, storage_path)')
-  .in('id', chunkDocIds);
-
-// Create lookup map
-const chunkToDoc = new Map();
-for (const chunk of chunkDocMeta || []) {
-  chunkToDoc.set(chunk.id, {
-    document_id: chunk.document_id,
-    storage_path: (chunk.documents as any)?.storage_path
-  });
+export interface Citation {
+  index: number;
+  document: string;
+  section?: string;
+  article?: string;
+  relevance: number;
+  chunk_id?: string;
+  document_id?: string;
+  page_start?: number;
+  chunk_index?: number;
+  content_preview?: string;
+  storage_path?: string;
+  search_keywords?: string[];  // NEW: ключевые слова для PDF поиска
 }
 ```
 
-**Обновить формирование citations** (строки 1261-1274):
+### 2. Генерировать search_keywords в chat-stream (supabase/functions/chat-stream/index.ts)
+
+В блоке формирования citations добавить:
 
 ```typescript
-const allCitations = rankedChunks.map((chunk, idx) => {
-  const docMeta = chunkToDoc.get(chunk.id) || {};
-  return {
-    index: idx + 1,
-    document: chunk.original_document_name || chunk.document_name,
-    section: chunk.section_title,
-    article: chunk.article_number,
-    relevance: Math.min(chunk.relevance_score / 10, 1),
-    chunk_id: chunk.id,
-    document_id: docMeta.document_id || chunk.parent_document_id,
-    page_start: chunk.part_number,
-    content_preview: extractRelevantPreview(chunk.content, message, 300),
-    storage_path: docMeta.storage_path,
-  };
-});
-```
-
----
-
-## Решение 2: Исправить non-streaming citations
-
-**Изменения в строках 1117-1123**:
-
-Заменить упрощенный код на полноценное формирование citations с теми же полями, что и в streaming версии.
-
----
-
-## Решение 3: Улучшить extractRelevantPreview
-
-**Изменения в функции extractRelevantPreview** (строки 269-292):
-
-```typescript
-function extractRelevantPreview(content: string, query: string, maxLen: number = 300): string {
-  // Extract significant keywords (numbers and words > 4 chars)
-  const queryWords = query.toLowerCase()
+// Extract search keywords from original query
+function extractSearchKeywords(query: string): string[] {
+  return query
+    .toLowerCase()
     .replace(/[^\wа-яё\s\d]/gi, ' ')
     .split(/\s+/)
-    .filter(w => (w.length > 4 && !STOP_WORDS.has(w)) || /^\d+$/.test(w));
-  
-  if (queryWords.length === 0) {
-    return content.slice(0, maxLen);
-  }
-  
-  const contentLower = content.toLowerCase();
-  
-  // Find position with most keyword matches in a window
-  let bestPos = 0;
-  let bestScore = 0;
-  
-  for (let i = 0; i < content.length - maxLen; i += 50) {
-    const window = contentLower.slice(i, i + maxLen);
-    let score = 0;
-    for (const word of queryWords) {
-      if (window.includes(word)) score++;
-    }
-    if (score > bestScore) {
-      bestScore = score;
-      bestPos = i;
-    }
-  }
-  
-  return content.slice(bestPos, bestPos + maxLen);
+    .filter(w => {
+      // Include numbers (any length) - they're usually specific
+      if (/^\d+$/.test(w)) return true;
+      // Include words > 3 chars that are not stop words
+      return w.length > 3 && !STOP_WORDS.has(w);
+    })
+    .slice(0, 5); // Max 5 keywords
 }
+
+// In citation building:
+const searchKeywords = extractSearchKeywords(message);
+
+const allCitations = rankedChunks.map((chunk, idx) => ({
+  // ... existing fields ...
+  content_preview: extractRelevantPreview(chunk.content, message, 300),
+  search_keywords: searchKeywords,  // Same for all citations from this query
+}));
 ```
 
----
+### 3. Использовать search_keywords в SourcesPanel (src/components/chat/SourcesPanel.tsx)
 
-## Решение 4: Поддержка XLSX в SourcesPanel
-
-**Изменения в SourcesPanel.tsx**:
-
-Добавить проверку типа файла и альтернативное отображение для Excel:
+Изменить передачу searchText в DocumentViewer:
 
 ```typescript
 // В openDocumentWithHighlight:
-const fileExt = storagePath.split('.').pop()?.toLowerCase();
-if (fileExt === 'xlsx' || fileExt === 'xls') {
-  // Show Excel preview or download link instead of PDF viewer
-  toast({
-    title: "Excel документ",
-    description: "Для просмотра скачайте файл",
-    action: <Button onClick={() => downloadFile(storagePath)}>Скачать</Button>
-  });
-  return;
-}
+setViewerState({
+  isOpen: true,
+  documentId: citationData.document_id,
+  storagePath: citationData.storage_path,
+  documentName: citationData.document,
+  // Use search_keywords if available, otherwise fallback to content_preview
+  searchText: citationData.search_keywords?.length 
+    ? citationData.search_keywords.join(' ')
+    : cleanSearchText(citationData.content_preview),
+  pageNumber: citationData.page_start || extractPageNumber(documentInfo),
+});
+```
+
+### 4. Улучшить DocumentViewer поиск по ключевым словам
+
+В `performSearch` добавить режим "поиск по нескольким ключевым словам" как основной:
+
+```typescript
+const performSearch = async (query: string) => {
+  if (!pdfDocRef.current || !query.trim()) return;
+  
+  // Split query into keywords
+  const keywords = query.split(/\s+/).filter(w => w.length > 1);
+  
+  // If multiple keywords, search for page with most matches
+  if (keywords.length > 1) {
+    const pageScores = [];
+    
+    for (let pageNum = 1; pageNum <= numPages; pageNum++) {
+      const page = await pdfDocRef.current.getPage(pageNum);
+      const textContent = await page.getTextContent();
+      const pageText = textContent.items.map((item: any) => item.str).join(' ').toLowerCase();
+      
+      let score = 0;
+      for (const kw of keywords) {
+        if (pageText.includes(kw.toLowerCase())) score++;
+      }
+      
+      if (score > 0) pageScores.push({ pageNum, score });
+    }
+    
+    // Sort by score and navigate to best match
+    pageScores.sort((a, b) => b.score - a.score);
+    if (pageScores.length > 0) {
+      setCurrentPage(pageScores[0].pageNum);
+      // Highlight the most specific keyword (usually number or longest)
+      const highlightWord = keywords.find(k => /^\d+$/.test(k)) || 
+                           keywords.sort((a, b) => b.length - a.length)[0];
+      setHighlightedText(highlightWord);
+      return;
+    }
+  }
+  
+  // Fallback to single phrase search...
+};
 ```
 
 ---
 
 ## Файлы для изменения
 
-1. **supabase/functions/chat-stream/index.ts**:
-   - Добавить запрос document metadata (после строки 1250)
-   - Исправить формирование citations (строки 1261-1274)
-   - Исправить non-streaming citations (строки 1117-1123)
-   - Улучшить extractRelevantPreview (строки 269-292)
-
-2. **src/components/chat/SourcesPanel.tsx**:
-   - Добавить обработку Excel файлов
-
----
-
-## Порядок имплементации
-
-1. Добавить запрос document metadata для получения storage_path
-2. Исправить формирование streaming citations с правильным document_id
-3. Исправить non-streaming citations (аналогично)
-4. Улучшить extractRelevantPreview для поиска лучшего окна
-5. Добавить обработку Excel файлов в SourcesPanel
-6. Задеплоить и протестировать
+1. **src/types/chat.ts** — добавить поле `search_keywords` в Citation
+2. **src/types/departmentChat.ts** — добавить аналогичное поле
+3. **supabase/functions/chat-stream/index.ts** — генерировать search_keywords из запроса
+4. **src/components/chat/SourcesPanel.tsx** — использовать search_keywords для поиска
+5. **src/components/documents/DocumentViewer.tsx** — улучшить поиск по ключевым словам
 
 ---
 
 ## Ожидаемые результаты
 
-| Проблема | До | После |
-|----------|-----|-------|
-| document_id | null (parent_document_id) | Реальный ID документа |
-| storage_path | undefined | Путь к файлу |
-| content_preview | Первое слово | Лучшее окно с макс. совпадениями |
-| Excel файлы | Ошибка просмотра | Кнопка скачивания |
+| До | После |
+|----|-------|
+| searchText = "Класс 32 включает пиво, минеральные воды..." (150 симв) | searchText = "32 класс мкту" (ключевые слова) |
+| PDF поиск ищет длинную строку → не находит | PDF поиск ищет "32" → находит точно |
+| Fallback на "включает", "минеральные" | Подсветка "32" на правильной странице |
+| Показывает "ческого лица (ОГРН" | Показывает страницу с "Класс 32" |
 
 ---
 
 ## Техническая секция
 
-### Тестирование после изменений
+### Порядок имплементации
 
-1. Сделать запрос "32 класс МКТУ" с ролью "Отказы ТЗ"
-2. Проверить что в citations есть:
-   - document_id (не null)
-   - storage_path (путь к файлу)
-   - content_preview содержит "32" или "Класс: 32"
-3. Нажать на источник и убедиться что открывается правильный документ
+1. Добавить `search_keywords` в типы Citation
+2. Генерировать `search_keywords` в chat-stream из оригинального запроса
+3. Обновить SourcesPanel чтобы передавать `search_keywords`
+4. Улучшить DocumentViewer для поиска по нескольким ключевым словам
+5. Задеплоить и протестировать
+
+### Оценка времени
+
+- Изменения типов: 10 минут
+- chat-stream изменения: 30 минут  
+- SourcesPanel изменения: 20 минут
+- DocumentViewer улучшения: 30 минут
+- Тестирование: 30 минут
+
+**Общее время**: ~2 часа
+
