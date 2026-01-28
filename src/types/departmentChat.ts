@@ -32,6 +32,12 @@ export interface DepartmentChatMessage {
       section?: string;
       article?: string;
       relevance: number;
+      chunk_id?: string;
+      document_id?: string;
+      page_start?: number;
+      content_preview?: string;
+      storage_path?: string;
+      search_keywords?: string[];
     }>;
     perplexity_citations?: string[]; // URLs from Perplexity API
     web_search_citations?: string[]; // URLs from web search (hybrid Claude search)
