@@ -265,26 +265,45 @@ serve(async (req) => {
       'свой', 'свою', 'своё', 'наш', 'наша', 'наше', 'ваш', 'ваша',
     ]);
     
-    // Function to extract relevant preview containing keywords
+    // Function to extract relevant preview containing keywords using sliding window scoring
     function extractRelevantPreview(content: string, query: string, maxLen: number = 300): string {
+      // Extract significant keywords: numbers (any length) and words > 4 chars
       const queryWords = query.toLowerCase()
-        .replace(/[^\wа-яё\s]/gi, ' ')
+        .replace(/[^\wа-яё\s\d]/gi, ' ')
         .split(/\s+/)
-        .filter(w => w.length > 4 && !STOP_WORDS.has(w));
+        .filter(w => (w.length > 4 && !STOP_WORDS.has(w)) || /^\d+$/.test(w));
       
       if (queryWords.length === 0) {
         return content.slice(0, maxLen);
       }
       
-      // Find the position of the first keyword match
       const contentLower = content.toLowerCase();
-      let bestPos = 0;
       
-      for (const word of queryWords) {
-        const pos = contentLower.indexOf(word);
-        if (pos !== -1) {
-          bestPos = Math.max(0, pos - 50); // Start 50 chars before match
-          break;
+      // If content is shorter than maxLen, return it all
+      if (content.length <= maxLen) {
+        return content;
+      }
+      
+      // Sliding window to find position with most keyword matches
+      let bestPos = 0;
+      let bestScore = 0;
+      const stepSize = 50;
+      
+      for (let i = 0; i <= content.length - maxLen; i += stepSize) {
+        const window = contentLower.slice(i, i + maxLen);
+        let score = 0;
+        
+        for (const word of queryWords) {
+          // Give extra weight to numbers (they're usually more specific)
+          const weight = /^\d+$/.test(word) ? 3 : 1;
+          if (window.includes(word)) {
+            score += weight;
+          }
+        }
+        
+        if (score > bestScore) {
+          bestScore = score;
+          bestPos = i;
         }
       }
       
@@ -1114,13 +1133,38 @@ serve(async (req) => {
       fullContent = jsonResponse.choices?.[0]?.message?.content || '';
       
       const responseTimeMs = Date.now() - startTime;
-      const citations = rankedChunks.map((chunk, idx) => ({
-        index: idx + 1,
-        document: chunk.document_name,
-        section: chunk.section_title,
-        article: chunk.article_number,
-        relevance: chunk.relevance_score,
-      }));
+      // Fetch document metadata for storage_path (non-streaming)
+      let chunkToDocNonStream = new Map<string, { document_id: string; storage_path: string | null }>();
+      if (rankedChunks.length > 0) {
+        const chunkDocIdsNS = rankedChunks.map(c => c.id);
+        const { data: chunkDocMetaNS } = await supabase
+          .from('document_chunks')
+          .select('id, document_id, documents!inner(id, storage_path)')
+          .in('id', chunkDocIdsNS);
+        
+        for (const chunk of chunkDocMetaNS || []) {
+          chunkToDocNonStream.set(chunk.id, {
+            document_id: chunk.document_id,
+            storage_path: (chunk.documents as any)?.storage_path || null
+          });
+        }
+      }
+      
+      const citations = rankedChunks.map((chunk, idx) => {
+        const docMeta = chunkToDocNonStream.get(chunk.id);
+        return {
+          index: idx + 1,
+          document: chunk.original_document_name || chunk.document_name,
+          section: chunk.section_title,
+          article: chunk.article_number,
+          relevance: Math.min(chunk.relevance_score / 10, 1),
+          chunk_id: chunk.id,
+          document_id: docMeta?.document_id || chunk.parent_document_id,
+          page_start: chunk.part_number,
+          content_preview: extractRelevantPreview(chunk.content, message, 300),
+          storage_path: docMeta?.storage_path,
+        };
+      });
       
       // Create a simple stream that sends the full content at once
       const stream = new ReadableStream({
@@ -1257,21 +1301,41 @@ serve(async (req) => {
           }
           console.log(`RAG: Response uses ${usedIndices.size} citation indices:`, Array.from(usedIndices));
           
+          // Fetch document metadata for storage_path
+          let chunkToDoc = new Map<string, { document_id: string; storage_path: string | null }>();
+          if (rankedChunks.length > 0) {
+            const chunkDocIds = rankedChunks.map(c => c.id);
+            const { data: chunkDocMeta } = await supabase
+              .from('document_chunks')
+              .select('id, document_id, documents!inner(id, storage_path)')
+              .in('id', chunkDocIds);
+            
+            for (const chunk of chunkDocMeta || []) {
+              chunkToDoc.set(chunk.id, {
+                document_id: chunk.document_id,
+                storage_path: (chunk.documents as any)?.storage_path || null
+              });
+            }
+          }
+          
           // Build citations with enhanced metadata
-          const allCitations = rankedChunks.map((chunk, idx) => ({
-            index: idx + 1,
-            document: chunk.original_document_name || chunk.document_name,
-            section: chunk.section_title,
-            article: chunk.article_number,
-            // Normalize relevance to 0-1 scale for UI (score is 0-10)
-            relevance: Math.min(chunk.relevance_score / 10, 1),
-            // Enhanced metadata for document navigation
-            chunk_id: chunk.id,
-            document_id: chunk.parent_document_id,
-            page_start: chunk.part_number,
-            content_preview: extractRelevantPreview(chunk.content, message, 300),
-            storage_path: undefined as string | undefined, // Will be populated later if needed
-          }));
+          const allCitations = rankedChunks.map((chunk, idx) => {
+            const docMeta = chunkToDoc.get(chunk.id);
+            return {
+              index: idx + 1,
+              document: chunk.original_document_name || chunk.document_name,
+              section: chunk.section_title,
+              article: chunk.article_number,
+              // Normalize relevance to 0-1 scale for UI (score is 0-10)
+              relevance: Math.min(chunk.relevance_score / 10, 1),
+              // Enhanced metadata for document navigation
+              chunk_id: chunk.id,
+              document_id: docMeta?.document_id || chunk.parent_document_id,
+              page_start: chunk.part_number,
+              content_preview: extractRelevantPreview(chunk.content, message, 300),
+              storage_path: docMeta?.storage_path,
+            };
+          });
           
           // Filter to only citations actually used in the response (or all if none explicitly cited)
           const citations = usedIndices.size > 0 
