@@ -93,7 +93,7 @@ export function SourcesPanel({
     if (!text) return undefined;
     
     return text
-      .slice(0, 80) // First 80 characters
+      .slice(0, 150) // First 150 characters for better matching
       .replace(/\s+/g, ' ') // Normalize whitespace
       .trim();
   };

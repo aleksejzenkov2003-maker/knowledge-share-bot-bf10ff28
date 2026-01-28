@@ -252,7 +252,44 @@ serve(async (req) => {
     const trademarkImages: TrademarkImage[] = [];
 
     // Minimum relevance score to include in citations
-    const MIN_RELEVANCE_SCORE = 5;
+    const MIN_RELEVANCE_SCORE = 6;
+    
+    // Stop words to filter out from keyword search (Russian)
+    const STOP_WORDS = new Set([
+      'этот', 'который', 'какой', 'такой', 'каждый', 'весь', 'всего',
+      'если', 'когда', 'чтобы', 'также', 'однако', 'потому', 'поэтому',
+      'можно', 'нужно', 'будет', 'было', 'быть', 'есть', 'более', 'менее',
+      'очень', 'только', 'уже', 'еще', 'что', 'как', 'для', 'при',
+      'через', 'между', 'после', 'перед', 'около', 'вместо', 'кроме',
+      'того', 'этого', 'этом', 'него', 'неё', 'них', 'ними', 'своих',
+      'свой', 'свою', 'своё', 'наш', 'наша', 'наше', 'ваш', 'ваша',
+    ]);
+    
+    // Function to extract relevant preview containing keywords
+    function extractRelevantPreview(content: string, query: string, maxLen: number = 300): string {
+      const queryWords = query.toLowerCase()
+        .replace(/[^\wа-яё\s]/gi, ' ')
+        .split(/\s+/)
+        .filter(w => w.length > 4 && !STOP_WORDS.has(w));
+      
+      if (queryWords.length === 0) {
+        return content.slice(0, maxLen);
+      }
+      
+      // Find the position of the first keyword match
+      const contentLower = content.toLowerCase();
+      let bestPos = 0;
+      
+      for (const word of queryWords) {
+        const pos = contentLower.indexOf(word);
+        if (pos !== -1) {
+          bestPos = Math.max(0, pos - 50); // Start 50 chars before match
+          break;
+        }
+      }
+      
+      return content.slice(bestPos, bestPos + maxLen);
+    }
     
     if (folderIds.length > 0) {
       console.log(`RAG: Starting Smart Librarian search for folders: ${folderIds.join(', ')}`);
@@ -369,13 +406,21 @@ serve(async (req) => {
       if (rankedChunks.length === 0) {
         console.log('RAG: FTS returned no results, trying keyword fallback');
         
-        const keywords = message.toLowerCase().split(/\s+/).filter(w => w.length > 3);
+        // Improved keyword extraction with stop words filtering
+        const keywords = message
+          .toLowerCase()
+          .replace(/[^\wа-яё\s]/gi, ' ') // Remove punctuation
+          .split(/\s+/)
+          .filter(w => w.length > 3 && !STOP_WORDS.has(w))
+          .slice(0, 10); // Limit to 10 keywords
+        
+        console.log(`RAG: Extracted keywords: ${keywords.join(', ')}`);
         
         if (keywords.length > 0) {
           const { data: keywordResults } = await supabase.rpc('keyword_search', {
             keywords: keywords,
             p_folder_ids: folderIds,
-            match_count: TOP_K_FINAL,
+            match_count: FTS_CANDIDATES, // Get more candidates for re-ranking
           });
 
           if (keywordResults && keywordResults.length > 0) {
@@ -404,6 +449,64 @@ serve(async (req) => {
               total_parts: chunk.total_parts,
             }));
             console.log(`RAG: Keyword search found ${rankedChunks.length} chunks`);
+            
+            // STEP 3.5: Re-rank keyword results with Claude if we have enough candidates
+            if (rankedChunks.length >= TOP_K_FINAL && ANTHROPIC_API_KEY) {
+              console.log('RAG: Re-ranking keyword fallback results with Claude');
+              try {
+                const chunksForRerank = rankedChunks.map(chunk => ({
+                  id: chunk.id,
+                  content: chunk.content,
+                  document_name: chunk.document_name,
+                  section_title: chunk.section_title,
+                  article_number: chunk.article_number,
+                  fts_rank: chunk.relevance_score,
+                  parent_document_id: chunk.parent_document_id,
+                  original_document_name: chunk.original_document_name,
+                  part_number: chunk.part_number,
+                  total_parts: chunk.total_parts,
+                }));
+
+                const rerankResponse = await fetch(`${supabaseUrl}/functions/v1/rerank-chunks`, {
+                  method: 'POST',
+                  headers: {
+                    'Content-Type': 'application/json',
+                    'Authorization': `Bearer ${supabaseKey}`,
+                  },
+                  body: JSON.stringify({
+                    query: message,
+                    chunks: chunksForRerank,
+                    top_k: TOP_K_FINAL,
+                  }),
+                });
+
+                if (rerankResponse.ok) {
+                  const rerankData = await rerankResponse.json();
+                  if (rerankData.ranked_chunks && rerankData.ranked_chunks.length > 0) {
+                    // Keep all ranked chunks before filtering for fallback
+                    const allRankedChunks = rerankData.ranked_chunks;
+                    
+                    // Filter by minimum relevance score
+                    rankedChunks = allRankedChunks.filter(
+                      (c: RankedChunk) => c.relevance_score >= MIN_RELEVANCE_SCORE
+                    );
+                    
+                    // Fallback: if all results are below threshold, use top 3 with warning
+                    if (rankedChunks.length === 0 && allRankedChunks.length > 0) {
+                      rankedChunks = allRankedChunks.slice(0, 3);
+                      console.log('RAG: Using low-confidence fallback (top 3 below threshold)');
+                    }
+                    
+                    usedSmartSearch = true;
+                    console.log(`RAG: Re-ranked keyword results to ${rankedChunks.length} chunks (>=${MIN_RELEVANCE_SCORE} threshold)`);
+                  }
+                } else {
+                  console.error('Keyword rerank failed:', await rerankResponse.text());
+                }
+              } catch (rerankError) {
+                console.error('Keyword rerank error:', rerankError);
+              }
+            }
           }
         }
       }
@@ -1166,7 +1269,7 @@ serve(async (req) => {
             chunk_id: chunk.id,
             document_id: chunk.parent_document_id,
             page_start: chunk.part_number,
-            content_preview: chunk.content.slice(0, 300),
+            content_preview: extractRelevantPreview(chunk.content, message, 300),
             storage_path: undefined as string | undefined, // Will be populated later if needed
           }));
           
