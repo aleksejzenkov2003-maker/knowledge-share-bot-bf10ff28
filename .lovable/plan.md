@@ -1,148 +1,210 @@
 
-# План исправления проблем с выдачей источников и цитат
 
-## Резюме выявленных проблем
+# План исправления системы поиска по источникам и RAG
 
-Анализ показал несколько критических проблем в работе RAG-системы:
+## Диагностика текущих проблем
 
-1. **FTS функция не возвращает метаданные родительского документа** — для разбитых PDF не показывается оригинальное имя
-2. **Re-ranking не срабатывает** — все записи в логах имеют `smart_search: false` 
-3. **Нет фильтрации по релевантности** — все 10 чанков попадают в citations без порога качества
-4. **Нет фильтрации по фактическому использованию** — модель не всегда использует все предоставленные источники
+### Выявленные баги:
 
----
+1. **Re-ranking не вызывается для keyword fallback**
+   - FTS часто не находит результаты (по логам: "FTS returned no results")
+   - Keyword fallback находит чанки, но re-ranking вызывается ТОЛЬКО внутри блока FTS
+   - В результате `smart_search: false` и низкокачественные результаты
 
-## Решение 1: Обновить FTS функцию для включения parent document info
+2. **Keyword search использует примитивную экстракцию ключевых слов**
+   - Текущий код: `message.split(/\s+/).filter(w => w.length > 3)`
+   - Включает служебные слова, предлоги, частицы
+   - Приводит к ложным совпадениям
 
-**Проблема**: Функция `smart_fts_search` не возвращает `parent_document_id`, `original_document_name`, `part_number`, `total_parts`.
+3. **Content preview для поиска в документе берётся некорректно**
+   - `cleanSearchText()` обрезает до 80 символов
+   - Эти 80 символов могут не содержать ключевую информацию
+   - При открытии документа поиск находит нерелевантное место
 
-**Решение**: Модифицировать функцию для JOIN с parent documents и возврата оригинального имени.
-
-**SQL миграция**:
-```sql
-CREATE OR REPLACE FUNCTION public.smart_fts_search(
-  query_text text, 
-  p_folder_ids uuid[] DEFAULT NULL::uuid[], 
-  match_count integer DEFAULT 50
-)
-RETURNS TABLE(
-  id uuid, 
-  document_id uuid, 
-  content text, 
-  chunk_index integer, 
-  section_title text, 
-  article_number text, 
-  chunk_type text, 
-  document_name text, 
-  fts_rank real,
-  -- NEW: parent document fields
-  parent_document_id uuid,
-  original_document_name text,
-  part_number integer,
-  total_parts integer
-)
-```
+4. **Отсутствует контроль качества для keyword результатов**
+   - `MIN_RELEVANCE_SCORE = 5` применяется только после rerank
+   - Keyword search возвращает результаты с `keyword_matches = 2`, которые проходят в ответ
 
 ---
 
-## Решение 2: Добавить логирование и исправить re-ranking flow
+## Решение 1: Добавить re-ranking для keyword fallback
 
-**Проблема**: Re-ranking не срабатывает или результаты теряются.
+**Проблема**: Re-ranking вызывается только когда FTS успешен.
 
-**Решение**: 
-- Добавить детальное логирование в `chat-stream`
-- Проверить условие вызова (ftsResults.length > TOP_K_FINAL)
-- Добавить fallback с сохранением статуса
+**Решение**: Вынести re-ranking в отдельный шаг после получения любых результатов.
 
-**Изменения в chat-stream/index.ts**:
+**Изменения в `chat-stream/index.ts`**:
+
 ```typescript
-// Логировать условие
-console.log(`RAG: FTS results: ${ftsResults.length}, TOP_K_FINAL: ${TOP_K_FINAL}, ANTHROPIC_KEY: ${!!ANTHROPIC_API_KEY}`);
+// После блока keyword search (строка 408), добавить:
 
-// Изменить условие — вызывать rerank даже если результатов = TOP_K_FINAL
-if (ANTHROPIC_API_KEY && ftsResults.length >= TOP_K_FINAL) {
-  // ... rerank logic
+// STEP 3.5: Re-rank keyword results if FTS didn't work but keywords did
+if (rankedChunks.length >= TOP_K_FINAL && ANTHROPIC_API_KEY && !usedSmartSearch) {
+  console.log('RAG: Re-ranking keyword fallback results');
+  try {
+    const chunksForRerank = rankedChunks.map(chunk => ({
+      id: chunk.id,
+      content: chunk.content,
+      document_name: chunk.document_name,
+      section_title: chunk.section_title,
+      article_number: chunk.article_number,
+      fts_rank: chunk.relevance_score,
+    }));
+
+    const rerankResponse = await fetch(`${supabaseUrl}/functions/v1/rerank-chunks`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${supabaseKey}`,
+      },
+      body: JSON.stringify({
+        query: message,
+        chunks: chunksForRerank,
+        top_k: TOP_K_FINAL,
+      }),
+    });
+
+    if (rerankResponse.ok) {
+      const rerankData = await rerankResponse.json();
+      if (rerankData.ranked_chunks?.length > 0) {
+        rankedChunks = rerankData.ranked_chunks.filter(
+          (c: RankedChunk) => c.relevance_score >= MIN_RELEVANCE_SCORE
+        );
+        usedSmartSearch = true;
+        console.log(`RAG: Re-ranked keyword results to ${rankedChunks.length} chunks`);
+      }
+    }
+  } catch (err) {
+    console.error('Keyword rerank error:', err);
+  }
 }
 ```
 
 ---
 
-## Решение 3: Добавить фильтрацию по порогу релевантности
+## Решение 2: Улучшить экстракцию ключевых слов
 
-**Проблема**: Чанки с низкой оценкой (1-4) попадают в ответ.
+**Проблема**: Слишком простая логика `split(/\s+/).filter(w => w.length > 3)`.
 
-**Решение**: Добавить минимальный порог `MIN_RELEVANCE_SCORE = 5`.
+**Решение**: Фильтровать стоп-слова и нормализовать запрос.
 
 **Изменения**:
-```typescript
-const MIN_RELEVANCE_SCORE = 5;
 
-// После re-ranking — фильтровать
-rankedChunks = rerankData.ranked_chunks.filter(
-  (c: RankedChunk) => c.relevance_score >= MIN_RELEVANCE_SCORE
-);
+```typescript
+// Вместо:
+const keywords = message.toLowerCase().split(/\s+/).filter(w => w.length > 3);
+
+// Использовать:
+const STOP_WORDS = new Set([
+  'этот', 'который', 'какой', 'такой', 'каждый', 'весь', 'всего',
+  'если', 'когда', 'чтобы', 'также', 'однако', 'потому', 'поэтому',
+  'можно', 'нужно', 'будет', 'было', 'быть', 'есть', 'более', 'менее',
+  'очень', 'только', 'уже', 'еще', 'что', 'как', 'для', 'при',
+]);
+
+const keywords = message
+  .toLowerCase()
+  .replace(/[^\wа-яё\s]/gi, ' ') // Remove punctuation
+  .split(/\s+/)
+  .filter(w => w.length > 3 && !STOP_WORDS.has(w))
+  .slice(0, 10); // Limit to 10 keywords
 ```
 
 ---
 
-## Решение 4: Фильтрация citations по фактическому использованию
+## Решение 3: Улучшить content_preview для навигации
 
-**Проблема**: Все 10 источников добавляются в citations, даже если модель их не цитировала.
+**Проблема**: 80 символов из начала чанка не содержат ключевую информацию.
 
-**Решение**: Парсить ответ модели на наличие ссылок [1], [2], etc. и включать только использованные.
+**Решение**: Найти фрагмент, содержащий ключевые слова запроса.
 
 **Изменения в формировании citations**:
+
 ```typescript
-// После получения fullContent — извлечь упомянутые индексы
-const usedIndices = new Set<number>();
-const citationMatches = fullContent.matchAll(/\[(\d+)\]/g);
-for (const match of citationMatches) {
-  usedIndices.add(parseInt(match[1], 10));
+// Функция для поиска релевантного фрагмента
+function extractRelevantPreview(content: string, query: string, maxLen: number = 200): string {
+  const queryWords = query.toLowerCase().split(/\s+/).filter(w => w.length > 4);
+  
+  if (queryWords.length === 0) {
+    return content.slice(0, maxLen);
+  }
+  
+  // Find the position of the first keyword match
+  const contentLower = content.toLowerCase();
+  let bestPos = 0;
+  
+  for (const word of queryWords) {
+    const pos = contentLower.indexOf(word);
+    if (pos !== -1) {
+      bestPos = Math.max(0, pos - 50); // Start 50 chars before match
+      break;
+    }
+  }
+  
+  return content.slice(bestPos, bestPos + maxLen);
 }
 
-// Фильтровать citations
-const citations = rankedChunks
-  .map((chunk, idx) => ({ ... }))
-  .filter((c) => usedIndices.size === 0 || usedIndices.has(c.index));
+// В формировании citations (строка 1169):
+content_preview: extractRelevantPreview(chunk.content, message, 300),
 ```
 
 ---
 
-## Решение 5: Улучшить отображение relevance в UI
+## Решение 4: Увеличить минимальный порог и добавить fallback
 
-**Проблема**: UI показывает "Релевантность: 10%" вместо правильного значения.
+**Проблема**: Результаты с низкой оценкой попадают в ответ.
 
-**Текущий код в SourcesPanel** (строка 443):
+**Решение**: 
+- Увеличить `MIN_RELEVANCE_SCORE` до 6
+- Если после фильтрации не осталось результатов — вернуть топ-3 с пометкой о низкой уверенности
+
 ```typescript
-<span>Релевантность: {(citation.relevance * 10).toFixed(0)}%</span>
+const MIN_RELEVANCE_SCORE = 6; // Было 5
+
+// После фильтрации:
+if (rankedChunks.length === 0 && allRankedChunks.length > 0) {
+  // Fallback: use top 3 even if below threshold, but mark as low confidence
+  rankedChunks = allRankedChunks.slice(0, 3);
+  console.log('RAG: Using low-confidence fallback (top 3 below threshold)');
+}
 ```
 
-**Проблема**: `relevance` уже в шкале 0-10, умножение на 10 дает 0-100, но FTS fallback дает 0.1-1.0, что после умножения = 1-10%.
+---
 
-**Решение**: Нормализовать relevance в edge function ДО отправки:
-```typescript
-// В chat-stream при формировании citations
-relevance: Math.min(chunk.relevance_score / 10, 1), // Normalize to 0-1
-```
+## Решение 5: Улучшить поиск в DocumentViewer
 
-**UI изменение**:
+**Проблема**: Поиск по 80 символам часто не находит совпадений.
+
+**Решение**: Увеличить длину и использовать более умный keyword fallback.
+
+**Изменения в `SourcesPanel.tsx`**:
+
 ```typescript
-<span>Релевантность: {Math.round(citation.relevance * 100)}%</span>
+// Функция cleanSearchText - увеличить до 150 символов
+const cleanSearchText = (text?: string): string | undefined => {
+  if (!text) return undefined;
+  
+  return text
+    .slice(0, 150) // Увеличить с 80 до 150
+    .replace(/\s+/g, ' ')
+    .trim();
+};
 ```
 
 ---
 
 ## Файлы для изменения
 
-1. **SQL миграция** — обновить `smart_fts_search` функцию
-2. **supabase/functions/chat-stream/index.ts**:
-   - Улучшить логирование
-   - Изменить условие вызова rerank
-   - Добавить фильтрацию по MIN_RELEVANCE_SCORE
-   - Добавить парсинг фактически использованных citations
-   - Нормализовать relevance score
-3. **src/components/chat/SourcesPanel.tsx**:
-   - Исправить отображение процента релевантности
+1. **`supabase/functions/chat-stream/index.ts`**:
+   - Добавить re-ranking для keyword fallback (~строка 408)
+   - Улучшить экстракцию ключевых слов (~строка 372)
+   - Добавить функцию `extractRelevantPreview`
+   - Использовать её в формировании citations (~строка 1169)
+   - Увеличить `MIN_RELEVANCE_SCORE` до 6
+
+2. **`src/components/chat/SourcesPanel.tsx`**:
+   - Увеличить `cleanSearchText` до 150 символов
+   - Улучшить отображение документа-источника
 
 ---
 
@@ -150,11 +212,11 @@ relevance: Math.min(chunk.relevance_score / 10, 1), // Normalize to 0-1
 
 | Проблема | До | После |
 |----------|-----|-------|
-| Имя документа | "Практика ППС (часть 17/52)" | "Практика ППС -1-1483" + "(часть 17)" |
-| Re-ranking | Не работает (fallback на FTS) | Работает, оценки 0-10 |
-| Релевантность | "10%" (некорректно) | "85%" (корректно) |
-| Лишние источники | 10 из 10 всегда | Только фактически использованные |
-| Нерелевантные | Показываются все | Скрыты (score < 5) |
+| Re-ranking | Только для FTS | Для FTS и keyword fallback |
+| smart_search | false (всегда) | true (когда rerank успешен) |
+| Ключевые слова | Все слова > 3 символов | Фильтрация стоп-слов |
+| Content preview | 80 символов с начала | 150 символов с ключевыми словами |
+| Релевантность | 0.2 (нерелевантно) | 0.6+ (только качественные) |
 
 ---
 
@@ -162,16 +224,19 @@ relevance: Math.min(chunk.relevance_score / 10, 1), // Normalize to 0-1
 
 ### Порядок имплементации
 
-1. **SQL миграция** (smart_fts_search) — добавить parent document fields
-2. **chat-stream** — все изменения логики
-3. **SourcesPanel** — UI исправление
-4. **Деплой и тест**
+1. Добавить re-ranking для keyword fallback
+2. Улучшить экстракцию ключевых слов  
+3. Добавить функцию extractRelevantPreview
+4. Обновить формирование content_preview
+5. Увеличить MIN_RELEVANCE_SCORE
+6. Увеличить cleanSearchText в UI
+7. Задеплоить и протестировать
 
 ### Оценка времени
 
-- SQL миграция: 30 минут
-- chat-stream изменения: 1-2 часа  
-- UI исправление: 15 минут
+- Изменения в chat-stream: 2-3 часа
+- UI исправления: 30 минут
 - Тестирование: 1 час
 
-**Общее время**: ~3-4 часа
+**Общее время**: ~4 часа
+
