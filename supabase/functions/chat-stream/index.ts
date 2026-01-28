@@ -251,6 +251,9 @@ serve(async (req) => {
     }
     const trademarkImages: TrademarkImage[] = [];
 
+    // Minimum relevance score to include in citations
+    const MIN_RELEVANCE_SCORE = 5;
+    
     if (folderIds.length > 0) {
       console.log(`RAG: Starting Smart Librarian search for folders: ${folderIds.join(', ')}`);
       
@@ -267,10 +270,11 @@ serve(async (req) => {
         }
 
         if (ftsResults && ftsResults.length > 0) {
-          console.log(`RAG: FTS found ${ftsResults.length} candidates`);
+          console.log(`RAG: FTS found ${ftsResults.length} candidates, TOP_K_FINAL=${TOP_K_FINAL}, has ANTHROPIC_KEY=${!!ANTHROPIC_API_KEY}`);
           
           // STEP 2: Re-ranking with Claude Sonnet 4.5
-          if (ANTHROPIC_API_KEY && ftsResults.length > TOP_K_FINAL) {
+          // Changed: use >= instead of > to trigger rerank more consistently
+          if (ANTHROPIC_API_KEY && ftsResults.length >= TOP_K_FINAL) {
             try {
               const chunksForRerank = ftsResults.map((chunk: {
                 id: string;
@@ -313,9 +317,12 @@ serve(async (req) => {
               if (rerankResponse.ok) {
                 const rerankData = await rerankResponse.json();
                 if (rerankData.ranked_chunks && rerankData.ranked_chunks.length > 0) {
-                  rankedChunks = rerankData.ranked_chunks;
+                  // Filter by minimum relevance score
+                  rankedChunks = rerankData.ranked_chunks.filter(
+                    (c: RankedChunk) => c.relevance_score >= MIN_RELEVANCE_SCORE
+                  );
                   usedSmartSearch = true;
-                  console.log(`RAG: Claude re-ranked to ${rankedChunks.length} top chunks`);
+                  console.log(`RAG: Claude re-ranked to ${rerankData.ranked_chunks.length} chunks, ${rankedChunks.length} above threshold (>=${MIN_RELEVANCE_SCORE})`);
                 }
               } else {
                 console.error('Rerank failed:', await rerankResponse.text());
@@ -1138,13 +1145,37 @@ serve(async (req) => {
 
           // Send metadata at the end with citations
           const responseTimeMs = Date.now() - startTime;
-          const citations = rankedChunks.map((chunk, idx) => ({
+          
+          // Parse actually used citations from response [1], [2], etc.
+          const usedIndices = new Set<number>();
+          const citationMatches = fullContent.matchAll(/\[(\d+)\]/g);
+          for (const match of citationMatches) {
+            usedIndices.add(parseInt(match[1], 10));
+          }
+          console.log(`RAG: Response uses ${usedIndices.size} citation indices:`, Array.from(usedIndices));
+          
+          // Build citations with enhanced metadata
+          const allCitations = rankedChunks.map((chunk, idx) => ({
             index: idx + 1,
-            document: chunk.document_name,
+            document: chunk.original_document_name || chunk.document_name,
             section: chunk.section_title,
             article: chunk.article_number,
-            relevance: chunk.relevance_score,
+            // Normalize relevance to 0-1 scale for UI (score is 0-10)
+            relevance: Math.min(chunk.relevance_score / 10, 1),
+            // Enhanced metadata for document navigation
+            chunk_id: chunk.id,
+            document_id: chunk.parent_document_id,
+            page_start: chunk.part_number,
+            content_preview: chunk.content.slice(0, 300),
+            storage_path: undefined as string | undefined, // Will be populated later if needed
           }));
+          
+          // Filter to only citations actually used in the response (or all if none explicitly cited)
+          const citations = usedIndices.size > 0 
+            ? allCitations.filter(c => usedIndices.has(c.index))
+            : allCitations;
+          
+          console.log(`RAG: Sending ${citations.length} citations (${allCitations.length} total available)`);
 
           controller.enqueue(encoder.encode(`data: ${JSON.stringify({
             type: 'metadata',

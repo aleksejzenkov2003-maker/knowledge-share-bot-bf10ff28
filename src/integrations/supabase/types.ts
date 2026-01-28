@@ -979,7 +979,11 @@ export type Database = {
           document_name: string
           id: string
           keyword_matches: number
+          original_document_name: string
+          parent_document_id: string
+          part_number: number
           section_title: string
+          total_parts: number
         }[]
       }
       match_document_chunks: {
@@ -1012,7 +1016,11 @@ export type Database = {
           document_name: string
           fts_rank: number
           id: string
+          original_document_name: string
+          parent_document_id: string
+          part_number: number
           section_title: string
+          total_parts: number
         }[]
       }
     }

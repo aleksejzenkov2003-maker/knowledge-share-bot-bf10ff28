@@ -440,7 +440,7 @@ export function SourcesPanel({
                         </span>
                       )}
                       <span className="ml-auto">
-                        Релевантность: {(citation.relevance * 10).toFixed(0)}%
+                        Релевантность: {Math.round(citation.relevance * 100)}%
                       </span>
                     </div>
                   </div>
