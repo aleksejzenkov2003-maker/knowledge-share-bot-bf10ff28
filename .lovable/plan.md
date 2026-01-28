@@ -1,222 +1,112 @@
 
 
-# План исправления системы поиска по источникам и RAG
+# План исправления проблемы с источниками RAG
 
-## Диагностика текущих проблем
+## Диагностика
 
-### Выявленные баги:
+### Выявленная корневая причина
 
-1. **Re-ranking не вызывается для keyword fallback**
-   - FTS часто не находит результаты (по логам: "FTS returned no results")
-   - Keyword fallback находит чанки, но re-ranking вызывается ТОЛЬКО внутри блока FTS
-   - В результате `smart_search: false` и низкокачественные результаты
+**Папка "МКТУ" с 1894 чанками НЕ включена в `folder_ids` чат-роли "Отказы ТЗ"**
 
-2. **Keyword search использует примитивную экстракцию ключевых слов**
-   - Текущий код: `message.split(/\s+/).filter(w => w.length > 3)`
-   - Включает служебные слова, предлоги, частицы
-   - Приводит к ложным совпадениям
+```
+Папка МКТУ: cdf0fe63-479f-443b-b2f1-5dc33fcb4a9d
+Включена в роль: ❌ НЕТ
 
-3. **Content preview для поиска в документе берётся некорректно**
-   - `cleanSearchText()` обрезает до 80 символов
-   - Эти 80 символов могут не содержать ключевую информацию
-   - При открытии документа поиск находит нерелевантное место
+Текущие папки роли:
+- cc694f44-... (Нормативка по ТЗ) ✅
+- e2139398-... (Практика ППС -1-1483) ✅
+- c1b7ead2-... (Практика СИП -1-1483) ✅
+- 41d6ab74-... (СИП инфо справки 1483) ✅
+- 37f453ba-... (Практика по ТЗ) ✅
+```
 
-4. **Отсутствует контроль качества для keyword результатов**
-   - `MIN_RELEVANCE_SCORE = 5` применяется только после rerank
-   - Keyword search возвращает результаты с `keyword_matches = 2`, которые проходят в ответ
+### Цепочка событий
 
----
-
-## Решение 1: Добавить re-ranking для keyword fallback
-
-**Проблема**: Re-ranking вызывается только когда FTS успешен.
-
-**Решение**: Вынести re-ranking в отдельный шаг после получения любых результатов.
-
-**Изменения в `chat-stream/index.ts`**:
-
-```typescript
-// После блока keyword search (строка 408), добавить:
-
-// STEP 3.5: Re-rank keyword results if FTS didn't work but keywords did
-if (rankedChunks.length >= TOP_K_FINAL && ANTHROPIC_API_KEY && !usedSmartSearch) {
-  console.log('RAG: Re-ranking keyword fallback results');
-  try {
-    const chunksForRerank = rankedChunks.map(chunk => ({
-      id: chunk.id,
-      content: chunk.content,
-      document_name: chunk.document_name,
-      section_title: chunk.section_title,
-      article_number: chunk.article_number,
-      fts_rank: chunk.relevance_score,
-    }));
-
-    const rerankResponse = await fetch(`${supabaseUrl}/functions/v1/rerank-chunks`, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'Authorization': `Bearer ${supabaseKey}`,
-      },
-      body: JSON.stringify({
-        query: message,
-        chunks: chunksForRerank,
-        top_k: TOP_K_FINAL,
-      }),
-    });
-
-    if (rerankResponse.ok) {
-      const rerankData = await rerankResponse.json();
-      if (rerankData.ranked_chunks?.length > 0) {
-        rankedChunks = rerankData.ranked_chunks.filter(
-          (c: RankedChunk) => c.relevance_score >= MIN_RELEVANCE_SCORE
-        );
-        usedSmartSearch = true;
-        console.log(`RAG: Re-ranked keyword results to ${rankedChunks.length} chunks`);
-      }
-    }
-  } catch (err) {
-    console.error('Keyword rerank error:', err);
-  }
-}
+```text
+┌─────────────────────────────────────────────────────────────┐
+│  Пользователь: "Что такое 32 класс МКТУ?"                   │
+└─────────────────────────────────────────────────────────────┘
+                              │
+                              ▼
+┌─────────────────────────────────────────────────────────────┐
+│  FTS ищет в folder_ids = [cc694f44, e2139398, ...]          │
+│  ❌ НЕ включает cdf0fe63 (МКТУ)                              │
+└─────────────────────────────────────────────────────────────┘
+                              │
+                              ▼
+┌─────────────────────────────────────────────────────────────┐
+│  Находит косвенные упоминания "класс" в практике ППС        │
+│  → "Положение о пошлинах" (rank: 0.05)                      │
+│  → "Информационная справка" (rank: 0.02)                    │
+└─────────────────────────────────────────────────────────────┘
+                              │
+                              ▼
+┌─────────────────────────────────────────────────────────────┐
+│  Re-ranking оценивает НЕПРАВИЛЬНЫЕ чанки                    │
+│  → Низкие scores, но они всё равно попадают в ответ         │
+└─────────────────────────────────────────────────────────────┘
 ```
 
 ---
 
-## Решение 2: Улучшить экстракцию ключевых слов
+## Решение 1: Добавить папку МКТУ в роль (БЫСТРОЕ)
 
-**Проблема**: Слишком простая логика `split(/\s+/).filter(w => w.length > 3)`.
+**Действие**: Добавить `cdf0fe63-479f-443b-b2f1-5dc33fcb4a9d` в `folder_ids` чат-роли "Отказы ТЗ"
 
-**Решение**: Фильтровать стоп-слова и нормализовать запрос.
-
-**Изменения**:
-
-```typescript
-// Вместо:
-const keywords = message.toLowerCase().split(/\s+/).filter(w => w.length > 3);
-
-// Использовать:
-const STOP_WORDS = new Set([
-  'этот', 'который', 'какой', 'такой', 'каждый', 'весь', 'всего',
-  'если', 'когда', 'чтобы', 'также', 'однако', 'потому', 'поэтому',
-  'можно', 'нужно', 'будет', 'было', 'быть', 'есть', 'более', 'менее',
-  'очень', 'только', 'уже', 'еще', 'что', 'как', 'для', 'при',
-]);
-
-const keywords = message
-  .toLowerCase()
-  .replace(/[^\wа-яё\s]/gi, ' ') // Remove punctuation
-  .split(/\s+/)
-  .filter(w => w.length > 3 && !STOP_WORDS.has(w))
-  .slice(0, 10); // Limit to 10 keywords
+**SQL миграция**:
+```sql
+UPDATE chat_roles 
+SET folder_ids = array_append(folder_ids, 'cdf0fe63-479f-443b-b2f1-5dc33fcb4a9d'::uuid)
+WHERE slug = 'otkazy-tz';
 ```
+
+**Ожидаемый результат**: Поиск начнёт находить правильные чанки из справочника МКТУ
 
 ---
 
-## Решение 3: Улучшить content_preview для навигации
+## Решение 2: Улучшить UI управления папками (ДОЛГОСРОЧНОЕ)
 
-**Проблема**: 80 символов из начала чанка не содержат ключевую информацию.
+Текущая проблема показывает, что администратор может не осознавать, какие папки включены в роль. 
 
-**Решение**: Найти фрагмент, содержащий ключевые слова запроса.
-
-**Изменения в формировании citations**:
-
-```typescript
-// Функция для поиска релевантного фрагмента
-function extractRelevantPreview(content: string, query: string, maxLen: number = 200): string {
-  const queryWords = query.toLowerCase().split(/\s+/).filter(w => w.length > 4);
-  
-  if (queryWords.length === 0) {
-    return content.slice(0, maxLen);
-  }
-  
-  // Find the position of the first keyword match
-  const contentLower = content.toLowerCase();
-  let bestPos = 0;
-  
-  for (const word of queryWords) {
-    const pos = contentLower.indexOf(word);
-    if (pos !== -1) {
-      bestPos = Math.max(0, pos - 50); // Start 50 chars before match
-      break;
-    }
-  }
-  
-  return content.slice(bestPos, bestPos + maxLen);
-}
-
-// В формировании citations (строка 1169):
-content_preview: extractRelevantPreview(chunk.content, message, 300),
-```
+**Улучшения**:
+1. В интерфейсе редактирования ролей показывать количество чанков в каждой папке
+2. Добавить предупреждение если роль связана с определённой тематикой, но ключевые папки не включены
+3. Показывать визуальное дерево папок с чекбоксами
 
 ---
 
-## Решение 4: Увеличить минимальный порог и добавить fallback
+## Дополнительные проверки качества RAG
 
-**Проблема**: Результаты с низкой оценкой попадают в ответ.
+### Проверка 1: Правильность работы FTS после добавления папки
 
-**Решение**: 
-- Увеличить `MIN_RELEVANCE_SCORE` до 6
-- Если после фильтрации не осталось результатов — вернуть топ-3 с пометкой о низкой уверенности
-
-```typescript
-const MIN_RELEVANCE_SCORE = 6; // Было 5
-
-// После фильтрации:
-if (rankedChunks.length === 0 && allRankedChunks.length > 0) {
-  // Fallback: use top 3 even if below threshold, but mark as low confidence
-  rankedChunks = allRankedChunks.slice(0, 3);
-  console.log('RAG: Using low-confidence fallback (top 3 below threshold)');
-}
+После миграции протестировать:
+```sql
+SELECT * FROM smart_fts_search(
+  'класс 32 МКТУ пиво', 
+  ARRAY['cdf0fe63-479f-443b-b2f1-5dc33fcb4a9d', 'cc694f44-8618-457b-a4b8-7370a4754d91']::uuid[]
+);
 ```
 
----
+Ожидается: чанки с rank > 0.1 из документа `mktu_13_26_2lang`
 
-## Решение 5: Улучшить поиск в DocumentViewer
+### Проверка 2: Индексация tsvector для МКТУ документа
 
-**Проблема**: Поиск по 80 символам часто не находит совпадений.
-
-**Решение**: Увеличить длину и использовать более умный keyword fallback.
-
-**Изменения в `SourcesPanel.tsx`**:
-
-```typescript
-// Функция cleanSearchText - увеличить до 150 символов
-const cleanSearchText = (text?: string): string | undefined => {
-  if (!text) return undefined;
-  
-  return text
-    .slice(0, 150) // Увеличить с 80 до 150
-    .replace(/\s+/g, ' ')
-    .trim();
-};
+```sql
+SELECT id, LEFT(content, 100), 
+       ts_rank_cd(content_tsv, websearch_to_tsquery('russian', 'пиво напитки')) as rank
+FROM document_chunks
+WHERE document_id IN (SELECT id FROM documents WHERE name = 'mktu_13_26_2lang')
+ORDER BY rank DESC
+LIMIT 5;
 ```
 
 ---
 
 ## Файлы для изменения
 
-1. **`supabase/functions/chat-stream/index.ts`**:
-   - Добавить re-ranking для keyword fallback (~строка 408)
-   - Улучшить экстракцию ключевых слов (~строка 372)
-   - Добавить функцию `extractRelevantPreview`
-   - Использовать её в формировании citations (~строка 1169)
-   - Увеличить `MIN_RELEVANCE_SCORE` до 6
+1. **SQL миграция** — добавить папку МКТУ в роль "Отказы ТЗ"
 
-2. **`src/components/chat/SourcesPanel.tsx`**:
-   - Увеличить `cleanSearchText` до 150 символов
-   - Улучшить отображение документа-источника
-
----
-
-## Ожидаемые результаты
-
-| Проблема | До | После |
-|----------|-----|-------|
-| Re-ranking | Только для FTS | Для FTS и keyword fallback |
-| smart_search | false (всегда) | true (когда rerank успешен) |
-| Ключевые слова | Все слова > 3 символов | Фильтрация стоп-слов |
-| Content preview | 80 символов с начала | 150 символов с ключевыми словами |
-| Релевантность | 0.2 (нерелевантно) | 0.6+ (только качественные) |
+2. **Опционально: src/pages/ChatRoles.tsx** — улучшить UI выбора папок
 
 ---
 
@@ -224,19 +114,19 @@ const cleanSearchText = (text?: string): string | undefined => {
 
 ### Порядок имплементации
 
-1. Добавить re-ranking для keyword fallback
-2. Улучшить экстракцию ключевых слов  
-3. Добавить функцию extractRelevantPreview
-4. Обновить формирование content_preview
-5. Увеличить MIN_RELEVANCE_SCORE
-6. Увеличить cleanSearchText в UI
-7. Задеплоить и протестировать
+1. Выполнить SQL миграцию для добавления папки МКТУ
+2. Протестировать поиск с новой конфигурацией
+3. Опционально: улучшить UI для предотвращения подобных проблем
 
 ### Оценка времени
 
-- Изменения в chat-stream: 2-3 часа
-- UI исправления: 30 минут
-- Тестирование: 1 час
+- SQL миграция: 5 минут
+- Тестирование: 15 минут
+- UI улучшения (опционально): 2-3 часа
 
-**Общее время**: ~4 часа
+**Минимальное время до исправления**: ~20 минут
+
+### Вывод
+
+**Проблема НЕ в логике RAG, а в конфигурации роли**. Папка МКТУ с полным справочником классов просто не была добавлена в `folder_ids` чат-роли. После добавления папки поиск должен работать корректно.
 
