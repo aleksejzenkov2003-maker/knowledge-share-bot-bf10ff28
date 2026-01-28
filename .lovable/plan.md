@@ -1,132 +1,193 @@
 
+# План исправления системы citations и навигации по источникам
 
-# План исправления проблемы с источниками RAG
+## Выявленные критические проблемы
 
-## Диагностика
+### Проблема 1: document_id и storage_path не заполняются в citations
+**Местоположение**: `supabase/functions/chat-stream/index.ts`, строки 1269-1273
 
-### Выявленная корневая причина
-
-**Папка "МКТУ" с 1894 чанками НЕ включена в `folder_ids` чат-роли "Отказы ТЗ"**
-
-```
-Папка МКТУ: cdf0fe63-479f-443b-b2f1-5dc33fcb4a9d
-Включена в роль: ❌ НЕТ
-
-Текущие папки роли:
-- cc694f44-... (Нормативка по ТЗ) ✅
-- e2139398-... (Практика ППС -1-1483) ✅
-- c1b7ead2-... (Практика СИП -1-1483) ✅
-- 41d6ab74-... (СИП инфо справки 1483) ✅
-- 37f453ba-... (Практика по ТЗ) ✅
+**Текущий код**:
+```typescript
+document_id: chunk.parent_document_id,  // null для обычных документов!
+storage_path: undefined as string | undefined, // Никогда не заполняется
 ```
 
-### Цепочка событий
+**Причина**: `parent_document_id` используется только для split-документов. Для обычных документов это поле null. Также storage_path никогда не получается из базы.
 
-```text
-┌─────────────────────────────────────────────────────────────┐
-│  Пользователь: "Что такое 32 класс МКТУ?"                   │
-└─────────────────────────────────────────────────────────────┘
-                              │
-                              ▼
-┌─────────────────────────────────────────────────────────────┐
-│  FTS ищет в folder_ids = [cc694f44, e2139398, ...]          │
-│  ❌ НЕ включает cdf0fe63 (МКТУ)                              │
-└─────────────────────────────────────────────────────────────┘
-                              │
-                              ▼
-┌─────────────────────────────────────────────────────────────┐
-│  Находит косвенные упоминания "класс" в практике ППС        │
-│  → "Положение о пошлинах" (rank: 0.05)                      │
-│  → "Информационная справка" (rank: 0.02)                    │
-└─────────────────────────────────────────────────────────────┘
-                              │
-                              ▼
-┌─────────────────────────────────────────────────────────────┐
-│  Re-ranking оценивает НЕПРАВИЛЬНЫЕ чанки                    │
-│  → Низкие scores, но они всё равно попадают в ответ         │
-└─────────────────────────────────────────────────────────────┘
+### Проблема 2: Non-streaming citations не имеют расширенных данных
+**Местоположение**: строки 1117-1123
+
+Для non-streaming ответов (Perplexity deep-research) citations формируются БЕЗ:
+- content_preview
+- chunk_id
+- document_id
+- page_start
+- storage_path
+
+### Проблема 3: extractRelevantPreview находит первое ключевое слово
+Для запроса "32 класс МКТУ" функция может найти "класс" или "мкту" раньше "32", создавая нерелевантный preview.
+
+### Проблема 4: МКТУ - это XLSX файл
+DocumentViewer оптимизирован для PDF. Для Excel файлов подсветка текста не работает.
+
+---
+
+## Решение 1: Получить document_id и storage_path из базы
+
+**Изменения в chat-stream/index.ts** (после строки 1250):
+
+```typescript
+// Fetch document metadata for storage_path
+const chunkDocIds = rankedChunks.map(c => c.id);
+const { data: chunkDocMeta } = await supabase
+  .from('document_chunks')
+  .select('id, document_id, documents!inner(id, storage_path)')
+  .in('id', chunkDocIds);
+
+// Create lookup map
+const chunkToDoc = new Map();
+for (const chunk of chunkDocMeta || []) {
+  chunkToDoc.set(chunk.id, {
+    document_id: chunk.document_id,
+    storage_path: (chunk.documents as any)?.storage_path
+  });
+}
+```
+
+**Обновить формирование citations** (строки 1261-1274):
+
+```typescript
+const allCitations = rankedChunks.map((chunk, idx) => {
+  const docMeta = chunkToDoc.get(chunk.id) || {};
+  return {
+    index: idx + 1,
+    document: chunk.original_document_name || chunk.document_name,
+    section: chunk.section_title,
+    article: chunk.article_number,
+    relevance: Math.min(chunk.relevance_score / 10, 1),
+    chunk_id: chunk.id,
+    document_id: docMeta.document_id || chunk.parent_document_id,
+    page_start: chunk.part_number,
+    content_preview: extractRelevantPreview(chunk.content, message, 300),
+    storage_path: docMeta.storage_path,
+  };
+});
 ```
 
 ---
 
-## Решение 1: Добавить папку МКТУ в роль (БЫСТРОЕ)
+## Решение 2: Исправить non-streaming citations
 
-**Действие**: Добавить `cdf0fe63-479f-443b-b2f1-5dc33fcb4a9d` в `folder_ids` чат-роли "Отказы ТЗ"
+**Изменения в строках 1117-1123**:
 
-**SQL миграция**:
-```sql
-UPDATE chat_roles 
-SET folder_ids = array_append(folder_ids, 'cdf0fe63-479f-443b-b2f1-5dc33fcb4a9d'::uuid)
-WHERE slug = 'otkazy-tz';
-```
-
-**Ожидаемый результат**: Поиск начнёт находить правильные чанки из справочника МКТУ
+Заменить упрощенный код на полноценное формирование citations с теми же полями, что и в streaming версии.
 
 ---
 
-## Решение 2: Улучшить UI управления папками (ДОЛГОСРОЧНОЕ)
+## Решение 3: Улучшить extractRelevantPreview
 
-Текущая проблема показывает, что администратор может не осознавать, какие папки включены в роль. 
+**Изменения в функции extractRelevantPreview** (строки 269-292):
 
-**Улучшения**:
-1. В интерфейсе редактирования ролей показывать количество чанков в каждой папке
-2. Добавить предупреждение если роль связана с определённой тематикой, но ключевые папки не включены
-3. Показывать визуальное дерево папок с чекбоксами
+```typescript
+function extractRelevantPreview(content: string, query: string, maxLen: number = 300): string {
+  // Extract significant keywords (numbers and words > 4 chars)
+  const queryWords = query.toLowerCase()
+    .replace(/[^\wа-яё\s\d]/gi, ' ')
+    .split(/\s+/)
+    .filter(w => (w.length > 4 && !STOP_WORDS.has(w)) || /^\d+$/.test(w));
+  
+  if (queryWords.length === 0) {
+    return content.slice(0, maxLen);
+  }
+  
+  const contentLower = content.toLowerCase();
+  
+  // Find position with most keyword matches in a window
+  let bestPos = 0;
+  let bestScore = 0;
+  
+  for (let i = 0; i < content.length - maxLen; i += 50) {
+    const window = contentLower.slice(i, i + maxLen);
+    let score = 0;
+    for (const word of queryWords) {
+      if (window.includes(word)) score++;
+    }
+    if (score > bestScore) {
+      bestScore = score;
+      bestPos = i;
+    }
+  }
+  
+  return content.slice(bestPos, bestPos + maxLen);
+}
+```
 
 ---
 
-## Дополнительные проверки качества RAG
+## Решение 4: Поддержка XLSX в SourcesPanel
 
-### Проверка 1: Правильность работы FTS после добавления папки
+**Изменения в SourcesPanel.tsx**:
 
-После миграции протестировать:
-```sql
-SELECT * FROM smart_fts_search(
-  'класс 32 МКТУ пиво', 
-  ARRAY['cdf0fe63-479f-443b-b2f1-5dc33fcb4a9d', 'cc694f44-8618-457b-a4b8-7370a4754d91']::uuid[]
-);
-```
+Добавить проверку типа файла и альтернативное отображение для Excel:
 
-Ожидается: чанки с rank > 0.1 из документа `mktu_13_26_2lang`
-
-### Проверка 2: Индексация tsvector для МКТУ документа
-
-```sql
-SELECT id, LEFT(content, 100), 
-       ts_rank_cd(content_tsv, websearch_to_tsquery('russian', 'пиво напитки')) as rank
-FROM document_chunks
-WHERE document_id IN (SELECT id FROM documents WHERE name = 'mktu_13_26_2lang')
-ORDER BY rank DESC
-LIMIT 5;
+```typescript
+// В openDocumentWithHighlight:
+const fileExt = storagePath.split('.').pop()?.toLowerCase();
+if (fileExt === 'xlsx' || fileExt === 'xls') {
+  // Show Excel preview or download link instead of PDF viewer
+  toast({
+    title: "Excel документ",
+    description: "Для просмотра скачайте файл",
+    action: <Button onClick={() => downloadFile(storagePath)}>Скачать</Button>
+  });
+  return;
+}
 ```
 
 ---
 
 ## Файлы для изменения
 
-1. **SQL миграция** — добавить папку МКТУ в роль "Отказы ТЗ"
+1. **supabase/functions/chat-stream/index.ts**:
+   - Добавить запрос document metadata (после строки 1250)
+   - Исправить формирование citations (строки 1261-1274)
+   - Исправить non-streaming citations (строки 1117-1123)
+   - Улучшить extractRelevantPreview (строки 269-292)
 
-2. **Опционально: src/pages/ChatRoles.tsx** — улучшить UI выбора папок
+2. **src/components/chat/SourcesPanel.tsx**:
+   - Добавить обработку Excel файлов
+
+---
+
+## Порядок имплементации
+
+1. Добавить запрос document metadata для получения storage_path
+2. Исправить формирование streaming citations с правильным document_id
+3. Исправить non-streaming citations (аналогично)
+4. Улучшить extractRelevantPreview для поиска лучшего окна
+5. Добавить обработку Excel файлов в SourcesPanel
+6. Задеплоить и протестировать
+
+---
+
+## Ожидаемые результаты
+
+| Проблема | До | После |
+|----------|-----|-------|
+| document_id | null (parent_document_id) | Реальный ID документа |
+| storage_path | undefined | Путь к файлу |
+| content_preview | Первое слово | Лучшее окно с макс. совпадениями |
+| Excel файлы | Ошибка просмотра | Кнопка скачивания |
 
 ---
 
 ## Техническая секция
 
-### Порядок имплементации
+### Тестирование после изменений
 
-1. Выполнить SQL миграцию для добавления папки МКТУ
-2. Протестировать поиск с новой конфигурацией
-3. Опционально: улучшить UI для предотвращения подобных проблем
-
-### Оценка времени
-
-- SQL миграция: 5 минут
-- Тестирование: 15 минут
-- UI улучшения (опционально): 2-3 часа
-
-**Минимальное время до исправления**: ~20 минут
-
-### Вывод
-
-**Проблема НЕ в логике RAG, а в конфигурации роли**. Папка МКТУ с полным справочником классов просто не была добавлена в `folder_ids` чат-роли. После добавления папки поиск должен работать корректно.
-
+1. Сделать запрос "32 класс МКТУ" с ролью "Отказы ТЗ"
+2. Проверить что в citations есть:
+   - document_id (не null)
+   - storage_path (путь к файлу)
+   - content_preview содержит "32" или "Класс: 32"
+3. Нажать на источник и убедиться что открывается правильный документ
