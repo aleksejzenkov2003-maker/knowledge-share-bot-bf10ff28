@@ -238,10 +238,67 @@ export function DocumentViewer({
 
     setIsSearching(true);
     const matches: TextMatch[] = [];
-    const searchLower = query.toLowerCase();
+    
+    // Split query into keywords for multi-keyword search
+    const keywords = query.split(/\s+/).filter(w => w.length > 1);
+    console.log(`PDF search with ${keywords.length} keywords:`, keywords);
 
     try {
-      // First attempt: full phrase search
+      // Strategy 1: Multi-keyword page scoring (primary method)
+      if (keywords.length > 1) {
+        const pageScores: { pageNum: number; score: number }[] = [];
+        
+        for (let pageNum = 1; pageNum <= numPages; pageNum++) {
+          const page = await pdfDocRef.current.getPage(pageNum);
+          const textContent = await page.getTextContent();
+          const pageText = textContent.items.map((item: any) => item.str).join(' ').toLowerCase();
+          
+          let score = 0;
+          for (const kw of keywords) {
+            const kwLower = kw.toLowerCase();
+            if (pageText.includes(kwLower)) {
+              // Extra weight for numbers (more specific identifiers)
+              score += /^\d+$/.test(kw) ? 3 : 1;
+            }
+          }
+          
+          if (score > 0) {
+            pageScores.push({ pageNum, score });
+          }
+        }
+        
+        // Sort by score descending
+        pageScores.sort((a, b) => b.score - a.score);
+        
+        if (pageScores.length > 0) {
+          // Navigate to best matching page
+          setCurrentPage(pageScores[0].pageNum);
+          
+          // Highlight the most specific keyword (prefer numbers, then longest word)
+          const highlightWord = keywords.find(k => /^\d+$/.test(k)) || 
+                               [...keywords].sort((a, b) => b.length - a.length)[0];
+          setHighlightedText(highlightWord);
+          
+          // Add matches for navigation
+          pageScores.forEach((ps, idx) => {
+            matches.push({ pageIndex: ps.pageNum, matchIndex: idx });
+          });
+          
+          setSearchResults(matches);
+          setCurrentMatchIndex(0);
+          
+          toast({
+            title: "Поиск завершён",
+            description: `Найдено ${pageScores.length} страниц с ключевыми словами`,
+          });
+          setIsSearching(false);
+          return;
+        }
+      }
+
+      // Strategy 2: Full phrase search (fallback for single keyword or no multi-keyword matches)
+      const searchLower = query.toLowerCase();
+      
       for (let pageNum = 1; pageNum <= numPages; pageNum++) {
         const page = await pdfDocRef.current.getPage(pageNum);
         const textContent = await page.getTextContent();
@@ -256,35 +313,32 @@ export function DocumentViewer({
         }
       }
 
-      // Fallback: if no matches and query is long, try keyword search
+      // Strategy 3: Keyword fallback if no exact phrase matches
       if (matches.length === 0 && query.length > 20) {
-        const keywords = query
+        const fallbackKeywords = query
           .split(/\s+/)
-          .filter(word => word.length > 4)
+          .filter(word => word.length > 4 || /^\d+$/.test(word))
           .slice(0, 3);
         
-        if (keywords.length > 0) {
-          console.log('Trying keyword search with:', keywords);
+        if (fallbackKeywords.length > 0) {
+          console.log('Trying keyword fallback search with:', fallbackKeywords);
           
           for (let pageNum = 1; pageNum <= numPages; pageNum++) {
             const page = await pdfDocRef.current.getPage(pageNum);
             const textContent = await page.getTextContent();
             const pageText = textContent.items.map((item: any) => item.str).join(' ').toLowerCase();
             
-            // Count how many keywords match on this page
-            const matchingKeywords = keywords.filter(kw => 
+            const matchingKeywords = fallbackKeywords.filter(kw => 
               pageText.includes(kw.toLowerCase())
             );
             
-            // If at least 2 keywords match (or 1 if only 1 keyword), consider it a match
-            if (matchingKeywords.length >= Math.min(2, keywords.length)) {
+            if (matchingKeywords.length >= Math.min(2, fallbackKeywords.length)) {
               matches.push({ pageIndex: pageNum, matchIndex: 0 });
             }
           }
           
-          // Update highlighted text to first keyword for visual highlighting
-          if (matches.length > 0 && keywords[0]) {
-            setHighlightedText(keywords[0]);
+          if (matches.length > 0 && fallbackKeywords[0]) {
+            setHighlightedText(fallbackKeywords[0]);
           }
         }
       }

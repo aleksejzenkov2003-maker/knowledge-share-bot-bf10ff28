@@ -31,6 +31,7 @@ export interface Citation {
   chunk_index?: number;
   content_preview?: string;
   storage_path?: string;
+  search_keywords?: string[]; // Keywords from original query for PDF search
 }
 
 export interface Attachment {

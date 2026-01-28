@@ -265,6 +265,21 @@ serve(async (req) => {
       'свой', 'свою', 'своё', 'наш', 'наша', 'наше', 'ваш', 'ваша',
     ]);
     
+    // Function to extract search keywords from original query for PDF navigation
+    function extractSearchKeywords(query: string): string[] {
+      return query
+        .toLowerCase()
+        .replace(/[^\wа-яё\s\d]/gi, ' ')
+        .split(/\s+/)
+        .filter(w => {
+          // Include numbers (any length) - they're usually very specific identifiers
+          if (/^\d+$/.test(w)) return true;
+          // Include words > 3 chars that are not stop words
+          return w.length > 3 && !STOP_WORDS.has(w);
+        })
+        .slice(0, 5); // Max 5 keywords for PDF search
+    }
+    
     // Function to extract relevant preview containing keywords using sliding window scoring
     function extractRelevantPreview(content: string, query: string, maxLen: number = 300): string {
       // Extract significant keywords: numbers (any length) and words > 4 chars
@@ -1150,6 +1165,10 @@ serve(async (req) => {
         }
       }
       
+      // Extract search keywords from original query for PDF navigation
+      const searchKeywords = extractSearchKeywords(message);
+      console.log(`RAG (non-stream): Search keywords for PDF: ${searchKeywords.join(', ')}`);
+      
       const citations = rankedChunks.map((chunk, idx) => {
         const docMeta = chunkToDocNonStream.get(chunk.id);
         return {
@@ -1163,6 +1182,7 @@ serve(async (req) => {
           page_start: chunk.part_number,
           content_preview: extractRelevantPreview(chunk.content, message, 300),
           storage_path: docMeta?.storage_path,
+          search_keywords: searchKeywords,
         };
       });
       
@@ -1318,6 +1338,10 @@ serve(async (req) => {
             }
           }
           
+          // Extract search keywords from original query for PDF navigation
+          const searchKeywords = extractSearchKeywords(message);
+          console.log(`RAG: Search keywords for PDF navigation: ${searchKeywords.join(', ')}`);
+          
           // Build citations with enhanced metadata
           const allCitations = rankedChunks.map((chunk, idx) => {
             const docMeta = chunkToDoc.get(chunk.id);
@@ -1334,6 +1358,7 @@ serve(async (req) => {
               page_start: chunk.part_number,
               content_preview: extractRelevantPreview(chunk.content, message, 300),
               storage_path: docMeta?.storage_path,
+              search_keywords: searchKeywords,
             };
           });
           

@@ -214,7 +214,10 @@ export function SourcesPanel({
           documentId: citationData.document_id,
           storagePath: citationData.storage_path,
           documentName: citationData.document,
-          searchText: cleanSearchText(citationData.content_preview || contentPreview),
+          // Use search_keywords for PDF navigation if available, otherwise fallback to content_preview
+          searchText: citationData.search_keywords?.length 
+            ? citationData.search_keywords.join(' ')
+            : cleanSearchText(citationData.content_preview || contentPreview),
           pageNumber: citationData.page_start || extractPageNumber(documentInfo),
         });
         setLoadingSource(null);
