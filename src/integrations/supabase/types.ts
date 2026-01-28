@@ -239,6 +239,7 @@ export type Database = {
       }
       chat_roles: {
         Row: {
+          allow_web_search: boolean | null
           created_at: string
           department_ids: string[] | null
           description: string | null
@@ -250,10 +251,12 @@ export type Database = {
           model_config: Json | null
           name: string
           slug: string
+          strict_rag_mode: boolean | null
           system_prompt_id: string | null
           updated_at: string
         }
         Insert: {
+          allow_web_search?: boolean | null
           created_at?: string
           department_ids?: string[] | null
           description?: string | null
@@ -265,10 +268,12 @@ export type Database = {
           model_config?: Json | null
           name: string
           slug: string
+          strict_rag_mode?: boolean | null
           system_prompt_id?: string | null
           updated_at?: string
         }
         Update: {
+          allow_web_search?: boolean | null
           created_at?: string
           department_ids?: string[] | null
           description?: string | null
@@ -280,6 +285,7 @@ export type Database = {
           model_config?: Json | null
           name?: string
           slug?: string
+          strict_rag_mode?: boolean | null
           system_prompt_id?: string | null
           updated_at?: string
         }

@@ -130,6 +130,71 @@ export default function BitrixPersonalChat() {
   const userEmail = searchParams.get('userEmail') || '';
   const departmentIdParam = searchParams.get('departmentId') || '';
   const theme = searchParams.get('theme') || 'light';
+  
+  // Storage key for state persistence (unique per user/portal)
+  const storageKey = `bitrix_personal_chat_${portal}_${bitrixUserId}`;
+
+  // STATE PERSISTENCE: Save state on visibility change or blur
+  useEffect(() => {
+    const saveState = () => {
+      if (!token) return;
+      
+      const stateToSave = {
+        activeConversationId,
+        inputValue,
+        selectedRoleId,
+        sidebarOpen,
+        savedAt: Date.now(),
+      };
+      
+      try {
+        sessionStorage.setItem(storageKey, JSON.stringify(stateToSave));
+        console.log('Bitrix Personal: State saved to sessionStorage');
+      } catch (e) {
+        console.error('Failed to save state:', e);
+      }
+    };
+    
+    const handleVisibilityChange = () => {
+      if (document.visibilityState === 'hidden') {
+        saveState();
+      }
+    };
+    
+    const handleBeforeUnload = () => {
+      saveState();
+    };
+    
+    document.addEventListener('visibilitychange', handleVisibilityChange);
+    window.addEventListener('blur', saveState);
+    window.addEventListener('beforeunload', handleBeforeUnload);
+    
+    return () => {
+      document.removeEventListener('visibilitychange', handleVisibilityChange);
+      window.removeEventListener('blur', saveState);
+      window.removeEventListener('beforeunload', handleBeforeUnload);
+    };
+  }, [token, activeConversationId, inputValue, selectedRoleId, sidebarOpen, storageKey]);
+  
+  // STATE PERSISTENCE: Restore state on mount
+  useEffect(() => {
+    try {
+      const savedState = sessionStorage.getItem(storageKey);
+      if (savedState) {
+        const parsed = JSON.parse(savedState);
+        // Only restore if saved within the last 30 minutes
+        if (parsed.savedAt && Date.now() - parsed.savedAt < 30 * 60 * 1000) {
+          if (parsed.activeConversationId) setActiveConversationId(parsed.activeConversationId);
+          if (parsed.inputValue) setInputValue(parsed.inputValue);
+          if (parsed.selectedRoleId) setSelectedRoleId(parsed.selectedRoleId);
+          if (typeof parsed.sidebarOpen === 'boolean') setSidebarOpen(parsed.sidebarOpen);
+          console.log('Bitrix Personal: State restored from sessionStorage');
+        }
+      }
+    } catch (e) {
+      console.error('Failed to restore state:', e);
+    }
+  }, [storageKey]);
 
   // Apply theme
   useEffect(() => {

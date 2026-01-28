@@ -113,6 +113,9 @@ serve(async (req) => {
     let isProjectMode = false;
 
     // Get role config if role_id provided
+    let allowWebSearch = true;
+    let strictRagMode = false;
+    
     if (role_id) {
       const { data: role } = await supabase
         .from('chat_roles')
@@ -124,6 +127,10 @@ serve(async (req) => {
         deptId = role.department_id;
         folderIds = role.folder_ids || [];
         isProjectMode = role.is_project_mode || false;
+        // New: role-based web search controls
+        allowWebSearch = role.allow_web_search !== false; // Default true if not set
+        strictRagMode = role.strict_rag_mode === true;
+        
         if (role.system_prompt?.prompt_text) {
           systemPrompt = role.system_prompt.prompt_text;
         }
@@ -502,14 +509,15 @@ serve(async (req) => {
     let webSearchCitations: string[] = [];
     let webSearchUsed = false;
     
-    // ALWAYS perform web search for Claude to ensure complete answers
+    // Perform web search only if allowed by role settings
     // This supplements RAG with real-time web data
     if (
+      allowWebSearch && // Check role setting
       providerConfig.provider_type === 'anthropic' && 
       PERPLEXITY_API_KEY &&
       message // Only if there's a user message
     ) {
-      console.log('Performing ALWAYS-ON web search for Claude via Perplexity...');
+      console.log(`Performing web search for Claude (allowWebSearch=${allowWebSearch}, strictRagMode=${strictRagMode})...`);
       
       try {
         const webSearchResponse = await fetch('https://api.perplexity.ai/chat/completions', {
@@ -572,15 +580,30 @@ serve(async (req) => {
         contextParts.push(`КОНТЕКСТ ИЗ ИНТЕРНЕТА (дополнительная информация):${sourcesNote}\n${webSearchContext.join('\n\n')}`);
       }
       
-      const instructions = `
+      // Different instructions based on strict RAG mode
+      let instructions: string;
+      if (strictRagMode) {
+        instructions = `
+ИНСТРУКЦИИ (СТРОГИЙ РЕЖИМ - ТОЛЬКО БАЗА ЗНАНИЙ):
+1. Отвечай ТОЛЬКО на основе предоставленных документов из базы знаний
+2. ОБЯЗАТЕЛЬНО указывай источники в формате [номер] для каждого утверждения
+3. Если информация НЕ найдена в документах — честно сообщи об этом
+4. НЕ додумывай и НЕ используй общие знания
+5. Если вопрос выходит за рамки документов — предложи уточнить запрос`;
+      } else {
+        instructions = `
 ИНСТРУКЦИИ:
 1. Используй ОБА источника для полного ответа: документы И интернет
 2. Если в документах нет конкретной информации — обязательно дополни из интернета
 3. НЕ говори "в документах отсутствует" или "информация недоступна" — найди ответ в веб-контексте
 4. Указывай источники: [номер] для документов, (ссылка) для веб-источников
 5. Приоритет: документы первичны, интернет — для дополнения и актуализации`;
+      }
       
       finalPrompt = `${contextParts.join('\n\n---\n\n')}\n\n---\n${instructions}${replyContext}\n\n---\n\nВОПРОС ПОЛЬЗОВАТЕЛЯ: ${message || 'Проанализируй прикрепленные файлы'}`;
+    } else if (strictRagMode && ragContext.length === 0) {
+      // Strict RAG mode but no documents found - inform user
+      finalPrompt = `${replyContext}\n\nВОПРОС ПОЛЬЗОВАТЕЛЯ: ${message || 'Проанализируй прикрепленные файлы'}\n\n[СИСТЕМНОЕ ПРИМЕЧАНИЕ: Включен строгий режим RAG, но релевантные документы не найдены. Сообщи пользователю, что для данного запроса нет информации в базе знаний.]`;
     } else if (replyContext) {
       // No RAG/web context but has reply context
       finalPrompt = `${replyContext}\n\nВОПРОС ПОЛЬЗОВАТЕЛЯ: ${message || 'Проанализируй прикрепленные файлы'}`;
