@@ -1,323 +1,249 @@
 
-# План: База знаний чата + Выбор документов + Reply-to-message
 
-## Обзор функционала
+# План решения проблем AI-чатбота
 
-### 1. База знаний чата (Chat Knowledge Base)
-Автоматическое сохранение всех документов из чата в специальную папку отдела/пользователя для повторного использования.
+## Резюме анализа
 
-### 2. UI для выбора документов
-Кнопка в чате для выбора документов из базы с множественным выбором — агент получит выбранные документы в контексте.
-
-### 3. Reply-to-message (Ответ на сообщение)
-Возможность ответить на конкретное сообщение (как в Telegram) — агент учтёт это сообщение при ответе.
+Проведён детальный анализ кодовой базы и данных. Выявлены конкретные технические причины каждой из озвученных проблем.
 
 ---
 
-## Архитектура
+## 1. Нестабильная работа в Битриксе (диалоговое окно)
+
+**Проблема**: Диалог пропадает при изменении размера окна, переключении вкладок или потере фокуса.
+
+**Причина**: Виджет загружается в iframe, но отсутствует механизм сохранения состояния при событиях visibility change, focus/blur и resize. Bitrix24 агрессивно перезагружает iframes при изменениях UI.
+
+**Решение**:
+1. Добавить обработку событий `visibilitychange` и `focus/blur` в `BitrixPersonalChat.tsx` и `BitrixDepartmentChat.tsx`
+2. Реализовать сохранение состояния чата в `sessionStorage` или `localStorage` при потере фокуса
+3. Восстановление состояния при возврате фокуса
+4. Добавить debounce для обработки resize событий
+
+**Файлы**: 
+- `src/pages/BitrixPersonalChat.tsx`
+- `src/pages/BitrixDepartmentChat.tsx`
+
+---
+
+## 2. Проблемы с контекстом (модель не видит историю)
+
+**Проблема**: Модель не всегда "видит" предыдущие сообщения и вложения.
+
+**Причина**: Анализ `bitrix-chat-api` показывает, что `message_history` передаётся в chat-stream, но ограничен 30 сообщениями. При этом вложения из истории не агрегируются - передаются только вложения текущего сообщения.
+
+**Решение**:
+1. В `bitrix-chat-api` модифицировать логику для агрегации attachments из всей истории сообщений (аналогично тому, как это делает `chat-stream` на строках 592-627)
+2. Увеличить лимит истории с 30 до 50 сообщений для более полного контекста
+3. Добавить дедупликацию вложений по `file_path`
+
+**Файлы**: 
+- `supabase/functions/bitrix-chat-api/index.ts` (строки 1477-1503 и 1227-1244)
+
+---
+
+## 3. В Битриксе нет списка источников
+
+**Проблема**: Источники не отображаются в интерфейсе Bitrix, хотя UI компонент существует.
+
+**Причина**: Критический баг! В базе данных для `source='bitrix'` сообщений metadata **НЕ содержит** `rag_context`, `citations`, `web_search_citations`:
 
 ```text
-┌─────────────────────────────────────────────────────────────────┐
-│                         ИНТЕРФЕЙС ЧАТА                          │
-├─────────────────────────────────────────────────────────────────┤
-│  ┌─────────────────────────────────────────────────────────┐   │
-│  │ [Reply Preview]  ← Ответ на: "Aleksey: На рабоферме"     │   │
-│  │ ↳ Показывает превью сообщения на которое отвечаем       │   │
-│  └─────────────────────────────────────────────────────────┘   │
-│                                                                 │
-│  ┌─────────────────────────────────────────────────────────┐   │
-│  │ [📎] [📚 База: 3 док.] [@Агент ▼]        [Отправить →]  │   │
-│  │                                                         │   │
-│  │  📎 - Прикрепить новый файл                             │   │
-│  │  📚 - Выбрать документы из базы знаний                   │   │
-│  └─────────────────────────────────────────────────────────┘   │
-└─────────────────────────────────────────────────────────────────┘
+source=web:    has_rag=true,  has_citations=true
+source=bitrix: has_rag=false, has_citations=false
 ```
+
+Код парсинга метаданных в `bitrix-chat-api` (строки 1566-1580) пытается захватить данные, но:
+- Метаданные приходят последним SSE-чанком (`type: 'metadata'`)
+- Сохранение происходит при получении `[DONE]` ДО обработки буфера
+- Часть данных теряется из-за неполного буфера
+
+**Решение**:
+1. В `bitrix-chat-api` перенести сохранение сообщения ПОСЛЕ обработки оставшегося буфера
+2. Убедиться, что `metadata` чанк полностью парсится перед сохранением
+3. Добавить явные логи для отладки захвата rag_context/citations
+
+**Файлы**: 
+- `supabase/functions/bitrix-chat-api/index.ts` (строки 1544-1604)
 
 ---
 
-## Технические изменения
+## 4. Источники не соответствуют содержанию ответа
 
-### Часть 1: База знаний чата
+**Проблема**: Показываемые источники часто не релевантны ответу, ссылки ведут на странные фрагменты.
 
-#### 1.1 Новая таблица `chat_knowledge_base`
+**Причина**: 
+- FTS (Full-Text Search) возвращает кандидатов по ключевым словам, не по семантике
+- Re-ranking через Claude иногда пропускается (fallback на FTS при ошибках)
+- Citations формируются из rankedChunks без проверки того, что модель реально их использовала
 
-Связывает документы с чатами/отделами для быстрого доступа:
+**Решение**:
+1. Улучшить prompt для Claude чтобы он явно указывал использованные источники в формате [n]
+2. Добавить пост-обработку: парсить ответ модели и фильтровать citations только по упомянутым индексам
+3. Увеличить порог релевантности при re-ranking (сейчас нет минимального порога)
+4. Добавить флаг `citation_verified: true/false` в метаданные
+
+**Файлы**: 
+- `supabase/functions/chat-stream/index.ts` (строки 1118-1124)
+- `supabase/functions/rerank-chunks/index.ts`
+
+---
+
+## 5. Ссылки ведут на сегменты, а не на документы
+
+**Проблема**: Вместо конкретного документа ссылка открывает часть (part 17/52) без возможности понять первоисточник.
+
+**Причина**: Большие PDF разбиваются на части (50 страниц каждая) через `pdfSplitter.ts`. В базе хранится:
+
+```text
+name: "Практика ППС -1-1483 (часть 17/52, стр. 801-850)"
+parent_document_id: e54f29c9-eecd-45c5-bbac-ef922b1e9295
+part_number: 17
+total_parts: 52
+```
+
+Но UI показывает имя части, а не оригинального документа.
+
+**Решение**:
+1. В `SourcesPanel.tsx` добавить логику получения `original_document_name` через parent_document_id
+2. В citations добавить поле `original_document` с именем родительского документа
+3. В `chat-stream` при формировании citations (строки 1118-1124) добавить lookup родительского документа
+
+**Файлы**: 
+- `supabase/functions/chat-stream/index.ts`
+- `src/components/chat/SourcesPanel.tsx`
+- `src/types/chat.ts` (добавить поле в Citation)
+
+---
+
+## 6. Невозможно перепроверить достоверность по базе
+
+**Проблема**: Нельзя восстановить первоисточник и проверить корректность.
+
+**Причина**: В citations отсутствует:
+- Номер страницы в оригинальном документе
+- Прямая ссылка на storage_path
+- Content_preview достаточной длины для идентификации
+
+**Решение**:
+1. Расширить Citation интерфейс:
+   - `page_in_original: number` - страница в полном документе
+   - `storage_path: string` - прямой путь в storage
+   - `chunk_id: string` - ID чанка для reverse lookup
+   - `content_preview: string` (увеличить до 300 символов)
+2. При клике на источник открывать полный PDF на нужной странице
+3. Добавить кнопку "Скачать оригинал" рядом с источником
+
+**Файлы**: 
+- `src/types/chat.ts`
+- `supabase/functions/chat-stream/index.ts`
+- `src/components/chat/SourcesPanel.tsx`
+
+---
+
+## 7. Структура базы решений недееспособна (винегрет из PDF)
+
+**Проблема**: Склеенные PDF нарезаются непредсказуемо, чанки смешиваются между делами.
+
+**Причина**: 
+- Документы типа "Практика ППС" содержат сотни судебных решений в одном PDF
+- При чанкировании нет разделения по делам - текст режется по размеру (800-1500 символов)
+- `section_title` и `article_number` не всегда корректно определяются
+
+**Решение** (архитектурное, требует переработки):
+1. Добавить pre-processing для PDF с судебной практикой:
+   - Автоматическое разделение по маркерам дел (номер дела, дата, суд)
+   - Создание отдельных записей в documents для каждого дела
+2. В `process-document` улучшить определение границ судебных решений
+3. Добавить метаданные на уровне документа: `document_subtype: 'court_decision'`
+4. Создать иерархию: Parent document -> Child documents (дела) -> Chunks
+
+**Файлы**: 
+- `supabase/functions/process-document/index.ts` (основная переработка)
+- Новая миграция для схемы `document_hierarchy`
+
+---
+
+## 8. Риск галлюцинаций из-за универсального режима
+
+**Проблема**: Модель работает "широко" (RAG + веб-поиск одновременно), нет разделения по ролям.
+
+**Причина**: 
+- В `chat-stream` web search выполняется ВСЕГДА для Claude (строки 505-547)
+- Нет настройки на уровне роли: "только база знаний" vs "база + веб"
+- Prompt инструктирует использовать ОБА источника, что размывает приоритеты
+
+**Решение**:
+1. Добавить в `chat_roles` новые флаги:
+   - `allow_web_search: boolean` (default: true)
+   - `strict_rag_mode: boolean` (default: false) - запретить ответы без источников
+2. В `chat-stream` проверять настройки роли перед web search
+3. Для strict_rag_mode добавить валидацию: если RAG не нашёл релевантных чанков, сообщить пользователю
+4. Разделить prompt инструкции: для strict режима убрать упоминание веба
+
+**Файлы**: 
+- Миграция: добавить колонки в `chat_roles`
+- `supabase/functions/chat-stream/index.ts`
+- `src/pages/ChatRoles.tsx` (UI для настройки)
+
+---
+
+## Приоритетность исправлений
+
+| # | Проблема | Приоритет | Сложность | Время |
+|---|----------|-----------|-----------|-------|
+| 3 | Источники не сохраняются в Bitrix | Критический | Низкая | 2-3 часа |
+| 2 | Контекст теряется | Высокий | Средняя | 3-4 часа |
+| 1 | Диалог пропадает в Bitrix | Высокий | Средняя | 4-5 часов |
+| 5 | Ссылки на сегменты | Средний | Средняя | 3-4 часа |
+| 6 | Нет верификации источников | Средний | Средняя | 4-5 часов |
+| 4 | Нерелевантные источники | Средний | Высокая | 1-2 дня |
+| 8 | Галлюцинации/ролевые ограничения | Средний | Средняя | 1 день |
+| 7 | Винегрет из PDF | Низкий | Очень высокая | 1-2 недели |
+
+---
+
+## Техническая секция
+
+### Изменения в базе данных
 
 ```sql
-CREATE TABLE public.chat_knowledge_base (
-  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-  
-  -- Источник документа (либо чат отдела, либо личный разговор)
-  department_id UUID REFERENCES departments(id) ON DELETE CASCADE,
-  conversation_id UUID REFERENCES conversations(id) ON DELETE CASCADE,
-  
-  -- Оригинальный attachment из сообщения
-  source_message_id UUID, -- из какого сообщения взят документ
-  
-  -- Информация о файле
-  file_path TEXT NOT NULL,
-  file_name TEXT NOT NULL,
-  file_type TEXT NOT NULL,
-  file_size INTEGER NOT NULL,
-  
-  -- Метаданные
-  description TEXT, -- Краткое описание (может быть сгенерировано AI)
-  tags TEXT[], -- Теги для поиска
-  
-  -- Статистика
-  usage_count INTEGER DEFAULT 0, -- Сколько раз использовался
-  
-  created_at TIMESTAMPTZ DEFAULT now(),
-  created_by UUID REFERENCES auth.users(id),
-  
-  -- Constraint: либо department_id, либо conversation_id
-  CONSTRAINT knowledge_base_scope CHECK (
-    (department_id IS NOT NULL AND conversation_id IS NULL) OR
-    (department_id IS NULL AND conversation_id IS NOT NULL)
-  )
-);
+-- Добавить поля для ролевых ограничений
+ALTER TABLE chat_roles 
+ADD COLUMN allow_web_search boolean DEFAULT true,
+ADD COLUMN strict_rag_mode boolean DEFAULT false;
 
--- Индексы
-CREATE INDEX idx_kb_department ON chat_knowledge_base(department_id) WHERE department_id IS NOT NULL;
-CREATE INDEX idx_kb_conversation ON chat_knowledge_base(conversation_id) WHERE conversation_id IS NOT NULL;
-CREATE INDEX idx_kb_file_path ON chat_knowledge_base(file_path);
+-- Добавить уникальный constraint на file_path для knowledge base
+ALTER TABLE chat_knowledge_base 
+ADD CONSTRAINT unique_file_path UNIQUE (file_path);
 ```
 
-#### 1.2 Автоматическое добавление документов в базу
+### Ключевые изменения в коде
 
-При отправке сообщения с вложениями — автоматически копировать в базу знаний:
-
+**bitrix-chat-api (исправление сохранения метаданных)**:
 ```typescript
-// В useOptimizedDepartmentChat.ts после успешной отправки
-const addToKnowledgeBase = async (attachments: Attachment[], messageId: string) => {
-  for (const att of attachments) {
-    await supabase.from('chat_knowledge_base').upsert({
-      department_id: departmentId,
-      source_message_id: messageId,
-      file_path: att.file_path,
-      file_name: att.file_name,
-      file_type: att.file_type,
-      file_size: att.file_size,
-      created_by: userId,
-    }, { onConflict: 'file_path' });
-  }
-};
+// Перенести сохранение ПОСЛЕ обработки буфера
+// Сейчас: строка 1547-1562 (до обработки buffer)
+// Нужно: после строки 1599 (после обработки buffer)
 ```
 
----
-
-### Часть 2: UI для выбора документов
-
-#### 2.1 Новый компонент `KnowledgeBaseSelector`
-
-```text
-┌─────────────────────────────────────────────┐
-│ 📚 База знаний отдела                    ✕  │
-├─────────────────────────────────────────────┤
-│ 🔍 Поиск документов...                      │
-├─────────────────────────────────────────────┤
-│ ☑ Договор аренды.pdf          2.3 MB   3д  │
-│ ☐ Техническое задание.docx    1.1 MB   5д  │
-│ ☑ Требования к проекту.pdf    4.5 MB   1н  │
-│ ☐ Презентация Q4.pptx         8.2 MB   2н  │
-├─────────────────────────────────────────────┤
-│ Выбрано: 2 документа (6.8 MB)               │
-│                          [Отмена] [Добавить]│
-└─────────────────────────────────────────────┘
-```
-
-**Компонент**: `src/components/chat/KnowledgeBaseSelector.tsx`
-
-Функционал:
-- Список документов из базы знаний отдела/чата
-- Чекбоксы для множественного выбора
-- Поиск по названию
-- Сортировка по дате/использованию
-- Лимиты (макс. 5 документов, 20MB)
-
-#### 2.2 Интеграция в `ChatInputEnhanced`
-
-Добавить кнопку рядом с Paperclip:
-
-```tsx
-// После кнопки Paperclip
-<Button onClick={() => setKnowledgeBaseOpen(true)}>
-  <BookOpen className="h-4 w-4" />
-  {selectedKnowledgeDocs.length > 0 && (
-    <Badge>{selectedKnowledgeDocs.length}</Badge>
-  )}
-</Button>
-
-<Dialog open={knowledgeBaseOpen}>
-  <KnowledgeBaseSelector
-    departmentId={departmentId}
-    selectedDocs={selectedKnowledgeDocs}
-    onSelect={setSelectedKnowledgeDocs}
-    onClose={() => setKnowledgeBaseOpen(false)}
-  />
-</Dialog>
-```
-
-#### 2.3 Передача выбранных документов в контекст
-
-Модифицировать `sendMessage`:
-
+**chat-stream (проверка ролевых настроек)**:
 ```typescript
-const sendMessage = async (content: string) => {
-  // Объединяем: новые attachments + выбранные из базы знаний
-  const allAttachments = [
-    ...attachments,
-    ...selectedKnowledgeDocs.map(doc => ({
-      file_path: doc.file_path,
-      file_name: doc.file_name,
-      file_type: doc.file_type,
-      file_size: doc.file_size,
-    }))
-  ];
-  
-  // Отправляем с объединённым списком
-  await sendToAgent(content, allAttachments);
-};
-```
-
----
-
-### Часть 3: Reply-to-message (Ответ на сообщение)
-
-#### 3.1 Расширение схемы сообщений
-
-```sql
--- Для department_chat_messages
-ALTER TABLE department_chat_messages 
-ADD COLUMN reply_to_message_id UUID REFERENCES department_chat_messages(id) ON DELETE SET NULL;
-
--- Для messages (личные чаты)
-ALTER TABLE messages 
-ADD COLUMN reply_to_message_id UUID REFERENCES messages(id) ON DELETE SET NULL;
-
--- Индексы
-CREATE INDEX idx_dcm_reply_to ON department_chat_messages(reply_to_message_id);
-CREATE INDEX idx_msg_reply_to ON messages(reply_to_message_id);
-```
-
-#### 3.2 UI компонент для ответа
-
-При hover на сообщение — кнопка "Ответить":
-
-```text
-┌──────────────────────────────────────────────────┐
-│ 👤 Aleksey Zenkov                     12:34   ↩️ │  ← Кнопка "Ответить"
-│ На рабоферме работают следующие...               │
-└──────────────────────────────────────────────────┘
-```
-
-При нажатии — над полем ввода появляется превью:
-
-```text
-┌──────────────────────────────────────────────────┐
-│ ↩️ Ответ на: Aleksey Zenkov                   ✕ │
-│ "На рабоферме работают следующие..."             │
-└──────────────────────────────────────────────────┘
-│ [📎] [@Агент ▼] Введите сообщение...    [→]     │
-```
-
-#### 3.3 Компонент `ReplyPreview`
-
-```tsx
-// src/components/chat/ReplyPreview.tsx
-interface ReplyPreviewProps {
-  replyTo: DepartmentChatMessage | null;
-  onClear: () => void;
-}
-
-export function ReplyPreview({ replyTo, onClear }: ReplyPreviewProps) {
-  if (!replyTo) return null;
-  
-  return (
-    <div className="flex items-center gap-2 px-4 py-2 bg-muted/50 border-l-2 border-primary">
-      <Reply className="h-4 w-4 text-muted-foreground" />
-      <div className="flex-1 min-w-0">
-        <span className="text-xs font-medium">
-          Ответ на: {replyTo.metadata?.user_name || 'Сообщение'}
-        </span>
-        <p className="text-xs text-muted-foreground truncate">
-          {replyTo.content.slice(0, 100)}...
-        </p>
-      </div>
-      <Button variant="ghost" size="icon" onClick={onClear}>
-        <X className="h-3 w-3" />
-      </Button>
-    </div>
-  );
+// Добавить проверку перед web search (строка 505)
+if (role?.allow_web_search !== false && ...) {
+  // выполнять web search
 }
 ```
 
-#### 3.4 Отображение Reply в сообщении
-
-При рендере сообщения — показать на что отвечает:
-
-```tsx
-// В DepartmentChatMessage.tsx
-{message.reply_to_message_id && replyToMessage && (
-  <div className="mb-2 p-2 bg-muted/30 rounded border-l-2 border-primary/50 text-xs">
-    <span className="font-medium">{replyToMessage.metadata?.user_name}</span>
-    <p className="text-muted-foreground truncate">{replyToMessage.content.slice(0, 80)}...</p>
-  </div>
-)}
-```
-
-#### 3.5 Включение reply в контекст агента
-
-При отправке сообщения с reply_to:
-
+**Citation interface расширение**:
 ```typescript
-// В edge function или хуке
-if (replyToMessageId) {
-  // Загружаем сообщение на которое отвечаем
-  const { data: replyToMsg } = await supabase
-    .from('department_chat_messages')
-    .select('*')
-    .eq('id', replyToMessageId)
-    .single();
-  
-  // Добавляем в контекст
-  const contextMessage = `
-[Это ответ на предыдущее сообщение:]
-${replyToMsg.metadata?.user_name || 'Пользователь'}: ${replyToMsg.content}
-
-[Новый вопрос:]
-${message}
-`;
+interface Citation {
+  // существующие поля...
+  chunk_id?: string;
+  storage_path?: string;
+  page_in_original?: number;
+  original_document_name?: string;
+  content_preview?: string;
 }
 ```
 
----
-
-## Файлы для создания/изменения
-
-| Файл | Действие | Описание |
-|------|----------|----------|
-| `supabase/migrations/...` | Создать | Таблица chat_knowledge_base, колонки reply_to |
-| `src/types/departmentChat.ts` | Изменить | Добавить reply_to_message_id |
-| `src/types/chat.ts` | Изменить | Добавить типы для KnowledgeBase |
-| `src/components/chat/KnowledgeBaseSelector.tsx` | Создать | UI выбора документов |
-| `src/components/chat/ReplyPreview.tsx` | Создать | Превью ответа |
-| `src/components/chat/ChatInputEnhanced.tsx` | Изменить | Добавить кнопку базы знаний + reply |
-| `src/components/chat/DepartmentChatMessage.tsx` | Изменить | Кнопка "Ответить" + отображение reply |
-| `src/hooks/useOptimizedDepartmentChat.ts` | Изменить | Логика reply + knowledge base |
-| `src/hooks/useOptimizedChat.ts` | Изменить | Аналогичные изменения для личного чата |
-| `supabase/functions/chat-stream/index.ts` | Изменить | Обработка reply контекста |
-
----
-
-## Ожидаемый результат
-
-1. **База знаний**: Все документы из чата автоматически сохраняются и доступны для повторного использования
-2. **Выбор документов**: Кнопка 📚 открывает модалку с чекбоксами для выбора документов из базы
-3. **Reply-to-message**: Кнопка ↩️ на сообщении позволяет ответить на конкретное сообщение — агент учтёт его при ответе
-
-## Приоритет реализации
-
-1. **Reply-to-message** — самый востребованный функционал, минимум изменений
-2. **База знаний + UI выбора** — комплексное решение для работы с документами
