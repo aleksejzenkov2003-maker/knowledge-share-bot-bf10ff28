@@ -121,6 +121,36 @@ export function SourcesPanel({
       .trim();
   };
 
+  // Extract unique keywords from chunk content for accurate PDF navigation
+  const extractSearchTextFromContent = (
+    fullContent?: string,
+    preview?: string
+  ): string | undefined => {
+    const text = fullContent || preview;
+    if (!text) return undefined;
+    
+    // Russian stop words to exclude
+    const stopWords = new Set([
+      'который', 'которая', 'которое', 'которые', 'также', 'однако',
+      'после', 'перед', 'между', 'через', 'более', 'менее', 'очень',
+      'этот', 'этого', 'этому', 'этим', 'этой', 'этих', 'этом',
+      'того', 'тому', 'того', 'той', 'тех', 'такой', 'таких',
+      'было', 'были', 'будет', 'будут', 'быть', 'может', 'могут',
+      'когда', 'если', 'чтобы', 'потому', 'поэтому', 'таким', 'образом'
+    ]);
+    
+    // Extract words > 4 chars, not stop words
+    const words = text
+      .replace(/[^\wа-яёА-ЯЁ\s]/gi, ' ')
+      .split(/\s+/)
+      .filter(w => w.length > 4 && !stopWords.has(w.toLowerCase()));
+    
+    // Take first 6 unique words from the beginning of the text
+    const unique = [...new Set(words.slice(0, 50))].slice(0, 6);
+    
+    return unique.length > 0 ? unique.join(' ') : undefined;
+  };
+
   // Search documents via API (for Bitrix context)
   const searchDocumentsViaApi = async (searchName: string) => {
     if (!bitrixApiBaseUrl || !bitrixToken) return null;
@@ -237,10 +267,11 @@ export function SourcesPanel({
           documentId: citationData.document_id,
           storagePath: citationData.storage_path,
           documentName: citationData.document,
-          // Use search_keywords for PDF navigation if available, otherwise fallback to content_preview
-          searchText: citationData.search_keywords?.length 
-            ? citationData.search_keywords.join(' ')
-            : cleanSearchText(citationData.content_preview || contentPreview),
+          // Use keywords from chunk content, not from user query
+          searchText: extractSearchTextFromContent(
+            citationData.full_chunk_content,
+            citationData.content_preview || contentPreview
+          ),
           pageNumber: citationData.page_start || extractPageNumber(documentInfo),
         });
         setLoadingSource(null);
@@ -386,20 +417,36 @@ export function SourcesPanel({
     }
   };
 
-  // Open PDF from Text Viewer
+  // Open PDF from Text Viewer - use content from the chunk, not query keywords
   const openPdfFromTextViewer = async () => {
     if (!textViewerState.storagePath) return;
+    
+    // Extract search text from the chunk content we're viewing
+    const searchTextFromContent = extractSearchTextFromContent(
+      textViewerState.chunkContent
+    );
     
     setTextViewerState(prev => ({ ...prev, isOpen: false }));
     
     // Find the citation to get full metadata
     const citation = usedCitations.find(c => c.storage_path === textViewerState.storagePath);
     if (citation) {
-      await openDocumentWithHighlight(
-        citation.document,
-        citation.content_preview,
-        citation
-      );
+      // For Bitrix context, pre-fetch signed URL
+      if (isBitrixContext && bitrixApiBaseUrl && bitrixToken && citation.storage_path) {
+        const signedUrl = await getSignedUrlViaApi(citation.storage_path);
+        if (signedUrl) {
+          setPreSignedUrl(signedUrl);
+        }
+      }
+      
+      setViewerState({
+        isOpen: true,
+        documentId: citation.document_id,
+        storagePath: citation.storage_path,
+        documentName: citation.document,
+        searchText: searchTextFromContent, // From chunk content, not keywords
+        pageNumber: citation.page_start || 1,
+      });
     }
   };
 
