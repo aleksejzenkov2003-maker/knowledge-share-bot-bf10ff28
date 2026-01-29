@@ -1,62 +1,135 @@
-# План: Точная навигация в PDF через номера страниц в чанках
 
-## ✅ Статус: РЕАЛИЗОВАНО
+# План: Фиксированный центрированный Input в стиле ChatGPT
 
-## Выполненные изменения
+## Проблема
 
-### 1. Миграция БД ✅
-- Добавлены колонки `page_start` и `page_end` в таблицу `document_chunks`
-- Создан индекс `idx_chunks_pages` для быстрого поиска
+На скриншоте ChatGPT видно:
+- Поле ввода всегда центрировано **относительно всего экрана**, а не относительно области контента
+- При открытии/закрытии сайдбара поле ввода **остаётся на месте**
 
-### 2. Обработка документов (`process-document/index.ts`) ✅
-- Изменено извлечение PDF: `mergePages: false` для получения текста постранично
-- Добавлен интерфейс `PageText` для хранения данных о страницах (pageNum, text, startOffset, endOffset)
-- Реализована функция `getPageForChunk()` для определения номера страницы по позиции текста
-- При вставке чанков сохраняются `page_start` и `page_end`
+Текущая архитектура:
+```
+<div flex>
+  <Sidebar w-64/>
+  <main flex-1>  ← сужается при открытии сайдбара
+    <ScrollArea/>
+    <Input max-w-3xl mx-auto/>  ← центрируется внутри main, поэтому сдвигается
+  </main>
+</div>
+```
 
-### 3. RAG-пайплайн (`chat-stream/index.ts`) ✅
-- Обновлён интерфейс `RankedChunk` — добавлены `page_start`, `page_end`
-- Запросы к БД теперь включают `page_start`, `page_end`
-- Citations теперь содержат реальные номера страниц из БД (вместо `part_number`)
+## Решение
 
-### 4. Фронтенд ✅
-- Обновлён тип `Citation` в `src/types/chat.ts` — добавлен `page_end`
-- `CitationLink.tsx` и `SourcesPanel.tsx` уже используют `citation.page_start` для навигации
+Изменить позиционирование Input так, чтобы он был центрирован относительно **viewport**, а не родительского контейнера.
 
-## Как работает
+### Два варианта:
 
-**Раньше:**
-- PDF извлекался одним куском (`mergePages: true`)
-- Номер страницы не сохранялся — использовался `part_number` (для разделённых документов)
-- При открытии PDF использовался поиск по ключевым словам → неточная навигация
+**Вариант A (простой)**: CSS-компенсация ширины сайдбара
+- Вычислять offset = sidebarWidth / 2 и применять к контейнеру ввода
 
-**Теперь:**
-- PDF извлекается постранично
-- Для каждого чанка вычисляется `page_start` и `page_end` на основе позиции текста
-- При открытии PDF используется прямой переход на страницу `pageNumber: citation.page_start`
-- Поиск по ключевым словам остаётся как fallback для подсветки
+**Вариант B (как в ChatGPT)**: Абсолютное позиционирование снизу
+- Input позиционировать `fixed` или `absolute` снизу по центру экрана
+- Это требует изменения структуры layout
 
-## Миграция существующих документов
+Рекомендую **Вариант A** — минимальные изменения, сохранение текущей архитектуры.
 
-Существующие документы **не имеют** данных о страницах (NULL в `page_start`/`page_end`).
+---
 
-**Варианты:**
-1. **Перезагрузить PDF** — удалить и загрузить заново, новый код сохранит страницы
-2. **Fallback работает** — для чанков без `page_start` используется поиск по ключевым словам
+## Изменения
 
-## Файлы изменены
+### Файл 1: `src/components/chat/ChatInputEnhanced.tsx`
+
+Добавить prop для смещения:
+
+```tsx
+interface ChatInputEnhancedProps {
+  // ...existing props
+  sidebarOffset?: number; // Ширина открытого сайдбара для компенсации центрирования
+}
+
+export function ChatInputEnhanced({
+  // ...
+  sidebarOffset = 0,
+}: ChatInputEnhancedProps) {
+  return (
+    <div 
+      className="w-full px-4 pb-4"
+      style={{
+        maxWidth: '768px',
+        margin: '0 auto',
+        // Компенсация сайдбара: сдвигаем влево на половину ширины сайдбара
+        transform: sidebarOffset ? `translateX(-${sidebarOffset / 2}px)` : undefined,
+        transition: 'transform 0.3s ease',
+      }}
+      // ...
+    >
+```
+
+### Файл 2: Страницы чата (Chat.tsx, ChatFullscreen.tsx, DepartmentChat.tsx, DepartmentChatFullscreen.tsx)
+
+Передавать ширину сайдбара в Input:
+
+```tsx
+const SIDEBAR_WIDTH = 288; // w-72 = 18rem = 288px
+
+// В Chat.tsx, ChatFullscreen.tsx
+<ChatInputEnhanced
+  // ...existing props
+  sidebarOffset={sidebarOpen ? SIDEBAR_WIDTH : 0}
+/>
+```
+
+---
+
+## Альтернативный подход (более чистый): CSS Grid
+
+Изменить layout на CSS Grid с фиксированной центральной колонкой:
+
+```tsx
+<div className="grid grid-cols-[auto_1fr] h-screen">
+  <Sidebar className="w-64"/>
+  <main className="flex flex-col">
+    <ScrollArea className="flex-1">
+      <div className="max-w-[768px] mx-auto">
+        {messages}
+      </div>
+    </ScrollArea>
+    {/* Input с фиксированной шириной, центрированный относительно viewport */}
+    <div className="fixed bottom-0 left-0 right-0 flex justify-center pb-4 pointer-events-none">
+      <div className="pointer-events-auto w-full max-w-[768px] px-4">
+        <ChatInput />
+      </div>
+    </div>
+  </main>
+</div>
+```
+
+Этот подход требует:
+1. Добавить `padding-bottom` к ScrollArea чтобы контент не перекрывался с fixed Input
+2. Обработать z-index для корректного наложения
+
+---
+
+## Рекомендация: Вариант A (transform offset)
+
+Минимальные изменения, сохраняет текущую архитектуру, легко откатить.
+
+---
+
+## Файлы для изменения
 
 | Файл | Изменения |
 |------|-----------|
-| `supabase/functions/process-document/index.ts` | Постраничное извлечение PDF, функция `getPageForChunk()`, сохранение `page_start`/`page_end` |
-| `supabase/functions/chat-stream/index.ts` | Получение `page_start`/`page_end` из БД, передача в citations |
-| `src/types/chat.ts` | Добавлен `page_end` в интерфейс `Citation` |
-| `src/components/chat/CitationLink.tsx` | Уже использует `page_start` для навигации |
-| `src/components/chat/SourcesPanel.tsx` | Уже использует `page_start` для навигации |
+| `src/components/chat/ChatInputEnhanced.tsx` | Добавить `sidebarOffset` prop, применить `transform: translateX()` |
+| `src/pages/Chat.tsx` | Передавать `sidebarOffset={sidebarOpen ? 288 : 0}` |
+| `src/pages/ChatFullscreen.tsx` | Передавать `sidebarOffset={sidebarOpen ? 256 : 0}` (w-64) |
+| `src/pages/DepartmentChat.tsx` | Передавать `sidebarOffset={sidebarOpen ? 256 : 0}` |
+| `src/pages/DepartmentChatFullscreen.tsx` | Передавать `sidebarOffset={sidebarOpen ? 256 : 0}` |
 
-## Тестирование
+---
 
-1. Удалить существующий PDF документ
-2. Загрузить его заново
-3. Задать вопрос с RAG
-4. Открыть цитату → должен сразу открываться на нужной странице
+## Ожидаемый результат
+
+**До**: При открытии сайдбара поле ввода сдвигается вправо вместе с контентом
+
+**После**: Поле ввода всегда центрировано по экрану, независимо от состояния сайдбара — как в ChatGPT
