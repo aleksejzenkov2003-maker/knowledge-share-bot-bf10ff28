@@ -256,6 +256,7 @@ export default function Chat() {
             selectedRoleId={selectedRoleId}
             onRoleChange={handleRoleChange}
             placeholder="Спросите что-нибудь..."
+            sidebarOffset={sidebarOpen ? 288 : 0}
           />
         </div>
       </div>

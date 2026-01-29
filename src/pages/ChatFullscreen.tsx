@@ -229,6 +229,7 @@ export default function ChatFullscreen() {
             selectedRoleId={selectedRoleId}
             onRoleChange={handleRoleChange}
             placeholder="Спросите что-нибудь..."
+            sidebarOffset={sidebarOpen ? 256 : 0}
           />
         </div>
       </div>
