@@ -62,6 +62,7 @@ export interface Message {
   webSearchUsed?: boolean;
   roleId?: string;
   replyToMessageId?: string | null;
+  stopReason?: string | null; // 'max_tokens' if response was truncated, 'end_turn' for normal completion
 }
 
 export interface DBMessage {
