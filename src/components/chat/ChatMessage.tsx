@@ -3,7 +3,12 @@ import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import { Card } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
-import { Bot, User, Clock, FileText, Loader2, BookOpen, Image, Globe } from "lucide-react";
+import { Bot, User, Clock, FileText, Loader2, BookOpen, Image, Globe, AlertTriangle } from "lucide-react";
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger,
+} from "@/components/ui/tooltip";
 import { cn } from "@/lib/utils";
 import { Message } from "@/types/chat";
 import {
@@ -257,6 +262,20 @@ function ChatMessageComponent({ message, onEditMessage, onRegenerateResponse, av
                 </SheetContent>
               </Sheet>
             )}
+            
+            {message.stopReason === 'max_tokens' && (
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <Badge variant="destructive" className="text-xs cursor-help">
+                    <AlertTriangle className="h-3 w-3 mr-1" />
+                    Обрезано
+                  </Badge>
+                </TooltipTrigger>
+                <TooltipContent>
+                  Ответ был обрезан из-за ограничения длины. Попросите продолжить.
+                </TooltipContent>
+              </Tooltip>
+            )}
           </div>
         )}
         
@@ -297,6 +316,7 @@ export const ChatMessage = React.memo(ChatMessageComponent, (prevProps, nextProp
     prev.responseTime === next.responseTime &&
     prev.ragContext?.length === next.ragContext?.length &&
     prev.citations?.length === next.citations?.length &&
+    prev.stopReason === next.stopReason &&
     prevProps.onEditMessage === nextProps.onEditMessage &&
     prevProps.onRegenerateResponse === nextProps.onRegenerateResponse &&
     prevProps.availableRoles?.length === nextProps.availableRoles?.length &&
