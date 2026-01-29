@@ -1,141 +1,69 @@
 
 
-# План: Точная навигация из TextViewer в PDF
+# План: Единый Text Viewer для источников + улучшение поиска PDF
 
-## Диагностика проблемы
+## Диагностика проблем
 
-На скриншотах видно:
-1. **TextViewer** корректно показывает фрагмент про Vanish, розовый цвет упаковки
-2. **PDF Viewer** ищет "25 знак мкту" (из оригинального запроса пользователя)
-3. В результате открывается страница 12-13 с совсем другим содержанием
+### Проблема 1: Источники не показывают TextViewer
+На скриншоте видно, что при клике на источник из вкладки "Документы" сразу открывается PDF. У цитат есть TextContentViewer с полным текстом фрагмента, но у источников — нет.
 
-### Корневая причина
-
-В `CitationLink.tsx` и `SourcesPanel.tsx` при переходе в PDF:
-
-```typescript
-// Строки 107-109 в CitationLink.tsx
-searchText: citation.search_keywords?.length 
-  ? citation.search_keywords.join(' ')  // ← Использует keywords из ЗАПРОСА
-  : citation.content_preview?.slice(0, 150),
+**Код сейчас** (строки 527-563 в SourcesPanel.tsx):
+```tsx
+<div onClick={() => openDocumentWithHighlight(docInfo, content)}>
+  ...
+</div>
 ```
 
-`search_keywords` формируется в backend из пересечения:
-- Ключевые слова **запроса пользователя** ("25 знак мкту")
-- Контент чанка
+Функция `openDocumentWithHighlight` сразу открывает PDF Viewer, пропуская текстовый просмотр.
 
-Но если пользователь спрашивал про классы МКТУ, а чанк про Vanish — пересечение даёт неверные ключевые слова.
+### Проблема 2: PDF поиск не находит текст
+Поисковый запрос "доверься пятен соот" не находит текст в PDF, хотя он визуально есть (стр. 50). Причины:
+- PDF.js text layer может иметь OCR-артефакты
+- Извлечённые ключевые слова могут не совпадать с текстом в слое
 
 ---
 
 ## Решение
 
-При переходе из TextViewer в PDF использовать **уникальные слова из САМОГО контента чанка**, а не из запроса.
+### 1. Добавить TextViewer для вкладки "Документы"
 
-### Логика выбора searchText для PDF
+Изменить обработчик клика в Sources tab — открывать сначала TextContentViewer с текстом `content`, как для цитат.
 
-```text
-Приоритет поиска в PDF:
-1. Первые 3-5 уникальных слов из full_chunk_content (наиболее специфичные)
-2. content_preview (первые 100 символов)
-3. search_keywords (fallback — может не работать)
-```
+**Изменения в SourcesPanel.tsx**:
 
----
+```tsx
+// Вместо прямого вызова openDocumentWithHighlight для Sources
+// Открывать TextContentViewer
 
-## Изменения
-
-### 1. CitationLink.tsx — использовать контент чанка
-
-**Строки 102-111**: Изменить логику `openPdfViewer`:
-
-```typescript
-// Вместо:
-searchText: citation.search_keywords?.length 
-  ? citation.search_keywords.join(' ')
-  : citation.content_preview?.slice(0, 150),
-
-// Использовать:
-searchText: extractSearchTextFromChunk(
-  citation.full_chunk_content,
-  citation.content_preview
-),
-```
-
-Добавить функцию извлечения ключевых слов из контента:
-
-```typescript
-function extractSearchTextFromChunk(
-  fullContent?: string,
-  preview?: string
-): string | undefined {
-  const text = fullContent || preview;
-  if (!text) return undefined;
-  
-  // Извлечь первые 5 уникальных слов длиной > 4 символов
-  const words = text
-    .replace(/[^\wа-яё\s]/gi, ' ')
-    .split(/\s+/)
-    .filter(w => w.length > 4)
-    .slice(0, 100); // Первые 100 слов
-  
-  // Взять 5 уникальных слов
-  const unique = [...new Set(words)].slice(0, 5);
-  return unique.join(' ');
-}
-```
-
-### 2. SourcesPanel.tsx — аналогичное исправление
-
-**Строки 240-243** (`openDocumentWithHighlight`):
-
-```typescript
-// Вместо:
-searchText: citationData.search_keywords?.length 
-  ? citationData.search_keywords.join(' ')
-  : cleanSearchText(citationData.content_preview || contentPreview),
-
-// Использовать:
-searchText: extractSearchTextFromContent(
-  citationData.full_chunk_content, 
-  citationData.content_preview || contentPreview
-),
-```
-
-### 3. SourcesPanel.tsx — openPdfFromTextViewer
-
-**Строки 390-404**: Передавать контент чанка вместо search_keywords:
-
-```typescript
-const openPdfFromTextViewer = async () => {
-  if (!textViewerState.storagePath) return;
-  
-  // Извлечь поисковый текст из самого чанка
-  const searchTextFromContent = extractSearchTextFromContent(
-    textViewerState.chunkContent
+const openSourceTextViewer = (docInfo: string, content: string) => {
+  // Найти storage_path для этого документа через ragContext/citations
+  const matchingCitation = usedCitations.find(c => 
+    docInfo.includes(c.document) || c.document.includes(docInfo.split(' | ')[0])
   );
   
-  setTextViewerState(prev => ({ ...prev, isOpen: false }));
-  
-  const citation = usedCitations.find(c => c.storage_path === textViewerState.storagePath);
-  if (citation) {
-    setViewerState({
-      isOpen: true,
-      documentId: citation.document_id,
-      storagePath: citation.storage_path,
-      documentName: citation.document,
-      searchText: searchTextFromContent,  // ← Из контента, не из keywords
-      pageNumber: citation.page_start || 1,
-    });
-  }
+  setTextViewerState({
+    isOpen: true,
+    documentName: docInfo.split(' | ')[0], // Только имя документа
+    chunkContent: content,
+    highlightText: undefined, // Весь текст важен
+    storagePath: matchingCitation?.storage_path,
+  });
 };
 ```
 
----
+Обновить onClick:
+```tsx
+<div onClick={() => openSourceTextViewer(docInfo, content)}>
+```
 
-## Алгоритм extractSearchTextFromContent
+### 2. Улучшить извлечение ключевых слов для PDF
 
-```typescript
+Текущая функция `extractSearchTextFromContent` берёт первые 6 слов. Для лучшего поиска:
+- Приоритет уникальным терминам (имена собственные, числа, редкие слова)
+- Исключить ещё больше стоп-слов
+- Если текст содержит кавычки — искать закавыченные фразы
+
+```tsx
 function extractSearchTextFromContent(
   fullContent?: string,
   preview?: string
@@ -143,23 +71,36 @@ function extractSearchTextFromContent(
   const text = fullContent || preview;
   if (!text) return undefined;
   
-  // Русские стоп-слова
+  // 1. Попробовать найти закавыченные фразы (наиболее специфичные)
+  const quotedMatch = text.match(/[«"]([^»"]+)[»"]/);
+  if (quotedMatch && quotedMatch[1].length > 10) {
+    return quotedMatch[1].slice(0, 40); // Первые 40 символов закавыченной фразы
+  }
+  
+  // 2. Расширенный список стоп-слов
   const stopWords = new Set([
     'который', 'которая', 'которое', 'которые', 'также', 'однако',
     'после', 'перед', 'между', 'через', 'более', 'менее', 'очень',
     'этот', 'этого', 'этому', 'этим', 'этой', 'этих', 'этом',
-    'того', 'тому', 'тем', 'той', 'тех', 'том', 'такой', 'таких',
-    'было', 'были', 'будет', 'будут', 'быть', 'может', 'могут'
+    'того', 'тому', 'того', 'той', 'тех', 'такой', 'таких',
+    'было', 'были', 'будет', 'будут', 'быть', 'может', 'могут',
+    'когда', 'если', 'чтобы', 'потому', 'поэтому', 'таким', 'образом',
+    'является', 'являются', 'данный', 'данная', 'данные',
+    'необходимо', 'следует', 'должен', 'должна', 'должны',
+    'указанный', 'указанная', 'указанные', 'соответствующий'
   ]);
   
-  // Извлечь слова длиной > 4 символов, не стоп-слова
+  // 3. Извлечь слова, приоритет длинным и уникальным
   const words = text
     .replace(/[^\wа-яёА-ЯЁ\s]/gi, ' ')
     .split(/\s+/)
     .filter(w => w.length > 4 && !stopWords.has(w.toLowerCase()));
   
-  // Взять первые 5-7 уникальных слов из начала текста
-  const unique = [...new Set(words.slice(0, 50))].slice(0, 6);
+  // 4. Отсортировать по длине (длинные слова = более специфичные)
+  const sorted = [...new Set(words)].sort((a, b) => b.length - a.length);
+  
+  // 5. Взять первые 5 уникальных слов
+  const unique = sorted.slice(0, 5);
   
   return unique.length > 0 ? unique.join(' ') : undefined;
 }
@@ -171,18 +112,27 @@ function extractSearchTextFromContent(
 
 | Файл | Изменения |
 |------|-----------|
-| `src/components/chat/CitationLink.tsx` | Добавить `extractSearchTextFromContent`, использовать в `openPdfViewer` |
-| `src/components/chat/SourcesPanel.tsx` | Добавить `extractSearchTextFromContent`, обновить `openDocumentWithHighlight` и `openPdfFromTextViewer` |
+| `src/components/chat/SourcesPanel.tsx` | 1) Добавить `openSourceTextViewer` функцию. 2) Изменить onClick во вкладке Sources для вызова TextViewer вместо прямого PDF. 3) Улучшить `extractSearchTextFromContent` |
+| `src/components/chat/CitationLink.tsx` | Синхронизировать улучшенную `extractSearchTextFromContent` |
 
 ---
 
-## Ожидаемый результат
+## Визуальный результат
 
 **До**:
-- TextViewer показывает: "...Vanish, розовый цвет упаковки рекламируемого товара..."
-- PDF ищет: "25 знак мкту" → страница 12 (неверная)
+- Клик на источник → сразу PDF → поиск не работает → неверная страница
 
 **После**:
-- TextViewer показывает: "...Vanish, розовый цвет упаковки рекламируемого товара..."
-- PDF ищет: "Vanish розовый упаковки рекламируемого товара" → правильная страница
+- Клик на источник → TextContentViewer с полным текстом фрагмента
+- Кнопка "Открыть PDF" → переход в PDF с ключевыми словами из текста
+- Поиск использует длинные уникальные слова или закавыченные фразы
+
+---
+
+## Порядок имплементации
+
+1. Добавить функцию `openSourceTextViewer` в SourcesPanel
+2. Обновить onClick для вкладки "Документы"
+3. Улучшить `extractSearchTextFromContent` в обоих файлах
+4. Обновить `openPdfFromTextViewer` для поддержки источников (не только цитат)
 
