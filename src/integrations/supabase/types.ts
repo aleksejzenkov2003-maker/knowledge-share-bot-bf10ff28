@@ -528,6 +528,8 @@ export type Database = {
           embedding: string | null
           id: string
           metadata: Json | null
+          page_end: number | null
+          page_start: number | null
           section_title: string | null
         }
         Insert: {
@@ -541,6 +543,8 @@ export type Database = {
           embedding?: string | null
           id?: string
           metadata?: Json | null
+          page_end?: number | null
+          page_start?: number | null
           section_title?: string | null
         }
         Update: {
@@ -554,6 +558,8 @@ export type Database = {
           embedding?: string | null
           id?: string
           metadata?: Json | null
+          page_end?: number | null
+          page_start?: number | null
           section_title?: string | null
         }
         Relationships: [

@@ -28,6 +28,7 @@ export interface Citation {
   chunk_id?: string;
   document_id?: string;
   page_start?: number;
+  page_end?: number;  // NEW: End page for multi-page chunks
   chunk_index?: number;
   content_preview?: string;
   full_chunk_content?: string; // Full text of the chunk for Text Viewer
