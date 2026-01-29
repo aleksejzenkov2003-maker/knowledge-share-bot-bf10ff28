@@ -1,207 +1,132 @@
 
 
-# План исправления поиска в документах по источникам
+# План исправления проблемы обрезания ответов на полуслове
 
 ## Диагностика проблемы
 
-### Текущий неправильный поток данных
+На скриншоте виден ответ, обрезанный на "(номер вход" с индикатором "Генерирую ответ..." внизу. Это происходит когда Claude достигает лимита `max_tokens` (8192 токенов).
+
+### Корневые причины
+
+1. **`useOptimizedChat.ts` не захватывает `stop_reason`** из метаданных SSE
+2. **Тип `Message` не содержит поле `stopReason`** для хранения информации об обрезании
+3. **`ChatMessage.tsx` не отображает предупреждение** об обрезанном ответе (в отличие от `DepartmentChatMessage.tsx`)
+4. **UI зависает в состоянии загрузки** когда стрим закрывается без `[DONE]` с полными данными
+
+### Текущий поток (проблемный)
 
 ```text
-┌────────────────────────────────────────────────────────────────────┐
-│  Запрос пользователя: "32 класс МКТУ"                               │
-└────────────────────────────────────────────────────────────────────┘
-                              │
-                              ▼
-┌────────────────────────────────────────────────────────────────────┐
-│  extractRelevantPreview(chunk.content, message, 300)               │
-│  → Находит окно с "32" в чанке                                     │
-│  → Возвращает 300 символов: "Класс 32 включает пиво..."            │
-└────────────────────────────────────────────────────────────────────┘
-                              │
-                              ▼
-┌────────────────────────────────────────────────────────────────────┐
-│  cleanSearchText() → обрезает до 150 символов                      │
-│  → "Класс 32 включает пиво, минеральные воды..."                   │
-└────────────────────────────────────────────────────────────────────┘
-                              │
-                              ▼
-┌────────────────────────────────────────────────────────────────────┐
-│  DocumentViewer.performSearch()                                     │
-│  → Ищет строку "Класс 32 включает пиво..." в PDF                   │
-│  → НЕ НАХОДИТ (разное форматирование в PDF)                        │
-│  → Fallback на keywords: ["Класс", "включает", "пиво"]             │
-│  → Находит страницу где есть "Класс" и "пиво" → НЕПРАВИЛЬНОЕ МЕСТО │
-└────────────────────────────────────────────────────────────────────┘
-```
-
-### Почему появляются странные фрагменты
-
-На скриншотах видны поисковые запросы:
-- `"подготовку следук"` → обрезанный фрагмент из content_preview
-- `"ческого лица (ОГРН"` → обрезанный фрагмент
-- `"продукции и рекламирования"` → из другого места чанка
-
-Это происходит потому что:
-1. `content_preview` берётся из ЧАНКА (текст в базе данных)
-2. Чанк может быть из СЕРЕДИНЫ документа (не связан с PDF страницей)
-3. Обрезание до 150 символов создаёт фрагменты без смысла
-4. PDF поиск ищет эти фрагменты и находит "где-то рядом"
-
----
-
-## Решение: Разделить content_preview и search_keywords
-
-### Идея
-
-Добавить **отдельное поле `search_keywords`** в Citation — это ключевые слова из ОРИГИНАЛЬНОГО запроса пользователя, которые используются ТОЛЬКО для навигации в PDF.
-
-### Новый поток данных
-
-```text
-┌────────────────────────────────────────────────────────────────────┐
-│  Запрос: "32 класс МКТУ"                                            │
-└────────────────────────────────────────────────────────────────────┘
-         │                              │
-         ▼                              ▼
-┌─────────────────────────┐   ┌─────────────────────────────────────┐
-│  content_preview        │   │  search_keywords                    │
-│  (для отображения UI)   │   │  (для поиска в PDF)                 │
-│  "Класс 32 включает..." │   │  ["32", "класс", "мкту"]            │
-└─────────────────────────┘   └─────────────────────────────────────┘
-                                        │
-                                        ▼
-                              ┌─────────────────────────────────────┐
-                              │  DocumentViewer.performSearch()     │
-                              │  → Ищет "32" в PDF                   │
-                              │  → Находит "Класс 32" на странице!   │
-                              └─────────────────────────────────────┘
+Claude API → stop_reason: "max_tokens" → SSE metadata
+                                            ↓
+useOptimizedChat.ts → НЕ ЧИТАЕТ stop_reason
+                                            ↓
+ChatMessage.tsx → НЕТ ПРЕДУПРЕЖДЕНИЯ
+                                            ↓
+Пользователь видит обрезанный текст без объяснения
 ```
 
 ---
 
-## Изменения в коде
+## Решение
 
-### 1. Добавить search_keywords в Citation (src/types/chat.ts)
+### 1. Добавить `stopReason` в тип Message
 
+**Файл**: `src/types/chat.ts`
+
+Добавить поле в интерфейс:
 ```typescript
-export interface Citation {
-  index: number;
-  document: string;
-  section?: string;
-  article?: string;
-  relevance: number;
-  chunk_id?: string;
-  document_id?: string;
-  page_start?: number;
-  chunk_index?: number;
-  content_preview?: string;
-  storage_path?: string;
-  search_keywords?: string[];  // NEW: ключевые слова для PDF поиска
-}
-```
-
-### 2. Генерировать search_keywords в chat-stream (supabase/functions/chat-stream/index.ts)
-
-В блоке формирования citations добавить:
-
-```typescript
-// Extract search keywords from original query
-function extractSearchKeywords(query: string): string[] {
-  return query
-    .toLowerCase()
-    .replace(/[^\wа-яё\s\d]/gi, ' ')
-    .split(/\s+/)
-    .filter(w => {
-      // Include numbers (any length) - they're usually specific
-      if (/^\d+$/.test(w)) return true;
-      // Include words > 3 chars that are not stop words
-      return w.length > 3 && !STOP_WORDS.has(w);
-    })
-    .slice(0, 5); // Max 5 keywords
-}
-
-// In citation building:
-const searchKeywords = extractSearchKeywords(message);
-
-const allCitations = rankedChunks.map((chunk, idx) => ({
+export interface Message {
   // ... existing fields ...
-  content_preview: extractRelevantPreview(chunk.content, message, 300),
-  search_keywords: searchKeywords,  // Same for all citations from this query
-}));
+  stopReason?: string | null; // 'max_tokens' if response was truncated, 'end_turn' for normal completion
+}
 ```
 
-### 3. Использовать search_keywords в SourcesPanel (src/components/chat/SourcesPanel.tsx)
+### 2. Захватить stop_reason в useOptimizedChat.ts
 
-Изменить передачу searchText в DocumentViewer:
+**Файл**: `src/hooks/useOptimizedChat.ts`
 
-```typescript
-// В openDocumentWithHighlight:
-setViewerState({
-  isOpen: true,
-  documentId: citationData.document_id,
-  storagePath: citationData.storage_path,
-  documentName: citationData.document,
-  // Use search_keywords if available, otherwise fallback to content_preview
-  searchText: citationData.search_keywords?.length 
-    ? citationData.search_keywords.join(' ')
-    : cleanSearchText(citationData.content_preview),
-  pageNumber: citationData.page_start || extractPageNumber(documentInfo),
-});
-```
-
-### 4. Улучшить DocumentViewer поиск по ключевым словам
-
-В `performSearch` добавить режим "поиск по нескольким ключевым словам" как основной:
+В двух местах где парсится metadata (streaming и buffer):
 
 ```typescript
-const performSearch = async (query: string) => {
-  if (!pdfDocRef.current || !query.trim()) return;
-  
-  // Split query into keywords
-  const keywords = query.split(/\s+/).filter(w => w.length > 1);
-  
-  // If multiple keywords, search for page with most matches
-  if (keywords.length > 1) {
-    const pageScores = [];
-    
-    for (let pageNum = 1; pageNum <= numPages; pageNum++) {
-      const page = await pdfDocRef.current.getPage(pageNum);
-      const textContent = await page.getTextContent();
-      const pageText = textContent.items.map((item: any) => item.str).join(' ').toLowerCase();
-      
-      let score = 0;
-      for (const kw of keywords) {
-        if (pageText.includes(kw.toLowerCase())) score++;
-      }
-      
-      if (score > 0) pageScores.push({ pageNum, score });
-    }
-    
-    // Sort by score and navigate to best match
-    pageScores.sort((a, b) => b.score - a.score);
-    if (pageScores.length > 0) {
-      setCurrentPage(pageScores[0].pageNum);
-      // Highlight the most specific keyword (usually number or longest)
-      const highlightWord = keywords.find(k => /^\d+$/.test(k)) || 
-                           keywords.sort((a, b) => b.length - a.length)[0];
-      setHighlightedText(highlightWord);
-      return;
-    }
-  }
-  
-  // Fallback to single phrase search...
+metadata = {
+  response_time_ms: parsed.response_time_ms,
+  rag_context: parsed.rag_context,
+  citations: parsed.citations,
+  smart_search: parsed.smart_search,
+  web_search_citations: parsed.web_search_citations,
+  web_search_used: parsed.web_search_used,
+  stop_reason: parsed.stop_reason,  // ADD THIS
 };
+```
+
+И передать в финальное обновление сообщения:
+```typescript
+setLocalMessages(prev => prev.map(m =>
+  m.id === assistantMessageId
+    ? {
+        ...m,
+        content: finalContent,
+        isStreaming: false,
+        stopReason: metadata.stop_reason,  // ADD THIS
+        // ... other fields ...
+      }
+    : m
+));
+```
+
+### 3. Отобразить предупреждение в ChatMessage.tsx
+
+**Файл**: `src/components/chat/ChatMessage.tsx`
+
+Добавить предупреждение аналогично `DepartmentChatMessage.tsx`:
+
+```typescript
+import { AlertTriangle } from "lucide-react";
+import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
+
+// В JSX (после badges с источниками):
+{message.stopReason === 'max_tokens' && (
+  <Tooltip>
+    <TooltipTrigger asChild>
+      <Badge variant="destructive" className="text-xs cursor-help">
+        <AlertTriangle className="h-3 w-3 mr-1" />
+        Обрезано
+      </Badge>
+    </TooltipTrigger>
+    <TooltipContent>
+      Ответ был обрезан из-за ограничения длины. Попросите продолжить.
+    </TooltipContent>
+  </Tooltip>
+)}
+```
+
+---
+
+## Дополнительно: Увеличить max_tokens для длинных ответов
+
+**Файл**: `supabase/functions/chat-stream/index.ts`
+
+Anthropic Claude поддерживает до 8192 output токенов (уже установлено). Но можно добавить логику автоматического продолжения или предупреждение в системном промпте:
+
+```typescript
+// В enhancedSystemPrompt добавить:
+enhancedSystemPrompt += "\n\nЕсли ответ получается длинным, завершай его логично и предлагай пользователю попросить продолжение.";
 ```
 
 ---
 
 ## Файлы для изменения
 
-1. **src/types/chat.ts** — добавить поле `search_keywords` в Citation
-2. **src/types/departmentChat.ts** — добавить аналогичное поле
-3. **supabase/functions/chat-stream/index.ts** — генерировать search_keywords из запроса
-4. **src/components/chat/SourcesPanel.tsx** — использовать search_keywords для поиска
-5. **src/components/documents/DocumentViewer.tsx** — улучшить поиск по ключевым словам
+1. **src/types/chat.ts**
+   - Добавить `stopReason?: string | null` в интерфейс Message
+
+2. **src/hooks/useOptimizedChat.ts**
+   - Захватить `stop_reason` из metadata (2 места)
+   - Передать `stopReason` в финальное обновление сообщения
+
+3. **src/components/chat/ChatMessage.tsx**
+   - Добавить импорты AlertTriangle, Tooltip
+   - Добавить Badge с предупреждением "Обрезано" если `stopReason === 'max_tokens'`
 
 ---
 
@@ -209,10 +134,9 @@ const performSearch = async (query: string) => {
 
 | До | После |
 |----|-------|
-| searchText = "Класс 32 включает пиво, минеральные воды..." (150 симв) | searchText = "32 класс мкту" (ключевые слова) |
-| PDF поиск ищет длинную строку → не находит | PDF поиск ищет "32" → находит точно |
-| Fallback на "включает", "минеральные" | Подсветка "32" на правильной странице |
-| Показывает "ческого лица (ОГРН" | Показывает страницу с "Класс 32" |
+| Ответ обрезается молча | Показывается бейдж "Обрезано" |
+| Пользователь не понимает что произошло | Понятное сообщение + подсказка "попросите продолжить" |
+| Индикатор загрузки может зависнуть | Корректное завершение стрима |
 
 ---
 
@@ -220,19 +144,15 @@ const performSearch = async (query: string) => {
 
 ### Порядок имплементации
 
-1. Добавить `search_keywords` в типы Citation
-2. Генерировать `search_keywords` в chat-stream из оригинального запроса
-3. Обновить SourcesPanel чтобы передавать `search_keywords`
-4. Улучшить DocumentViewer для поиска по нескольким ключевым словам
-5. Задеплоить и протестировать
+1. Добавить `stopReason` в тип Message
+2. Обновить useOptimizedChat.ts для захвата stop_reason
+3. Добавить UI предупреждение в ChatMessage.tsx
+4. Задеплоить и протестировать с длинным запросом
 
-### Оценка времени
+### Тестирование
 
-- Изменения типов: 10 минут
-- chat-stream изменения: 30 минут  
-- SourcesPanel изменения: 20 минут
-- DocumentViewer улучшения: 30 минут
-- Тестирование: 30 минут
-
-**Общее время**: ~2 часа
+Попросить ассистента сгенерировать очень длинный ответ (например, "напиши подробный чеклист на 100 пунктов") и убедиться что:
+1. Появляется бейдж "Обрезано"
+2. При наведении показывается подсказка
+3. Пользователь может попросить "продолжи" и получить остаток
 
