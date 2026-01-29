@@ -129,26 +129,54 @@ export function SourcesPanel({
     const text = fullContent || preview;
     if (!text) return undefined;
     
-    // Russian stop words to exclude
+    // 1. Try to find quoted phrases first (most specific)
+    const quotedMatch = text.match(/[«"]([^»"]+)[»"]/);
+    if (quotedMatch && quotedMatch[1].length > 10) {
+      return quotedMatch[1].slice(0, 40);
+    }
+    
+    // 2. Extended Russian stop words
     const stopWords = new Set([
       'который', 'которая', 'которое', 'которые', 'также', 'однако',
       'после', 'перед', 'между', 'через', 'более', 'менее', 'очень',
       'этот', 'этого', 'этому', 'этим', 'этой', 'этих', 'этом',
       'того', 'тому', 'того', 'той', 'тех', 'такой', 'таких',
       'было', 'были', 'будет', 'будут', 'быть', 'может', 'могут',
-      'когда', 'если', 'чтобы', 'потому', 'поэтому', 'таким', 'образом'
+      'когда', 'если', 'чтобы', 'потому', 'поэтому', 'таким', 'образом',
+      'является', 'являются', 'данный', 'данная', 'данные',
+      'необходимо', 'следует', 'должен', 'должна', 'должны',
+      'указанный', 'указанная', 'указанные', 'соответствующий',
+      'соответствии', 'настоящего', 'настоящей', 'предусмотренных'
     ]);
     
-    // Extract words > 4 chars, not stop words
+    // 3. Extract words > 4 chars, not stop words
     const words = text
       .replace(/[^\wа-яёА-ЯЁ\s]/gi, ' ')
       .split(/\s+/)
       .filter(w => w.length > 4 && !stopWords.has(w.toLowerCase()));
     
-    // Take first 6 unique words from the beginning of the text
-    const unique = [...new Set(words.slice(0, 50))].slice(0, 6);
+    // 4. Sort by length (longer = more specific), then take first 5 unique
+    const sorted = [...new Set(words)].sort((a, b) => b.length - a.length);
+    const unique = sorted.slice(0, 5);
     
     return unique.length > 0 ? unique.join(' ') : undefined;
+  };
+
+  // Open source document in Text Viewer (like citations)
+  const openSourceTextViewer = (docInfo: string, content: string) => {
+    // Find matching citation to get storage_path
+    const docName = docInfo.split(' | ')[0].split(' (часть')[0].trim();
+    const matchingCitation = usedCitations.find(c => 
+      c.document.includes(docName) || docName.includes(c.document.split(' (часть')[0])
+    );
+    
+    setTextViewerState({
+      isOpen: true,
+      documentName: docInfo.split(' | ')[0],
+      chunkContent: content,
+      highlightText: undefined,
+      storagePath: matchingCitation?.storage_path,
+    });
   };
 
   // Search documents via API (for Bitrix context)
@@ -528,7 +556,7 @@ export function SourcesPanel({
                   <div 
                     key={idx}
                     className="p-3 rounded-lg bg-muted/50 border border-border/50 cursor-pointer hover:bg-accent/50 hover:border-accent transition-colors group"
-                    onClick={() => !isLoading && openDocumentWithHighlight(docInfo, content)}
+                    onClick={() => !isLoading && openSourceTextViewer(docInfo, content)}
                   >
                     <div className="flex items-start justify-between gap-2 mb-2">
                       <div className="flex items-start gap-2 min-w-0 flex-1">
@@ -545,9 +573,9 @@ export function SourcesPanel({
                         className="h-7 px-2 shrink-0"
                         onClick={(e) => {
                           e.stopPropagation();
-                          openDocumentWithHighlight(docInfo, content);
+                          openSourceTextViewer(docInfo, content);
                         }}
-                        title="Открыть документ"
+                        title="Открыть фрагмент"
                         disabled={isLoading}
                       >
                         {isLoading ? (
