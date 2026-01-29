@@ -729,19 +729,35 @@ serve(async (req) => {
       if (strictRagMode) {
         instructions = `
 ИНСТРУКЦИИ (СТРОГИЙ РЕЖИМ - ТОЛЬКО БАЗА ЗНАНИЙ):
-1. Отвечай ТОЛЬКО на основе предоставленных документов из базы знаний
-2. ОБЯЗАТЕЛЬНО указывай источники в формате [номер] для каждого утверждения
-3. Если информация НЕ найдена в документах — честно сообщи об этом
-4. НЕ додумывай и НЕ используй общие знания
-5. Если вопрос выходит за рамки документов — предложи уточнить запрос`;
+
+ПРАВИЛА ЦИТИРОВАНИЯ (КРИТИЧЕСКИ ВАЖНО):
+1. Каждое ОТДЕЛЬНОЕ утверждение должно иметь СВОЮ ссылку [N]
+2. НЕ повторяй одну ссылку [1] для разных фактов — это делает проверку невозможной
+3. Формат: "Утверждение [N]." — ссылка СРАЗУ после факта, который она подтверждает
+4. Если факт основан на нескольких источниках, укажи все: "Утверждение [1][3]."
+5. ЗАПРЕЩЕНО ссылаться на документы, которых НЕТ в контексте выше
+
+ОТВЕТ:
+- Отвечай ТОЛЬКО на основе предоставленных документов из базы знаний
+- Если информация НЕ найдена в документах — честно сообщи об этом
+- НЕ додумывай и НЕ используй общие знания
+- Если ответ получается очень длинным, завершай логично и предлагай продолжение`;
       } else {
         instructions = `
 ИНСТРУКЦИИ:
-1. Используй ОБА источника для полного ответа: документы И интернет
-2. Если в документах нет конкретной информации — обязательно дополни из интернета
-3. НЕ говори "в документах отсутствует" или "информация недоступна" — найди ответ в веб-контексте
-4. Указывай источники: [номер] для документов, (ссылка) для веб-источников
-5. Приоритет: документы первичны, интернет — для дополнения и актуализации`;
+
+ПРАВИЛА ЦИТИРОВАНИЯ (КРИТИЧЕСКИ ВАЖНО):
+1. Каждое ОТДЕЛЬНОЕ утверждение должно иметь СВОЮ ссылку [N]
+2. НЕ повторяй одну ссылку [1] для разных фактов — это делает проверку невозможной
+3. Формат: "Утверждение [N]." — ссылка СРАЗУ после факта, который она подтверждает
+4. Если факт основан на нескольких источниках, укажи все: "Утверждение [1][3]."
+5. ЗАПРЕЩЕНО ссылаться на документы, которых НЕТ в контексте выше
+6. Веб-источники указывай как (URL) в тексте, не смешивая с нумерацией [N]
+
+ОТВЕТ:
+- Используй ОБА источника для полного ответа: документы [N] И интернет (URL)
+- Приоритет: документы первичны, интернет — для дополнения и актуализации
+- Если ответ получается очень длинным, завершай логично и предлагай продолжение`;
       }
       
       finalPrompt = `${contextParts.join('\n\n---\n\n')}\n\n---\n${instructions}${replyContext}\n\n---\n\nВОПРОС ПОЛЬЗОВАТЕЛЯ: ${message || 'Проанализируй прикрепленные файлы'}`;
@@ -1338,13 +1354,36 @@ serve(async (req) => {
             }
           }
           
-          // Extract search keywords from original query for PDF navigation
-          const searchKeywords = extractSearchKeywords(message);
-          console.log(`RAG: Search keywords for PDF navigation: ${searchKeywords.join(', ')}`);
+          // Extract search keywords from original query for PDF navigation (fallback)
+          const globalSearchKeywords = extractSearchKeywords(message);
+          console.log(`RAG: Global search keywords for PDF navigation: ${globalSearchKeywords.join(', ')}`);
           
-          // Build citations with enhanced metadata
+          // Function to extract specific keywords from chunk content for better navigation
+          function extractChunkKeywords(chunkContent: string, query: string): string[] {
+            // Get keywords that appear BOTH in the chunk and the query (most specific)
+            const queryWords = query.toLowerCase()
+              .replace(/[^\wа-яё\s\d]/gi, ' ')
+              .split(/\s+/)
+              .filter(w => (w.length > 3 && !STOP_WORDS.has(w)) || /^\d+$/.test(w));
+            
+            const chunkLower = chunkContent.toLowerCase();
+            const matchedKeywords = queryWords.filter(w => chunkLower.includes(w));
+            
+            // If we have matched keywords, return them (max 5)
+            if (matchedKeywords.length > 0) {
+              return matchedKeywords.slice(0, 5);
+            }
+            
+            // Fallback to global query keywords
+            return globalSearchKeywords;
+          }
+          
+          // Build citations with enhanced metadata - unique search_keywords per citation
           const allCitations = rankedChunks.map((chunk, idx) => {
             const docMeta = chunkToDoc.get(chunk.id);
+            // Extract keywords specific to THIS chunk's content
+            const chunkKeywords = extractChunkKeywords(chunk.content, message);
+            
             return {
               index: idx + 1,
               document: chunk.original_document_name || chunk.document_name,
@@ -1358,7 +1397,8 @@ serve(async (req) => {
               page_start: chunk.part_number,
               content_preview: extractRelevantPreview(chunk.content, message, 300),
               storage_path: docMeta?.storage_path,
-              search_keywords: searchKeywords,
+              // Use chunk-specific keywords for better PDF navigation accuracy
+              search_keywords: chunkKeywords,
             };
           });
           
