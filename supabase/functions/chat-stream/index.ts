@@ -1197,6 +1197,7 @@ serve(async (req) => {
           document_id: docMeta?.document_id || chunk.parent_document_id,
           page_start: chunk.part_number,
           content_preview: extractRelevantPreview(chunk.content, message, 300),
+          full_chunk_content: chunk.content, // Full text for Text Viewer
           storage_path: docMeta?.storage_path,
           search_keywords: searchKeywords,
         };
@@ -1396,6 +1397,7 @@ serve(async (req) => {
               document_id: docMeta?.document_id || chunk.parent_document_id,
               page_start: chunk.part_number,
               content_preview: extractRelevantPreview(chunk.content, message, 300),
+              full_chunk_content: chunk.content, // Full text for Text Viewer
               storage_path: docMeta?.storage_path,
               // Use chunk-specific keywords for better PDF navigation accuracy
               search_keywords: chunkKeywords,

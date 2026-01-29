@@ -4,6 +4,7 @@ import { Loader2 } from 'lucide-react';
 import { Citation } from '@/types/chat';
 import { supabase } from '@/integrations/supabase/client';
 import { DocumentViewer } from '@/components/documents/DocumentViewer';
+import { TextContentViewer } from '@/components/documents/TextContentViewer';
 import { toast } from '@/hooks/use-toast';
 import { Button } from '@/components/ui/button';
 
@@ -14,6 +15,14 @@ interface CitationLinkProps {
   isBitrixContext?: boolean;
   bitrixApiBaseUrl?: string;
   bitrixToken?: string;
+}
+
+interface TextViewerState {
+  isOpen: boolean;
+  documentName: string;
+  chunkContent: string;
+  highlightText?: string;
+  chunkIndex?: number;
 }
 
 interface DocumentViewerState {
@@ -33,7 +42,12 @@ export function CitationLink({
   bitrixToken,
 }: CitationLinkProps) {
   const [isLoading, setIsLoading] = useState(false);
-  const [viewerState, setViewerState] = useState<DocumentViewerState>({ isOpen: false });
+  const [textViewerState, setTextViewerState] = useState<TextViewerState>({ 
+    isOpen: false, 
+    documentName: '', 
+    chunkContent: '' 
+  });
+  const [pdfViewerState, setPdfViewerState] = useState<DocumentViewerState>({ isOpen: false });
   const [preSignedUrl, setPreSignedUrl] = useState<string | undefined>(undefined);
 
   // Get signed URL via API (for Bitrix context)
@@ -59,6 +73,54 @@ export function CitationLink({
     }
   };
 
+  // Open PDF viewer (called from Text Viewer or directly for files without text content)
+  const openPdfViewer = async () => {
+    if (!citation?.storage_path) {
+      toast({
+        title: "Документ не найден",
+        description: "Нет пути к документу для открытия PDF",
+        variant: "destructive",
+      });
+      return;
+    }
+
+    setIsLoading(true);
+    setPreSignedUrl(undefined);
+
+    try {
+      // Pre-fetch signed URL for Bitrix context
+      if (isBitrixContext && bitrixApiBaseUrl && bitrixToken) {
+        const signedUrl = await getSignedUrlViaApi(citation.storage_path);
+        if (signedUrl) {
+          setPreSignedUrl(signedUrl);
+        }
+      }
+
+      // Close text viewer if open
+      setTextViewerState(prev => ({ ...prev, isOpen: false }));
+
+      setPdfViewerState({
+        isOpen: true,
+        documentId: citation.document_id,
+        storagePath: citation.storage_path,
+        documentName: citation.document,
+        searchText: citation.search_keywords?.length 
+          ? citation.search_keywords.join(' ')
+          : citation.content_preview?.slice(0, 150),
+        pageNumber: citation.page_start || 1,
+      });
+    } catch (error) {
+      console.error('Error opening PDF:', error);
+      toast({
+        title: "Ошибка",
+        description: "Не удалось открыть PDF документ",
+        variant: "destructive",
+      });
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
   const handleClick = async (e: React.MouseEvent) => {
     e.preventDefault();
     e.stopPropagation();
@@ -72,92 +134,90 @@ export function CitationLink({
       return;
     }
 
-    setIsLoading(true);
-    setPreSignedUrl(undefined);
+    // Priority 1: Text Viewer (if full chunk content is available)
+    if (citation.full_chunk_content) {
+      setTextViewerState({
+        isOpen: true,
+        documentName: citation.document,
+        chunkContent: citation.full_chunk_content,
+        highlightText: citation.content_preview,
+        chunkIndex: citation.index,
+      });
+      return;
+    }
 
-    try {
-      // Check if we have direct citation data
-      if (citation.document_id && citation.storage_path) {
-        // Check if this is an Excel file
-        const fileExt = citation.storage_path.split('.').pop()?.toLowerCase();
-        if (fileExt === 'xlsx' || fileExt === 'xls' || fileExt === 'csv') {
-          setIsLoading(false);
-          
-          let downloadUrl: string | null = null;
-          if (isBitrixContext && bitrixApiBaseUrl && bitrixToken) {
-            downloadUrl = await getSignedUrlViaApi(citation.storage_path);
-          } else {
-            const { data: signedData } = await supabase.storage
-              .from('rag-documents')
-              .createSignedUrl(citation.storage_path, 3600);
-            downloadUrl = signedData?.signedUrl || null;
-          }
-          
-          if (downloadUrl) {
-            toast({
-              title: "Табличный документ",
-              description: `Файл нельзя просмотреть в браузере.`,
-              action: (
-                <Button 
-                  variant="outline" 
-                  size="sm"
-                  onClick={() => window.open(downloadUrl!, '_blank')}
-                >
-                  Скачать
-                </Button>
-              ),
-            });
-          }
-          return;
-        }
+    // Priority 2: Check for Excel files - offer download
+    if (citation.storage_path) {
+      const fileExt = citation.storage_path.split('.').pop()?.toLowerCase();
+      if (fileExt === 'xlsx' || fileExt === 'xls' || fileExt === 'csv') {
+        setIsLoading(true);
         
-        // For Bitrix context, pre-fetch signed URL
+        let downloadUrl: string | null = null;
         if (isBitrixContext && bitrixApiBaseUrl && bitrixToken) {
-          const signedUrl = await getSignedUrlViaApi(citation.storage_path);
-          if (signedUrl) {
-            setPreSignedUrl(signedUrl);
-          }
+          downloadUrl = await getSignedUrlViaApi(citation.storage_path);
+        } else {
+          const { data: signedData } = await supabase.storage
+            .from('rag-documents')
+            .createSignedUrl(citation.storage_path, 3600);
+          downloadUrl = signedData?.signedUrl || null;
         }
         
-        setViewerState({
+        setIsLoading(false);
+        
+        if (downloadUrl) {
+          toast({
+            title: "Табличный документ",
+            description: `Файл нельзя просмотреть в браузере.`,
+            action: (
+              <Button 
+                variant="outline" 
+                size="sm"
+                onClick={() => window.open(downloadUrl!, '_blank')}
+              >
+                Скачать
+              </Button>
+            ),
+          });
+        }
+        return;
+      }
+    }
+
+    // Priority 3: Open PDF Viewer directly (fallback when no text content)
+    if (citation.document_id && citation.storage_path) {
+      await openPdfViewer();
+      return;
+    }
+
+    // Priority 4: Try to find document by name (fallback)
+    setIsLoading(true);
+    try {
+      const { data: docs } = await supabase
+        .from('documents')
+        .select('id, storage_path, name')
+        .ilike('name', `%${citation.document}%`)
+        .limit(1);
+      
+      if (docs && docs.length > 0 && docs[0].storage_path) {
+        if (isBitrixContext && bitrixApiBaseUrl && bitrixToken) {
+          const signedUrl = await getSignedUrlViaApi(docs[0].storage_path);
+          if (signedUrl) setPreSignedUrl(signedUrl);
+        }
+        
+        setPdfViewerState({
           isOpen: true,
-          documentId: citation.document_id,
-          storagePath: citation.storage_path,
-          documentName: citation.document,
-          searchText: citation.search_keywords?.length 
-            ? citation.search_keywords.join(' ')
-            : citation.content_preview?.slice(0, 150),
+          documentId: docs[0].id,
+          storagePath: docs[0].storage_path,
+          documentName: docs[0].name,
+          searchText: citation.search_keywords?.join(' ') || citation.content_preview?.slice(0, 150),
           pageNumber: citation.page_start || 1,
         });
       } else {
-        // Fallback: search by document name
-        const { data: docs } = await supabase
-          .from('documents')
-          .select('id, storage_path, name')
-          .ilike('name', `%${citation.document}%`)
-          .limit(1);
-        
-        if (docs && docs.length > 0 && docs[0].storage_path) {
-          if (isBitrixContext && bitrixApiBaseUrl && bitrixToken) {
-            const signedUrl = await getSignedUrlViaApi(docs[0].storage_path);
-            if (signedUrl) setPreSignedUrl(signedUrl);
-          }
-          
-          setViewerState({
-            isOpen: true,
-            documentId: docs[0].id,
-            storagePath: docs[0].storage_path,
-            documentName: docs[0].name,
-            searchText: citation.search_keywords?.join(' ') || citation.content_preview?.slice(0, 150),
-            pageNumber: citation.page_start || 1,
-          });
-        } else {
-          toast({
-            title: "Документ не найден",
-            description: `Не удалось найти "${citation.document}" в хранилище`,
-            variant: "destructive",
-          });
-        }
+        toast({
+          title: "Документ не найден",
+          description: `Не удалось найти "${citation.document}" в хранилище`,
+          variant: "destructive",
+        });
       }
     } catch (error) {
       console.error('Error opening citation:', error);
@@ -186,15 +246,27 @@ export function CitationLink({
         )}
       </Badge>
 
-      {viewerState.isOpen && viewerState.storagePath && (
+      {/* Text Content Viewer (primary for chunks with text) */}
+      <TextContentViewer
+        isOpen={textViewerState.isOpen}
+        onClose={() => setTextViewerState(prev => ({ ...prev, isOpen: false }))}
+        documentName={textViewerState.documentName}
+        chunkContent={textViewerState.chunkContent}
+        highlightText={textViewerState.highlightText}
+        chunkIndex={textViewerState.chunkIndex}
+        onOpenPdf={citation?.storage_path ? openPdfViewer : undefined}
+      />
+
+      {/* PDF Document Viewer (secondary/fallback) */}
+      {pdfViewerState.isOpen && pdfViewerState.storagePath && (
         <DocumentViewer
-          isOpen={viewerState.isOpen}
-          onClose={() => setViewerState({ isOpen: false })}
-          documentId={viewerState.documentId}
-          storagePath={viewerState.storagePath}
-          documentName={viewerState.documentName}
-          searchText={viewerState.searchText}
-          pageNumber={viewerState.pageNumber}
+          isOpen={pdfViewerState.isOpen}
+          onClose={() => setPdfViewerState({ isOpen: false })}
+          documentId={pdfViewerState.documentId}
+          storagePath={pdfViewerState.storagePath}
+          documentName={pdfViewerState.documentName}
+          searchText={pdfViewerState.searchText}
+          pageNumber={pdfViewerState.pageNumber}
           preSignedUrl={preSignedUrl}
         />
       )}

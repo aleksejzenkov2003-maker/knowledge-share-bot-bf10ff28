@@ -3,10 +3,12 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { ExternalLink, FileText, BookOpen, Globe, Eye, Loader2 } from "lucide-react";
+import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
+import { ExternalLink, FileText, BookOpen, Globe, Eye, Loader2, ChevronDown, ChevronUp } from "lucide-react";
 import { Citation } from "@/types/chat";
 import { supabase } from "@/integrations/supabase/client";
 import { DocumentViewer } from "@/components/documents/DocumentViewer";
+import { TextContentViewer } from "@/components/documents/TextContentViewer";
 import { toast } from "@/hooks/use-toast";
 
 interface SourcesPanelProps {
@@ -43,6 +45,27 @@ export function SourcesPanel({
     isOpen: false,
   });
   const [preSignedUrl, setPreSignedUrl] = useState<string | undefined>(undefined);
+  const [expandedCitations, setExpandedCitations] = useState<Set<number>>(new Set());
+  const [textViewerState, setTextViewerState] = useState<{
+    isOpen: boolean;
+    documentName: string;
+    chunkContent: string;
+    highlightText?: string;
+    chunkIndex?: number;
+    storagePath?: string;
+  }>({ isOpen: false, documentName: '', chunkContent: '' });
+
+  const toggleCitationExpanded = (index: number) => {
+    setExpandedCitations(prev => {
+      const next = new Set(prev);
+      if (next.has(index)) {
+        next.delete(index);
+      } else {
+        next.add(index);
+      }
+      return next;
+    });
+  };
 
   const hasRagSources = ragContext && ragContext.length > 0;
   const hasCitations = citations && citations.length > 0;
@@ -341,13 +364,43 @@ export function SourcesPanel({
     }
   };
 
-  // Open citation in document viewer
+  // Open citation - prefer Text Viewer if full content available
   const openCitation = async (citation: Citation) => {
-    await openDocumentWithHighlight(
-      citation.document,
-      citation.content_preview,
-      citation
-    );
+    if (citation.full_chunk_content) {
+      // Open Text Viewer with full chunk content
+      setTextViewerState({
+        isOpen: true,
+        documentName: citation.document,
+        chunkContent: citation.full_chunk_content,
+        highlightText: citation.content_preview,
+        chunkIndex: citation.index,
+        storagePath: citation.storage_path,
+      });
+    } else {
+      // Fallback to PDF viewer
+      await openDocumentWithHighlight(
+        citation.document,
+        citation.content_preview,
+        citation
+      );
+    }
+  };
+
+  // Open PDF from Text Viewer
+  const openPdfFromTextViewer = async () => {
+    if (!textViewerState.storagePath) return;
+    
+    setTextViewerState(prev => ({ ...prev, isOpen: false }));
+    
+    // Find the citation to get full metadata
+    const citation = usedCitations.find(c => c.storage_path === textViewerState.storagePath);
+    if (citation) {
+      await openDocumentWithHighlight(
+        citation.document,
+        citation.content_preview,
+        citation
+      );
+    }
   };
 
   const closeViewer = () => {
@@ -471,52 +524,97 @@ export function SourcesPanel({
           <ScrollArea className="h-[60vh]">
             <div className="space-y-3 pr-4">
               <p className="text-xs text-muted-foreground mb-2">
-                Конкретные фрагменты, на которые ссылается ответ (кликните [N] в тексте для навигации):
+                Конкретные фрагменты, на которые ссылается ответ. Нажмите для просмотра полного текста:
               </p>
               {usedCitations.map((citation) => {
                 const isLoading = loadingSource === citation.document + citation.index;
+                const isExpanded = expandedCitations.has(citation.index);
+                const hasFullContent = !!citation.full_chunk_content;
                 
                 return (
-                  <div 
+                  <Collapsible
                     key={citation.index}
-                    className="p-3 rounded-lg bg-muted/50 border border-border/50 cursor-pointer hover:bg-accent/50 hover:border-accent transition-colors group"
-                    onClick={() => !isLoading && openCitation(citation)}
+                    open={isExpanded}
+                    onOpenChange={() => hasFullContent && toggleCitationExpanded(citation.index)}
                   >
-                    <div className="flex items-center gap-2 mb-1.5">
-                      <Badge variant="outline" className="shrink-0 font-mono">
-                        [{citation.index}]
-                      </Badge>
-                      <span className="text-sm font-medium text-foreground truncate group-hover:text-primary transition-colors">
-                        {citation.document}
-                      </span>
-                      {isLoading && (
-                        <Loader2 className="h-3.5 w-3.5 animate-spin ml-auto" />
-                      )}
-                    </div>
-                    {/* Show content preview if available */}
-                    {citation.content_preview && (
-                      <p className="text-xs text-muted-foreground mb-2 line-clamp-2 italic">
-                        "{citation.content_preview.slice(0, 150)}..."
-                      </p>
-                    )}
-                    <div className="flex flex-wrap gap-2 text-xs text-muted-foreground">
-                      {citation.section && (
-                        <span className="flex items-center gap-1">
-                          <FileText className="h-3 w-3" />
-                          {citation.section}
+                    <div 
+                      className="p-3 rounded-lg bg-muted/50 border border-border/50 hover:bg-accent/50 hover:border-accent transition-colors group"
+                    >
+                      <div className="flex items-center gap-2 mb-1.5">
+                        <Badge variant="outline" className="shrink-0 font-mono">
+                          [{citation.index}]
+                        </Badge>
+                        <span 
+                          className="text-sm font-medium text-foreground truncate group-hover:text-primary transition-colors cursor-pointer flex-1"
+                          onClick={() => !isLoading && openCitation(citation)}
+                        >
+                          {citation.document}
                         </span>
+                        {hasFullContent && (
+                          <CollapsibleTrigger asChild>
+                            <Button variant="ghost" size="sm" className="h-7 px-2 shrink-0">
+                              {isExpanded ? (
+                                <ChevronUp className="h-3.5 w-3.5" />
+                              ) : (
+                                <ChevronDown className="h-3.5 w-3.5" />
+                              )}
+                            </Button>
+                          </CollapsibleTrigger>
+                        )}
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          className="h-7 px-2 shrink-0"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            openCitation(citation);
+                          }}
+                          title="Открыть полный фрагмент"
+                          disabled={isLoading}
+                        >
+                          {isLoading ? (
+                            <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                          ) : (
+                            <Eye className="h-3.5 w-3.5" />
+                          )}
+                        </Button>
+                      </div>
+                      
+                      {/* Preview (always visible) */}
+                      {citation.content_preview && !isExpanded && (
+                        <p className="text-xs text-muted-foreground mb-2 line-clamp-2 italic">
+                          "{citation.content_preview.slice(0, 150)}..."
+                        </p>
                       )}
-                      {citation.article && (
-                        <span className="flex items-center gap-1">
-                          <BookOpen className="h-3 w-3" />
-                          Ст. {citation.article}
+                      
+                      {/* Full content (collapsible) */}
+                      <CollapsibleContent>
+                        {citation.full_chunk_content && (
+                          <div className="mt-2 p-3 bg-background/50 rounded border text-xs text-foreground/90 whitespace-pre-wrap max-h-64 overflow-y-auto">
+                            {citation.full_chunk_content}
+                          </div>
+                        )}
+                      </CollapsibleContent>
+                      
+                      <div className="flex flex-wrap gap-2 text-xs text-muted-foreground mt-2">
+                        {citation.section && (
+                          <span className="flex items-center gap-1">
+                            <FileText className="h-3 w-3" />
+                            {citation.section}
+                          </span>
+                        )}
+                        {citation.article && (
+                          <span className="flex items-center gap-1">
+                            <BookOpen className="h-3 w-3" />
+                            Ст. {citation.article}
+                          </span>
+                        )}
+                        <span className="ml-auto">
+                          Релевантность: {Math.round(citation.relevance * 100)}%
                         </span>
-                      )}
-                      <span className="ml-auto">
-                        Релевантность: {Math.round(citation.relevance * 100)}%
-                      </span>
+                      </div>
                     </div>
-                  </div>
+                  </Collapsible>
                 );
               })}
             </div>
@@ -566,6 +664,16 @@ export function SourcesPanel({
         bitrixApiBaseUrl={bitrixApiBaseUrl}
         bitrixToken={bitrixToken}
         preSignedUrl={preSignedUrl}
+      />
+
+      <TextContentViewer
+        isOpen={textViewerState.isOpen}
+        onClose={() => setTextViewerState(prev => ({ ...prev, isOpen: false }))}
+        documentName={textViewerState.documentName}
+        chunkContent={textViewerState.chunkContent}
+        highlightText={textViewerState.highlightText}
+        chunkIndex={textViewerState.chunkIndex}
+        onOpenPdf={textViewerState.storagePath ? openPdfFromTextViewer : undefined}
       />
     </>
   );
