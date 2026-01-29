@@ -335,7 +335,7 @@ export default function DepartmentChatFullscreen() {
 
         {/* Messages Area */}
         <ScrollArea className="flex-1" ref={scrollAreaRef}>
-          <div className="max-w-5xl mx-auto py-6 px-4 lg:px-8">
+          <div className="max-w-4xl mx-auto py-6 px-4 lg:px-8">
             {filteredMessages.length === 0 && messages.length === 0 ? (
               <div className="flex flex-col items-center justify-center h-[60vh] text-center">
                 <div className="w-16 h-16 rounded-full bg-primary/10 flex items-center justify-center mb-4">
