@@ -197,7 +197,7 @@ export default function Chat() {
         </div>
 
         {/* Messages */}
-        <ScrollArea className="flex-1 pb-36">
+        <ScrollArea className="flex-1">
           <div className="max-w-4xl mx-auto py-6 px-4 lg:px-8">
             {messages.length === 0 ? (
               <div className="flex flex-col items-center justify-center h-[50vh] text-center">
@@ -241,24 +241,22 @@ export default function Chat() {
           </div>
         </ScrollArea>
 
-        {/* Input - Fixed at bottom, centered to viewport */}
-        <div className="fixed bottom-0 left-0 right-0 z-10 pointer-events-none">
-          <div className="pointer-events-auto bg-background border-t py-4">
-            <ChatInputEnhanced
-              value={inputValue}
-              onChange={setInputValue}
-              onSend={handleSend}
-              onStop={stopGeneration}
-              isLoading={isLoading}
-              attachments={attachments}
-              onAttach={addAttachments}
-              onRemoveAttachment={removeAttachment}
-              roles={roles}
-              selectedRoleId={selectedRoleId}
-              onRoleChange={handleRoleChange}
-              placeholder="Спросите что-нибудь..."
-            />
-          </div>
+        {/* Input Area - sticky at bottom of main area */}
+        <div className="border-t bg-background py-4">
+          <ChatInputEnhanced
+            value={inputValue}
+            onChange={setInputValue}
+            onSend={handleSend}
+            onStop={stopGeneration}
+            isLoading={isLoading}
+            attachments={attachments}
+            onAttach={addAttachments}
+            onRemoveAttachment={removeAttachment}
+            roles={roles}
+            selectedRoleId={selectedRoleId}
+            onRoleChange={handleRoleChange}
+            placeholder="Спросите что-нибудь..."
+          />
         </div>
       </div>
     </div>

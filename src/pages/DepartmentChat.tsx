@@ -323,7 +323,7 @@ const DepartmentChat: React.FC = () => {
         </div>
 
         {/* Messages area */}
-        <ScrollArea className="flex-1 pb-36">
+        <ScrollArea className="flex-1">
           <div className="max-w-4xl mx-auto py-6 px-4">
             {isLoading ? (
               <div className="flex items-center justify-center py-8">
@@ -393,29 +393,27 @@ const DepartmentChat: React.FC = () => {
           </div>
         </ScrollArea>
 
-        {/* Fixed Input Area */}
-        <div className="fixed bottom-0 left-0 right-0 z-10 pointer-events-none">
-          <div className="pointer-events-auto bg-background border-t py-4">
-            <ChatInputEnhanced
-              value={inputValue}
-              onChange={setInputValue}
-              onSend={handleSend}
-              isLoading={isGenerating}
-              onStop={stopGeneration}
-              attachments={attachments}
-              onAttach={handleAttach}
-              onRemoveAttachment={removeAttachment}
-              // Department-specific
-              availableAgents={availableAgents}
-              departmentId={activeDepartmentId || undefined}
-              conversationId={activeChatId || undefined}
-              selectedKnowledgeDocs={selectedKnowledgeDocs}
-              onKnowledgeDocsChange={setSelectedKnowledgeDocs}
-              replyTo={replyToMessage}
-              onClearReply={() => setReplyToMessage(null)}
-              placeholder="Напишите @агент и ваш вопрос..."
-            />
-          </div>
+        {/* Input Area - sticky at bottom of main area */}
+        <div className="border-t bg-background py-4">
+          <ChatInputEnhanced
+            value={inputValue}
+            onChange={setInputValue}
+            onSend={handleSend}
+            isLoading={isGenerating}
+            onStop={stopGeneration}
+            attachments={attachments}
+            onAttach={handleAttach}
+            onRemoveAttachment={removeAttachment}
+            // Department-specific
+            availableAgents={availableAgents}
+            departmentId={activeDepartmentId || undefined}
+            conversationId={activeChatId || undefined}
+            selectedKnowledgeDocs={selectedKnowledgeDocs}
+            onKnowledgeDocsChange={setSelectedKnowledgeDocs}
+            replyTo={replyToMessage}
+            onClearReply={() => setReplyToMessage(null)}
+            placeholder="Напишите @агент и ваш вопрос..."
+          />
         </div>
       </div>
     </div>

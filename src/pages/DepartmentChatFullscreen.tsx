@@ -330,7 +330,7 @@ export default function DepartmentChatFullscreen() {
         </header>
 
         {/* Messages Area */}
-        <ScrollArea className="flex-1 pb-36" ref={scrollAreaRef}>
+        <ScrollArea className="flex-1" ref={scrollAreaRef}>
           <div className="max-w-4xl mx-auto py-6 px-4 lg:px-8">
             {filteredMessages.length === 0 && messages.length === 0 ? (
               <div className="flex flex-col items-center justify-center h-[60vh] text-center">
@@ -397,29 +397,27 @@ export default function DepartmentChatFullscreen() {
           </div>
         </ScrollArea>
 
-        {/* Fixed Input Area */}
-        <div className="fixed bottom-0 left-0 right-0 z-10 pointer-events-none">
-          <div className="pointer-events-auto bg-background border-t py-4">
-            <ChatInputEnhanced
-              value={inputValue}
-              onChange={setInputValue}
-              onSend={handleSend}
-              isLoading={isGenerating}
-              onStop={stopGeneration}
-              attachments={attachments}
-              onAttach={handleAttach}
-              onRemoveAttachment={removeAttachment}
-              // Department-specific
-              availableAgents={availableAgents}
-              departmentId={activeDepartmentId || undefined}
-              conversationId={activeChatId || undefined}
-              selectedKnowledgeDocs={selectedKnowledgeDocs}
-              onKnowledgeDocsChange={setSelectedKnowledgeDocs}
-              replyTo={replyToMessage}
-              onClearReply={() => setReplyToMessage(null)}
-              placeholder="Напишите @агент и ваш вопрос..."
-            />
-          </div>
+        {/* Input Area - sticky at bottom of main area */}
+        <div className="border-t bg-background py-4">
+          <ChatInputEnhanced
+            value={inputValue}
+            onChange={setInputValue}
+            onSend={handleSend}
+            isLoading={isGenerating}
+            onStop={stopGeneration}
+            attachments={attachments}
+            onAttach={handleAttach}
+            onRemoveAttachment={removeAttachment}
+            // Department-specific
+            availableAgents={availableAgents}
+            departmentId={activeDepartmentId || undefined}
+            conversationId={activeChatId || undefined}
+            selectedKnowledgeDocs={selectedKnowledgeDocs}
+            onKnowledgeDocsChange={setSelectedKnowledgeDocs}
+            replyTo={replyToMessage}
+            onClearReply={() => setReplyToMessage(null)}
+            placeholder="Напишите @агент и ваш вопрос..."
+          />
         </div>
       </div>
     </div>
