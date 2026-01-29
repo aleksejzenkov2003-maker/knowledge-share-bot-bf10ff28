@@ -2,8 +2,6 @@ import React, { useState } from 'react';
 import { DepartmentChatMessage as MessageType } from '@/types/departmentChat';
 import { Bot, User, FileText, Image, Clock, BookOpen, Globe, AlertTriangle, Copy, CheckCheck, RefreshCw, ChevronDown, Reply } from 'lucide-react';
 import { cn } from '@/lib/utils';
-import ReactMarkdown from 'react-markdown';
-import remarkGfm from 'remark-gfm';
 import { supabase } from '@/integrations/supabase/client';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -30,6 +28,7 @@ import {
 } from "@/components/ui/dropdown-menu";
 import { SourcesPanel } from './SourcesPanel';
 import { DownloadDropdown } from './DownloadDropdown';
+import { MarkdownWithCitations } from './MarkdownWithCitations';
 
 interface AgentInfo {
   id: string;
@@ -197,67 +196,10 @@ function DepartmentChatMessageComponent({
         {/* Message content */}
         <div className="prose prose-sm dark:prose-invert max-w-none break-words">
           {isAssistant ? (
-            <ReactMarkdown
-              remarkPlugins={[remarkGfm]}
-              components={{
-                h1: ({ children }) => <h1 className="text-xl font-bold mt-4 mb-2">{children}</h1>,
-                h2: ({ children }) => <h2 className="text-lg font-semibold mt-3 mb-2">{children}</h2>,
-                h3: ({ children }) => <h3 className="text-base font-semibold mt-2 mb-1">{children}</h3>,
-                h4: ({ children }) => <h4 className="text-sm font-semibold mt-2 mb-1">{children}</h4>,
-                p: ({ children }) => <p className="mb-2 last:mb-0">{children}</p>,
-                ul: ({ children }) => <ul className="mb-2 list-disc pl-4">{children}</ul>,
-                ol: ({ children }) => <ol className="mb-2 list-decimal pl-4">{children}</ol>,
-                li: ({ children }) => <li className="mb-1">{children}</li>,
-                code: ({ children, className }) => {
-                  const isInline = !className;
-                  return isInline ? (
-                    <code className="px-1 py-0.5 rounded bg-muted font-mono text-sm">{children}</code>
-                  ) : (
-                    <code className="block p-3 rounded bg-muted font-mono text-sm overflow-x-auto">{children}</code>
-                  );
-                },
-                pre: ({ children }) => <pre className="mb-2 overflow-x-auto">{children}</pre>,
-                blockquote: ({ children }) => (
-                  <blockquote className="border-l-3 border-primary pl-4 my-2 italic text-muted-foreground">{children}</blockquote>
-                ),
-                a: ({ children, href }) => (
-                  <a href={href} target="_blank" rel="noopener noreferrer" className="text-primary underline hover:opacity-80 font-medium">
-                    {children}
-                  </a>
-                ),
-                strong: ({ children }) => (
-                  <strong className="font-semibold">{children}</strong>
-                ),
-                em: ({ children }) => (
-                  <em className="italic">{children}</em>
-                ),
-                hr: () => <hr className="my-4 border-border" />,
-                table: ({ children }) => (
-                  <div className="overflow-x-auto my-3 rounded border border-border">
-                    <table className="min-w-full border-collapse text-sm">
-                      {children}
-                    </table>
-                  </div>
-                ),
-                thead: ({ children }) => (
-                  <thead className="bg-muted/50">{children}</thead>
-                ),
-                tbody: ({ children }) => <tbody>{children}</tbody>,
-                tr: ({ children }) => (
-                  <tr className="border-b border-border last:border-b-0">{children}</tr>
-                ),
-                th: ({ children }) => (
-                  <th className="px-3 py-2 text-left font-semibold bg-muted/30">
-                    {children}
-                  </th>
-                ),
-                td: ({ children }) => (
-                  <td className="px-3 py-2">{children}</td>
-                ),
-              }}
-            >
-              {message.content || '...'}
-            </ReactMarkdown>
+            <MarkdownWithCitations
+              content={message.content || '...'}
+              citations={message.metadata?.citations}
+            />
           ) : (
             <p className="whitespace-pre-wrap">{message.content}</p>
           )}

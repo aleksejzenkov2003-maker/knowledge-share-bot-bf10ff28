@@ -354,16 +354,34 @@ export function SourcesPanel({
     setViewerState({ isOpen: false });
   };
 
+  // Deduplicate ragContext to get unique documents
+  const uniqueDocuments = React.useMemo(() => {
+    if (!ragContext) return [];
+    const seen = new Set<string>();
+    return ragContext.filter(source => {
+      const lines = source.split('\n');
+      const headerLine = lines[0] || '';
+      // Extract document name without index
+      const docName = headerLine.replace(/^\[\d+\]\s*/, '').split(' | ')[0].split(' (часть')[0].trim();
+      if (seen.has(docName)) return false;
+      seen.add(docName);
+      return true;
+    });
+  }, [ragContext]);
+
+  // Citations that were actually used in the response (filtered by [N])
+  const usedCitations = citations || [];
+
   return (
     <>
       <Tabs defaultValue={defaultTab} className="w-full">
         <TabsList className="grid w-full grid-cols-3">
-          <TabsTrigger value="sources" disabled={!hasRagSources}>
+          <TabsTrigger value="sources" disabled={uniqueDocuments.length === 0}>
             <FileText className="h-3.5 w-3.5 mr-1.5" />
-            Источники
-            {hasRagSources && (
+            Документы
+            {uniqueDocuments.length > 0 && (
               <Badge variant="secondary" className="ml-1.5 text-xs h-5 px-1.5">
-                {ragContext.length}
+                {uniqueDocuments.length}
               </Badge>
             )}
           </TabsTrigger>
@@ -372,7 +390,7 @@ export function SourcesPanel({
             Цитаты
             {hasCitations && (
               <Badge variant="secondary" className="ml-1.5 text-xs h-5 px-1.5">
-                {citations.length}
+                {usedCitations.length}
               </Badge>
             )}
           </TabsTrigger>
@@ -390,13 +408,16 @@ export function SourcesPanel({
         <TabsContent value="sources" className="mt-4">
           <ScrollArea className="h-[60vh]">
             <div className="space-y-4 pr-4">
-              {ragContext?.map((source, idx) => {
+              <p className="text-xs text-muted-foreground mb-2">
+                Уникальные документы, использованные для формирования ответа:
+              </p>
+              {uniqueDocuments.map((source, idx) => {
                 // Parse the source string to extract metadata
                 const lines = source.split('\n');
                 const headerLine = lines[0] || '';
                 const content = lines.slice(1).join('\n').trim();
                 
-                // Extract document name and metadata from header like "[1] DocName | Section | Article (relevance: 8.5)"
+                // Extract document name and metadata from header
                 const headerMatch = headerLine.match(/^\[(\d+)\]\s*(.+?)(?:\s*\(релевантность:\s*[\d.]+\))?$/);
                 const docNum = headerMatch?.[1] || String(idx + 1);
                 const docInfo = headerMatch?.[2] || headerLine;
@@ -436,8 +457,8 @@ export function SourcesPanel({
                         )}
                       </Button>
                     </div>
-                    <p className="text-xs text-muted-foreground line-clamp-4">
-                      {content}
+                    <p className="text-xs text-muted-foreground line-clamp-3">
+                      {content.slice(0, 200)}...
                     </p>
                   </div>
                 );
@@ -449,7 +470,10 @@ export function SourcesPanel({
         <TabsContent value="citations" className="mt-4">
           <ScrollArea className="h-[60vh]">
             <div className="space-y-3 pr-4">
-              {citations?.map((citation) => {
+              <p className="text-xs text-muted-foreground mb-2">
+                Конкретные фрагменты, на которые ссылается ответ (кликните [N] в тексте для навигации):
+              </p>
+              {usedCitations.map((citation) => {
                 const isLoading = loadingSource === citation.document + citation.index;
                 
                 return (
@@ -469,6 +493,12 @@ export function SourcesPanel({
                         <Loader2 className="h-3.5 w-3.5 animate-spin ml-auto" />
                       )}
                     </div>
+                    {/* Show content preview if available */}
+                    {citation.content_preview && (
+                      <p className="text-xs text-muted-foreground mb-2 line-clamp-2 italic">
+                        "{citation.content_preview.slice(0, 150)}..."
+                      </p>
+                    )}
                     <div className="flex flex-wrap gap-2 text-xs text-muted-foreground">
                       {citation.section && (
                         <span className="flex items-center gap-1">

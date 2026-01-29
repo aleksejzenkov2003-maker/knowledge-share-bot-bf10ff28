@@ -1,6 +1,4 @@
 import React from "react";
-import ReactMarkdown from "react-markdown";
-import remarkGfm from "remark-gfm";
 import { Card } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Bot, User, Clock, FileText, Loader2, BookOpen, Globe, Image } from "lucide-react";
@@ -14,6 +12,7 @@ import {
 } from "@/components/ui/sheet";
 import { BitrixMessageActions } from "./BitrixMessageActions";
 import { SourcesPanel } from "./SourcesPanel";
+import { MarkdownWithCitations } from "./MarkdownWithCitations";
 import { Citation, Attachment } from "@/types/chat";
 
 interface ChatRole {
@@ -132,77 +131,13 @@ function BitrixChatMessageComponent({
                   <span className="text-sm text-muted-foreground">Генерирую ответ...</span>
                 </div>
               ) : (
-                <ReactMarkdown
-                  remarkPlugins={[remarkGfm]}
-                  components={{
-                    p: ({ children }) => <p className="mb-3 leading-relaxed last:mb-0">{children}</p>,
-                    ul: ({ children }) => <ul className="list-disc pl-5 mb-3 space-y-1">{children}</ul>,
-                    ol: ({ children }) => <ol className="list-decimal pl-5 mb-3 space-y-1">{children}</ol>,
-                    li: ({ children }) => <li className="mb-1 leading-relaxed">{children}</li>,
-                    code: ({ className, children }) => {
-                      const isInline = !className;
-                      return isInline ? (
-                        <code className="bg-background/50 px-1 py-0.5 rounded text-xs font-mono">
-                          {children}
-                        </code>
-                      ) : (
-                        <pre className="bg-background/50 p-3 rounded overflow-x-auto my-3">
-                          <code className="text-xs font-mono">{children}</code>
-                        </pre>
-                      );
-                    },
-                    h1: ({ children }) => <h1 className="text-xl font-bold mt-5 mb-3">{children}</h1>,
-                    h2: ({ children }) => <h2 className="text-lg font-semibold mt-4 mb-2">{children}</h2>,
-                    h3: ({ children }) => <h3 className="text-base font-semibold mt-3 mb-2">{children}</h3>,
-                    h4: ({ children }) => <h4 className="text-sm font-semibold mt-3 mb-1">{children}</h4>,
-                    blockquote: ({ children }) => (
-                      <blockquote className="border-l-3 border-primary pl-4 my-3 italic text-muted-foreground">
-                        {children}
-                      </blockquote>
-                    ),
-                    a: ({ children, href }) => (
-                      <a 
-                        href={href} 
-                        target="_blank" 
-                        rel="noopener noreferrer" 
-                        className="text-primary underline hover:opacity-80 font-medium"
-                      >
-                        {children}
-                      </a>
-                    ),
-                    strong: ({ children }) => (
-                      <strong className="font-semibold">{children}</strong>
-                    ),
-                    em: ({ children }) => (
-                      <em className="italic">{children}</em>
-                    ),
-                    hr: () => <hr className="my-4 border-border" />,
-                    table: ({ children }) => (
-                      <div className="overflow-x-auto my-4 rounded border border-border">
-                        <table className="min-w-full border-collapse text-sm">
-                          {children}
-                        </table>
-                      </div>
-                    ),
-                    thead: ({ children }) => (
-                      <thead className="bg-muted/50">{children}</thead>
-                    ),
-                    tbody: ({ children }) => <tbody>{children}</tbody>,
-                    tr: ({ children }) => (
-                      <tr className="border-b border-border last:border-b-0 even:bg-muted/20">{children}</tr>
-                    ),
-                    th: ({ children }) => (
-                      <th className="px-3 py-2 text-left font-semibold bg-muted/30 border-b border-border whitespace-nowrap">
-                        {children}
-                      </th>
-                    ),
-                    td: ({ children }) => (
-                      <td className="px-3 py-2 border-b border-border/50">{children}</td>
-                    ),
-                  }}
-                >
-                  {normalizeMarkdownTables(message.content)}
-                </ReactMarkdown>
+                <MarkdownWithCitations 
+                  content={normalizeMarkdownTables(message.content)}
+                  citations={message.citations}
+                  isBitrixContext={isBitrixContext}
+                  bitrixApiBaseUrl={bitrixApiBaseUrl}
+                  bitrixToken={bitrixToken}
+                />
               )}
               {message.isStreaming && message.content && (
                 <span className="inline-block w-2 h-4 bg-primary animate-pulse ml-1" />
