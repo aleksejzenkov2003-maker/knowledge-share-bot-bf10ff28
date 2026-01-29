@@ -30,6 +30,7 @@ export interface Citation {
   page_start?: number;
   chunk_index?: number;
   content_preview?: string;
+  full_chunk_content?: string; // Full text of the chunk for Text Viewer
   storage_path?: string;
   search_keywords?: string[]; // Keywords from original query for PDF search
 }
