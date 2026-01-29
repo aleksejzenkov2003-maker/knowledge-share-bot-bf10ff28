@@ -82,6 +82,64 @@ interface StructuredChunk {
   article_number: string | null;
   chunk_type: ChunkType;
   parent_context: string;
+  page_start?: number;
+  page_end?: number;
+}
+
+// Track PDF page positions for accurate navigation
+interface PageText {
+  pageNum: number;
+  text: string;
+  startOffset: number;
+  endOffset: number;
+}
+
+// Global variable to pass page data between functions
+let currentPdfPagesData: PageText[] = [];
+let currentPdfFullText: string = '';
+
+// Function to determine page numbers for a chunk based on its position in full text
+function getPageForChunk(chunkContent: string): { page_start: number; page_end: number } {
+  if (currentPdfPagesData.length === 0 || !currentPdfFullText) {
+    return { page_start: 1, page_end: 1 }; // Default for non-PDF or failed extraction
+  }
+  
+  // Find where this chunk appears in the full text
+  const chunkStart = currentPdfFullText.indexOf(chunkContent);
+  if (chunkStart === -1) {
+    // Chunk not found - try fuzzy match with first 100 chars
+    const shortChunk = chunkContent.slice(0, 100).trim();
+    const fuzzyStart = currentPdfFullText.indexOf(shortChunk);
+    if (fuzzyStart === -1) {
+      return { page_start: 1, page_end: 1 };
+    }
+    return getPageForOffset(fuzzyStart, fuzzyStart + chunkContent.length);
+  }
+  
+  return getPageForOffset(chunkStart, chunkStart + chunkContent.length);
+}
+
+function getPageForOffset(startOffset: number, endOffset: number): { page_start: number; page_end: number } {
+  let pageStart = 1;
+  let pageEnd = 1;
+  
+  for (const page of currentPdfPagesData) {
+    // Check if chunk starts in this page
+    if (startOffset >= page.startOffset && startOffset < page.endOffset) {
+      pageStart = page.pageNum;
+    }
+    // Check if chunk ends in this page
+    if (endOffset > page.startOffset && endOffset <= page.endOffset) {
+      pageEnd = page.pageNum;
+      break;
+    }
+    // If chunk extends beyond this page, update end page
+    if (startOffset < page.endOffset && endOffset > page.endOffset) {
+      pageEnd = page.pageNum;
+    }
+  }
+  
+  return { page_start: pageStart, page_end: pageEnd };
 }
 
 interface DocumentStructure {
@@ -1500,8 +1558,8 @@ serve(async (req) => {
         // 4. Text files
         text = await fileData.text();
       } else if (fileName.endsWith('.pdf') || fileType.includes('pdf')) {
-        // 5. PDF Processing
-        console.log('Processing PDF with unpdf library...');
+        // 5. PDF Processing - Extract page-by-page for accurate navigation
+        console.log('Processing PDF with unpdf library (page-by-page extraction)...');
         
         try {
           // Dynamic import of unpdf for proper PDF text extraction
@@ -1513,27 +1571,60 @@ serve(async (req) => {
           console.log(`PDF file size: ${pdfData.length} bytes`);
           
           const pdf = await unpdf.getDocumentProxy(pdfData);
-          const result = await unpdf.extractText(pdf, { 
-            mergePages: true 
+          const numPages = pdf.numPages;
+          console.log(`PDF has ${numPages} pages`);
+          
+          // Extract text page by page to track page positions
+          // Use mergePages: false to get array of page texts
+          currentPdfPagesData = [];
+          currentPdfFullText = '';
+          
+          const pageResult = await unpdf.extractText(pdf, {
+            mergePages: false  // Returns array of strings, one per page
           });
           
-          const extractedText = typeof result === 'string' ? result : (result.text || '');
-          const totalPages = typeof result === 'object' && result.totalPages ? result.totalPages : 'unknown';
+          // pageResult is an array of strings when mergePages: false
+          const pageTexts = Array.isArray(pageResult) ? pageResult : [];
+          console.log(`Extracted ${pageTexts.length} pages with separate text`);
           
-          console.log(`Extracted text from ${totalPages} PDF pages, raw length: ${extractedText.length}`);
+          let currentOffset = 0;
+          for (let pageNum = 1; pageNum <= pageTexts.length; pageNum++) {
+            const pageText = pageTexts[pageNum - 1] || '';
+            
+            // Clean page text
+            const cleanedPageText = pageText
+              .replace(/\x00/g, '')
+              .replace(/[\uFFFD]/g, '')
+              .trim();
+            
+            const startOffset = currentOffset;
+            currentPdfFullText += cleanedPageText + '\n\n';
+            currentOffset = currentPdfFullText.length;
+            
+            currentPdfPagesData.push({
+              pageNum,
+              text: cleanedPageText,
+              startOffset,
+              endOffset: currentOffset
+            });
+          }
+          
+          text = currentPdfFullText.trim();
+          console.log(`Extracted text from ${numPages} PDF pages, total length: ${text.length}`);
+          console.log(`Page tracking: ${currentPdfPagesData.length} pages indexed`);
           
           // Clean up PDF extraction artifacts
-          text = extractedText
-            .replace(/\x00/g, '')           // Remove null bytes
-            .replace(/[\uFFFD]/g, '')       // Remove replacement characters
+          text = text
             .replace(/\s{3,}/g, '\n\n')     // Convert multiple spaces to paragraphs
             .trim();
             
-          console.log(`Cleaned text length: ${text.length}`);
-          
         } catch (pdfError) {
           console.error('PDF extraction with unpdf failed:', pdfError);
-          console.log('Falling back to basic PDF extraction...');
+          console.log('Falling back to basic PDF extraction (no page tracking)...');
+          
+          // Reset page tracking - will use fallback
+          currentPdfPagesData = [];
+          currentPdfFullText = '';
           
           // Fallback to old method for compatibility
           const arrayBuffer = await fileData.arrayBuffer();
@@ -1633,20 +1724,27 @@ serve(async (req) => {
         
         for (let i = 0; i < structuredChunks.length; i += BATCH_SIZE) {
           const batch = structuredChunks.slice(i, i + BATCH_SIZE);
-          const chunkRecords = batch.map((chunk, index) => ({
-            document_id,
-            content: chunk.content,
-            chunk_index: i + index,
-            section_title: chunk.section_title,
-            article_number: chunk.article_number,
-            chunk_type: chunk.chunk_type,
-            embedding: `[${createSimpleEmbedding(chunk.content).join(',')}]`,
-            metadata: {
-              file_name: doc.file_name,
-              folder_id: doc.folder_id,
-              parent_context: chunk.parent_context,
-            },
-          }));
+          const chunkRecords = batch.map((chunk, index) => {
+            // Determine page numbers from PDF page tracking (if available)
+            const pageInfo = getPageForChunk(chunk.content);
+            
+            return {
+              document_id,
+              content: chunk.content,
+              chunk_index: i + index,
+              section_title: chunk.section_title,
+              article_number: chunk.article_number,
+              chunk_type: chunk.chunk_type,
+              page_start: chunk.page_start || pageInfo.page_start, // From chunk or calculated
+              page_end: chunk.page_end || pageInfo.page_end,
+              embedding: `[${createSimpleEmbedding(chunk.content).join(',')}]`,
+              metadata: {
+                file_name: doc.file_name,
+                folder_id: doc.folder_id,
+                parent_context: chunk.parent_context,
+              },
+            };
+          });
 
           const { error: insertError } = await supabase
             .from('document_chunks')

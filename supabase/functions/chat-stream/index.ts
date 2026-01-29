@@ -58,6 +58,9 @@ interface RankedChunk {
   original_document_name?: string;
   part_number?: number;
   total_parts?: number;
+  // NEW: Page numbers for precise PDF navigation
+  page_start?: number;
+  page_end?: number;
 }
 
 // Helper function to convert ArrayBuffer to base64 without stack overflow
@@ -1164,19 +1167,21 @@ serve(async (req) => {
       fullContent = jsonResponse.choices?.[0]?.message?.content || '';
       
       const responseTimeMs = Date.now() - startTime;
-      // Fetch document metadata for storage_path (non-streaming)
-      let chunkToDocNonStream = new Map<string, { document_id: string; storage_path: string | null }>();
+      // Fetch document metadata for storage_path AND page numbers (non-streaming)
+      let chunkToDocNonStream = new Map<string, { document_id: string; storage_path: string | null; page_start: number | null; page_end: number | null }>();
       if (rankedChunks.length > 0) {
         const chunkDocIdsNS = rankedChunks.map(c => c.id);
         const { data: chunkDocMetaNS } = await supabase
           .from('document_chunks')
-          .select('id, document_id, documents!inner(id, storage_path)')
+          .select('id, document_id, page_start, page_end, documents!inner(id, storage_path)')
           .in('id', chunkDocIdsNS);
         
         for (const chunk of chunkDocMetaNS || []) {
           chunkToDocNonStream.set(chunk.id, {
             document_id: chunk.document_id,
-            storage_path: (chunk.documents as any)?.storage_path || null
+            storage_path: (chunk.documents as any)?.storage_path || null,
+            page_start: chunk.page_start,
+            page_end: chunk.page_end,
           });
         }
       }
@@ -1187,6 +1192,10 @@ serve(async (req) => {
       
       const citations = rankedChunks.map((chunk, idx) => {
         const docMeta = chunkToDocNonStream.get(chunk.id);
+        // Use real page_start from DB if available, fallback to part_number for split docs
+        const pageStart = docMeta?.page_start || chunk.page_start || chunk.part_number || 1;
+        const pageEnd = docMeta?.page_end || chunk.page_end || pageStart;
+        
         return {
           index: idx + 1,
           document: chunk.original_document_name || chunk.document_name,
@@ -1195,7 +1204,8 @@ serve(async (req) => {
           relevance: Math.min(chunk.relevance_score / 10, 1),
           chunk_id: chunk.id,
           document_id: docMeta?.document_id || chunk.parent_document_id,
-          page_start: chunk.part_number,
+          page_start: pageStart,
+          page_end: pageEnd,
           content_preview: extractRelevantPreview(chunk.content, message, 300),
           full_chunk_content: chunk.content, // Full text for Text Viewer
           storage_path: docMeta?.storage_path,
@@ -1338,19 +1348,21 @@ serve(async (req) => {
           }
           console.log(`RAG: Response uses ${usedIndices.size} citation indices:`, Array.from(usedIndices));
           
-          // Fetch document metadata for storage_path
-          let chunkToDoc = new Map<string, { document_id: string; storage_path: string | null }>();
+          // Fetch document metadata for storage_path AND page numbers
+          let chunkToDoc = new Map<string, { document_id: string; storage_path: string | null; page_start: number | null; page_end: number | null }>();
           if (rankedChunks.length > 0) {
             const chunkDocIds = rankedChunks.map(c => c.id);
             const { data: chunkDocMeta } = await supabase
               .from('document_chunks')
-              .select('id, document_id, documents!inner(id, storage_path)')
+              .select('id, document_id, page_start, page_end, documents!inner(id, storage_path)')
               .in('id', chunkDocIds);
             
             for (const chunk of chunkDocMeta || []) {
               chunkToDoc.set(chunk.id, {
                 document_id: chunk.document_id,
-                storage_path: (chunk.documents as any)?.storage_path || null
+                storage_path: (chunk.documents as any)?.storage_path || null,
+                page_start: chunk.page_start,
+                page_end: chunk.page_end,
               });
             }
           }
@@ -1385,6 +1397,10 @@ serve(async (req) => {
             // Extract keywords specific to THIS chunk's content
             const chunkKeywords = extractChunkKeywords(chunk.content, message);
             
+            // Use real page_start from DB if available, fallback to part_number for split docs
+            const pageStart = docMeta?.page_start || chunk.page_start || chunk.part_number || 1;
+            const pageEnd = docMeta?.page_end || chunk.page_end || pageStart;
+            
             return {
               index: idx + 1,
               document: chunk.original_document_name || chunk.document_name,
@@ -1395,7 +1411,8 @@ serve(async (req) => {
               // Enhanced metadata for document navigation
               chunk_id: chunk.id,
               document_id: docMeta?.document_id || chunk.parent_document_id,
-              page_start: chunk.part_number,
+              page_start: pageStart,
+              page_end: pageEnd,
               content_preview: extractRelevantPreview(chunk.content, message, 300),
               full_chunk_content: chunk.content, // Full text for Text Viewer
               storage_path: docMeta?.storage_path,
