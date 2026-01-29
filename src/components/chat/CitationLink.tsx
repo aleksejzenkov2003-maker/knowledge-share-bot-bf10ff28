@@ -8,6 +8,36 @@ import { TextContentViewer } from '@/components/documents/TextContentViewer';
 import { toast } from '@/hooks/use-toast';
 import { Button } from '@/components/ui/button';
 
+// Extract unique keywords from chunk content for accurate PDF navigation
+function extractSearchTextFromContent(
+  fullContent?: string,
+  preview?: string
+): string | undefined {
+  const text = fullContent || preview;
+  if (!text) return undefined;
+  
+  // Russian stop words to exclude
+  const stopWords = new Set([
+    'который', 'которая', 'которое', 'которые', 'также', 'однако',
+    'после', 'перед', 'между', 'через', 'более', 'менее', 'очень',
+    'этот', 'этого', 'этому', 'этим', 'этой', 'этих', 'этом',
+    'того', 'тому', 'того', 'той', 'тех', 'такой', 'таких',
+    'было', 'были', 'будет', 'будут', 'быть', 'может', 'могут',
+    'когда', 'если', 'чтобы', 'потому', 'поэтому', 'таким', 'образом'
+  ]);
+  
+  // Extract words > 4 chars, not stop words
+  const words = text
+    .replace(/[^\wа-яёА-ЯЁ\s]/gi, ' ')
+    .split(/\s+/)
+    .filter(w => w.length > 4 && !stopWords.has(w.toLowerCase()));
+  
+  // Take first 6 unique words from the beginning of the text
+  const unique = [...new Set(words.slice(0, 50))].slice(0, 6);
+  
+  return unique.length > 0 ? unique.join(' ') : undefined;
+}
+
 interface CitationLinkProps {
   index: number;
   citation?: Citation;
@@ -104,9 +134,11 @@ export function CitationLink({
         documentId: citation.document_id,
         storagePath: citation.storage_path,
         documentName: citation.document,
-        searchText: citation.search_keywords?.length 
-          ? citation.search_keywords.join(' ')
-          : citation.content_preview?.slice(0, 150),
+        // Use keywords from chunk content, not from user query
+        searchText: extractSearchTextFromContent(
+          citation.full_chunk_content,
+          citation.content_preview
+        ),
         pageNumber: citation.page_start || 1,
       });
     } catch (error) {
@@ -209,7 +241,10 @@ export function CitationLink({
           documentId: docs[0].id,
           storagePath: docs[0].storage_path,
           documentName: docs[0].name,
-          searchText: citation.search_keywords?.join(' ') || citation.content_preview?.slice(0, 150),
+          searchText: extractSearchTextFromContent(
+            citation.full_chunk_content,
+            citation.content_preview
+          ),
           pageNumber: citation.page_start || 1,
         });
       } else {
