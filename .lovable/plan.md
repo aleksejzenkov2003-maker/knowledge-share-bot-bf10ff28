@@ -1,37 +1,51 @@
 
-# План: Фиксированный центрированный Input в стиле ChatGPT
+# План: Унификация поля ввода в чатах отдела и личных чатах
 
 ## Проблема
 
-На скриншоте ChatGPT видно:
-- Поле ввода всегда центрировано **относительно всего экрана**, а не относительно области контента
-- При открытии/закрытии сайдбара поле ввода **остаётся на месте**
+На скриншотах видно два совершенно разных дизайна полей ввода:
 
-Текущая архитектура:
-```
-<div flex>
-  <Sidebar w-64/>
-  <main flex-1>  ← сужается при открытии сайдбара
-    <ScrollArea/>
-    <Input max-w-3xl mx-auto/>  ← центрируется внутри main, поэтому сдвигается
-  </main>
-</div>
-```
+**Личные чаты** (Chat.tsx, ChatFullscreen.tsx):
+- Используют `ChatInputEnhanced` — ChatGPT-стиль
+- Toolbar внутри поля, кнопки скрыты в контейнере
+- Всегда по центру viewport
+
+**Чаты отдела** (DepartmentChat.tsx, DepartmentChatFullscreen.tsx):
+- Используют `MentionInput` — другой стиль
+- Кнопки сбоку (BookOpen, Paperclip, Send) снаружи текстового поля
+- Центрировано внутри main, не viewport
+
+Это выглядит как две разные системы.
+
+---
 
 ## Решение
 
-Изменить позиционирование Input так, чтобы он был центрирован относительно **viewport**, а не родительского контейнера.
+Заменить `MentionInput` на `ChatInputEnhanced` в чатах отдела, добавив поддержку @-упоминаний в `ChatInputEnhanced`.
 
-### Два варианта:
+### Что нужно добавить в ChatInputEnhanced:
 
-**Вариант A (простой)**: CSS-компенсация ширины сайдбара
-- Вычислять offset = sidebarWidth / 2 и применять к контейнеру ввода
+1. **@-mentions** — автокомплит агентов при вводе @
+2. **Reply-to preview** — уже есть в ChatInputEnhanced
+3. **Knowledge Base selector** — уже есть в ChatInputEnhanced
 
-**Вариант B (как в ChatGPT)**: Абсолютное позиционирование снизу
-- Input позиционировать `fixed` или `absolute` снизу по центру экрана
-- Это требует изменения структуры layout
+### Структура единого компонента:
 
-Рекомендую **Вариант A** — минимальные изменения, сохранение текущей архитектуры.
+```
+┌─────────────────────────────────────────────────────┐
+│ [Attachments preview если есть]                     │
+│ [Knowledge docs preview если есть]                  │
+│ [Reply preview если есть]                           │
+├─────────────────────────────────────────────────────┤
+│ ┌─────────────────────────────────────────────────┐ │
+│ │ Textarea с автокомплитом @mentions              │ │
+│ │                                                 │ │
+│ ├─────────────────────────────────────────────────┤ │
+│ │ 📎 📚 [Agent selector ▼]            [Stop/Send] │ │
+│ └─────────────────────────────────────────────────┘ │
+│ PDF, JPG, PNG... • Enter для отправки               │
+└─────────────────────────────────────────────────────┘
+```
 
 ---
 
@@ -39,80 +53,158 @@
 
 ### Файл 1: `src/components/chat/ChatInputEnhanced.tsx`
 
-Добавить prop для смещения:
+Добавить поддержку @-mentions:
 
 ```tsx
 interface ChatInputEnhancedProps {
   // ...existing props
-  sidebarOffset?: number; // Ширина открытого сайдбара для компенсации центрирования
+  
+  // Mention support for department chats
+  availableAgents?: AgentMention[];
+  onMentionSend?: (text: string, attachments?: Attachment[], selectedDocs?: KnowledgeBaseDocument[], replyTo?: Message | null) => void;
 }
-
-export function ChatInputEnhanced({
-  // ...
-  sidebarOffset = 0,
-}: ChatInputEnhancedProps) {
-  return (
-    <div 
-      className="w-full px-4 pb-4"
-      style={{
-        maxWidth: '768px',
-        margin: '0 auto',
-        // Компенсация сайдбара: сдвигаем влево на половину ширины сайдбара
-        transform: sidebarOffset ? `translateX(-${sidebarOffset / 2}px)` : undefined,
-        transition: 'transform 0.3s ease',
-      }}
-      // ...
-    >
 ```
 
-### Файл 2: Страницы чата (Chat.tsx, ChatFullscreen.tsx, DepartmentChat.tsx, DepartmentChatFullscreen.tsx)
+**Новая логика:**
+1. При вводе `@` — показывать dropdown с агентами
+2. Фильтрация агентов по введённому тексту после `@`
+3. Вставка `@trigger` при выборе агента
+4. Стилизация dropdown как в MentionInput
 
-Передавать ширину сайдбара в Input:
+### Файл 2: `src/pages/DepartmentChat.tsx`
 
+Заменить:
 ```tsx
-const SIDEBAR_WIDTH = 288; // w-72 = 18rem = 288px
+// БЫЛО:
+import { MentionInput } from "@/components/chat/MentionInput";
 
-// В Chat.tsx, ChatFullscreen.tsx
-<ChatInputEnhanced
-  // ...existing props
-  sidebarOffset={sidebarOpen ? SIDEBAR_WIDTH : 0}
+// Внизу страницы:
+<MentionInput
+  availableAgents={availableAgents}
+  onSend={handleSend}
+  ...
 />
 ```
 
----
-
-## Альтернативный подход (более чистый): CSS Grid
-
-Изменить layout на CSS Grid с фиксированной центральной колонкой:
-
+На:
 ```tsx
-<div className="grid grid-cols-[auto_1fr] h-screen">
-  <Sidebar className="w-64"/>
-  <main className="flex flex-col">
-    <ScrollArea className="flex-1">
-      <div className="max-w-[768px] mx-auto">
-        {messages}
-      </div>
-    </ScrollArea>
-    {/* Input с фиксированной шириной, центрированный относительно viewport */}
-    <div className="fixed bottom-0 left-0 right-0 flex justify-center pb-4 pointer-events-none">
-      <div className="pointer-events-auto w-full max-w-[768px] px-4">
-        <ChatInput />
-      </div>
-    </div>
-  </main>
+// СТАЛО:
+import { ChatInputEnhanced } from "@/components/chat/ChatInputEnhanced";
+
+// Fixed input как в Chat.tsx:
+<div className="fixed bottom-0 left-0 right-0 z-10 pointer-events-none">
+  <div className="pointer-events-auto bg-background border-t py-4">
+    <ChatInputEnhanced
+      value={inputValue}
+      onChange={setInputValue}
+      onSend={handleSend}
+      isLoading={isGenerating}
+      onStop={stopGeneration}
+      attachments={attachments}
+      onAttach={handleAttach}
+      onRemoveAttachment={removeAttachment}
+      // Department-specific
+      availableAgents={availableAgents}
+      departmentId={activeDepartmentId}
+      conversationId={activeChatId}
+      selectedKnowledgeDocs={selectedKnowledgeDocs}
+      onKnowledgeDocsChange={setSelectedKnowledgeDocs}
+      replyTo={replyToMessage}
+      onClearReply={() => setReplyToMessage(null)}
+      placeholder="Напишите @агент и ваш вопрос..."
+    />
+  </div>
 </div>
 ```
 
-Этот подход требует:
-1. Добавить `padding-bottom` к ScrollArea чтобы контент не перекрывался с fixed Input
-2. Обработать z-index для корректного наложения
+### Файл 3: `src/pages/DepartmentChatFullscreen.tsx`
+
+Аналогичная замена MentionInput → ChatInputEnhanced с fixed positioning.
 
 ---
 
-## Рекомендация: Вариант A (transform offset)
+## Детали реализации @-mentions в ChatInputEnhanced
 
-Минимальные изменения, сохраняет текущую архитектуру, легко откатить.
+```tsx
+// Состояние для mentions
+const [showMentions, setShowMentions] = useState(false);
+const [mentionSearch, setMentionSearch] = useState("");
+const [mentionStart, setMentionStart] = useState<number | null>(null);
+const [mentionIndex, setMentionIndex] = useState(0);
+
+// Фильтрация агентов
+const filteredAgents = useMemo(() => {
+  if (!availableAgents || !mentionSearch) return availableAgents || [];
+  const search = mentionSearch.toLowerCase();
+  return availableAgents.filter(a => 
+    a.name.toLowerCase().includes(search) ||
+    a.mention_trigger?.toLowerCase().includes(search)
+  );
+}, [availableAgents, mentionSearch]);
+
+// В handleChange textarea:
+const handleInputChange = (newValue: string) => {
+  onChange(newValue);
+  
+  // Detect @ for mentions
+  const cursorPos = textareaRef.current?.selectionStart || 0;
+  const textBefore = newValue.slice(0, cursorPos);
+  const atIndex = textBefore.lastIndexOf('@');
+  
+  if (atIndex !== -1) {
+    const afterAt = textBefore.slice(atIndex + 1);
+    if (!afterAt.includes(' ')) {
+      setMentionStart(atIndex);
+      setMentionSearch(afterAt);
+      setShowMentions(true);
+      return;
+    }
+  }
+  setShowMentions(false);
+};
+
+// Dropdown UI (абсолютно позиционирован над textarea):
+{showMentions && filteredAgents.length > 0 && (
+  <div className="absolute bottom-full left-0 right-0 mb-2 bg-popover border rounded-lg shadow-lg z-50 max-h-60 overflow-y-auto">
+    {filteredAgents.map((agent, i) => (
+      <button
+        key={agent.id}
+        className={cn(
+          "w-full text-left px-3 py-2 flex items-center gap-2",
+          i === mentionIndex ? "bg-accent" : "hover:bg-muted"
+        )}
+        onClick={() => insertMention(agent)}
+      >
+        <div className="h-8 w-8 rounded-full bg-primary/10 flex items-center justify-center">
+          {agent.name.charAt(0)}
+        </div>
+        <div>
+          <div className="font-medium">{agent.name}</div>
+          <div className="text-xs text-muted-foreground">@{agent.mention_trigger}</div>
+        </div>
+      </button>
+    ))}
+  </div>
+)}
+```
+
+---
+
+## Позиционирование — центр viewport
+
+Для обоих типов чатов поле ввода будет fixed внизу экрана:
+
+```tsx
+<div className="fixed bottom-0 left-0 right-0 z-10 pointer-events-none">
+  <div className="pointer-events-auto bg-background border-t py-4">
+    <ChatInputEnhanced ... />
+  </div>
+</div>
+```
+
+`ChatInputEnhanced` уже имеет `max-w-3xl mx-auto` — это обеспечивает центрирование.
+
+Для ScrollArea добавить `pb-36` чтобы контент не перекрывался.
 
 ---
 
@@ -120,16 +212,31 @@ const SIDEBAR_WIDTH = 288; // w-72 = 18rem = 288px
 
 | Файл | Изменения |
 |------|-----------|
-| `src/components/chat/ChatInputEnhanced.tsx` | Добавить `sidebarOffset` prop, применить `transform: translateX()` |
-| `src/pages/Chat.tsx` | Передавать `sidebarOffset={sidebarOpen ? 288 : 0}` |
-| `src/pages/ChatFullscreen.tsx` | Передавать `sidebarOffset={sidebarOpen ? 256 : 0}` (w-64) |
-| `src/pages/DepartmentChat.tsx` | Передавать `sidebarOffset={sidebarOpen ? 256 : 0}` |
-| `src/pages/DepartmentChatFullscreen.tsx` | Передавать `sidebarOffset={sidebarOpen ? 256 : 0}` |
+| `src/components/chat/ChatInputEnhanced.tsx` | Добавить @-mentions dropdown, props для агентов |
+| `src/pages/DepartmentChat.tsx` | Заменить MentionInput на ChatInputEnhanced, fixed positioning |
+| `src/pages/DepartmentChatFullscreen.tsx` | Аналогично |
+| `src/types/departmentChat.ts` | Возможно потребуется экспорт AgentMention |
 
 ---
 
-## Ожидаемый результат
+## Результат
 
-**До**: При открытии сайдбара поле ввода сдвигается вправо вместе с контентом
+**До:**
+- Два разных компонента ввода
+- Разный дизайн, разное позиционирование
+- Поле сдвигается при открытии сайдбара
 
-**После**: Поле ввода всегда центрировано по экрану, независимо от состояния сайдбара — как в ChatGPT
+**После:**
+- Единый `ChatInputEnhanced` везде
+- Одинаковый ChatGPT-стиль дизайн
+- Поле всегда по центру viewport
+- @-mentions работают в чатах отдела
+
+---
+
+## Порядок реализации
+
+1. Добавить поддержку @-mentions в `ChatInputEnhanced`
+2. Обновить `DepartmentChat.tsx` — заменить MentionInput
+3. Обновить `DepartmentChatFullscreen.tsx` — аналогично
+4. Тестирование: проверить оба типа чатов
