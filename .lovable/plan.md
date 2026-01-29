@@ -1,223 +1,169 @@
 
 
-# План: Показ реального фрагмента цитаты с альтернативным Text Viewer
+# План: Точная навигация из TextViewer в PDF
 
 ## Диагностика проблемы
 
 На скриншотах видно:
-1. **Цитата [2]** показывает текст: "словарях явно не исключает «обувь», но в МКТУ она значится как отдельный объект того же 25 класса..."
-2. **PDF Viewer** ищет "25" (или "словарях явно не исключает") — и показывает страницу 1 (оглавление)
-3. **Текст в документе существует**, но PDF.js не может его найти (возможно OCR-текст отличается от визуального)
+1. **TextViewer** корректно показывает фрагмент про Vanish, розовый цвет упаковки
+2. **PDF Viewer** ищет "25 знак мкту" (из оригинального запроса пользователя)
+3. В результате открывается страница 12-13 с совсем другим содержанием
 
-### Корневые причины
+### Корневая причина
 
-1. **`content_preview`** формируется из `extractRelevantPreview()` — это sliding window по ИСХОДНОМУ запросу, а не по конкретной цитате Claude
-2. **`search_keywords`** — ключевые слова из запроса пользователя, не из цитаты
-3. **PDF.js text layer** может иметь другой текст чем визуально виден (OCR артефакты)
-4. **Нет связи** между тем что Claude написал в ответе и конкретным chunk.content
+В `CitationLink.tsx` и `SourcesPanel.tsx` при переходе в PDF:
+
+```typescript
+// Строки 107-109 в CitationLink.tsx
+searchText: citation.search_keywords?.length 
+  ? citation.search_keywords.join(' ')  // ← Использует keywords из ЗАПРОСА
+  : citation.content_preview?.slice(0, 150),
+```
+
+`search_keywords` формируется в backend из пересечения:
+- Ключевые слова **запроса пользователя** ("25 знак мкту")
+- Контент чанка
+
+Но если пользователь спрашивал про классы МКТУ, а чанк про Vanish — пересечение даёт неверные ключевые слова.
 
 ---
 
-## Решение: Dual-Mode Document Viewer (PDF + Text)
+## Решение
 
-### Концепция
+При переходе из TextViewer в PDF использовать **уникальные слова из САМОГО контента чанка**, а не из запроса.
 
-Вместо попытки найти текст в PDF через text layer (что ненадёжно) — показывать ОРИГИНАЛЬНЫЙ текст чанка напрямую с подсветкой цитаты:
+### Логика выбора searchText для PDF
 
 ```text
-┌─────────────────────────────────────────────────┐
-│  Ruk_tz_rospatent  (часть 2/46)                 │
-│  ┌─────────┬──────────────┐                     │
-│  │ 📄 PDF  │ 📝 Текст     │  ← Переключатель    │
-│  └─────────┴──────────────┘                     │
-│                                                 │
-│  Контент чанка с подсветкой:                   │
-│  ...В международных словарях явно не           │
-│  исключает [«обувь», но в МКТУ она            │
-│  значится как отдельный объект того же         │
-│  25 класса. Вместе с тем «одежда» и            │
-│  «обувь» не тождественны...] ← ПОДСВЕТКА      │
-│                                                 │
-│  [Открыть полный PDF]                          │
-└─────────────────────────────────────────────────┘
+Приоритет поиска в PDF:
+1. Первые 3-5 уникальных слов из full_chunk_content (наиболее специфичные)
+2. content_preview (первые 100 символов)
+3. search_keywords (fallback — может не работать)
 ```
 
 ---
 
 ## Изменения
 
-### 1. Добавить полный `chunk_content` в Citation
+### 1. CitationLink.tsx — использовать контент чанка
 
-**Файл**: `supabase/functions/chat-stream/index.ts`
-
-Сейчас:
-```typescript
-content_preview: extractRelevantPreview(chunk.content, message, 300),
-```
-
-Добавить:
-```typescript
-content_preview: extractRelevantPreview(chunk.content, message, 300),
-full_chunk_content: chunk.content, // Полный текст чанка для Text Viewer
-```
-
-### 2. Обновить тип Citation
-
-**Файл**: `src/types/chat.ts`
+**Строки 102-111**: Изменить логику `openPdfViewer`:
 
 ```typescript
-export interface Citation {
-  // ... existing fields ...
-  content_preview?: string;
-  full_chunk_content?: string;  // NEW: полный текст чанка для text viewer
-  storage_path?: string;
-  search_keywords?: string[];
-}
+// Вместо:
+searchText: citation.search_keywords?.length 
+  ? citation.search_keywords.join(' ')
+  : citation.content_preview?.slice(0, 150),
+
+// Использовать:
+searchText: extractSearchTextFromChunk(
+  citation.full_chunk_content,
+  citation.content_preview
+),
 ```
 
-### 3. Создать новый компонент TextContentViewer
-
-**Файл**: `src/components/documents/TextContentViewer.tsx`
+Добавить функцию извлечения ключевых слов из контента:
 
 ```typescript
-// Dialog с текстом чанка и подсветкой цитаты
-// - Отображает full_chunk_content 
-// - Подсвечивает content_preview (или конкретную фразу)
-// - Кнопка "Открыть полный PDF" для перехода в DocumentViewer
-```
-
-### 4. Обновить CitationLink — режим Text по умолчанию
-
-**Файл**: `src/components/chat/CitationLink.tsx`
-
-При клике на цитату:
-1. Если есть `full_chunk_content` → открыть TextContentViewer
-2. Если нет → fallback на PDF Viewer (как сейчас)
-3. Из TextContentViewer можно открыть полный PDF
-
-### 5. Добавить вкладку "Текст" в SourcesPanel
-
-**Файл**: `src/components/chat/SourcesPanel.tsx`
-
-Для каждой цитаты показывать:
-- Полный текст чанка (сворачиваемый)
-- Кнопка "Открыть в PDF"
-
----
-
-## Детали реализации
-
-### TextContentViewer.tsx
-
-```tsx
-interface TextContentViewerProps {
-  isOpen: boolean;
-  onClose: () => void;
-  documentName: string;
-  chunkContent: string;
-  highlightText?: string;  // Фраза для подсветки
-  onOpenPdf?: () => void;  // Переход в PDF
-}
-
-export function TextContentViewer({
-  isOpen,
-  onClose,
-  documentName,
-  chunkContent,
-  highlightText,
-  onOpenPdf,
-}: TextContentViewerProps) {
-  // Подсветить highlightText в chunkContent
-  const highlightedContent = useMemo(() => {
-    if (!highlightText) return chunkContent;
-    
-    const escaped = highlightText.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-    const regex = new RegExp(`(${escaped})`, 'gi');
-    return chunkContent.replace(regex, '<mark class="bg-yellow-200">$1</mark>');
-  }, [chunkContent, highlightText]);
+function extractSearchTextFromChunk(
+  fullContent?: string,
+  preview?: string
+): string | undefined {
+  const text = fullContent || preview;
+  if (!text) return undefined;
   
-  return (
-    <Dialog open={isOpen} onOpenChange={onClose}>
-      <DialogContent className="max-w-3xl h-[80vh] flex flex-col">
-        <DialogHeader>
-          <DialogTitle className="flex items-center gap-2">
-            <FileText className="h-5 w-5" />
-            {documentName}
-          </DialogTitle>
-        </DialogHeader>
-        
-        <ScrollArea className="flex-1 border rounded-lg p-4 bg-muted/30">
-          <div 
-            className="prose prose-sm max-w-none whitespace-pre-wrap"
-            dangerouslySetInnerHTML={{ __html: highlightedContent }}
-          />
-        </ScrollArea>
-        
-        <div className="flex justify-end gap-2 pt-4">
-          <Button variant="outline" onClick={onClose}>
-            Закрыть
-          </Button>
-          {onOpenPdf && (
-            <Button onClick={onOpenPdf}>
-              <ExternalLink className="h-4 w-4 mr-2" />
-              Открыть PDF
-            </Button>
-          )}
-        </div>
-      </DialogContent>
-    </Dialog>
-  );
+  // Извлечь первые 5 уникальных слов длиной > 4 символов
+  const words = text
+    .replace(/[^\wа-яё\s]/gi, ' ')
+    .split(/\s+/)
+    .filter(w => w.length > 4)
+    .slice(0, 100); // Первые 100 слов
+  
+  // Взять 5 уникальных слов
+  const unique = [...new Set(words)].slice(0, 5);
+  return unique.join(' ');
 }
 ```
 
-### CitationLink.tsx — обновлённая логика
+### 2. SourcesPanel.tsx — аналогичное исправление
 
-```tsx
-const handleClick = async (e: React.MouseEvent) => {
-  e.preventDefault();
-  e.stopPropagation();
+**Строки 240-243** (`openDocumentWithHighlight`):
 
-  if (!citation) {
-    toast({ title: "Источник не найден", variant: "destructive" });
-    return;
-  }
+```typescript
+// Вместо:
+searchText: citationData.search_keywords?.length 
+  ? citationData.search_keywords.join(' ')
+  : cleanSearchText(citationData.content_preview || contentPreview),
 
-  // Приоритет 1: Text Viewer (если есть полный контент чанка)
-  if (citation.full_chunk_content) {
-    setTextViewerState({
+// Использовать:
+searchText: extractSearchTextFromContent(
+  citationData.full_chunk_content, 
+  citationData.content_preview || contentPreview
+),
+```
+
+### 3. SourcesPanel.tsx — openPdfFromTextViewer
+
+**Строки 390-404**: Передавать контент чанка вместо search_keywords:
+
+```typescript
+const openPdfFromTextViewer = async () => {
+  if (!textViewerState.storagePath) return;
+  
+  // Извлечь поисковый текст из самого чанка
+  const searchTextFromContent = extractSearchTextFromContent(
+    textViewerState.chunkContent
+  );
+  
+  setTextViewerState(prev => ({ ...prev, isOpen: false }));
+  
+  const citation = usedCitations.find(c => c.storage_path === textViewerState.storagePath);
+  if (citation) {
+    setViewerState({
       isOpen: true,
+      documentId: citation.document_id,
+      storagePath: citation.storage_path,
       documentName: citation.document,
-      chunkContent: citation.full_chunk_content,
-      highlightText: citation.content_preview,
+      searchText: searchTextFromContent,  // ← Из контента, не из keywords
+      pageNumber: citation.page_start || 1,
     });
-    return;
   }
-
-  // Приоритет 2: PDF Viewer (fallback)
-  // ... existing PDF logic ...
 };
 ```
 
 ---
 
-## Преимущества решения
+## Алгоритм extractSearchTextFromContent
 
-| Проблема | Текущее | После |
-|----------|---------|-------|
-| Текст не найден в PDF | Показывает оглавление | Показывает реальный текст чанка |
-| OCR артефакты в PDF | Поиск не работает | Используем исходный текст |
-| Непонятно что цитируется | 150 символов preview | Полный контекст с подсветкой |
-| Навигация в PDF | Часто неточная | Text по умолчанию + PDF опционально |
-
----
-
-## Порядок имплементации
-
-1. **Обновить тип Citation** — добавить `full_chunk_content`
-2. **Обновить chat-stream** — передавать `full_chunk_content: chunk.content`
-3. **Создать TextContentViewer** — компонент просмотра текста
-4. **Обновить CitationLink** — использовать TextContentViewer как primary mode
-5. **Обновить SourcesPanel** — показывать полный текст сворачиваемыми блоками
+```typescript
+function extractSearchTextFromContent(
+  fullContent?: string,
+  preview?: string
+): string | undefined {
+  const text = fullContent || preview;
+  if (!text) return undefined;
+  
+  // Русские стоп-слова
+  const stopWords = new Set([
+    'который', 'которая', 'которое', 'которые', 'также', 'однако',
+    'после', 'перед', 'между', 'через', 'более', 'менее', 'очень',
+    'этот', 'этого', 'этому', 'этим', 'этой', 'этих', 'этом',
+    'того', 'тому', 'тем', 'той', 'тех', 'том', 'такой', 'таких',
+    'было', 'были', 'будет', 'будут', 'быть', 'может', 'могут'
+  ]);
+  
+  // Извлечь слова длиной > 4 символов, не стоп-слова
+  const words = text
+    .replace(/[^\wа-яёА-ЯЁ\s]/gi, ' ')
+    .split(/\s+/)
+    .filter(w => w.length > 4 && !stopWords.has(w.toLowerCase()));
+  
+  // Взять первые 5-7 уникальных слов из начала текста
+  const unique = [...new Set(words.slice(0, 50))].slice(0, 6);
+  
+  return unique.length > 0 ? unique.join(' ') : undefined;
+}
+```
 
 ---
 
@@ -225,9 +171,18 @@ const handleClick = async (e: React.MouseEvent) => {
 
 | Файл | Изменения |
 |------|-----------|
-| `src/types/chat.ts` | Добавить `full_chunk_content?: string` |
-| `supabase/functions/chat-stream/index.ts` | Передавать `full_chunk_content: chunk.content` |
-| `src/components/documents/TextContentViewer.tsx` | Новый компонент |
-| `src/components/chat/CitationLink.tsx` | Text Viewer как primary mode |
-| `src/components/chat/SourcesPanel.tsx` | Показывать полный текст цитат |
+| `src/components/chat/CitationLink.tsx` | Добавить `extractSearchTextFromContent`, использовать в `openPdfViewer` |
+| `src/components/chat/SourcesPanel.tsx` | Добавить `extractSearchTextFromContent`, обновить `openDocumentWithHighlight` и `openPdfFromTextViewer` |
+
+---
+
+## Ожидаемый результат
+
+**До**:
+- TextViewer показывает: "...Vanish, розовый цвет упаковки рекламируемого товара..."
+- PDF ищет: "25 знак мкту" → страница 12 (неверная)
+
+**После**:
+- TextViewer показывает: "...Vanish, розовый цвет упаковки рекламируемого товара..."
+- PDF ищет: "Vanish розовый упаковки рекламируемого товара" → правильная страница
 
