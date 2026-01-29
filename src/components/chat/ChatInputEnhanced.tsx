@@ -61,8 +61,6 @@ interface ChatInputEnhancedProps {
   // Reply-to props
   replyTo?: DepartmentChatMessage | Message | null;
   onClearReply?: () => void;
-  // Sidebar offset for viewport-centered positioning
-  sidebarOffset?: number;
 }
 
 export function ChatInputEnhanced({ 
@@ -87,8 +85,6 @@ export function ChatInputEnhanced({
   // Reply-to
   replyTo,
   onClearReply,
-  // Sidebar offset
-  sidebarOffset = 0,
 }: ChatInputEnhancedProps) {
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -183,10 +179,6 @@ export function ChatInputEnhanced({
   return (
     <div 
       className="w-full max-w-3xl mx-auto px-4 pb-4"
-      style={{
-        transform: sidebarOffset ? `translateX(-${sidebarOffset / 2}px)` : undefined,
-        transition: 'transform 0.3s ease',
-      }}
       onDrop={handleDrop}
       onDragOver={handleDragOver}
     >

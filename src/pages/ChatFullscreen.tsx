@@ -176,8 +176,8 @@ export default function ChatFullscreen() {
         </header>
 
         {/* Messages Area */}
-        <ScrollArea className="flex-1">
-          <div className="max-w-5xl mx-auto py-6 px-4 lg:px-8">
+        <ScrollArea className="flex-1 pb-36">
+          <div className="max-w-4xl mx-auto py-6 px-4 lg:px-8">
             {messages.length === 0 ? (
               <div className="flex flex-col items-center justify-center h-[60vh] text-center">
                 <div className="w-16 h-16 rounded-full bg-primary/10 flex items-center justify-center mb-4">
@@ -214,23 +214,24 @@ export default function ChatFullscreen() {
           </div>
         </ScrollArea>
 
-        {/* Input Area */}
-        <div className="border-t border-border py-4">
-          <ChatInputEnhanced
-            value={inputValue}
-            onChange={setInputValue}
-            onSend={handleSend}
-            onStop={stopGeneration}
-            isLoading={isLoading}
-            attachments={attachments}
-            onAttach={addAttachments}
-            onRemoveAttachment={removeAttachment}
-            roles={roles}
-            selectedRoleId={selectedRoleId}
-            onRoleChange={handleRoleChange}
-            placeholder="Спросите что-нибудь..."
-            sidebarOffset={sidebarOpen ? 256 : 0}
-          />
+        {/* Input Area - Fixed at bottom, centered to viewport */}
+        <div className="fixed bottom-0 left-0 right-0 z-10 pointer-events-none">
+          <div className="pointer-events-auto bg-background border-t border-border py-4">
+            <ChatInputEnhanced
+              value={inputValue}
+              onChange={setInputValue}
+              onSend={handleSend}
+              onStop={stopGeneration}
+              isLoading={isLoading}
+              attachments={attachments}
+              onAttach={addAttachments}
+              onRemoveAttachment={removeAttachment}
+              roles={roles}
+              selectedRoleId={selectedRoleId}
+              onRoleChange={handleRoleChange}
+              placeholder="Спросите что-нибудь..."
+            />
+          </div>
         </div>
       </div>
     </div>
