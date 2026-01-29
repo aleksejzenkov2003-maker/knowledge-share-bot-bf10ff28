@@ -60,7 +60,7 @@ function DepartmentChatMessageComponent({
   const isAssistant = message.message_role === 'assistant';
   const isOwnMessage = message.user_id === currentUserId;
   const userName = message.metadata?.user_name || 'Пользователь';
-  const agentName = message.metadata?.agent_name;
+  const agentName = message.metadata?.agent_name || 'Ассистент';
   const isGenerating = isAssistant && !message.content;
 
   const handleCopy = async () => {
@@ -136,237 +136,216 @@ function DepartmentChatMessageComponent({
 
   return (
     <div className={cn(
-      "group flex gap-3 p-4 rounded-lg",
-      isAssistant 
-        ? "bg-muted/50" 
-        : isOwnMessage 
-          ? "bg-primary/5" 
-          : "bg-secondary/30"
+      "group flex gap-3 py-4",
+      isAssistant ? "" : "justify-end"
     )}>
-      {/* Avatar */}
-      <div className={cn(
-        "flex h-9 w-9 shrink-0 items-center justify-center rounded-full",
-        isAssistant 
-          ? "bg-primary text-primary-foreground" 
-          : "bg-secondary text-secondary-foreground"
-      )}>
-        {isAssistant ? (
-          <Bot className="h-5 w-5" />
-        ) : (
-          <User className="h-5 w-5" />
-        )}
-      </div>
+      {/* Avatar for assistant */}
+      {isAssistant && (
+        <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-primary/10">
+          <Bot className="h-4 w-4 text-primary" />
+        </div>
+      )}
 
       {/* Content */}
-      <div className="flex-1 min-w-0">
-        {/* Reply indicator */}
-        {replyToMessage && (
-          <div className="mb-2 p-2 bg-muted/30 rounded border-l-2 border-primary/50 text-xs">
-            <div className="flex items-center gap-1 mb-0.5">
-              <Reply className="h-3 w-3 text-muted-foreground" />
-              <span className="font-medium text-muted-foreground">
-                {replyToMessage.message_role === 'assistant' ? '🤖 ' : ''}
-                {replyToMessage.metadata?.user_name || replyToMessage.metadata?.agent_name || 'Сообщение'}
-              </span>
+      {isAssistant ? (
+        // Assistant message - full width, no background
+        <div className="flex-1 min-w-0">
+          {/* Reply indicator */}
+          {replyToMessage && (
+            <div className="mb-2 p-2 bg-muted/30 rounded border-l-2 border-primary/50 text-xs">
+              <div className="flex items-center gap-1 mb-0.5">
+                <Reply className="h-3 w-3 text-muted-foreground" />
+                <span className="font-medium text-muted-foreground">
+                  {replyToMessage.message_role === 'assistant' ? '🤖 ' : ''}
+                  {replyToMessage.metadata?.user_name || replyToMessage.metadata?.agent_name || 'Сообщение'}
+                </span>
+              </div>
+              <p className="text-muted-foreground truncate">{replyToMessage.content.slice(0, 80)}{replyToMessage.content.length > 80 ? '...' : ''}</p>
             </div>
-            <p className="text-muted-foreground truncate">{replyToMessage.content.slice(0, 80)}{replyToMessage.content.length > 80 ? '...' : ''}</p>
+          )}
+
+          {/* Agent name header */}
+          <div className="flex items-center gap-2 mb-2">
+            <span className="text-sm font-medium text-foreground">
+              {agentName}
+            </span>
+            <span className="text-xs text-muted-foreground">
+              {new Date(message.created_at).toLocaleTimeString('ru-RU', {
+                hour: '2-digit',
+                minute: '2-digit'
+              })}
+            </span>
           </div>
-        )}
 
-        {/* Header */}
-        <div className="flex items-center gap-2 mb-1">
-          <span className="font-medium text-sm">
-            {isAssistant ? (
-              <span className="flex items-center gap-1">
-                <span className="text-primary">🤖</span>
-                {agentName || 'Ассистент'}
-              </span>
-            ) : (
-              userName
-            )}
-          </span>
-          <span className="text-xs text-muted-foreground">
-            {new Date(message.created_at).toLocaleTimeString('ru-RU', {
-              hour: '2-digit',
-              minute: '2-digit'
-            })}
-          </span>
-        </div>
-
-        {/* Message content */}
-        <div className="prose prose-sm dark:prose-invert max-w-none break-words">
-          {isAssistant ? (
+          {/* Message content */}
+          <div className="prose prose-sm dark:prose-invert max-w-none break-words">
             <MarkdownWithCitations
               content={message.content || '...'}
               citations={message.metadata?.citations}
             />
-          ) : (
-            <p className="whitespace-pre-wrap">{message.content}</p>
+          </div>
+
+          {/* Attachments */}
+          {message.metadata?.attachments && message.metadata.attachments.length > 0 && (
+            <div className="mt-2 flex flex-wrap gap-2">
+              {message.metadata.attachments.map((att, idx) => {
+                const isImage = att.file_type.startsWith('image/');
+                const { data } = supabase.storage.from('chat-attachments').getPublicUrl(att.file_path);
+                
+                return (
+                  <a
+                    key={idx}
+                    href={data.publicUrl}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className={cn(
+                      "flex items-center gap-2 px-2 py-1.5 rounded-md border bg-background",
+                      "hover:bg-muted transition-colors text-sm"
+                    )}
+                  >
+                    {isImage ? (
+                      <Image className="h-4 w-4 text-muted-foreground" />
+                    ) : (
+                      <FileText className="h-4 w-4 text-muted-foreground" />
+                    )}
+                    <span className="truncate max-w-[120px]">{att.file_name}</span>
+                  </a>
+                );
+              })}
+            </div>
           )}
-        </div>
 
-        {/* Attachments */}
-        {message.metadata?.attachments && message.metadata.attachments.length > 0 && (
-          <div className="mt-2 flex flex-wrap gap-2">
-            {message.metadata.attachments.map((att, idx) => {
-              const isImage = att.file_type.startsWith('image/');
-              const { data } = supabase.storage.from('chat-attachments').getPublicUrl(att.file_path);
+          {/* Metadata for assistant messages */}
+          {message.content && (
+            <div className="flex flex-wrap items-center gap-2 mt-4 pt-3 border-t border-border/50 text-xs text-muted-foreground">
+              {message.metadata?.response_time_ms && (
+                <span className="flex items-center gap-1">
+                  <Clock className="h-3 w-3" />
+                  {message.metadata.response_time_ms}ms
+                </span>
+              )}
               
-              return (
-                <a
-                  key={idx}
-                  href={data.publicUrl}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className={cn(
-                    "flex items-center gap-2 px-2 py-1.5 rounded-md border bg-background",
-                    "hover:bg-muted transition-colors text-sm"
-                  )}
+              {/* Interactive Sources Panel */}
+              {((message.metadata?.rag_context && message.metadata.rag_context.length > 0) || 
+                (message.metadata?.citations && message.metadata.citations.length > 0) ||
+                (message.metadata?.perplexity_citations && message.metadata.perplexity_citations.length > 0) ||
+                (message.metadata?.web_search_citations && message.metadata.web_search_citations.length > 0)) && (
+                <Sheet>
+                  <SheetTrigger asChild>
+                    <Badge 
+                      variant="outline" 
+                      className="text-xs cursor-pointer hover:bg-accent transition-colors"
+                    >
+                      <FileText className="h-3 w-3 mr-1" />
+                      {message.metadata?.rag_context?.length || 0} источников
+                      {message.metadata?.smart_search && " (Claude)"}
+                    </Badge>
+                  </SheetTrigger>
+                  <SheetContent className="w-[400px] sm:w-[540px]">
+                    <SheetHeader>
+                      <SheetTitle>Источники ответа</SheetTitle>
+                    </SheetHeader>
+                    <div className="mt-4">
+                      <SourcesPanel 
+                        ragContext={message.metadata?.rag_context}
+                        citations={message.metadata?.citations}
+                        webSearchCitations={message.metadata?.perplexity_citations || message.metadata?.web_search_citations}
+                        webSearchUsed={message.metadata?.web_search_used}
+                      />
+                    </div>
+                  </SheetContent>
+                </Sheet>
+              )}
+              
+              {message.metadata?.citations && message.metadata.citations.length > 0 && (
+                <Sheet>
+                  <SheetTrigger asChild>
+                    <Badge 
+                      variant="secondary" 
+                      className="text-xs cursor-pointer hover:bg-accent transition-colors"
+                    >
+                      <BookOpen className="h-3 w-3 mr-1" />
+                      {message.metadata.citations.length} цитат
+                    </Badge>
+                  </SheetTrigger>
+                  <SheetContent className="w-[400px] sm:w-[540px]">
+                    <SheetHeader>
+                      <SheetTitle>Цитаты из документов</SheetTitle>
+                    </SheetHeader>
+                    <div className="mt-4">
+                      <SourcesPanel 
+                        ragContext={message.metadata?.rag_context}
+                        citations={message.metadata?.citations}
+                        webSearchCitations={message.metadata?.perplexity_citations || message.metadata?.web_search_citations}
+                        webSearchUsed={message.metadata?.web_search_used}
+                      />
+                    </div>
+                  </SheetContent>
+                </Sheet>
+              )}
+              
+              {/* Web search sources */}
+              {(message.metadata?.perplexity_citations?.length > 0 || message.metadata?.web_search_citations?.length > 0) && (
+                <Sheet>
+                  <SheetTrigger asChild>
+                    <Badge 
+                      variant="secondary" 
+                      className="text-xs cursor-pointer hover:bg-accent transition-colors"
+                    >
+                      <Globe className="h-3 w-3 mr-1" />
+                      {(message.metadata?.perplexity_citations?.length || message.metadata?.web_search_citations?.length || 0)} веб
+                    </Badge>
+                  </SheetTrigger>
+                  <SheetContent className="w-[400px] sm:w-[540px]">
+                    <SheetHeader>
+                      <SheetTitle>Веб-источники</SheetTitle>
+                    </SheetHeader>
+                    <div className="mt-4">
+                      <SourcesPanel 
+                        ragContext={message.metadata?.rag_context}
+                        citations={message.metadata?.citations}
+                        webSearchCitations={message.metadata?.perplexity_citations || message.metadata?.web_search_citations}
+                        webSearchUsed={message.metadata?.web_search_used}
+                      />
+                    </div>
+                  </SheetContent>
+                </Sheet>
+              )}
+              
+              {/* Warning for truncated messages */}
+              {message.metadata?.stop_reason === 'max_tokens' && (
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <Badge variant="destructive" className="text-xs cursor-help">
+                      <AlertTriangle className="h-3 w-3 mr-1" />
+                      Обрезано
+                    </Badge>
+                  </TooltipTrigger>
+                  <TooltipContent>
+                    Ответ был обрезан из-за ограничения длины
+                  </TooltipContent>
+                </Tooltip>
+              )}
+            </div>
+          )}
+
+          {/* Actions: Reply, Copy, Download, Regenerate */}
+          {!isGenerating && message.content && (
+            <div className="flex items-center gap-1 mt-2 opacity-0 group-hover:opacity-100 transition-opacity">
+              {/* Reply button */}
+              {onReply && (
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  className="h-7 px-2 text-xs"
+                  onClick={() => onReply(message)}
                 >
-                  {isImage ? (
-                    <Image className="h-4 w-4 text-muted-foreground" />
-                  ) : (
-                    <FileText className="h-4 w-4 text-muted-foreground" />
-                  )}
-                  <span className="truncate max-w-[120px]">{att.file_name}</span>
-                </a>
-              );
-            })}
-          </div>
-        )}
+                  <Reply className="h-3 w-3 mr-1" />
+                  Ответить
+                </Button>
+              )}
 
-        {/* Metadata for assistant messages */}
-        {isAssistant && message.content && (
-          <div className="flex flex-wrap items-center gap-2 mt-3 pt-2 border-t border-border/50 text-xs text-muted-foreground">
-            {message.metadata?.response_time_ms && (
-              <span className="flex items-center gap-1">
-                <Clock className="h-3 w-3" />
-                {message.metadata.response_time_ms}ms
-              </span>
-            )}
-            
-            {/* Interactive Sources Panel */}
-            {((message.metadata?.rag_context && message.metadata.rag_context.length > 0) || 
-              (message.metadata?.citations && message.metadata.citations.length > 0) ||
-              (message.metadata?.perplexity_citations && message.metadata.perplexity_citations.length > 0) ||
-              (message.metadata?.web_search_citations && message.metadata.web_search_citations.length > 0)) && (
-              <Sheet>
-                <SheetTrigger asChild>
-                  <Badge 
-                    variant="outline" 
-                    className="text-xs cursor-pointer hover:bg-accent transition-colors"
-                  >
-                    <FileText className="h-3 w-3 mr-1" />
-                    {message.metadata?.rag_context?.length || 0} источников
-                    {message.metadata?.smart_search && " (Claude)"}
-                  </Badge>
-                </SheetTrigger>
-                <SheetContent className="w-[400px] sm:w-[540px]">
-                  <SheetHeader>
-                    <SheetTitle>Источники ответа</SheetTitle>
-                  </SheetHeader>
-                  <div className="mt-4">
-                    <SourcesPanel 
-                      ragContext={message.metadata?.rag_context}
-                      citations={message.metadata?.citations}
-                      webSearchCitations={message.metadata?.perplexity_citations || message.metadata?.web_search_citations}
-                      webSearchUsed={message.metadata?.web_search_used}
-                    />
-                  </div>
-                </SheetContent>
-              </Sheet>
-            )}
-            
-            {message.metadata?.citations && message.metadata.citations.length > 0 && (
-              <Sheet>
-                <SheetTrigger asChild>
-                  <Badge 
-                    variant="secondary" 
-                    className="text-xs cursor-pointer hover:bg-accent transition-colors"
-                  >
-                    <BookOpen className="h-3 w-3 mr-1" />
-                    {message.metadata.citations.length} цитат
-                  </Badge>
-                </SheetTrigger>
-                <SheetContent className="w-[400px] sm:w-[540px]">
-                  <SheetHeader>
-                    <SheetTitle>Цитаты из документов</SheetTitle>
-                  </SheetHeader>
-                  <div className="mt-4">
-                    <SourcesPanel 
-                      ragContext={message.metadata?.rag_context}
-                      citations={message.metadata?.citations}
-                      webSearchCitations={message.metadata?.perplexity_citations || message.metadata?.web_search_citations}
-                      webSearchUsed={message.metadata?.web_search_used}
-                    />
-                  </div>
-                </SheetContent>
-              </Sheet>
-            )}
-            
-            {/* Web search sources */}
-            {(message.metadata?.perplexity_citations?.length > 0 || message.metadata?.web_search_citations?.length > 0) && (
-              <Sheet>
-                <SheetTrigger asChild>
-                  <Badge 
-                    variant="secondary" 
-                    className="text-xs cursor-pointer hover:bg-accent transition-colors"
-                  >
-                    <Globe className="h-3 w-3 mr-1" />
-                    {(message.metadata?.perplexity_citations?.length || message.metadata?.web_search_citations?.length || 0)} веб
-                  </Badge>
-                </SheetTrigger>
-                <SheetContent className="w-[400px] sm:w-[540px]">
-                  <SheetHeader>
-                    <SheetTitle>Веб-источники</SheetTitle>
-                  </SheetHeader>
-                  <div className="mt-4">
-                    <SourcesPanel 
-                      ragContext={message.metadata?.rag_context}
-                      citations={message.metadata?.citations}
-                      webSearchCitations={message.metadata?.perplexity_citations || message.metadata?.web_search_citations}
-                      webSearchUsed={message.metadata?.web_search_used}
-                    />
-                  </div>
-                </SheetContent>
-              </Sheet>
-            )}
-            
-            {/* Warning for truncated messages */}
-            {message.metadata?.stop_reason === 'max_tokens' && (
-              <Tooltip>
-                <TooltipTrigger asChild>
-                  <Badge variant="destructive" className="text-xs cursor-help">
-                    <AlertTriangle className="h-3 w-3 mr-1" />
-                    Обрезано
-                  </Badge>
-                </TooltipTrigger>
-                <TooltipContent>
-                  Ответ был обрезан из-за ограничения длины
-                </TooltipContent>
-              </Tooltip>
-            )}
-          </div>
-        )}
-
-        {/* Actions: Reply, Copy, Download, Regenerate */}
-        {!isGenerating && message.content && (
-          <div className="flex items-center gap-1 mt-2 opacity-0 group-hover:opacity-100 transition-opacity">
-            {/* Reply button - available for all messages */}
-            {onReply && (
-              <Button
-                variant="ghost"
-                size="sm"
-                className="h-7 px-2 text-xs"
-                onClick={() => onReply(message)}
-              >
-                <Reply className="h-3 w-3 mr-1" />
-                Ответить
-              </Button>
-            )}
-
-            {/* Copy button - only for assistant */}
-            {isAssistant && (
+              {/* Copy button */}
               <Button
                 variant="ghost"
                 size="sm"
@@ -380,75 +359,150 @@ function DepartmentChatMessageComponent({
                 )}
                 {copied ? "Скопировано" : "Копировать"}
               </Button>
-            )}
 
-            {/* Download - only for assistant */}
-            {isAssistant && (
+              {/* Download */}
               <DownloadDropdown
                 content={message.content}
                 ragContext={message.metadata?.rag_context}
                 citations={message.metadata?.citations}
                 webSearchCitations={message.metadata?.perplexity_citations || message.metadata?.web_search_citations}
               />
-            )}
 
-            {/* Regenerate - only for assistant */}
-            {isAssistant && onRegenerateResponse && (
-              <div className="flex items-center">
+              {/* Regenerate */}
+              {onRegenerateResponse && (
+                <div className="flex items-center">
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    className="h-7 px-2 text-xs"
+                    onClick={() => handleRegenerate()}
+                  >
+                    <RefreshCw className="h-3 w-3 mr-1" />
+                    Обновить
+                  </Button>
+                  
+                  {availableAgents.length > 1 && (
+                    <DropdownMenu>
+                      <DropdownMenuTrigger asChild>
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          className="h-7 px-1.5 text-xs"
+                        >
+                          <ChevronDown className="h-3 w-3" />
+                        </Button>
+                      </DropdownMenuTrigger>
+                      <DropdownMenuContent align="start" className="w-56 bg-popover z-50">
+                        <DropdownMenuLabel className="text-xs font-normal text-muted-foreground">
+                          Обновить с другим агентом
+                        </DropdownMenuLabel>
+                        <DropdownMenuSeparator />
+                        {availableAgents.map((agent) => (
+                          <DropdownMenuItem
+                            key={agent.id}
+                            onClick={() => handleRegenerate(agent.id)}
+                            className={cn(
+                              "cursor-pointer",
+                              agent.id === message.role_id && "bg-accent"
+                            )}
+                          >
+                            <Bot className="h-3 w-3 mr-2" />
+                            <div className="flex flex-col">
+                              <span className="text-sm">{agent.name}</span>
+                              {agent.description && (
+                                <span className="text-xs text-muted-foreground truncate max-w-[180px]">
+                                  {agent.description}
+                                </span>
+                              )}
+                            </div>
+                          </DropdownMenuItem>
+                        ))}
+                      </DropdownMenuContent>
+                    </DropdownMenu>
+                  )}
+                </div>
+              )}
+            </div>
+          )}
+        </div>
+      ) : (
+        // User message - compact card style
+        <>
+          <div className="max-w-[85%] p-3 rounded-lg bg-primary text-primary-foreground">
+            {/* Reply indicator */}
+            {replyToMessage && (
+              <div className="mb-2 p-2 bg-primary-foreground/10 rounded border-l-2 border-primary-foreground/50 text-xs">
+                <div className="flex items-center gap-1 mb-0.5">
+                  <Reply className="h-3 w-3" />
+                  <span className="font-medium">
+                    {replyToMessage.message_role === 'assistant' ? '🤖 ' : ''}
+                    {replyToMessage.metadata?.user_name || replyToMessage.metadata?.agent_name || 'Сообщение'}
+                  </span>
+                </div>
+                <p className="truncate opacity-80">{replyToMessage.content.slice(0, 60)}{replyToMessage.content.length > 60 ? '...' : ''}</p>
+              </div>
+            )}
+            
+            {/* Header with name and time */}
+            <div className="flex items-center gap-2 mb-1 text-xs opacity-80">
+              <span className="font-medium">{userName}</span>
+              <span>
+                {new Date(message.created_at).toLocaleTimeString('ru-RU', {
+                  hour: '2-digit',
+                  minute: '2-digit'
+                })}
+              </span>
+            </div>
+            
+            <p className="whitespace-pre-wrap text-sm">{message.content}</p>
+            
+            {/* Attachments */}
+            {message.metadata?.attachments && message.metadata.attachments.length > 0 && (
+              <div className="mt-2 flex flex-wrap gap-2">
+                {message.metadata.attachments.map((att, idx) => {
+                  const isImage = att.file_type.startsWith('image/');
+                  const { data } = supabase.storage.from('chat-attachments').getPublicUrl(att.file_path);
+                  
+                  return (
+                    <a
+                      key={idx}
+                      href={data.publicUrl}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="flex items-center gap-2 px-2 py-1 rounded bg-primary-foreground/10 hover:bg-primary-foreground/20 transition-colors text-xs"
+                    >
+                      {isImage ? (
+                        <Image className="h-3 w-3" />
+                      ) : (
+                        <FileText className="h-3 w-3" />
+                      )}
+                      <span className="truncate max-w-[100px]">{att.file_name}</span>
+                    </a>
+                  );
+                })}
+              </div>
+            )}
+            
+            {/* Reply action for user messages */}
+            {onReply && !isGenerating && (
+              <div className="mt-2 opacity-0 group-hover:opacity-100 transition-opacity">
                 <Button
                   variant="ghost"
                   size="sm"
-                  className="h-7 px-2 text-xs"
-                  onClick={() => handleRegenerate()}
+                  className="h-6 px-2 text-xs text-primary-foreground/80 hover:text-primary-foreground hover:bg-primary-foreground/10"
+                  onClick={() => onReply(message)}
                 >
-                  <RefreshCw className="h-3 w-3 mr-1" />
-                  Обновить
+                  <Reply className="h-3 w-3 mr-1" />
+                  Ответить
                 </Button>
-                
-                {availableAgents.length > 1 && (
-                  <DropdownMenu>
-                    <DropdownMenuTrigger asChild>
-                      <Button
-                        variant="ghost"
-                        size="sm"
-                        className="h-7 px-1.5 text-xs"
-                      >
-                        <ChevronDown className="h-3 w-3" />
-                      </Button>
-                    </DropdownMenuTrigger>
-                    <DropdownMenuContent align="start" className="w-56 bg-popover z-50">
-                      <DropdownMenuLabel className="text-xs font-normal text-muted-foreground">
-                        Обновить с другим агентом
-                      </DropdownMenuLabel>
-                      <DropdownMenuSeparator />
-                      {availableAgents.map((agent) => (
-                        <DropdownMenuItem
-                          key={agent.id}
-                          onClick={() => handleRegenerate(agent.id)}
-                          className={cn(
-                            "cursor-pointer",
-                            agent.id === message.role_id && "bg-accent"
-                          )}
-                        >
-                          <Bot className="h-3 w-3 mr-2" />
-                          <div className="flex flex-col">
-                            <span className="text-sm">{agent.name}</span>
-                            {agent.description && (
-                              <span className="text-xs text-muted-foreground truncate max-w-[180px]">
-                                {agent.description}
-                              </span>
-                            )}
-                          </div>
-                        </DropdownMenuItem>
-                      ))}
-                    </DropdownMenuContent>
-                  </DropdownMenu>
-                )}
               </div>
             )}
           </div>
-        )}
-      </div>
+          <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-secondary">
+            <User className="h-4 w-4" />
+          </div>
+        </>
+      )}
     </div>
   );
 }
@@ -465,7 +519,7 @@ export const DepartmentChatMessage = React.memo(DepartmentChatMessageComponent, 
     prev.metadata?.rag_context?.length === next.metadata?.rag_context?.length &&
     prev.metadata?.citations?.length === next.metadata?.citations?.length &&
     prevProps.currentUserId === nextProps.currentUserId &&
-    prevProps.availableAgents === nextProps.availableAgents &&
+    prevProps.availableAgents?.length === nextProps.availableAgents?.length &&
     prevProps.onRegenerateResponse === nextProps.onRegenerateResponse &&
     prevProps.onReply === nextProps.onReply &&
     prevProps.replyToMessage?.id === nextProps.replyToMessage?.id

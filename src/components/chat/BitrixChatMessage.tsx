@@ -95,55 +95,181 @@ function BitrixChatMessageComponent({
 }: BitrixChatMessageProps) {
   // Determine if we're in Bitrix context (have both URL and token)
   const isBitrixContext = Boolean(bitrixApiBaseUrl && bitrixToken);
+  
+  // Get the role name for the agent
+  const roleName = availableRoles?.find(r => r.id === currentRoleId)?.name || 'Ассистент';
+
   return (
     <div
       className={cn(
-        "flex gap-3 group",
+        "flex gap-3 group w-full",
         message.role === "user" ? "justify-end" : "justify-start"
       )}
     >
       {message.role === "assistant" && (
-        <div className="flex-shrink-0 h-8 w-8 rounded-full bg-primary flex items-center justify-center">
-          <Bot className="h-4 w-4 text-primary-foreground" />
+        <div className="flex-shrink-0 h-8 w-8 rounded-full bg-primary/10 flex items-center justify-center">
+          <Bot className="h-4 w-4 text-primary" />
         </div>
       )}
-      <Card
-        className={cn(
-          "max-w-[70%] p-4",
-          message.role === "user"
-            ? "bg-primary text-primary-foreground"
-            : "bg-muted"
-        )}
-      >
-        <div
-          className={cn(
-            "prose prose-sm max-w-none",
-            message.role === "user"
-              ? "prose-invert"
-              : "prose-neutral dark:prose-invert"
+      
+      {message.role === "assistant" ? (
+        // Assistant message - full width, no background card
+        <div className="flex-1 min-w-0">
+          {/* Role name header */}
+          <div className="flex items-center gap-2 mb-2">
+            <span className="text-sm font-medium text-foreground">
+              {roleName}
+            </span>
+          </div>
+          
+          {/* Content */}
+          <div className="prose prose-sm max-w-none prose-neutral dark:prose-invert">
+            {message.isStreaming && !message.content ? (
+              <div className="flex items-center gap-2">
+                <Loader2 className="h-4 w-4 animate-spin" />
+                <span className="text-sm text-muted-foreground">Генерирую ответ...</span>
+              </div>
+            ) : (
+              <MarkdownWithCitations 
+                content={normalizeMarkdownTables(message.content)}
+                citations={message.citations}
+                isBitrixContext={isBitrixContext}
+                bitrixApiBaseUrl={bitrixApiBaseUrl}
+                bitrixToken={bitrixToken}
+              />
+            )}
+            {message.isStreaming && message.content && (
+              <span className="inline-block w-2 h-4 bg-primary animate-pulse ml-1" />
+            )}
+          </div>
+          
+          {/* Metadata footer */}
+          {!message.isStreaming && (
+            <div className="flex flex-wrap items-center gap-2 mt-4 pt-3 border-t border-border/50 text-xs text-muted-foreground">
+              {message.responseTime && (
+                <span className="flex items-center gap-1">
+                  <Clock className="h-3 w-3" />
+                  {message.responseTime}ms
+                </span>
+              )}
+              
+              {/* Sources/Citations badges */}
+              {((message.ragContext && message.ragContext.length > 0) || 
+                (message.citations && message.citations.length > 0) ||
+                (message.webSearchCitations && message.webSearchCitations.length > 0)) && (
+                <Sheet>
+                  <SheetTrigger asChild>
+                    <Badge 
+                      variant="outline" 
+                      className="text-xs cursor-pointer hover:bg-accent transition-colors"
+                    >
+                      <FileText className="h-3 w-3 mr-1" />
+                      {message.ragContext?.length || 0} источников
+                      {message.smartSearch && " (Claude)"}
+                    </Badge>
+                  </SheetTrigger>
+                  <SheetContent className="w-[400px] sm:w-[540px]">
+                    <SheetHeader>
+                      <SheetTitle>Источники ответа</SheetTitle>
+                    </SheetHeader>
+                    <div className="mt-4">
+                      <SourcesPanel 
+                        ragContext={message.ragContext}
+                        citations={message.citations}
+                        webSearchCitations={message.webSearchCitations}
+                        webSearchUsed={message.webSearchUsed}
+                        isBitrixContext={isBitrixContext}
+                        bitrixApiBaseUrl={bitrixApiBaseUrl}
+                        bitrixToken={bitrixToken}
+                      />
+                    </div>
+                  </SheetContent>
+                </Sheet>
+              )}
+              
+              {message.citations && message.citations.length > 0 && (
+                <Sheet>
+                  <SheetTrigger asChild>
+                    <Badge 
+                      variant="secondary" 
+                      className="text-xs cursor-pointer hover:bg-accent transition-colors"
+                    >
+                      <BookOpen className="h-3 w-3 mr-1" />
+                      {message.citations.length} цитат
+                    </Badge>
+                  </SheetTrigger>
+                  <SheetContent className="w-[400px] sm:w-[540px]">
+                    <SheetHeader>
+                      <SheetTitle>Цитаты из документов</SheetTitle>
+                    </SheetHeader>
+                    <div className="mt-4">
+                      <SourcesPanel 
+                        ragContext={message.ragContext}
+                        citations={message.citations}
+                        webSearchCitations={message.webSearchCitations}
+                        webSearchUsed={message.webSearchUsed}
+                        isBitrixContext={isBitrixContext}
+                        bitrixApiBaseUrl={bitrixApiBaseUrl}
+                        bitrixToken={bitrixToken}
+                      />
+                    </div>
+                  </SheetContent>
+                </Sheet>
+              )}
+              
+              {message.webSearchCitations && message.webSearchCitations.length > 0 && (
+                <Sheet>
+                  <SheetTrigger asChild>
+                    <Badge 
+                      variant="secondary" 
+                      className="text-xs cursor-pointer hover:bg-accent transition-colors"
+                    >
+                      <Globe className="h-3 w-3 mr-1" />
+                      {message.webSearchCitations.length} веб
+                    </Badge>
+                  </SheetTrigger>
+                  <SheetContent className="w-[400px] sm:w-[540px]">
+                    <SheetHeader>
+                      <SheetTitle>Веб-источники</SheetTitle>
+                    </SheetHeader>
+                    <div className="mt-4">
+                      <SourcesPanel 
+                        ragContext={message.ragContext}
+                        citations={message.citations}
+                        webSearchCitations={message.webSearchCitations}
+                        webSearchUsed={message.webSearchUsed}
+                        isBitrixContext={isBitrixContext}
+                        bitrixApiBaseUrl={bitrixApiBaseUrl}
+                        bitrixToken={bitrixToken}
+                      />
+                    </div>
+                  </SheetContent>
+                </Sheet>
+              )}
+            </div>
           )}
-        >
-          {message.role === "assistant" ? (
-            <>
-              {message.isStreaming && !message.content ? (
-                <div className="flex items-center gap-2">
-                  <Loader2 className="h-4 w-4 animate-spin" />
-                  <span className="text-sm text-muted-foreground">Генерирую ответ...</span>
-                </div>
-              ) : (
-                <MarkdownWithCitations 
-                  content={normalizeMarkdownTables(message.content)}
-                  citations={message.citations}
-                  isBitrixContext={isBitrixContext}
-                  bitrixApiBaseUrl={bitrixApiBaseUrl}
-                  bitrixToken={bitrixToken}
-                />
-              )}
-              {message.isStreaming && message.content && (
-                <span className="inline-block w-2 h-4 bg-primary animate-pulse ml-1" />
-              )}
-            </>
-          ) : (
+          
+          {/* Action buttons */}
+          <BitrixMessageActions
+            messageId={message.id}
+            role={message.role}
+            content={message.content}
+            isStreaming={message.isStreaming}
+            onEditMessage={onEditMessage}
+            onRegenerateResponse={onRegenerateResponse}
+            onDeleteMessage={onDeleteMessage}
+            onStopGeneration={onStopGeneration}
+            availableRoles={availableRoles}
+            currentRoleId={currentRoleId}
+            ragContext={message.ragContext}
+            citations={message.citations}
+            webSearchCitations={message.webSearchCitations}
+          />
+        </div>
+      ) : (
+        // User message - card style, wider
+        <>
+          <Card className="max-w-[85%] p-4 bg-primary text-primary-foreground">
             <div className="space-y-2">
               {/* Display attachments for user messages */}
               {message.attachments && message.attachments.length > 0 && (
@@ -165,135 +291,11 @@ function BitrixChatMessageComponent({
               )}
               <p className="whitespace-pre-wrap">{message.content}</p>
             </div>
-          )}
-        </div>
-        
-        {message.role === "assistant" && !message.isStreaming && (
-          <div className="flex flex-wrap items-center gap-2 mt-3 pt-2 border-t border-border/50 text-xs text-muted-foreground">
-            {message.responseTime && (
-              <span className="flex items-center gap-1">
-                <Clock className="h-3 w-3" />
-                {message.responseTime}ms
-              </span>
-            )}
-            
-            {/* Sources/Citations badges */}
-            {((message.ragContext && message.ragContext.length > 0) || 
-              (message.citations && message.citations.length > 0) ||
-              (message.webSearchCitations && message.webSearchCitations.length > 0)) && (
-              <Sheet>
-                <SheetTrigger asChild>
-                  <Badge 
-                    variant="outline" 
-                    className="text-xs cursor-pointer hover:bg-accent transition-colors"
-                  >
-                    <FileText className="h-3 w-3 mr-1" />
-                    {message.ragContext?.length || 0} источников
-                    {message.smartSearch && " (Claude)"}
-                  </Badge>
-                </SheetTrigger>
-                <SheetContent className="w-[400px] sm:w-[540px]">
-                  <SheetHeader>
-                    <SheetTitle>Источники ответа</SheetTitle>
-                  </SheetHeader>
-                  <div className="mt-4">
-                    <SourcesPanel 
-                      ragContext={message.ragContext}
-                      citations={message.citations}
-                      webSearchCitations={message.webSearchCitations}
-                      webSearchUsed={message.webSearchUsed}
-                      isBitrixContext={isBitrixContext}
-                      bitrixApiBaseUrl={bitrixApiBaseUrl}
-                      bitrixToken={bitrixToken}
-                    />
-                  </div>
-                </SheetContent>
-              </Sheet>
-            )}
-            
-            {message.citations && message.citations.length > 0 && (
-              <Sheet>
-                <SheetTrigger asChild>
-                  <Badge 
-                    variant="secondary" 
-                    className="text-xs cursor-pointer hover:bg-accent transition-colors"
-                  >
-                    <BookOpen className="h-3 w-3 mr-1" />
-                    {message.citations.length} цитат
-                  </Badge>
-                </SheetTrigger>
-                <SheetContent className="w-[400px] sm:w-[540px]">
-                  <SheetHeader>
-                    <SheetTitle>Цитаты из документов</SheetTitle>
-                  </SheetHeader>
-                  <div className="mt-4">
-                    <SourcesPanel 
-                      ragContext={message.ragContext}
-                      citations={message.citations}
-                      webSearchCitations={message.webSearchCitations}
-                      webSearchUsed={message.webSearchUsed}
-                      isBitrixContext={isBitrixContext}
-                      bitrixApiBaseUrl={bitrixApiBaseUrl}
-                      bitrixToken={bitrixToken}
-                    />
-                  </div>
-                </SheetContent>
-              </Sheet>
-            )}
-            
-            {message.webSearchCitations && message.webSearchCitations.length > 0 && (
-              <Sheet>
-                <SheetTrigger asChild>
-                  <Badge 
-                    variant="secondary" 
-                    className="text-xs cursor-pointer hover:bg-accent transition-colors"
-                  >
-                    <Globe className="h-3 w-3 mr-1" />
-                    {message.webSearchCitations.length} веб
-                  </Badge>
-                </SheetTrigger>
-                <SheetContent className="w-[400px] sm:w-[540px]">
-                  <SheetHeader>
-                    <SheetTitle>Веб-источники</SheetTitle>
-                  </SheetHeader>
-                  <div className="mt-4">
-                    <SourcesPanel 
-                      ragContext={message.ragContext}
-                      citations={message.citations}
-                      webSearchCitations={message.webSearchCitations}
-                      webSearchUsed={message.webSearchUsed}
-                      isBitrixContext={isBitrixContext}
-                      bitrixApiBaseUrl={bitrixApiBaseUrl}
-                      bitrixToken={bitrixToken}
-                    />
-                  </div>
-                </SheetContent>
-              </Sheet>
-            )}
+          </Card>
+          <div className="flex-shrink-0 h-8 w-8 rounded-full bg-secondary flex items-center justify-center">
+            <User className="h-4 w-4" />
           </div>
-        )}
-        
-        {/* Action buttons */}
-        <BitrixMessageActions
-          messageId={message.id}
-          role={message.role}
-          content={message.content}
-          isStreaming={message.isStreaming}
-          onEditMessage={onEditMessage}
-          onRegenerateResponse={onRegenerateResponse}
-          onDeleteMessage={onDeleteMessage}
-          onStopGeneration={onStopGeneration}
-          availableRoles={availableRoles}
-          currentRoleId={currentRoleId}
-          ragContext={message.ragContext}
-          citations={message.citations}
-          webSearchCitations={message.webSearchCitations}
-        />
-      </Card>
-      {message.role === "user" && (
-        <div className="flex-shrink-0 h-8 w-8 rounded-full bg-secondary flex items-center justify-center">
-          <User className="h-4 w-4" />
-        </div>
+        </>
       )}
     </div>
   );
