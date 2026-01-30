@@ -1,242 +1,96 @@
 
-# План: Унификация поля ввода в чатах отдела и личных чатах
+# План: Исправление OCR fallback в process-document
 
 ## Проблема
 
-На скриншотах видно два совершенно разных дизайна полей ввода:
+Загрузка PDF файла `cbg.pdf` (17 страниц, 262KB) падает с ошибкой:
+```
+Maximum call stack size exceeded
+```
 
-**Личные чаты** (Chat.tsx, ChatFullscreen.tsx):
-- Используют `ChatInputEnhanced` — ChatGPT-стиль
-- Toolbar внутри поля, кнопки скрыты в контейнере
-- Всегда по центру viewport
+**Причина**: Код конвертации в base64 использует spread оператор:
+```typescript
+const base64Pdf = btoa(String.fromCharCode(...pdfData));
+```
 
-**Чаты отдела** (DepartmentChat.tsx, DepartmentChatFullscreen.tsx):
-- Используют `MentionInput` — другой стиль
-- Кнопки сбоку (BookOpen, Paperclip, Send) снаружи текстового поля
-- Центрировано внутри main, не viewport
+Для файла 262KB это создаёт ~262,795 аргументов функции — JavaScript падает.
 
-Это выглядит как две разные системы.
+**Вторая проблема**: Неправильный URL API.
 
 ---
 
 ## Решение
 
-Заменить `MentionInput` на `ChatInputEnhanced` в чатах отдела, добавив поддержку @-упоминаний в `ChatInputEnhanced`.
+### 1. Безопасная конвертация в Base64
 
-### Что нужно добавить в ChatInputEnhanced:
+Добавить функцию chunk-обработки:
 
-1. **@-mentions** — автокомплит агентов при вводе @
-2. **Reply-to preview** — уже есть в ChatInputEnhanced
-3. **Knowledge Base selector** — уже есть в ChatInputEnhanced
-
-### Структура единого компонента:
-
-```
-┌─────────────────────────────────────────────────────┐
-│ [Attachments preview если есть]                     │
-│ [Knowledge docs preview если есть]                  │
-│ [Reply preview если есть]                           │
-├─────────────────────────────────────────────────────┤
-│ ┌─────────────────────────────────────────────────┐ │
-│ │ Textarea с автокомплитом @mentions              │ │
-│ │                                                 │ │
-│ ├─────────────────────────────────────────────────┤ │
-│ │ 📎 📚 [Agent selector ▼]            [Stop/Send] │ │
-│ └─────────────────────────────────────────────────┘ │
-│ PDF, JPG, PNG... • Enter для отправки               │
-└─────────────────────────────────────────────────────┘
-```
-
----
-
-## Изменения
-
-### Файл 1: `src/components/chat/ChatInputEnhanced.tsx`
-
-Добавить поддержку @-mentions:
-
-```tsx
-interface ChatInputEnhancedProps {
-  // ...existing props
-  
-  // Mention support for department chats
-  availableAgents?: AgentMention[];
-  onMentionSend?: (text: string, attachments?: Attachment[], selectedDocs?: KnowledgeBaseDocument[], replyTo?: Message | null) => void;
+```typescript
+function uint8ArrayToBase64(bytes: Uint8Array): string {
+  let binary = '';
+  const chunkSize = 32768; // 32KB чанки
+  for (let i = 0; i < bytes.length; i += chunkSize) {
+    const chunk = bytes.subarray(i, Math.min(i + chunkSize, bytes.length));
+    binary += String.fromCharCode.apply(null, Array.from(chunk));
+  }
+  return btoa(binary);
 }
 ```
 
-**Новая логика:**
-1. При вводе `@` — показывать dropdown с агентами
-2. Фильтрация агентов по введённому тексту после `@`
-3. Вставка `@trigger` при выборе агента
-4. Стилизация dropdown как в MentionInput
+### 2. Исправить URL API
 
-### Файл 2: `src/pages/DepartmentChat.tsx`
-
-Заменить:
-```tsx
+```typescript
 // БЫЛО:
-import { MentionInput } from "@/components/chat/MentionInput";
+'https://ai.lovable.dev/api/chat'
 
-// Внизу страницы:
-<MentionInput
-  availableAgents={availableAgents}
-  onSend={handleSend}
-  ...
-/>
-```
-
-На:
-```tsx
 // СТАЛО:
-import { ChatInputEnhanced } from "@/components/chat/ChatInputEnhanced";
-
-// Fixed input как в Chat.tsx:
-<div className="fixed bottom-0 left-0 right-0 z-10 pointer-events-none">
-  <div className="pointer-events-auto bg-background border-t py-4">
-    <ChatInputEnhanced
-      value={inputValue}
-      onChange={setInputValue}
-      onSend={handleSend}
-      isLoading={isGenerating}
-      onStop={stopGeneration}
-      attachments={attachments}
-      onAttach={handleAttach}
-      onRemoveAttachment={removeAttachment}
-      // Department-specific
-      availableAgents={availableAgents}
-      departmentId={activeDepartmentId}
-      conversationId={activeChatId}
-      selectedKnowledgeDocs={selectedKnowledgeDocs}
-      onKnowledgeDocsChange={setSelectedKnowledgeDocs}
-      replyTo={replyToMessage}
-      onClearReply={() => setReplyToMessage(null)}
-      placeholder="Напишите @агент и ваш вопрос..."
-    />
-  </div>
-</div>
+'https://ai.gateway.lovable.dev/v1/chat/completions'
 ```
 
-### Файл 3: `src/pages/DepartmentChatFullscreen.tsx`
+### 3. Исправить формат запроса
 
-Аналогичная замена MentionInput → ChatInputEnhanced с fixed positioning.
+Lovable AI Gateway использует формат OpenAI:
 
----
-
-## Детали реализации @-mentions в ChatInputEnhanced
-
-```tsx
-// Состояние для mentions
-const [showMentions, setShowMentions] = useState(false);
-const [mentionSearch, setMentionSearch] = useState("");
-const [mentionStart, setMentionStart] = useState<number | null>(null);
-const [mentionIndex, setMentionIndex] = useState(0);
-
-// Фильтрация агентов
-const filteredAgents = useMemo(() => {
-  if (!availableAgents || !mentionSearch) return availableAgents || [];
-  const search = mentionSearch.toLowerCase();
-  return availableAgents.filter(a => 
-    a.name.toLowerCase().includes(search) ||
-    a.mention_trigger?.toLowerCase().includes(search)
-  );
-}, [availableAgents, mentionSearch]);
-
-// В handleChange textarea:
-const handleInputChange = (newValue: string) => {
-  onChange(newValue);
-  
-  // Detect @ for mentions
-  const cursorPos = textareaRef.current?.selectionStart || 0;
-  const textBefore = newValue.slice(0, cursorPos);
-  const atIndex = textBefore.lastIndexOf('@');
-  
-  if (atIndex !== -1) {
-    const afterAt = textBefore.slice(atIndex + 1);
-    if (!afterAt.includes(' ')) {
-      setMentionStart(atIndex);
-      setMentionSearch(afterAt);
-      setShowMentions(true);
-      return;
+```typescript
+body: JSON.stringify({
+  model: 'google/gemini-2.5-flash',
+  messages: [
+    {
+      role: 'user',
+      content: [
+        { type: 'text', text: `Извлеки текст из PDF...` },
+        { 
+          type: 'image_url',
+          image_url: {
+            url: `data:application/pdf;base64,${base64Pdf}`
+          }
+        }
+      ]
     }
-  }
-  setShowMentions(false);
-};
-
-// Dropdown UI (абсолютно позиционирован над textarea):
-{showMentions && filteredAgents.length > 0 && (
-  <div className="absolute bottom-full left-0 right-0 mb-2 bg-popover border rounded-lg shadow-lg z-50 max-h-60 overflow-y-auto">
-    {filteredAgents.map((agent, i) => (
-      <button
-        key={agent.id}
-        className={cn(
-          "w-full text-left px-3 py-2 flex items-center gap-2",
-          i === mentionIndex ? "bg-accent" : "hover:bg-muted"
-        )}
-        onClick={() => insertMention(agent)}
-      >
-        <div className="h-8 w-8 rounded-full bg-primary/10 flex items-center justify-center">
-          {agent.name.charAt(0)}
-        </div>
-        <div>
-          <div className="font-medium">{agent.name}</div>
-          <div className="text-xs text-muted-foreground">@{agent.mention_trigger}</div>
-        </div>
-      </button>
-    ))}
-  </div>
-)}
+  ],
+  max_tokens: 16000,
+}),
 ```
 
 ---
 
-## Позиционирование — центр viewport
+## Изменения в файле
 
-Для обоих типов чатов поле ввода будет fixed внизу экрана:
+**`supabase/functions/process-document/index.ts`**:
 
-```tsx
-<div className="fixed bottom-0 left-0 right-0 z-10 pointer-events-none">
-  <div className="pointer-events-auto bg-background border-t py-4">
-    <ChatInputEnhanced ... />
-  </div>
-</div>
-```
-
-`ChatInputEnhanced` уже имеет `max-w-3xl mx-auto` — это обеспечивает центрирование.
-
-Для ScrollArea добавить `pb-36` чтобы контент не перекрывался.
-
----
-
-## Файлы для изменения
-
-| Файл | Изменения |
-|------|-----------|
-| `src/components/chat/ChatInputEnhanced.tsx` | Добавить @-mentions dropdown, props для агентов |
-| `src/pages/DepartmentChat.tsx` | Заменить MentionInput на ChatInputEnhanced, fixed positioning |
-| `src/pages/DepartmentChatFullscreen.tsx` | Аналогично |
-| `src/types/departmentChat.ts` | Возможно потребуется экспорт AgentMention |
+| Строка | Изменение |
+|--------|-----------|
+| ~1645 | Добавить функцию `uint8ArrayToBase64()` |
+| 1660 | Заменить spread на вызов новой функции |
+| 1663 | Исправить URL на Gateway |
+| 1669-1700 | Исправить формат body (image_url вместо file) |
 
 ---
 
 ## Результат
 
-**До:**
-- Два разных компонента ввода
-- Разный дизайн, разное позиционирование
-- Поле сдвигается при открытии сайдбара
-
-**После:**
-- Единый `ChatInputEnhanced` везде
-- Одинаковый ChatGPT-стиль дизайн
-- Поле всегда по центру viewport
-- @-mentions работают в чатах отдела
-
----
-
-## Порядок реализации
-
-1. Добавить поддержку @-mentions в `ChatInputEnhanced`
-2. Обновить `DepartmentChat.tsx` — заменить MentionInput
-3. Обновить `DepartmentChatFullscreen.tsx` — аналогично
-4. Тестирование: проверить оба типа чатов
+После исправления:
+- PDF любого размера корректно конвертируется в base64
+- OCR запрос идёт на правильный endpoint
+- Gemini извлекает текст из PDF без текстового слоя
+- Документ индексируется в RAG системе
