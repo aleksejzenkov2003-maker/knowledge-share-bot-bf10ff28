@@ -1,105 +1,129 @@
 
-# План: Исправление навигации PDF viewer на страницу цитаты
+# План: Исправление передачи page_start из TextViewer в PDF viewer
 
 ## Проблема
 
-PDF viewer открывается на странице 1 вместо страницы из цитаты (например, стр. 3), несмотря на корректные данные `page_start` в базе.
+При клике "Открыть PDF" из Text Viewer, документ всегда открывается на странице 1, хотя цитата указывает на страницу 3.
 
-**Причина**: Автоматический поиск `performSearch()` перезаписывает `currentPage`:
+**Причина**: Функция `openPdfFromTextViewer` ищет citation по `storage_path`:
 
-```text
-1. setCurrentPage(3)        ← pageNumber из цитаты
-2. performSearch("Продмаш") ← автопоиск после загрузки PDF
-3. setCurrentPage(1)        ← поиск находит "Продмаш" на стр. 1 и переключает туда
+```typescript
+const citation = usedCitations.find(c => c.storage_path === textViewerState.storagePath);
 ```
+
+Но у документа cbg все 17 чанков имеют **одинаковый** `storage_path`, поэтому `find()` возвращает **первый** chunk (page_start: 1) вместо нужного (page_start: 3).
+
+---
 
 ## Решение
 
-Изменить логику `performSearch` чтобы приоритизировать страницу из `pageNumber`:
+### Изменения в `src/components/chat/SourcesPanel.tsx`
 
-1. Если задан `pageNumber` и эта страница содержит ключевые слова — оставаться на ней
-2. Только если целевая страница НЕ содержит совпадений — переходить на лучшую альтернативу
-
-## Изменения в файле
-
-**`src/components/documents/DocumentViewer.tsx`**:
-
-### 1. Добавить состояние для начальной страницы
+**1. Добавить `pageStart` в состояние textViewerState** (строки 49-56):
 
 ```typescript
-// Около строки 71
-const [initialTargetPage, setInitialTargetPage] = useState(pageNumber);
-
-// Около строки 92
-useEffect(() => {
-  setCurrentPage(pageNumber);
-  setInitialTargetPage(pageNumber); // Track initial target
-}, [pageNumber]);
+const [textViewerState, setTextViewerState] = useState<{
+  isOpen: boolean;
+  documentName: string;
+  chunkContent: string;
+  highlightText?: string;
+  chunkIndex?: number;
+  storagePath?: string;
+  pageStart?: number;  // <-- ДОБАВИТЬ
+}>({ isOpen: false, documentName: '', chunkContent: '' });
 ```
 
-### 2. Модифицировать performSearch (строки 273-296)
+**2. Сохранять pageStart при открытии citation** (функция `openCitation`, строки 427-437):
 
 ```typescript
-if (pageScores.length > 0) {
-  // Priority: Stay on initial target page if it has matches
-  const targetPageScore = pageScores.find(ps => ps.pageNum === initialTargetPage);
-  
-  if (targetPageScore && targetPageScore.score > 0) {
-    // Target page has matches - stay on it
-    console.log(`Keeping target page ${initialTargetPage} (score: ${targetPageScore.score})`);
-    setCurrentPage(initialTargetPage);
+const openCitation = async (citation: Citation) => {
+  if (citation.full_chunk_content) {
+    setTextViewerState({
+      isOpen: true,
+      documentName: citation.document,
+      chunkContent: citation.full_chunk_content,
+      highlightText: citation.content_preview,
+      chunkIndex: citation.index,
+      storagePath: citation.storage_path,
+      pageStart: citation.page_start,  // <-- ДОБАВИТЬ
+    });
   } else {
-    // Target page has no matches - navigate to best matching page
-    setCurrentPage(pageScores[0].pageNum);
+    // ...
+  }
+};
+```
+
+**3. Использовать сохранённый pageStart напрямую** (функция `openPdfFromTextViewer`, строки 448-478):
+
+```typescript
+const openPdfFromTextViewer = async () => {
+  if (!textViewerState.storagePath) return;
+  
+  const searchTextFromContent = extractSearchTextFromContent(
+    textViewerState.chunkContent
+  );
+  
+  setTextViewerState(prev => ({ ...prev, isOpen: false }));
+  
+  // Find citation for additional metadata, but use stored pageStart
+  const citation = usedCitations.find(c => 
+    c.storage_path === textViewerState.storagePath && 
+    c.index === textViewerState.chunkIndex  // <-- Match by index too!
+  );
+  
+  // Use stored pageStart directly, not from found citation
+  const pageNumber = textViewerState.pageStart || citation?.page_start || 1;
+  
+  // For Bitrix context, pre-fetch signed URL
+  if (isBitrixContext && bitrixApiBaseUrl && bitrixToken && textViewerState.storagePath) {
+    const signedUrl = await getSignedUrlViaApi(textViewerState.storagePath);
+    if (signedUrl) {
+      setPreSignedUrl(signedUrl);
+    }
   }
   
-  // Highlight the most specific keyword
-  const highlightWord = keywords.find(k => /^\d+$/.test(k)) || 
-                       [...keywords].sort((a, b) => b.length - a.length)[0];
-  setHighlightedText(highlightWord);
-  
-  // ... rest of the code
-}
+  setViewerState({
+    isOpen: true,
+    documentId: citation?.document_id,
+    storagePath: textViewerState.storagePath,
+    documentName: textViewerState.documentName,
+    searchText: searchTextFromContent,
+    pageNumber: pageNumber,  // <-- Use stored value
+  });
+};
 ```
 
-### 3. Модифицировать fallback-поиск (около строки 350)
-
-```typescript
-if (matches.length > 0) {
-  // Priority: Stay on initial target if it has matches
-  const targetMatch = matches.find(m => m.pageIndex === initialTargetPage);
-  if (targetMatch) {
-    setCurrentPage(initialTargetPage);
-    setCurrentMatchIndex(matches.indexOf(targetMatch));
-  } else {
-    setCurrentPage(matches[0].pageIndex);
-    setCurrentMatchIndex(0);
-  }
-  // ...
-}
-```
+---
 
 ## Диаграмма потока
 
 ```text
 БЫЛО:
-┌─────────────────┐     ┌─────────────────┐     ┌─────────────────┐
-│ pageNumber = 3  │ ──▶ │ performSearch() │ ──▶ │ currentPage = 1 │
-│                 │     │ finds match p.1 │     │ (WRONG!)        │
-└─────────────────┘     └─────────────────┘     └─────────────────┘
+Click citation [3] (page_start: 3)
+        ↓
+textViewerState = { storagePath: "cbg.pdf", chunkIndex: 3 }  // NO pageStart!
+        ↓
+Click "Open PDF"
+        ↓
+find(c => c.storage_path === "cbg.pdf")  // Returns FIRST match
+        ↓
+citation.page_start = 1  // WRONG!
 
 СТАНЕТ:
-┌─────────────────┐     ┌─────────────────┐     ┌─────────────────┐
-│ pageNumber = 3  │ ──▶ │ performSearch() │ ──▶ │ currentPage = 3 │
-│                 │     │ p.3 has match?  │     │ (CORRECT!)      │
-│                 │     │ YES → keep p.3  │     │                 │
-└─────────────────┘     └─────────────────┘     └─────────────────┘
+Click citation [3] (page_start: 3)
+        ↓
+textViewerState = { storagePath: "cbg.pdf", chunkIndex: 3, pageStart: 3 }
+        ↓
+Click "Open PDF"
+        ↓
+pageNumber = textViewerState.pageStart = 3  // CORRECT!
 ```
+
+---
 
 ## Результат
 
 После исправления:
-- PDF viewer откроется на странице 3 (из цитаты)
-- Поиск подсветит ключевые слова на этой странице
-- Навигация "Next/Prev" позволит перейти к другим совпадениям
-- Если целевая страница не содержит совпадений — fallback на первую найденную
+- При клике на цитату сохраняется `page_start` в `textViewerState`
+- При переходе в PDF viewer используется сохранённый `pageStart` напрямую
+- PDF viewer откроется на правильной странице (3), а не на странице 1
