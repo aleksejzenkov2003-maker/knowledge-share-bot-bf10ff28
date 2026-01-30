@@ -69,6 +69,7 @@ export function DocumentViewer({
   const [documentUrl, setDocumentUrl] = useState<string | null>(null);
   const [numPages, setNumPages] = useState<number>(0);
   const [currentPage, setCurrentPage] = useState(pageNumber);
+  const [initialTargetPage, setInitialTargetPage] = useState(pageNumber);
   const [scale, setScale] = useState(1.0);
   const [searchQuery, setSearchQuery] = useState(searchText || "");
   const [searchResults, setSearchResults] = useState<TextMatch[]>([]);
@@ -91,6 +92,7 @@ export function DocumentViewer({
 
   useEffect(() => {
     setCurrentPage(pageNumber);
+    setInitialTargetPage(pageNumber); // Track initial target for search prioritization
   }, [pageNumber]);
 
   // Fallback: reset to page 1 if requested page exceeds total pages
@@ -271,8 +273,17 @@ export function DocumentViewer({
         pageScores.sort((a, b) => b.score - a.score);
         
         if (pageScores.length > 0) {
-          // Navigate to best matching page
-          setCurrentPage(pageScores[0].pageNum);
+          // Priority: Stay on initial target page if it has matches
+          const targetPageScore = pageScores.find(ps => ps.pageNum === initialTargetPage);
+          
+          if (targetPageScore && targetPageScore.score > 0) {
+            // Target page has matches - stay on it
+            console.log(`Keeping target page ${initialTargetPage} (score: ${targetPageScore.score})`);
+            setCurrentPage(initialTargetPage);
+          } else {
+            // Target page has no matches - navigate to best matching page
+            setCurrentPage(pageScores[0].pageNum);
+          }
           
           // Highlight the most specific keyword (prefer numbers, then longest word)
           const highlightWord = keywords.find(k => /^\d+$/.test(k)) || 
@@ -285,7 +296,9 @@ export function DocumentViewer({
           });
           
           setSearchResults(matches);
-          setCurrentMatchIndex(0);
+          // Set current match index to target page if it exists in results
+          const targetMatchIdx = matches.findIndex(m => m.pageIndex === initialTargetPage);
+          setCurrentMatchIndex(targetMatchIdx >= 0 ? targetMatchIdx : 0);
           
           toast({
             title: "Поиск завершён",
@@ -344,15 +357,23 @@ export function DocumentViewer({
       }
 
       setSearchResults(matches);
-      setCurrentMatchIndex(0);
 
       if (matches.length > 0) {
-        setCurrentPage(matches[0].pageIndex);
+        // Priority: Stay on initial target page if it has matches
+        const targetMatch = matches.find(m => m.pageIndex === initialTargetPage);
+        if (targetMatch) {
+          setCurrentPage(initialTargetPage);
+          setCurrentMatchIndex(matches.indexOf(targetMatch));
+        } else {
+          setCurrentPage(matches[0].pageIndex);
+          setCurrentMatchIndex(0);
+        }
         toast({
           title: "Поиск завершён",
           description: `Найдено совпадений: ${matches.length}`,
         });
       } else {
+        setCurrentMatchIndex(0);
         toast({
           title: "Поиск завершён",
           description: "Совпадений не найдено",
