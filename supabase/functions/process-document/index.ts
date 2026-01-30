@@ -1685,16 +1685,16 @@ serve(async (req) => {
                     content: [
                       {
                         type: 'text',
-                        text: `Это PDF документ. Пожалуйста, извлеки ВЕСЬ текст из этого документа.
+                        text: `Это PDF документ. Извлеки ВЕСЬ текст со всех страниц.
 
-ВАЖНО:
-- Извлеки текст со ВСЕХ страниц
-- Сохрани структуру документа (абзацы, списки, заголовки)
-- Если есть таблицы, представь их в текстовом виде
-- НЕ добавляй комментарии или пояснения - только извлечённый текст
-- Если текст на русском языке, сохрани его на русском
+КРИТИЧЕСКИ ВАЖНО:
+- В НАЧАЛЕ каждой страницы добавь маркер: [СТРАНИЦА N]
+- Например: [СТРАНИЦА 1] текст первой страницы... [СТРАНИЦА 2] текст второй...
+- Сохрани структуру: абзацы, списки, заголовки
+- Таблицы представь в текстовом виде
+- Язык документа сохрани без изменений
 
-Верни ТОЛЬКО извлечённый текст документа, без вступления и заключения.`
+Верни ТОЛЬКО извлечённый текст с маркерами страниц.`
                       },
                       {
                         type: 'image_url',
@@ -1720,11 +1720,70 @@ serve(async (req) => {
             
             if (ocrText.length > 100) {
               console.log(`OCR successful! Extracted ${ocrText.length} characters`);
-              text = ocrText;
               
-              // Reset page tracking for OCR result (we don't have page info)
-              currentPdfPagesData = [];
-              currentPdfFullText = text;
+              // Parse OCR result to extract page markers
+              function parseOcrTextWithPages(ocrTextInput: string): { 
+                text: string; 
+                pages: { pageNum: number; offset: number }[] 
+              } {
+                const pages: { pageNum: number; offset: number }[] = [];
+                
+                // Find all page markers: [СТРАНИЦА N] or [PAGE N]
+                const pageMarkerRegex = /\[(?:СТРАНИЦА|PAGE)\s*(\d+)\]/gi;
+                
+                // First pass: collect page positions
+                const matches: { index: number; pageNum: number; length: number }[] = [];
+                let match;
+                while ((match = pageMarkerRegex.exec(ocrTextInput)) !== null) {
+                  matches.push({
+                    index: match.index,
+                    pageNum: parseInt(match[1], 10),
+                    length: match[0].length
+                  });
+                }
+                
+                // Build pages array with adjusted offsets (after removing markers)
+                let removedChars = 0;
+                for (const m of matches) {
+                  pages.push({ 
+                    pageNum: m.pageNum, 
+                    offset: m.index - removedChars 
+                  });
+                  removedChars += m.length;
+                }
+                
+                // Remove markers from text
+                const cleanText = ocrTextInput.replace(/\[(?:СТРАНИЦА|PAGE)\s*\d+\]/gi, '');
+                
+                return { text: cleanText.trim(), pages };
+              }
+              
+              const parsed = parseOcrTextWithPages(ocrText);
+              text = parsed.text;
+              
+              // Build page data for getPageForChunk function
+              if (parsed.pages.length > 0) {
+                currentPdfPagesData = [];
+                for (let i = 0; i < parsed.pages.length; i++) {
+                  const start = parsed.pages[i].offset;
+                  const end = i < parsed.pages.length - 1 
+                    ? parsed.pages[i + 1].offset 
+                    : text.length;
+                  currentPdfPagesData.push({
+                    pageNum: parsed.pages[i].pageNum,
+                    text: text.slice(start, end),
+                    startOffset: start,
+                    endOffset: end
+                  });
+                }
+                currentPdfFullText = text;
+                console.log(`OCR: Parsed ${currentPdfPagesData.length} pages with offsets`);
+              } else {
+                // Fallback: no page markers found
+                currentPdfPagesData = [];
+                currentPdfFullText = text;
+                console.log('OCR: No page markers found, page_start will be 1');
+              }
             } else {
               console.log('OCR returned insufficient text');
             }
