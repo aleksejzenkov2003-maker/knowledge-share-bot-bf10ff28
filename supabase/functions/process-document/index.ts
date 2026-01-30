@@ -1656,11 +1656,22 @@ serve(async (req) => {
               throw new Error('OCR service not configured');
             }
             
-            // Convert PDF bytes to base64 for API call
-            const base64Pdf = btoa(String.fromCharCode(...pdfData));
+            // Safe base64 conversion using chunks to avoid stack overflow
+            function uint8ArrayToBase64(bytes: Uint8Array): string {
+              let binary = '';
+              const chunkSize = 32768; // Process in 32KB chunks to avoid stack overflow
+              for (let i = 0; i < bytes.length; i += chunkSize) {
+                const chunk = bytes.subarray(i, Math.min(i + chunkSize, bytes.length));
+                binary += String.fromCharCode.apply(null, Array.from(chunk));
+              }
+              return btoa(binary);
+            }
             
-            // Use Gemini for OCR - it can process PDF directly
-            const ocrResponse = await fetch('https://ai.lovable.dev/api/chat', {
+            // Convert PDF bytes to base64 for API call
+            const base64Pdf = uint8ArrayToBase64(pdfData);
+            
+            // Use Gemini for OCR via Lovable AI Gateway
+            const ocrResponse = await fetch('https://ai.gateway.lovable.dev/v1/chat/completions', {
               method: 'POST',
               headers: {
                 'Content-Type': 'application/json',
@@ -1674,7 +1685,7 @@ serve(async (req) => {
                     content: [
                       {
                         type: 'text',
-                        text: `Это отсканированный PDF документ. Пожалуйста, извлеки ВЕСЬ текст из этого документа.
+                        text: `Это PDF документ. Пожалуйста, извлеки ВЕСЬ текст из этого документа.
 
 ВАЖНО:
 - Извлеки текст со ВСЕХ страниц
@@ -1686,11 +1697,9 @@ serve(async (req) => {
 Верни ТОЛЬКО извлечённый текст документа, без вступления и заключения.`
                       },
                       {
-                        type: 'file',
-                        file: {
-                          filename: doc.file_name || 'document.pdf',
-                          content_type: 'application/pdf',
-                          data: base64Pdf
+                        type: 'image_url',
+                        image_url: {
+                          url: `data:application/pdf;base64,${base64Pdf}`
                         }
                       }
                     ]
