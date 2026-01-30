@@ -53,6 +53,7 @@ export function SourcesPanel({
     highlightText?: string;
     chunkIndex?: number;
     storagePath?: string;
+    pageStart?: number;
   }>({ isOpen: false, documentName: '', chunkContent: '' });
 
   const toggleCitationExpanded = (index: number) => {
@@ -434,6 +435,7 @@ export function SourcesPanel({
         highlightText: citation.content_preview,
         chunkIndex: citation.index,
         storagePath: citation.storage_path,
+        pageStart: citation.page_start, // Store page_start for PDF navigation
       });
     } else {
       // Fallback to PDF viewer
@@ -456,26 +458,31 @@ export function SourcesPanel({
     
     setTextViewerState(prev => ({ ...prev, isOpen: false }));
     
-    // Find the citation to get full metadata
-    const citation = usedCitations.find(c => c.storage_path === textViewerState.storagePath);
-    if (citation) {
-      // For Bitrix context, pre-fetch signed URL
-      if (isBitrixContext && bitrixApiBaseUrl && bitrixToken && citation.storage_path) {
-        const signedUrl = await getSignedUrlViaApi(citation.storage_path);
-        if (signedUrl) {
-          setPreSignedUrl(signedUrl);
-        }
+    // Find the citation to get full metadata - match by index too for accuracy
+    const citation = usedCitations.find(c => 
+      c.storage_path === textViewerState.storagePath && 
+      c.index === textViewerState.chunkIndex
+    ) || usedCitations.find(c => c.storage_path === textViewerState.storagePath);
+    
+    // Use stored pageStart directly - don't rely on find() which may return wrong chunk
+    const pageNumber = textViewerState.pageStart || citation?.page_start || 1;
+    
+    // For Bitrix context, pre-fetch signed URL
+    if (isBitrixContext && bitrixApiBaseUrl && bitrixToken && textViewerState.storagePath) {
+      const signedUrl = await getSignedUrlViaApi(textViewerState.storagePath);
+      if (signedUrl) {
+        setPreSignedUrl(signedUrl);
       }
-      
-      setViewerState({
-        isOpen: true,
-        documentId: citation.document_id,
-        storagePath: citation.storage_path,
-        documentName: citation.document,
-        searchText: searchTextFromContent, // From chunk content, not keywords
-        pageNumber: citation.page_start || 1,
-      });
     }
+    
+    setViewerState({
+      isOpen: true,
+      documentId: citation?.document_id,
+      storagePath: textViewerState.storagePath,
+      documentName: textViewerState.documentName,
+      searchText: searchTextFromContent, // From chunk content, not keywords
+      pageNumber: pageNumber, // Use stored pageStart
+    });
   };
 
   const closeViewer = () => {
