@@ -1561,12 +1561,13 @@ serve(async (req) => {
         // 5. PDF Processing - Extract page-by-page for accurate navigation
         console.log('Processing PDF with unpdf library (page-by-page extraction)...');
         
+        // Store arrayBuffer for potential OCR fallback
+        const arrayBuffer = await fileData.arrayBuffer();
+        const pdfData = new Uint8Array(arrayBuffer);
+        
         try {
           // Dynamic import of unpdf for proper PDF text extraction
           const unpdf = await import("https://esm.sh/unpdf@0.12.1");
-          
-          const arrayBuffer = await fileData.arrayBuffer();
-          const pdfData = new Uint8Array(arrayBuffer);
           
           console.log(`PDF file size: ${pdfData.length} bytes`);
           
@@ -1627,10 +1628,8 @@ serve(async (req) => {
           currentPdfFullText = '';
           
           // Fallback to old method for compatibility
-          const arrayBuffer = await fileData.arrayBuffer();
-          const bytes = new Uint8Array(arrayBuffer);
           const decoder = new TextDecoder('utf-8', { fatal: false });
-          const rawText = decoder.decode(bytes);
+          const rawText = decoder.decode(pdfData);
           
           const textMatches = rawText.match(/\((.*?)\)/g);
           if (textMatches) {
@@ -1641,8 +1640,94 @@ serve(async (req) => {
           }
         }
         
+        // ============= OCR FALLBACK FOR SCANNED PDFs =============
+        // If text extraction yielded very little text, the PDF is likely scanned images
+        // Use Lovable AI (Gemini) for OCR
+        if (text.length < 200 && pdfData.length > 10000) {
+          console.log(`PDF appears to be scanned (text length: ${text.length}). Attempting OCR via Lovable AI...`);
+          
+          try {
+            // Convert first few pages to images and use Gemini for OCR
+            // We'll use the pdfData directly and send to Gemini with a specific prompt
+            
+            const LOVABLE_API_KEY = Deno.env.get('LOVABLE_API_KEY');
+            if (!LOVABLE_API_KEY) {
+              console.error('LOVABLE_API_KEY not configured for OCR');
+              throw new Error('OCR service not configured');
+            }
+            
+            // Convert PDF bytes to base64 for API call
+            const base64Pdf = btoa(String.fromCharCode(...pdfData));
+            
+            // Use Gemini for OCR - it can process PDF directly
+            const ocrResponse = await fetch('https://ai.lovable.dev/api/chat', {
+              method: 'POST',
+              headers: {
+                'Content-Type': 'application/json',
+                'Authorization': `Bearer ${LOVABLE_API_KEY}`,
+              },
+              body: JSON.stringify({
+                model: 'google/gemini-2.5-flash',
+                messages: [
+                  {
+                    role: 'user',
+                    content: [
+                      {
+                        type: 'text',
+                        text: `Это отсканированный PDF документ. Пожалуйста, извлеки ВЕСЬ текст из этого документа.
+
+ВАЖНО:
+- Извлеки текст со ВСЕХ страниц
+- Сохрани структуру документа (абзацы, списки, заголовки)
+- Если есть таблицы, представь их в текстовом виде
+- НЕ добавляй комментарии или пояснения - только извлечённый текст
+- Если текст на русском языке, сохрани его на русском
+
+Верни ТОЛЬКО извлечённый текст документа, без вступления и заключения.`
+                      },
+                      {
+                        type: 'file',
+                        file: {
+                          filename: doc.file_name || 'document.pdf',
+                          content_type: 'application/pdf',
+                          data: base64Pdf
+                        }
+                      }
+                    ]
+                  }
+                ],
+                max_tokens: 16000,
+              }),
+            });
+            
+            if (!ocrResponse.ok) {
+              const errorText = await ocrResponse.text();
+              console.error(`OCR API error: ${ocrResponse.status} - ${errorText}`);
+              throw new Error(`OCR API failed: ${ocrResponse.status}`);
+            }
+            
+            const ocrResult = await ocrResponse.json();
+            const ocrText = ocrResult.choices?.[0]?.message?.content || '';
+            
+            if (ocrText.length > 100) {
+              console.log(`OCR successful! Extracted ${ocrText.length} characters`);
+              text = ocrText;
+              
+              // Reset page tracking for OCR result (we don't have page info)
+              currentPdfPagesData = [];
+              currentPdfFullText = text;
+            } else {
+              console.log('OCR returned insufficient text');
+            }
+            
+          } catch (ocrError) {
+            console.error('OCR failed:', ocrError);
+            // Continue with whatever text we have
+          }
+        }
+        
         if (text.length < 100) {
-          text = `[PDF Document: ${doc.file_name}] - Не удалось извлечь текст из PDF. Попробуйте загрузить текстовую версию документа.`;
+          text = `[PDF Document: ${doc.file_name}] - Не удалось извлечь текст из PDF. Документ может быть отсканирован без текстового слоя. Попробуйте загрузить текстовую версию документа.`;
         }
       } else if (
         fileType.includes('word') || 
