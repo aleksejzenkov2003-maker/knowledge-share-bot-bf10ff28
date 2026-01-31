@@ -1,331 +1,316 @@
 
-# План: Устранение проблем исчезновения и прерывания чат-запросов
+# План: Эталонные ответы (Golden Responses) — "Так делай!"
 
-## Выявленные проблемы
+## Концепция
 
-### 1. Таймауты Edge Functions (ОСНОВНАЯ ПРИЧИНА)
-Edge Functions на Supabase имеют жёсткие лимиты:
-- **150 секунд** (wall-clock) на free tier
-- **400 секунд** на Pro tier
-- **2 секунды** CPU time
+Функция позволяет помечать ответы ассистента как **эталонные примеры**. Система запоминает эти ответы и использует их как образец стиля, структуры и качества для будущих генераций.
 
-При длинных запросах (RAG-поиск + re-ranking + AI-генерация) функция может превысить лимит и прерваться.
-
-**Текущий flow:**
 ```text
-bitrix-chat-api (150s лимит)
-     ↓ внутренний fetch
-chat-stream (ещё 150s лимит, но уже внутри первого)
-     ↓
-Anthropic/Perplexity API (может занять 30-120+ сек)
+┌─────────────────────────────────────────────────────────────────┐
+│  Ответ ассистента                                               │
+│  ─────────────────                                              │
+│  Согласно статье 5.1 документа [1], минимальный срок...         │
+│                                                                 │
+│  [Копировать] [Скачать] [Обновить] [⭐ Эталон]  ← НОВАЯ КНОПКА  │
+└─────────────────────────────────────────────────────────────────┘
+                           ↓ Клик
+┌─────────────────────────────────────────────────────────────────┐
+│  ⭐ Сохранить как эталон                                        │
+│  ─────────────────────────                                      │
+│  Категория: [Консультация по ТЗ ▼]                              │
+│  Тег: [отказы, сроки, документы]                                │
+│  Заметка: "Хороший пример ответа про сроки отказов"             │
+│                                                                 │
+│  [Отмена] [Сохранить]                                           │
+└─────────────────────────────────────────────────────────────────┘
 ```
-
-### 2. Отсутствие буферизации SSE на клиенте
-В `BitrixPersonalChat.tsx` (строки 583-620) обработка SSE не учитывает:
-- Фрагментированные JSON-чанки (может разорваться на середине JSON)
-- Нет накопления буфера между итерациями
-- При обрыве соединения теряется весь контент
-
-```typescript
-// ПРОБЛЕМА: buffer не сохраняется между чанками
-const chunk = decoder.decode(value);
-const lines = chunk.split('\n');  // JSON может быть разорван!
-```
-
-### 3. Bitrix iframe перезагрузки
-Bitrix24 агрессивно управляет iframe:
-- Переключение вкладок/окон
-- Изменение размера
-- Переход в fullscreen
-
-При этом:
-- Соединение SSE обрывается
-- Сообщение пользователя уже сохранено в БД
-- Ответ ассистента теряется (не сохраняется)
-
-### 4. Отсутствие retry/recovery логики
-При сетевой ошибке:
-- Сообщение пользователя сохранено
-- Ответа AI нет
-- Нет автоматического повтора запроса
-- Пользователь видит "пустой" чат
-
-### 5. Нет индикации проблем
-- Пользователь не видит что запрос прервался
-- Нет возможности "продолжить генерацию"
-- Сообщение просто исчезает из UI
 
 ---
 
-## План исправлений
+## Как это будет работать
 
-### Часть 1: Защита от потери данных (Критично)
+### При генерации нового ответа:
 
-**1.1. Добавить буферизацию SSE в BitrixPersonalChat.tsx**
+```text
+Пользователь: "Какой срок для подачи отказа?"
+                    ↓
+              chat-stream
+                    ↓
+    ┌───────────────────────────────────┐
+    │ 1. RAG: найти документы           │
+    │ 2. Найти релевантные эталоны      │ ← НОВОЕ
+    │ 3. Сформировать промпт            │
+    │ 4. Вызвать AI                     │
+    └───────────────────────────────────┘
+                    ↓
+Промпт для AI включает секцию:
 
-```typescript
-// Было:
-while (true) {
-  const chunk = decoder.decode(value);
-  const lines = chunk.split('\n');
-  // ...
-}
+"ЭТАЛОННЫЕ ПРИМЕРЫ ОТВЕТОВ:
+Вот как нужно отвечать на похожие вопросы:
 
-// Станет:
-let buffer = '';  // Персистентный буфер
+Пример 1 (категория: отказы):
+Вопрос: Когда можно подать отказ по ТЗ?
+Ответ: Согласно статье 5.1 документа [1]...
 
-while (true) {
-  buffer += decoder.decode(value, { stream: true });
-  const lines = buffer.split('\n');
-  buffer = lines.pop() || '';  // Сохраняем неполную строку
-  // ...
-}
+Используй этот стиль и структуру в своём ответе."
 ```
 
-**1.2. Сохранение частичного ответа при обрыве**
+---
 
-При любой ошибке (кроме AbortError) сохранять накопленный контент:
+## Архитектура данных
 
-```typescript
-} catch (error) {
-  // Сохранить частичный ответ
-  if (streamingContentRef.current && streamingContentRef.current.trim()) {
-    const partialContent = streamingContentRef.current + '\n\n[Ответ прерван]';
-    setMessages(prev => prev.map(m => 
-      m.id === assistantMessage.id 
-        ? { ...m, content: partialContent, isStreaming: false }
-        : m
-    ));
-    // Важно: сохранить в БД тоже
-    await savePartialResponse(conversationId, partialContent);
-  }
-}
+### Новая таблица: `golden_responses`
+
+```sql
+CREATE TABLE golden_responses (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  
+  -- Связи
+  role_id UUID REFERENCES chat_roles(id),      -- К какому агенту относится
+  department_id UUID REFERENCES departments(id), -- Или к отделу
+  
+  -- Контент
+  question TEXT NOT NULL,      -- Исходный вопрос пользователя
+  answer TEXT NOT NULL,        -- Эталонный ответ
+  
+  -- Метаданные для поиска
+  category TEXT,               -- Категория (отказы, сроки, документы)
+  tags TEXT[] DEFAULT '{}',    -- Теги для фильтрации
+  search_vector TSVECTOR,      -- Для полнотекстового поиска
+  
+  -- Оценка и использование
+  usage_count INT DEFAULT 0,   -- Сколько раз использовался
+  effectiveness_rating FLOAT,  -- Средняя оценка эффективности
+  
+  -- Мета
+  created_by UUID REFERENCES profiles(id),
+  created_at TIMESTAMPTZ DEFAULT now(),
+  is_active BOOLEAN DEFAULT true,
+  
+  -- Источник
+  source_message_id UUID,      -- ID оригинального сообщения (опционально)
+  source_conversation_id UUID  -- ID диалога (опционально)
+);
+
+-- Индекс для быстрого поиска
+CREATE INDEX idx_golden_responses_search ON golden_responses USING GIN(search_vector);
+CREATE INDEX idx_golden_responses_role ON golden_responses(role_id) WHERE is_active = true;
+CREATE INDEX idx_golden_responses_tags ON golden_responses USING GIN(tags);
 ```
 
-### Часть 2: Keep-Alive и таймауты
+---
 
-**2.1. Добавить keep-alive heartbeat в chat-stream**
+## Компоненты UI
 
-Отправлять пустые SSE события каждые 15 секунд чтобы соединение не закрывалось:
-
-```typescript
-// В chat-stream/index.ts
-const stream = new ReadableStream({
-  async start(controller) {
-    // Heartbeat interval
-    const heartbeatInterval = setInterval(() => {
-      try {
-        controller.enqueue(encoder.encode(': heartbeat\n\n'));
-      } catch { clearInterval(heartbeatInterval); }
-    }, 15000);
-    
-    // ... основная логика ...
-    
-    clearInterval(heartbeatInterval);
-  }
-});
-```
-
-**2.2. Увеличить timeout на клиенте**
-
-Добавить явный AbortController timeout:
+### 1. Кнопка "Эталон" в MessageActions
 
 ```typescript
-const controller = new AbortController();
-const timeoutId = setTimeout(() => controller.abort(), 180000); // 3 минуты
+// src/components/chat/MessageActions.tsx
 
-try {
-  const response = await fetch(url, { signal: controller.signal });
-  // ...
-} finally {
-  clearTimeout(timeoutId);
-}
-```
-
-### Часть 3: Recovery механизм для Bitrix
-
-**3.1. Сохранение pending-запроса в sessionStorage**
-
-Перед отправкой запроса сохранять его ID:
-
-```typescript
-const pendingRequest = {
-  conversationId,
-  userMessageId: userMessage.id,
-  timestamp: Date.now(),
-};
-sessionStorage.setItem(`${storageKey}_pending`, JSON.stringify(pendingRequest));
-```
-
-**3.2. Восстановление после перезагрузки**
-
-При инициализации проверять наличие незавершённых запросов:
-
-```typescript
-useEffect(() => {
-  const pending = sessionStorage.getItem(`${storageKey}_pending`);
-  if (pending) {
-    const { conversationId, userMessageId, timestamp } = JSON.parse(pending);
-    // Если прошло < 5 минут, попытаться восстановить
-    if (Date.now() - timestamp < 300000) {
-      // Загрузить сообщения и показать уведомление
-      showRecoveryNotification(conversationId);
-    }
-    sessionStorage.removeItem(`${storageKey}_pending`);
-  }
-}, []);
-```
-
-### Часть 4: UI индикация
-
-**4.1. Добавить состояние "генерация прервана"**
-
-```typescript
-interface Message {
-  // ...
-  interrupted?: boolean;
-  interruptedAt?: Date;
-}
-```
-
-**4.2. Кнопка "Повторить генерацию"**
-
-Для прерванных сообщений показывать кнопку retry:
-
-```typescript
-{message.interrupted && (
-  <Button size="sm" onClick={() => handleRetryGeneration(message.id)}>
-    <RefreshCw className="h-4 w-4 mr-2" />
-    Повторить
+// Новая кнопка для ответов ассистента
+{role === "assistant" && onSaveAsGolden && (
+  <Button
+    variant="ghost"
+    size="sm"
+    className="h-7 px-2 text-xs"
+    onClick={() => onSaveAsGolden(messageId)}
+  >
+    <Star className="h-3 w-3 mr-1" />
+    Эталон
   </Button>
 )}
 ```
 
-### Часть 5: Серверная устойчивость
+### 2. Диалог сохранения эталона
 
-**5.1. Queue-based архитектура (опционально, для сложных случаев)**
+```typescript
+// src/components/chat/GoldenResponseDialog.tsx
 
-Если проблема остаётся критичной, перейти на очередь:
+interface GoldenResponseDialogProps {
+  isOpen: boolean;
+  onClose: () => void;
+  question: string;      // Предыдущее сообщение пользователя
+  answer: string;        // Текущий ответ ассистента
+  roleId?: string;       // Текущий агент
+  onSave: (data: GoldenResponseInput) => void;
+}
 
-```text
-1. Клиент отправляет сообщение → получает job_id
-2. Сервер обрабатывает в фоне
-3. Клиент опрашивает статус или подписывается на realtime
+// Форма:
+// - Категория (select из существующих + создать новую)
+// - Теги (multi-select)
+// - Заметка (почему этот ответ эталонный)
 ```
 
-Это потребует:
-- Новая таблица `chat_jobs`
-- Фоновый worker (Supabase Cron или отдельный сервис)
-- Изменение UI на polling
+### 3. Страница управления эталонами (админка)
+
+```typescript
+// src/pages/GoldenResponses.tsx
+
+// Таблица со всеми эталонными ответами:
+// - Фильтр по агенту, категории, тегам
+// - Поиск по тексту
+// - Редактирование, удаление
+// - Статистика использования
+```
 
 ---
 
-## Приоритет реализации
+## Интеграция в chat-stream
 
-| Этап | Изменения | Сложность | Эффект |
-|------|-----------|-----------|--------|
-| 1 | Буферизация SSE + сохранение частичного ответа | Низкая | Высокий |
-| 2 | Keep-alive heartbeat | Низкая | Средний |
-| 3 | Recovery из sessionStorage | Средняя | Высокий |
-| 4 | UI для прерванных сообщений | Низкая | Средний |
-| 5 | Queue архитектура | Высокая | Высокий |
+### Поиск релевантных эталонов
+
+```typescript
+// В chat-stream/index.ts
+
+// После получения role_id, перед формированием промпта:
+let goldenExamples: string[] = [];
+
+if (role_id) {
+  // Поиск эталонов по похожести вопроса
+  const { data: goldens } = await supabase.rpc('search_golden_responses', {
+    query_text: message,
+    p_role_id: role_id,
+    match_count: 3,  // Макс. 3 примера
+  });
+  
+  if (goldens && goldens.length > 0) {
+    goldenExamples = goldens.map((g, i) => 
+      `Пример ${i + 1}:\nВопрос: ${g.question}\nОтвет: ${g.answer}`
+    );
+    
+    // Увеличить счётчик использования
+    await supabase.rpc('increment_golden_usage', { 
+      ids: goldens.map(g => g.id) 
+    });
+  }
+}
+```
+
+### Добавление в промпт
+
+```typescript
+// Добавить секцию эталонов перед инструкциями
+if (goldenExamples.length > 0) {
+  contextParts.push(`
+ЭТАЛОННЫЕ ПРИМЕРЫ ОТВЕТОВ:
+Следующие ответы были помечены как образцовые. 
+Используй их стиль, структуру и уровень детализации:
+
+${goldenExamples.join('\n\n---\n\n')}
+
+Применяй этот подход к своему ответу.
+  `);
+}
+```
+
+---
+
+## Функции базы данных
+
+### Поиск эталонов
+
+```sql
+CREATE FUNCTION search_golden_responses(
+  query_text TEXT,
+  p_role_id UUID DEFAULT NULL,
+  match_count INT DEFAULT 3
+) RETURNS TABLE (
+  id UUID,
+  question TEXT,
+  answer TEXT,
+  category TEXT,
+  similarity FLOAT
+) AS $$
+BEGIN
+  RETURN QUERY
+  SELECT 
+    gr.id,
+    gr.question,
+    gr.answer,
+    gr.category,
+    ts_rank_cd(gr.search_vector, websearch_to_tsquery('russian', query_text)) as similarity
+  FROM golden_responses gr
+  WHERE 
+    gr.is_active = true
+    AND (p_role_id IS NULL OR gr.role_id = p_role_id)
+    AND gr.search_vector @@ websearch_to_tsquery('russian', query_text)
+  ORDER BY similarity DESC
+  LIMIT match_count;
+END;
+$$ LANGUAGE plpgsql;
+```
+
+### Обновление search_vector
+
+```sql
+-- Триггер для автоматического обновления search_vector
+CREATE FUNCTION update_golden_search_vector() RETURNS TRIGGER AS $$
+BEGIN
+  NEW.search_vector := 
+    setweight(to_tsvector('russian', COALESCE(NEW.question, '')), 'A') ||
+    setweight(to_tsvector('russian', COALESCE(NEW.category, '')), 'B') ||
+    setweight(to_tsvector('russian', array_to_string(COALESCE(NEW.tags, '{}'), ' ')), 'B');
+  RETURN NEW;
+END;
+$$ LANGUAGE plpgsql;
+
+CREATE TRIGGER golden_responses_search_vector_trigger
+  BEFORE INSERT OR UPDATE ON golden_responses
+  FOR EACH ROW EXECUTE FUNCTION update_golden_search_vector();
+```
 
 ---
 
 ## Файлы для изменения
 
-1. **src/pages/BitrixPersonalChat.tsx**
-   - Добавить буферизацию SSE
-   - Сохранение частичного ответа при ошибке
-   - Recovery после перезагрузки
-   - UI для прерванных сообщений
-
-2. **src/pages/BitrixDepartmentChat.tsx**
-   - Аналогичные изменения
-
-3. **supabase/functions/chat-stream/index.ts**
-   - Keep-alive heartbeat
-
-4. **supabase/functions/bitrix-chat-api/index.ts**
-   - Keep-alive для proxied stream
-   - Обработка ошибок upstream
-
-5. **src/components/chat/BitrixChatMessage.tsx**
-   - UI для "прерванных" сообщений
+| Файл | Изменения |
+|------|-----------|
+| `src/components/chat/MessageActions.tsx` | + кнопка "Эталон" |
+| `src/components/chat/GoldenResponseDialog.tsx` | НОВЫЙ - диалог сохранения |
+| `src/components/chat/ChatMessage.tsx` | + передача callback onSaveAsGolden |
+| `src/pages/GoldenResponses.tsx` | НОВЫЙ - страница управления |
+| `src/pages/Chat.tsx` | + логика сохранения эталона |
+| `supabase/functions/chat-stream/index.ts` | + поиск и интеграция эталонов |
+| Миграция БД | + таблица golden_responses + функции |
 
 ---
 
-## Технические детали
+## RLS политики
 
-### SSE Buffering Pattern
+```sql
+-- Только админы могут управлять эталонами
+CREATE POLICY "Admins can manage golden responses"
+  ON golden_responses FOR ALL
+  USING (is_admin())
+  WITH CHECK (is_admin());
 
-```typescript
-// Правильная обработка SSE с буфером
-const processSSE = async (reader: ReadableStreamDefaultReader<Uint8Array>) => {
-  const decoder = new TextDecoder();
-  let buffer = '';
-  let fullContent = '';
-  
-  while (true) {
-    const { done, value } = await reader.read();
-    if (done) break;
-    
-    buffer += decoder.decode(value, { stream: true });
-    
-    // Разбиваем только по полным строкам
-    const lines = buffer.split('\n');
-    buffer = lines.pop() || ''; // Последняя строка может быть неполной
-    
-    for (const line of lines) {
-      if (!line.startsWith('data: ')) continue;
-      const data = line.slice(6);
-      if (data === '[DONE]') continue;
-      
-      try {
-        const parsed = JSON.parse(data);
-        if (parsed.content) {
-          fullContent += parsed.content;
-        }
-      } catch {
-        // JSON parsing failed - данные разорваны, подождём следующий чанк
-      }
-    }
-  }
-  
-  // Обработать остаток буфера
-  if (buffer.startsWith('data: ')) {
-    // ... финальная обработка
-  }
-  
-  return fullContent;
-};
+-- Модераторы могут просматривать
+CREATE POLICY "Moderators can view golden responses"
+  ON golden_responses FOR SELECT
+  USING (is_admin() OR has_role(auth.uid(), 'moderator'));
 ```
 
-### Heartbeat Implementation
+---
 
-```typescript
-// В edge function
-const HEARTBEAT_INTERVAL = 15000; // 15 секунд
+## Дополнительные возможности (v2)
 
-const stream = new ReadableStream({
-  async start(controller) {
-    const encoder = new TextEncoder();
-    
-    // Heartbeat keeps connection alive
-    const heartbeat = setInterval(() => {
-      try {
-        controller.enqueue(encoder.encode(': keep-alive\n\n'));
-      } catch {
-        clearInterval(heartbeat);
-      }
-    }, HEARTBEAT_INTERVAL);
-    
-    try {
-      // ... обработка AI stream ...
-    } finally {
-      clearInterval(heartbeat);
-      controller.close();
-    }
-  }
-});
-```
+1. **Оценка эффективности** — после ответа с использованием эталона спрашивать "Помог ли ответ?" и обновлять рейтинг
+
+2. **Авто-предложение** — если ответ получил высокую оценку, предлагать сохранить как эталон
+
+3. **Версионирование** — история изменений эталонных ответов
+
+4. **Импорт/экспорт** — загрузка эталонов из CSV/JSON
+
+---
+
+## Преимущества
+
+| Аспект | Выгода |
+|--------|--------|
+| **Консистентность** | Все ответы будут в едином стиле |
+| **Обучение** | Новые агенты сразу знают "как правильно" |
+| **Качество** | Лучшие ответы используются как образец |
+| **Контроль** | Бизнес определяет стандарт качества |
+| **Масштабирование** | Знания передаются между сотрудниками |
+
