@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef, useMemo } from "react";
+import { useState, useEffect, useRef, useMemo, useCallback } from "react";
 import { useNavigate, useSearchParams } from "react-router-dom";
 import { useAuth } from "@/contexts/AuthContext";
 import { Button } from "@/components/ui/button";
@@ -20,6 +20,7 @@ import { useOptimizedChat } from "@/hooks/useOptimizedChat";
 import { ChatMessage } from "@/components/chat/ChatMessage";
 import { ChatSidebarEnhanced } from "@/components/chat/ChatSidebarEnhanced";
 import { ChatInputEnhanced } from "@/components/chat/ChatInputEnhanced";
+import { GoldenResponseDialog } from "@/components/chat/GoldenResponseDialog";
 import { useConversationRolesQuery } from "@/hooks/queries/useChatQueries";
 
 export default function Chat() {
@@ -58,6 +59,11 @@ export default function Chat() {
     removeAttachment,
     clearAttachments,
   } = useOptimizedChat(user?.id, departmentId);
+
+  // Golden response dialog state
+  const [goldenDialogOpen, setGoldenDialogOpen] = useState(false);
+  const [goldenQuestion, setGoldenQuestion] = useState("");
+  const [goldenAnswer, setGoldenAnswer] = useState("");
 
   // Restore conversation from URL param on mount
   useEffect(() => {
@@ -106,6 +112,32 @@ export default function Chat() {
       deleteConversation(activeConversationId);
     }
   };
+
+  // Handle saving a response as golden/reference
+  const handleSaveAsGolden = useCallback((messageId: string) => {
+    const messageIndex = messages.findIndex(m => m.id === messageId);
+    if (messageIndex === -1) return;
+    
+    const message = messages[messageIndex];
+    if (message.role !== "assistant") return;
+    
+    // Find the previous user message as the "question"
+    let questionContent = "";
+    for (let i = messageIndex - 1; i >= 0; i--) {
+      if (messages[i].role === "user") {
+        questionContent = messages[i].content;
+        break;
+      }
+    }
+    
+    if (!questionContent) {
+      questionContent = "(Вопрос не найден)";
+    }
+    
+    setGoldenQuestion(questionContent);
+    setGoldenAnswer(message.content);
+    setGoldenDialogOpen(true);
+  }, [messages]);
 
   // Wait for auth first, then roles
   if (authLoading || (user && rolesLoading)) {
@@ -225,6 +257,7 @@ export default function Chat() {
                     message={message}
                     onEditMessage={editMessage}
                     onRegenerateResponse={regenerateResponse}
+                    onSaveAsGolden={handleSaveAsGolden}
                     availableRoles={roles}
                     currentRoleId={selectedRoleId}
                   />
@@ -259,6 +292,16 @@ export default function Chat() {
           />
         </div>
       </div>
+
+      {/* Golden Response Dialog */}
+      <GoldenResponseDialog
+        isOpen={goldenDialogOpen}
+        onClose={() => setGoldenDialogOpen(false)}
+        question={goldenQuestion}
+        answer={goldenAnswer}
+        roleId={selectedRoleId}
+        departmentId={departmentId}
+      />
     </div>
   );
 }

@@ -1,7 +1,7 @@
 import React, { useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
-import { Pencil, RefreshCw, Check, X, Copy, CheckCheck, ChevronDown, Bot } from "lucide-react";
+import { Pencil, RefreshCw, Check, X, Copy, CheckCheck, ChevronDown, Bot, Star } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { toast } from "@/hooks/use-toast";
 import {
@@ -22,6 +22,7 @@ interface MessageActionsProps {
   isStreaming?: boolean;
   onEditMessage?: (messageId: string, newContent: string) => void;
   onRegenerateResponse?: (messageId: string, roleId?: string) => void;
+  onSaveAsGolden?: (messageId: string) => void;
   availableRoles?: ChatRole[];
   currentRoleId?: string;
   ragContext?: string[];
@@ -36,6 +37,7 @@ export function MessageActions({
   isStreaming,
   onEditMessage,
   onRegenerateResponse,
+  onSaveAsGolden,
   availableRoles = [],
   currentRoleId,
   ragContext,
@@ -150,6 +152,18 @@ export function MessageActions({
           citations={citations}
           webSearchCitations={webSearchCitations}
         />
+      )}
+
+      {role === "assistant" && onSaveAsGolden && (
+        <Button
+          variant="ghost"
+          size="sm"
+          className="h-7 px-2 text-xs"
+          onClick={() => onSaveAsGolden(messageId)}
+        >
+          <Star className="h-3 w-3 mr-1" />
+          Эталон
+        </Button>
       )}
 
       {role === "user" && onEditMessage && (

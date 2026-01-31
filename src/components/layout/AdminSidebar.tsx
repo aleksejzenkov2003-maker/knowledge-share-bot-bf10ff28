@@ -29,6 +29,7 @@ import {
   MessagesSquare,
   KeyRound,
   ExternalLink,
+  Star,
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 
@@ -40,6 +41,7 @@ const mainMenuItems = [
 
 const managementItems = [
   { title: 'Роли чатов', url: '/chat-roles', icon: UserCircle, roles: ['admin'] },
+  { title: 'Эталоны', url: '/golden-responses', icon: Star, roles: ['admin'] },
   { title: 'Папки', url: '/folders', icon: FolderTree, roles: ['admin'] },
   { title: 'Документы', url: '/documents', icon: FileText, roles: ['admin'] },
   { title: 'Промпты', url: '/prompts', icon: MessageSquare, roles: ['admin'] },
