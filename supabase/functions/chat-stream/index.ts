@@ -219,7 +219,7 @@ serve(async (req) => {
         providerConfig = {
           provider_type: 'perplexity',
           api_key: PERPLEXITY_API_KEY,
-          default_model: 'sonar-pro',
+          default_model: 'sonar',  // Changed from sonar-pro for cost savings (~50%)
         };
       } else if (LOVABLE_API_KEY) {
         providerConfig = {
@@ -656,15 +656,25 @@ serve(async (req) => {
     let webSearchCitations: string[] = [];
     let webSearchUsed = false;
     
-    // Perform web search only if allowed by role settings
-    // This supplements RAG with real-time web data
+    // OPTIMIZATION: Only perform web search if RAG context is insufficient
+    // This saves ~60-80% of Perplexity API calls
+    const ragInsufficient = rankedChunks.length < 2 || 
+      (rankedChunks.length > 0 && rankedChunks[0].relevance_score < 7);
+    
+    // Perform web search only if:
+    // 1. Role allows web search (allowWebSearch = true)
+    // 2. Not in strict RAG mode
+    // 3. RAG results are insufficient (< 2 chunks or low relevance)
+    // 4. Provider is Anthropic (Claude needs external data augmentation)
     if (
       allowWebSearch && // Check role setting
+      !strictRagMode && // Never do web search in strict RAG mode
+      ragInsufficient && // ONLY if RAG didn't find enough good context
       providerConfig.provider_type === 'anthropic' && 
       PERPLEXITY_API_KEY &&
       message // Only if there's a user message
     ) {
-      console.log(`Performing web search for Claude (allowWebSearch=${allowWebSearch}, strictRagMode=${strictRagMode})...`);
+      console.log(`Performing web search: RAG insufficient (chunks=${rankedChunks.length}, topScore=${rankedChunks[0]?.relevance_score || 0})`);
       
       try {
         const webSearchResponse = await fetch('https://api.perplexity.ai/chat/completions', {
@@ -674,7 +684,7 @@ serve(async (req) => {
             'Content-Type': 'application/json',
           },
           body: JSON.stringify({
-            model: 'sonar',
+            model: 'sonar',  // Use base sonar model (cheaper than sonar-pro)
             messages: [
               { role: 'system', content: 'Provide a concise, factual answer with sources. Focus on key facts relevant to the query.' },
               { role: 'user', content: message }
@@ -699,6 +709,8 @@ serve(async (req) => {
       } catch (webSearchError) {
         console.error('Web search error:', webSearchError);
       }
+    } else if (!ragInsufficient) {
+      console.log(`Skipping web search: RAG sufficient (chunks=${rankedChunks.length}, topScore=${rankedChunks[0]?.relevance_score || 0})`);
     }
 
     // =====================================================

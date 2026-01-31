@@ -330,14 +330,9 @@ serve(async (req) => {
     }
 
     // Fallback to environment-based providers
+    // Priority: Anthropic > Lovable > Perplexity (to minimize Perplexity costs)
     if (!providerConfig) {
-      if (PERPLEXITY_API_KEY) {
-        providerConfig = {
-          provider_type: 'perplexity',
-          api_key: PERPLEXITY_API_KEY,
-          default_model: 'sonar',
-        };
-      } else if (ANTHROPIC_API_KEY) {
+      if (ANTHROPIC_API_KEY) {
         providerConfig = {
           provider_type: 'anthropic',
           api_key: ANTHROPIC_API_KEY,
@@ -348,6 +343,13 @@ serve(async (req) => {
           provider_type: 'lovable',
           api_key: LOVABLE_API_KEY,
           default_model: 'google/gemini-2.5-flash',
+        };
+      } else if (PERPLEXITY_API_KEY) {
+        // Perplexity as last resort to minimize API costs
+        providerConfig = {
+          provider_type: 'perplexity',
+          api_key: PERPLEXITY_API_KEY,
+          default_model: 'sonar',  // Use base model, not sonar-pro
         };
       }
     }
