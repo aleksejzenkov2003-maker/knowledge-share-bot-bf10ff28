@@ -711,6 +711,88 @@ export type Database = {
           },
         ]
       }
+      golden_responses: {
+        Row: {
+          answer: string
+          category: string | null
+          created_at: string | null
+          created_by: string | null
+          department_id: string | null
+          effectiveness_rating: number | null
+          id: string
+          is_active: boolean | null
+          notes: string | null
+          question: string
+          role_id: string | null
+          search_vector: unknown
+          source_conversation_id: string | null
+          source_message_id: string | null
+          tags: string[] | null
+          updated_at: string | null
+          usage_count: number | null
+        }
+        Insert: {
+          answer: string
+          category?: string | null
+          created_at?: string | null
+          created_by?: string | null
+          department_id?: string | null
+          effectiveness_rating?: number | null
+          id?: string
+          is_active?: boolean | null
+          notes?: string | null
+          question: string
+          role_id?: string | null
+          search_vector?: unknown
+          source_conversation_id?: string | null
+          source_message_id?: string | null
+          tags?: string[] | null
+          updated_at?: string | null
+          usage_count?: number | null
+        }
+        Update: {
+          answer?: string
+          category?: string | null
+          created_at?: string | null
+          created_by?: string | null
+          department_id?: string | null
+          effectiveness_rating?: number | null
+          id?: string
+          is_active?: boolean | null
+          notes?: string | null
+          question?: string
+          role_id?: string | null
+          search_vector?: unknown
+          source_conversation_id?: string | null
+          source_message_id?: string | null
+          tags?: string[] | null
+          updated_at?: string | null
+          usage_count?: number | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "golden_responses_created_by_fkey"
+            columns: ["created_by"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "golden_responses_department_id_fkey"
+            columns: ["department_id"]
+            isOneToOne: false
+            referencedRelation: "departments"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "golden_responses_role_id_fkey"
+            columns: ["role_id"]
+            isOneToOne: false
+            referencedRelation: "chat_roles"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       message_attachments: {
         Row: {
           conversation_id: string | null
@@ -969,6 +1051,7 @@ export type Database = {
         }
         Returns: boolean
       }
+      increment_golden_usage: { Args: { p_ids: string[] }; Returns: undefined }
       is_admin: { Args: never; Returns: boolean }
       keyword_search: {
         Args: {
@@ -1004,6 +1087,16 @@ export type Database = {
           content: string
           document_id: string
           id: string
+          similarity: number
+        }[]
+      }
+      search_golden_responses: {
+        Args: { match_count?: number; p_role_id?: string; query_text: string }
+        Returns: {
+          answer: string
+          category: string
+          id: string
+          question: string
           similarity: number
         }[]
       }

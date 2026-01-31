@@ -28,6 +28,7 @@ import BitrixChatSecure from "./pages/BitrixChatSecure";
 import BitrixPersonalChat from "./pages/BitrixPersonalChat";
 import BitrixDepartmentChat from "./pages/BitrixDepartmentChat";
 import BitrixSessions from "./pages/BitrixSessions";
+import GoldenResponses from "./pages/GoldenResponses";
 import NotFound from "./pages/NotFound";
 
 const queryClient = new QueryClient();
@@ -126,6 +127,11 @@ const App = () => (
             <Route path="/bitrix-sessions" element={
               <ProtectedRoute allowedRoles={['admin', 'moderator']}>
                 <AdminLayout><BitrixSessions /></AdminLayout>
+              </ProtectedRoute>
+            } />
+            <Route path="/golden-responses" element={
+              <ProtectedRoute allowedRoles={['admin']}>
+                <AdminLayout><GoldenResponses /></AdminLayout>
               </ProtectedRoute>
             } />
             <Route path="*" element={<NotFound />} />

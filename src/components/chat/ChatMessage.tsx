@@ -26,11 +26,12 @@ interface ChatMessageProps {
   message: Message;
   onEditMessage?: (messageId: string, newContent: string) => void;
   onRegenerateResponse?: (messageId: string, roleId?: string) => void;
+  onSaveAsGolden?: (messageId: string) => void;
   availableRoles?: ChatRole[];
   currentRoleId?: string;
 }
 
-function ChatMessageComponent({ message, onEditMessage, onRegenerateResponse, availableRoles, currentRoleId }: ChatMessageProps) {
+function ChatMessageComponent({ message, onEditMessage, onRegenerateResponse, onSaveAsGolden, availableRoles, currentRoleId }: ChatMessageProps) {
   // Get the role name for the agent
   const roleName = availableRoles?.find(r => r.id === currentRoleId)?.name || 'Ассистент';
 
@@ -194,6 +195,7 @@ function ChatMessageComponent({ message, onEditMessage, onRegenerateResponse, av
             isStreaming={message.isStreaming}
             onEditMessage={onEditMessage}
             onRegenerateResponse={onRegenerateResponse}
+            onSaveAsGolden={onSaveAsGolden}
             availableRoles={availableRoles}
             currentRoleId={currentRoleId}
             ragContext={message.ragContext}
@@ -252,6 +254,7 @@ export const ChatMessage = React.memo(ChatMessageComponent, (prevProps, nextProp
     prev.stopReason === next.stopReason &&
     prevProps.onEditMessage === nextProps.onEditMessage &&
     prevProps.onRegenerateResponse === nextProps.onRegenerateResponse &&
+    prevProps.onSaveAsGolden === nextProps.onSaveAsGolden &&
     prevProps.availableRoles?.length === nextProps.availableRoles?.length &&
     prevProps.currentRoleId === nextProps.currentRoleId
   );

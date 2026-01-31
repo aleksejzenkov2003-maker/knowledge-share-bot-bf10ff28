@@ -701,7 +701,38 @@ serve(async (req) => {
       }
     }
 
-    // Build messages with combined context (RAG + Web + Reply-to)
+    // =====================================================
+    // GOLDEN RESPONSES - Find relevant reference examples
+    // =====================================================
+    let goldenExamples: string[] = [];
+    
+    if (role_id && message) {
+      try {
+        const { data: goldens, error: goldenError } = await supabase.rpc('search_golden_responses', {
+          query_text: message,
+          p_role_id: role_id,
+          match_count: 3,
+        });
+        
+        if (goldenError) {
+          console.error('Golden responses search error:', goldenError);
+        } else if (goldens && goldens.length > 0) {
+          goldenExamples = goldens.map((g: { question: string; answer: string; category?: string }, i: number) => 
+            `Пример ${i + 1}${g.category ? ` (${g.category})` : ''}:\nВопрос: ${g.question}\nЭталонный ответ: ${g.answer}`
+          );
+          
+          console.log(`Golden: Found ${goldens.length} relevant golden responses`);
+          
+          // Increment usage count for found golden responses
+          const goldenIds = goldens.map((g: { id: string }) => g.id);
+          await supabase.rpc('increment_golden_usage', { p_ids: goldenIds });
+        }
+      } catch (goldenErr) {
+        console.error('Golden responses error:', goldenErr);
+      }
+    }
+
+    // Build messages with combined context (RAG + Web + Reply-to + Golden)
     let finalPrompt = message || '';
     
     // Add reply-to context if present
@@ -713,8 +744,18 @@ serve(async (req) => {
       replyContext = `\n\n--- КОНТЕКСТ ОТВЕТА ---\nПользователь отвечает на сообщение от "${authorLabel}":\n"${reply_to.content.slice(0, 2000)}${reply_to.content.length > 2000 ? '...' : ''}"\n--- КОНЕЦ КОНТЕКСТА ОТВЕТА ---\n`;
     }
     
-    if (ragContext.length > 0 || webSearchContext.length > 0) {
+    if (ragContext.length > 0 || webSearchContext.length > 0 || goldenExamples.length > 0) {
       let contextParts: string[] = [];
+      
+      // Add golden examples first (they set the tone/style)
+      if (goldenExamples.length > 0) {
+        contextParts.push(`ЭТАЛОННЫЕ ПРИМЕРЫ ОТВЕТОВ:
+Следующие ответы были помечены как образцовые. Используй их стиль, структуру и уровень детализации:
+
+${goldenExamples.join('\n\n---\n\n')}
+
+Применяй этот подход к своему ответу.`);
+      }
       
       if (ragContext.length > 0) {
         contextParts.push(`КОНТЕКСТ ИЗ ДОКУМЕНТОВ (база знаний):\n${ragContext.join('\n\n---\n\n')}`);
