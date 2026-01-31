@@ -1260,6 +1260,16 @@ serve(async (req) => {
 
     const stream = new ReadableStream({
       async start(controller) {
+        // HEARTBEAT: Keep connection alive during long AI responses
+        const HEARTBEAT_INTERVAL = 15000; // 15 seconds
+        const heartbeatTimer = setInterval(() => {
+          try {
+            controller.enqueue(encoder.encode(': heartbeat\n\n'));
+          } catch {
+            clearInterval(heartbeatTimer);
+          }
+        }, HEARTBEAT_INTERVAL);
+        
         try {
           let buffer = ''; // Buffer for incomplete SSE chunks
           let perplexityCitations: string[] = []; // Capture Perplexity citations
@@ -1463,6 +1473,8 @@ serve(async (req) => {
         } catch (error) {
           console.error('Stream error:', error);
           controller.error(error);
+        } finally {
+          clearInterval(heartbeatTimer);
         }
       },
     });

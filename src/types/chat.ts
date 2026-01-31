@@ -65,6 +65,7 @@ export interface Message {
   roleId?: string;
   replyToMessageId?: string | null;
   stopReason?: string | null; // 'max_tokens' if response was truncated, 'end_turn' for normal completion
+  interrupted?: boolean; // True if response was interrupted due to error/disconnect
 }
 
 export interface DBMessage {

@@ -544,15 +544,20 @@ export default function BitrixDepartmentChat() {
       const decoder = new TextDecoder();
       let fullContent = '';
       let metadata: any = {};
+      let sseBuffer = ''; // BUFFERING FIX: persistent buffer for fragmented SSE chunks
 
       while (true) {
         const { done, value } = await reader.read();
         if (done) break;
 
-        const chunk = decoder.decode(value);
-        const lines = chunk.split('\n');
+        // BUFFERING FIX: accumulate in buffer, split by complete lines only
+        sseBuffer += decoder.decode(value, { stream: true });
+        const lines = sseBuffer.split('\n');
+        sseBuffer = lines.pop() || ''; // Keep last potentially incomplete line
 
         for (const line of lines) {
+          if (!line.trim() || line.startsWith(':')) continue; // Skip heartbeat/empty lines
+          
           if (line.startsWith('data: ')) {
             const data = line.substring(6);
             if (data === '[DONE]') {
@@ -583,9 +588,25 @@ export default function BitrixDepartmentChat() {
                 if (parsed.rag_context) metadata.rag_context = parsed.rag_context;
                 if (parsed.web_search_citations) metadata.web_search_citations = parsed.web_search_citations;
                 if (parsed.web_search_used) metadata.web_search_used = parsed.web_search_used;
-              } catch {}
+              } catch {
+                // JSON parsing failed - data may be fragmented, will be processed in next chunk
+              }
             }
           }
+        }
+      }
+      
+      // Process any remaining buffer content
+      if (sseBuffer.startsWith('data: ')) {
+        const data = sseBuffer.substring(6).trim();
+        if (data && data !== '[DONE]') {
+          try {
+            const parsed = JSON.parse(data);
+            if (parsed.content) {
+              fullContent += parsed.content;
+              streamingContentRef.current = fullContent;
+            }
+          } catch {}
         }
       }
     } catch (error) {
@@ -593,16 +614,34 @@ export default function BitrixDepartmentChat() {
         console.log('Request aborted');
       } else {
         console.error('Send message error:', error);
-        setStreamingMessage(null);
-        toast({
-          title: "Ошибка",
-          description: "Не удалось отправить сообщение",
-          variant: "destructive",
-        });
+        
+        // PARTIAL SAVE FIX: Save whatever content was accumulated before error
+        if (streamingContentRef.current && streamingContentRef.current.trim()) {
+          const partialContent = streamingContentRef.current + '\n\n*[Ответ прерван из-за ошибки соединения]*';
+          const assistantMessage: DepartmentMessage = {
+            id: streamingId,
+            message_role: 'assistant',
+            content: partialContent,
+            metadata: null,
+            created_at: new Date().toISOString(),
+            role_id: null,
+          };
+          setMessages(prev => [...prev, assistantMessage]);
+          setStreamingMessage(null);
+          console.log('Saved partial response:', partialContent.length, 'chars');
+        } else {
+          setStreamingMessage(null);
+          toast({
+            title: "Ошибка",
+            description: "Не удалось отправить сообщение",
+            variant: "destructive",
+          });
+        }
       }
     } finally {
       setIsLoading(false);
       abortControllerRef.current = null;
+      streamingContentRef.current = "";
     }
   }, [token, inputValue, isLoading, user?.full_name, bitrixUserId, apiBaseUrl, toast]);
 
@@ -695,15 +734,19 @@ export default function BitrixDepartmentChat() {
       const decoder = new TextDecoder();
       let fullContent = '';
       let metadata: any = {};
+      let sseBuffer = ''; // BUFFERING FIX
 
       while (true) {
         const { done, value } = await reader.read();
         if (done) break;
 
-        const chunk = decoder.decode(value);
-        const lines = chunk.split('\n');
+        sseBuffer += decoder.decode(value, { stream: true });
+        const lines = sseBuffer.split('\n');
+        sseBuffer = lines.pop() || '';
 
         for (const line of lines) {
+          if (!line.trim() || line.startsWith(':')) continue;
+          
           if (line.startsWith('data: ')) {
             const data = line.substring(6);
             if (data === '[DONE]') {
@@ -744,16 +787,32 @@ export default function BitrixDepartmentChat() {
         console.log('Regenerate aborted');
       } else {
         console.error('Regenerate error:', error);
-        setStreamingMessage(null);
-        toast({
-          title: "Ошибка",
-          description: "Не удалось перегенерировать ответ",
-          variant: "destructive",
-        });
+        // PARTIAL SAVE FIX
+        if (streamingContentRef.current && streamingContentRef.current.trim()) {
+          const partialContent = streamingContentRef.current + '\n\n*[Ответ прерван]*';
+          const assistantMessage: DepartmentMessage = {
+            id: streamingId,
+            message_role: 'assistant',
+            content: partialContent,
+            metadata: null,
+            created_at: new Date().toISOString(),
+            role_id: newRoleId || null,
+          };
+          setMessages(prev => [...prev, assistantMessage]);
+          setStreamingMessage(null);
+        } else {
+          setStreamingMessage(null);
+          toast({
+            title: "Ошибка",
+            description: "Не удалось перегенерировать ответ",
+            variant: "destructive",
+          });
+        }
       }
     } finally {
       setIsLoading(false);
       abortControllerRef.current = null;
+      streamingContentRef.current = "";
     }
   }, [token, apiBaseUrl, toast]);
 

@@ -1289,6 +1289,16 @@ async function handleSendPersonalMessage(
       const decoder = new TextDecoder();
       let buffer = ''; // Buffer for incomplete SSE chunks
 
+      // HEARTBEAT: Keep connection alive during long AI responses
+      const HEARTBEAT_INTERVAL = 15000; // 15 seconds
+      const heartbeatTimer = setInterval(() => {
+        try {
+          controller.enqueue(encoder.encode(': heartbeat\n\n'));
+        } catch {
+          clearInterval(heartbeatTimer);
+        }
+      }, HEARTBEAT_INTERVAL);
+
       try {
         while (true) {
           const { done, value } = await reader.read();
@@ -1381,6 +1391,7 @@ async function handleSendPersonalMessage(
       } catch (error) {
         console.error('Stream error:', error);
       } finally {
+        clearInterval(heartbeatTimer);
         controller.close();
       }
     }
@@ -1594,6 +1605,16 @@ async function handleSendMessage(
       const decoder = new TextDecoder();
       let buffer = ''; // Buffer for incomplete SSE chunks
 
+      // HEARTBEAT: Keep connection alive during long AI responses
+      const HEARTBEAT_INTERVAL = 15000; // 15 seconds
+      const heartbeatTimer = setInterval(() => {
+        try {
+          controller.enqueue(encoder.encode(': heartbeat\n\n'));
+        } catch {
+          clearInterval(heartbeatTimer);
+        }
+      }, HEARTBEAT_INTERVAL);
+
       try {
         while (true) {
           const { done, value } = await reader.read();
@@ -1694,6 +1715,7 @@ async function handleSendMessage(
       } catch (error) {
         console.error('Stream error:', error);
       } finally {
+        clearInterval(heartbeatTimer);
         controller.close();
       }
     }
@@ -2010,6 +2032,16 @@ async function handleRegeneratePersonalMessage(
       const decoder = new TextDecoder();
       let buffer = ''; // Buffer for incomplete SSE chunks
 
+      // HEARTBEAT: Keep connection alive during long AI responses  
+      const HEARTBEAT_INTERVAL = 15000; // 15 seconds
+      const heartbeatTimer = setInterval(() => {
+        try {
+          controller.enqueue(encoder.encode(': heartbeat\n\n'));
+        } catch {
+          clearInterval(heartbeatTimer);
+        }
+      }, HEARTBEAT_INTERVAL);
+
       try {
         while (true) {
           const { done, value } = await reader.read();
@@ -2072,6 +2104,7 @@ async function handleRegeneratePersonalMessage(
       } catch (error) {
         console.error('Regenerate stream error:', error);
       } finally {
+        clearInterval(heartbeatTimer);
         controller.close();
       }
     }
@@ -2295,6 +2328,16 @@ async function handleRegenerateDepartmentMessage(
       const decoder = new TextDecoder();
       let buffer = ''; // Buffer for incomplete SSE chunks
 
+      // HEARTBEAT: Keep connection alive during long AI responses
+      const HEARTBEAT_INTERVAL = 15000; // 15 seconds
+      const heartbeatTimer = setInterval(() => {
+        try {
+          controller.enqueue(encoder.encode(': heartbeat\n\n'));
+        } catch {
+          clearInterval(heartbeatTimer);
+        }
+      }, HEARTBEAT_INTERVAL);
+
       try {
         while (true) {
           const { done, value } = await reader.read();
@@ -2363,6 +2406,7 @@ async function handleRegenerateDepartmentMessage(
       } catch (error) {
         console.error('Regenerate stream error:', error);
       } finally {
+        clearInterval(heartbeatTimer);
         controller.close();
       }
     }

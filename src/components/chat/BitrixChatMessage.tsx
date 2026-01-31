@@ -1,7 +1,7 @@
 import React from "react";
 import { Card } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
-import { Bot, User, Clock, FileText, Loader2, BookOpen, Globe, Image } from "lucide-react";
+import { Bot, User, Clock, FileText, Loader2, BookOpen, Globe, Image, AlertTriangle, RefreshCw } from "lucide-react";
 import { cn } from "@/lib/utils";
 import {
   Sheet,
@@ -36,6 +36,7 @@ interface BitrixMessage {
   webSearchCitations?: string[];
   webSearchUsed?: boolean;
   roleId?: string;
+  interrupted?: boolean;
 }
 
 interface BitrixChatMessageProps {
@@ -146,6 +147,17 @@ function BitrixChatMessageComponent({
           {/* Metadata footer */}
           {!message.isStreaming && (
             <div className="flex flex-wrap items-center gap-2 mt-4 pt-3 border-t border-border/50 text-xs text-muted-foreground">
+              {/* Interrupted indicator */}
+              {message.interrupted && (
+                <Badge 
+                  variant="destructive" 
+                  className="text-xs flex items-center gap-1"
+                >
+                  <AlertTriangle className="h-3 w-3" />
+                  Ответ прерван
+                </Badge>
+              )}
+              
               {message.responseTime && (
                 <span className="flex items-center gap-1">
                   <Clock className="h-3 w-3" />
