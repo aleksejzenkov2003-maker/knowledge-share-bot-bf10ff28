@@ -1,263 +1,163 @@
 
-# План: Эталонные ответы (Golden Responses) — "Так делай!"
 
-## Концепция
+# Анализ расхода Perplexity API и план оптимизации
 
-Функция позволяет помечать ответы ассистента как **эталонные примеры**. Система запоминает эти ответы и использует их как образец стиля, структуры и качества для будущих генераций.
+## Выявленные точки расхода API
 
-```text
-┌─────────────────────────────────────────────────────────────────┐
-│  Ответ ассистента                                               │
-│  ─────────────────                                              │
-│  Согласно статье 5.1 документа [1], минимальный срок...         │
-│                                                                 │
-│  [Копировать] [Скачать] [Обновить] [⭐ Эталон]  ← НОВАЯ КНОПКА  │
-└─────────────────────────────────────────────────────────────────┘
-                           ↓ Клик
-┌─────────────────────────────────────────────────────────────────┐
-│  ⭐ Сохранить как эталон                                        │
-│  ─────────────────────────                                      │
-│  Категория: [Консультация по ТЗ ▼]                              │
-│  Тег: [отказы, сроки, документы]                                │
-│  Заметка: "Хороший пример ответа про сроки отказов"             │
-│                                                                 │
-│  [Отмена] [Сохранить]                                           │
-└─────────────────────────────────────────────────────────────────┘
-```
-
----
-
-## Как это будет работать
-
-### При генерации нового ответа:
-
-```text
-Пользователь: "Какой срок для подачи отказа?"
-                    ↓
-              chat-stream
-                    ↓
-    ┌───────────────────────────────────┐
-    │ 1. RAG: найти документы           │
-    │ 2. Найти релевантные эталоны      │ ← НОВОЕ
-    │ 3. Сформировать промпт            │
-    │ 4. Вызвать AI                     │
-    └───────────────────────────────────┘
-                    ↓
-Промпт для AI включает секцию:
-
-"ЭТАЛОННЫЕ ПРИМЕРЫ ОТВЕТОВ:
-Вот как нужно отвечать на похожие вопросы:
-
-Пример 1 (категория: отказы):
-Вопрос: Когда можно подать отказ по ТЗ?
-Ответ: Согласно статье 5.1 документа [1]...
-
-Используй этот стиль и структуру в своём ответе."
-```
-
----
-
-## Архитектура данных
-
-### Новая таблица: `golden_responses`
-
-```sql
-CREATE TABLE golden_responses (
-  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-  
-  -- Связи
-  role_id UUID REFERENCES chat_roles(id),      -- К какому агенту относится
-  department_id UUID REFERENCES departments(id), -- Или к отделу
-  
-  -- Контент
-  question TEXT NOT NULL,      -- Исходный вопрос пользователя
-  answer TEXT NOT NULL,        -- Эталонный ответ
-  
-  -- Метаданные для поиска
-  category TEXT,               -- Категория (отказы, сроки, документы)
-  tags TEXT[] DEFAULT '{}',    -- Теги для фильтрации
-  search_vector TSVECTOR,      -- Для полнотекстового поиска
-  
-  -- Оценка и использование
-  usage_count INT DEFAULT 0,   -- Сколько раз использовался
-  effectiveness_rating FLOAT,  -- Средняя оценка эффективности
-  
-  -- Мета
-  created_by UUID REFERENCES profiles(id),
-  created_at TIMESTAMPTZ DEFAULT now(),
-  is_active BOOLEAN DEFAULT true,
-  
-  -- Источник
-  source_message_id UUID,      -- ID оригинального сообщения (опционально)
-  source_conversation_id UUID  -- ID диалога (опционально)
-);
-
--- Индекс для быстрого поиска
-CREATE INDEX idx_golden_responses_search ON golden_responses USING GIN(search_vector);
-CREATE INDEX idx_golden_responses_role ON golden_responses(role_id) WHERE is_active = true;
-CREATE INDEX idx_golden_responses_tags ON golden_responses USING GIN(tags);
-```
-
----
-
-## Компоненты UI
-
-### 1. Кнопка "Эталон" в MessageActions
+### 1. Hybrid Web Search — КАЖДЫЙ запрос к Claude (строки 659-702 в chat-stream)
+**ГЛАВНАЯ ПРОБЛЕМА:** При каждом запросе с `providerConfig.provider_type === 'anthropic'` система ВСЕГДА вызывает Perplexity для web-поиска:
 
 ```typescript
-// src/components/chat/MessageActions.tsx
-
-// Новая кнопка для ответов ассистента
-{role === "assistant" && onSaveAsGolden && (
-  <Button
-    variant="ghost"
-    size="sm"
-    className="h-7 px-2 text-xs"
-    onClick={() => onSaveAsGolden(messageId)}
-  >
-    <Star className="h-3 w-3 mr-1" />
-    Эталон
-  </Button>
-)}
-```
-
-### 2. Диалог сохранения эталона
-
-```typescript
-// src/components/chat/GoldenResponseDialog.tsx
-
-interface GoldenResponseDialogProps {
-  isOpen: boolean;
-  onClose: () => void;
-  question: string;      // Предыдущее сообщение пользователя
-  answer: string;        // Текущий ответ ассистента
-  roleId?: string;       // Текущий агент
-  onSave: (data: GoldenResponseInput) => void;
-}
-
-// Форма:
-// - Категория (select из существующих + создать новую)
-// - Теги (multi-select)
-// - Заметка (почему этот ответ эталонный)
-```
-
-### 3. Страница управления эталонами (админка)
-
-```typescript
-// src/pages/GoldenResponses.tsx
-
-// Таблица со всеми эталонными ответами:
-// - Фильтр по агенту, категории, тегам
-// - Поиск по тексту
-// - Редактирование, удаление
-// - Статистика использования
-```
-
----
-
-## Интеграция в chat-stream
-
-### Поиск релевантных эталонов
-
-```typescript
-// В chat-stream/index.ts
-
-// После получения role_id, перед формированием промпта:
-let goldenExamples: string[] = [];
-
-if (role_id) {
-  // Поиск эталонов по похожести вопроса
-  const { data: goldens } = await supabase.rpc('search_golden_responses', {
-    query_text: message,
-    p_role_id: role_id,
-    match_count: 3,  // Макс. 3 примера
+if (
+  allowWebSearch && // Даже если документы нашлись!
+  providerConfig.provider_type === 'anthropic' && 
+  PERPLEXITY_API_KEY &&
+  message
+) {
+  // Вызов Perplexity sonar — КАЖДЫЙ раз
+  const webSearchResponse = await fetch('https://api.perplexity.ai/chat/completions', {
+    model: 'sonar',
+    messages: [...]
   });
-  
-  if (goldens && goldens.length > 0) {
-    goldenExamples = goldens.map((g, i) => 
-      `Пример ${i + 1}:\nВопрос: ${g.question}\nОтвет: ${g.answer}`
-    );
-    
-    // Увеличить счётчик использования
-    await supabase.rpc('increment_golden_usage', { 
-      ids: goldens.map(g => g.id) 
-    });
-  }
 }
 ```
 
-### Добавление в промпт
+**Расход:** 1 запрос Perplexity на КАЖДОЕ сообщение пользователя, даже если RAG нашёл релевантные документы.
+
+### 2. Perplexity как основной провайдер (строки 218-223)
+Если агент настроен с `provider_type: 'perplexity'`, каждый запрос идёт через их API:
 
 ```typescript
-// Добавить секцию эталонов перед инструкциями
-if (goldenExamples.length > 0) {
-  contextParts.push(`
-ЭТАЛОННЫЕ ПРИМЕРЫ ОТВЕТОВ:
-Следующие ответы были помечены как образцовые. 
-Используй их стиль, структуру и уровень детализации:
-
-${goldenExamples.join('\n\n---\n\n')}
-
-Применяй этот подход к своему ответу.
-  `);
+} else if (PERPLEXITY_API_KEY) {
+  providerConfig = {
+    provider_type: 'perplexity',
+    api_key: PERPLEXITY_API_KEY,
+    default_model: 'sonar-pro',  // Дороже чем sonar!
+  };
 }
+```
+
+### 3. chat/index.ts — дублирующая функция
+Функция `supabase/functions/chat/index.ts` тоже использует Perplexity как fallback провайдер.
+
+---
+
+## Текущий flow расхода на 1 сообщение
+
+```text
+Пользователь отправляет сообщение
+          ↓
+┌─────────────────────────────────────┐
+│ 1. RAG поиск (FTS) — бесплатно     │
+│ 2. Re-ranking (Claude) — 1 запрос   │
+│ 3. Golden responses — бесплатно     │
+│ 4. Web Search (Perplexity) — ПЛАТНО │ ← Всегда, даже если RAG нашёл!
+│ 5. Генерация (Claude) — 1 запрос    │
+└─────────────────────────────────────┘
+          ↓
+ИТОГО: 1 Anthropic + 1-2 Perplexity
 ```
 
 ---
 
-## Функции базы данных
+## План оптимизации
 
-### Поиск эталонов
+### Стратегия 1: Условный web search (Высокий приоритет)
 
-```sql
-CREATE FUNCTION search_golden_responses(
-  query_text TEXT,
-  p_role_id UUID DEFAULT NULL,
-  match_count INT DEFAULT 3
-) RETURNS TABLE (
-  id UUID,
-  question TEXT,
-  answer TEXT,
-  category TEXT,
-  similarity FLOAT
-) AS $$
-BEGIN
-  RETURN QUERY
-  SELECT 
-    gr.id,
-    gr.question,
-    gr.answer,
-    gr.category,
-    ts_rank_cd(gr.search_vector, websearch_to_tsquery('russian', query_text)) as similarity
-  FROM golden_responses gr
-  WHERE 
-    gr.is_active = true
-    AND (p_role_id IS NULL OR gr.role_id = p_role_id)
-    AND gr.search_vector @@ websearch_to_tsquery('russian', query_text)
-  ORDER BY similarity DESC
-  LIMIT match_count;
-END;
-$$ LANGUAGE plpgsql;
+Вызывать Perplexity **ТОЛЬКО если RAG не нашёл достаточно контекста:**
+
+```typescript
+// БЫЛО: allowWebSearch && providerConfig.provider_type === 'anthropic' && ...
+
+// СТАНЕТ:
+const ragInsufficient = rankedChunks.length < 2 || 
+  (rankedChunks.length > 0 && rankedChunks[0].relevance_score < 7);
+
+if (
+  allowWebSearch && 
+  !strictRagMode &&
+  ragInsufficient &&  // ← ТОЛЬКО если RAG слабый
+  providerConfig.provider_type === 'anthropic' && 
+  PERPLEXITY_API_KEY
+) {
+  // Web search
+}
 ```
 
-### Обновление search_vector
+**Ожидаемая экономия:** 60-80% запросов к Perplexity
+
+### Стратегия 2: Использовать sonar вместо sonar-pro
+
+В fallback конфигурации используется дорогой `sonar-pro`:
+
+```typescript
+// БЫЛО:
+default_model: 'sonar-pro'
+
+// СТАНЕТ:
+default_model: 'sonar'  // Дешевле в ~2 раза
+```
+
+### Стратегия 3: Кэширование web search результатов
+
+Добавить таблицу кэша для повторяющихся запросов:
 
 ```sql
--- Триггер для автоматического обновления search_vector
-CREATE FUNCTION update_golden_search_vector() RETURNS TRIGGER AS $$
-BEGIN
-  NEW.search_vector := 
-    setweight(to_tsvector('russian', COALESCE(NEW.question, '')), 'A') ||
-    setweight(to_tsvector('russian', COALESCE(NEW.category, '')), 'B') ||
-    setweight(to_tsvector('russian', array_to_string(COALESCE(NEW.tags, '{}'), ' ')), 'B');
-  RETURN NEW;
-END;
-$$ LANGUAGE plpgsql;
-
-CREATE TRIGGER golden_responses_search_vector_trigger
-  BEFORE INSERT OR UPDATE ON golden_responses
-  FOR EACH ROW EXECUTE FUNCTION update_golden_search_vector();
+CREATE TABLE web_search_cache (
+  id UUID PRIMARY KEY,
+  query_hash TEXT UNIQUE,  -- MD5 от нормализованного запроса
+  response TEXT,
+  citations JSONB,
+  created_at TIMESTAMPTZ DEFAULT now(),
+  expires_at TIMESTAMPTZ DEFAULT now() + INTERVAL '24 hours'
+);
 ```
+
+Перед вызовом Perplexity проверять кэш:
+```typescript
+const queryHash = await hashQuery(message);
+const cached = await supabase
+  .from('web_search_cache')
+  .select('response, citations')
+  .eq('query_hash', queryHash)
+  .gt('expires_at', new Date().toISOString())
+  .single();
+
+if (cached.data) {
+  // Использовать кэш
+} else {
+  // Вызвать Perplexity и сохранить в кэш
+}
+```
+
+**Ожидаемая экономия:** 20-40% на повторяющихся вопросах
+
+### Стратегия 4: Rate limiting per user/department
+
+Добавить лимиты на web search:
+- Макс. 10 web search в час на пользователя
+- Макс. 50 web search в день на отдел
+
+```typescript
+const { count } = await supabase
+  .from('web_search_usage')
+  .select('*', { count: 'exact' })
+  .eq('user_id', userId)
+  .gte('created_at', oneHourAgo);
+
+if (count >= 10) {
+  console.log('Web search rate limit hit, skipping');
+  // Skip web search
+}
+```
+
+### Стратегия 5: Настройка на уровне агента
+
+У нас уже есть `allow_web_search` и `strict_rag_mode` в `chat_roles`, но они не полностью используются. Нужно:
+
+1. **strict_rag_mode = true** → Никогда не вызывать web search
+2. **allow_web_search = false** → Никогда не вызывать web search
+3. **allow_web_search = true** → Вызывать ТОЛЬКО если RAG недостаточен
 
 ---
 
@@ -265,52 +165,33 @@ CREATE TRIGGER golden_responses_search_vector_trigger
 
 | Файл | Изменения |
 |------|-----------|
-| `src/components/chat/MessageActions.tsx` | + кнопка "Эталон" |
-| `src/components/chat/GoldenResponseDialog.tsx` | НОВЫЙ - диалог сохранения |
-| `src/components/chat/ChatMessage.tsx` | + передача callback onSaveAsGolden |
-| `src/pages/GoldenResponses.tsx` | НОВЫЙ - страница управления |
-| `src/pages/Chat.tsx` | + логика сохранения эталона |
-| `supabase/functions/chat-stream/index.ts` | + поиск и интеграция эталонов |
-| Миграция БД | + таблица golden_responses + функции |
+| `supabase/functions/chat-stream/index.ts` | Условный web search, кэширование |
+| `supabase/functions/chat/index.ts` | Аналогичные изменения |
+| Миграция БД (опционально) | Таблица кэша + usage tracking |
 
 ---
 
-## RLS политики
+## Быстрые wins (можно сделать сразу)
 
-```sql
--- Только админы могут управлять эталонами
-CREATE POLICY "Admins can manage golden responses"
-  ON golden_responses FOR ALL
-  USING (is_admin())
-  WITH CHECK (is_admin());
+1. **Изменить условие web search** — добавить проверку `ragInsufficient`
+2. **Сменить sonar-pro на sonar** в fallback конфигурации
+3. **Логировать расход** — добавить метрики для понимания паттернов
 
--- Модераторы могут просматривать
-CREATE POLICY "Moderators can view golden responses"
-  ON golden_responses FOR SELECT
-  USING (is_admin() OR has_role(auth.uid(), 'moderator'));
-```
+## Ожидаемый эффект
 
----
-
-## Дополнительные возможности (v2)
-
-1. **Оценка эффективности** — после ответа с использованием эталона спрашивать "Помог ли ответ?" и обновлять рейтинг
-
-2. **Авто-предложение** — если ответ получил высокую оценку, предлагать сохранить как эталон
-
-3. **Версионирование** — история изменений эталонных ответов
-
-4. **Импорт/экспорт** — загрузка эталонов из CSV/JSON
+| Оптимизация | Экономия |
+|-------------|----------|
+| Условный web search | 60-80% |
+| sonar вместо sonar-pro | 50% на запрос |
+| Кэширование | 20-40% |
+| **Суммарно** | **~70-90%** |
 
 ---
 
-## Преимущества
+## Рекомендуемый порядок реализации
 
-| Аспект | Выгода |
-|--------|--------|
-| **Консистентность** | Все ответы будут в едином стиле |
-| **Обучение** | Новые агенты сразу знают "как правильно" |
-| **Качество** | Лучшие ответы используются как образец |
-| **Контроль** | Бизнес определяет стандарт качества |
-| **Масштабирование** | Знания передаются между сотрудниками |
+1. **Сначала:** Условный web search (быстро, высокий эффект)
+2. **Затем:** Замена sonar-pro на sonar
+3. **Потом:** Кэширование (требует миграцию БД)
+4. **Опционально:** Rate limiting и usage tracking
 
