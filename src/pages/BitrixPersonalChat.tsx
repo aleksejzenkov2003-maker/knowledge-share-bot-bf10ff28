@@ -579,15 +579,20 @@ export default function BitrixPersonalChat() {
       const decoder = new TextDecoder();
       let fullContent = '';
       let metadata: any = {};
+      let sseBuffer = ''; // BUFFERING FIX: persistent buffer for fragmented SSE chunks
 
       while (true) {
         const { done, value } = await reader.read();
         if (done) break;
 
-        const chunk = decoder.decode(value);
-        const lines = chunk.split('\n');
+        // BUFFERING FIX: accumulate in buffer, split by complete lines only
+        sseBuffer += decoder.decode(value, { stream: true });
+        const lines = sseBuffer.split('\n');
+        sseBuffer = lines.pop() || ''; // Keep last potentially incomplete line
 
         for (const line of lines) {
+          if (!line.trim() || line.startsWith(':')) continue; // Skip heartbeat/empty lines
+          
           if (line.startsWith('data: ')) {
             const data = line.substring(6);
             if (data === '[DONE]') {
@@ -613,9 +618,27 @@ export default function BitrixPersonalChat() {
                 if (parsed.web_search_citations) metadata.webSearchCitations = parsed.web_search_citations;
                 if (parsed.web_search_used) metadata.webSearchUsed = parsed.web_search_used;
                 if (parsed.rag_context) metadata.ragContext = parsed.rag_context;
-              } catch {}
+              } catch {
+                // JSON parsing failed - data may be fragmented, will be processed in next chunk
+              }
             }
           }
+        }
+      }
+      
+      // Process any remaining buffer content
+      if (sseBuffer.startsWith('data: ')) {
+        const data = sseBuffer.substring(6).trim();
+        if (data && data !== '[DONE]') {
+          try {
+            const parsed = JSON.parse(data);
+            if (parsed.content) {
+              fullContent += parsed.content;
+              streamingContentRef.current = fullContent;
+            }
+            if (parsed.citations) metadata.citations = parsed.citations;
+            if (parsed.response_time_ms) metadata.responseTime = parsed.response_time_ms;
+          } catch {}
         }
       }
 
@@ -626,16 +649,29 @@ export default function BitrixPersonalChat() {
         console.log('Request aborted by user');
       } else {
         console.error('Send message error:', error);
-        setMessages(prev => prev.filter(m => m.id !== assistantMessage.id));
-        toast({
-          title: "Ошибка",
-          description: "Не удалось отправить сообщение",
-          variant: "destructive",
-        });
+        
+        // PARTIAL SAVE FIX: Save whatever content was accumulated before error
+        if (streamingContentRef.current && streamingContentRef.current.trim()) {
+          const partialContent = streamingContentRef.current + '\n\n*[Ответ прерван из-за ошибки соединения]*';
+          setMessages(prev => prev.map(m => 
+            m.id === assistantMessage.id 
+              ? { ...m, content: partialContent, isStreaming: false, interrupted: true }
+              : m
+          ));
+          console.log('Saved partial response:', partialContent.length, 'chars');
+        } else {
+          setMessages(prev => prev.filter(m => m.id !== assistantMessage.id));
+          toast({
+            title: "Ошибка",
+            description: "Не удалось отправить сообщение",
+            variant: "destructive",
+          });
+        }
       }
     } finally {
       setIsLoading(false);
       abortControllerRef.current = null;
+      streamingContentRef.current = "";
     }
   }, [token, inputValue, isLoading, activeConversationId, selectedRoleId, apiBaseUrl, fetchConversations, toast]);
 
@@ -729,15 +765,19 @@ export default function BitrixPersonalChat() {
       const decoder = new TextDecoder();
       let fullContent = '';
       let metadata: any = {};
+      let sseBuffer = ''; // BUFFERING FIX
 
       while (true) {
         const { done, value } = await reader.read();
         if (done) break;
 
-        const chunk = decoder.decode(value);
-        const lines = chunk.split('\n');
+        sseBuffer += decoder.decode(value, { stream: true });
+        const lines = sseBuffer.split('\n');
+        sseBuffer = lines.pop() || '';
 
         for (const line of lines) {
+          if (!line.trim() || line.startsWith(':')) continue;
+          
           if (line.startsWith('data: ')) {
             const data = line.substring(6);
             if (data === '[DONE]') {
@@ -773,16 +813,27 @@ export default function BitrixPersonalChat() {
         console.log('Regenerate aborted by user');
       } else {
         console.error('Regenerate error:', error);
-        setMessages(prev => prev.filter(m => m.id !== newAssistantMessage.id));
-        toast({
-          title: "Ошибка",
-          description: "Не удалось перегенерировать ответ",
-          variant: "destructive",
-        });
+        // PARTIAL SAVE FIX
+        if (streamingContentRef.current && streamingContentRef.current.trim()) {
+          const partialContent = streamingContentRef.current + '\n\n*[Ответ прерван]*';
+          setMessages(prev => prev.map(m => 
+            m.id === newAssistantMessage.id 
+              ? { ...m, content: partialContent, isStreaming: false }
+              : m
+          ));
+        } else {
+          setMessages(prev => prev.filter(m => m.id !== newAssistantMessage.id));
+          toast({
+            title: "Ошибка",
+            description: "Не удалось перегенерировать ответ",
+            variant: "destructive",
+          });
+        }
       }
     } finally {
       setIsLoading(false);
       abortControllerRef.current = null;
+      streamingContentRef.current = "";
     }
   }, [token, activeConversationId, apiBaseUrl, toast]);
 
