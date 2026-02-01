@@ -97,54 +97,70 @@ export function useFolderOperations(onComplete?: () => void) {
 
       setReprocessProgress({ current: 0, total: docs.length });
 
+      // 2. Batch delete all chunks first (more efficient)
+      const docIds = docs.map(d => d.id);
+      await supabase
+        .from("document_chunks")
+        .delete()
+        .in("document_id", docIds);
+
+      // 3. Batch update all statuses to pending
+      await supabase
+        .from("documents")
+        .update({ status: "pending", chunk_count: 0 })
+        .in("id", docIds);
+
       let successCount = 0;
       let errorCount = 0;
 
-      // 2. Process each document
-      for (let i = 0; i < docs.length; i++) {
-        const doc = docs[i];
+      // 4. Process documents with delays to prevent resource exhaustion
+      // Process in batches of 3 with 2 second delay between batches
+      const BATCH_SIZE = 3;
+      const BATCH_DELAY = 2000;
+
+      for (let i = 0; i < docs.length; i += BATCH_SIZE) {
+        const batch = docs.slice(i, i + BATCH_SIZE);
+        
         setReprocessProgress({ 
           current: i, 
           total: docs.length,
-          currentDocName: doc.name 
+          currentDocName: batch.map(d => d.name).join(", ")
         });
 
-        try {
-          // Delete existing chunks
-          await supabase
-            .from("document_chunks")
-            .delete()
-            .eq("document_id", doc.id);
+        // Fire off batch requests in parallel (non-blocking)
+        const batchPromises = batch.map(async (doc) => {
+          try {
+            const { error: processError } = await supabase.functions.invoke("process-document", {
+              body: { document_id: doc.id }
+            });
 
-          // Reset status to pending
-          await supabase
-            .from("documents")
-            .update({ status: "pending", chunk_count: 0 })
-            .eq("id", doc.id);
-
-          // Invoke processing function
-          const { error: processError } = await supabase.functions.invoke("process-document", {
-            body: { document_id: doc.id }
-          });
-
-          if (processError) {
-            console.error(`Error processing ${doc.name}:`, processError);
-            errorCount++;
-          } else {
-            successCount++;
+            if (processError) {
+              console.error(`Error processing ${doc.name}:`, processError);
+              return false;
+            }
+            return true;
+          } catch (err) {
+            console.error(`Error reprocessing ${doc.name}:`, err);
+            return false;
           }
-        } catch (err) {
-          console.error(`Error reprocessing ${doc.name}:`, err);
-          errorCount++;
+        });
+
+        const results = await Promise.all(batchPromises);
+        successCount += results.filter(Boolean).length;
+        errorCount += results.filter(r => !r).length;
+
+        // Add delay between batches to prevent overwhelming the system
+        if (i + BATCH_SIZE < docs.length) {
+          await new Promise(resolve => setTimeout(resolve, BATCH_DELAY));
         }
       }
 
       setReprocessProgress({ current: docs.length, total: docs.length });
 
       if (errorCount === 0) {
-        toast.success(`Переобработано ${successCount} документов`);
+        toast.success(`Переобработка ${successCount} документов запущена`);
       } else {
-        toast.warning(`Успешно: ${successCount}, с ошибками: ${errorCount}`);
+        toast.warning(`Запущено: ${successCount}, с ошибками: ${errorCount}`);
       }
 
       onComplete?.();
