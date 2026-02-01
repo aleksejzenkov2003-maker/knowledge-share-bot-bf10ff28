@@ -1,79 +1,317 @@
 
+# План: Управление базой знаний — Очистка и перезагрузка
 
-# ✅ Оптимизация расхода Perplexity API — ВЫПОЛНЕНО
+## Обзор
 
-## Реализованные изменения
+Добавление функций массового управления документами и папками: удаление всех документов из папки, полная очистка папки с перезагрузкой, удаление всех документов с ошибками, и визуализация статистики по папкам.
 
-### 1. Условный web search (chat-stream) ✅
-Web search теперь вызывается **ТОЛЬКО если RAG недостаточен**:
+---
+
+## Текущее состояние
+
+| Элемент | Статус |
+|---------|--------|
+| Документов в базе | 111 |
+| Чанков | 7906 |
+| Папок | 8 |
+| CASCADE на document_chunks | Включён (удаление документа удаляет чанки) |
+| CASCADE на parent_document | Включён (удаление родителя удаляет части) |
+
+---
+
+## Предлагаемый функционал
+
+### 1. Массовое удаление документов из папки
+
+```text
+┌─────────────────────────────────────────────────────────────────┐
+│ 📁 Практика ППС -1-1483                                         │
+│    99 документов • 5,234 чанков • 156.2 MB                      │
+│                                                                 │
+│    [🗑️ Очистить папку] [🔄 Перезагрузить все] [⚙️ Настройки]     │
+└─────────────────────────────────────────────────────────────────┘
+```
+
+**Кнопка "Очистить папку":**
+- Удаляет ВСЕ документы из выбранной папки
+- Автоматически удаляет чанки (CASCADE)
+- Удаляет файлы из Storage
+- Подтверждение с указанием количества удаляемых документов
+
+### 2. Перезагрузка документов папки
+
+```text
+┌─────────────────────────────────────────────────────────────────┐
+│  🔄 Переобработать документы                                    │
+│  ─────────────────────────────                                  │
+│  Выберите действие:                                             │
+│                                                                 │
+│  ○ Переиндексировать все (сохранить файлы, пересоздать чанки)   │
+│  ○ Только документы с ошибками (3 шт.)                          │
+│  ○ Только обработанные давно (старше 30 дней)                   │
+│                                                                 │
+│  [Отмена] [Запустить]                                           │
+└─────────────────────────────────────────────────────────────────┘
+```
+
+**Логика переобработки:**
+1. Удалить только чанки (`DELETE FROM document_chunks WHERE document_id IN (...)`)
+2. Сбросить статус на `pending`
+3. Запустить `process-document` для каждого документа
+
+### 3. Удаление документов с ошибками
+
+Быстрое действие для очистки всех документов со статусом `error`:
 
 ```typescript
-const ragInsufficient = rankedChunks.length < 2 || 
-  (rankedChunks.length > 0 && rankedChunks[0].relevance_score < 7);
+// Удаление всех документов с ошибками
+const deleteErrorDocuments = async () => {
+  const { data: errorDocs } = await supabase
+    .from('documents')
+    .select('id, storage_path')
+    .eq('status', 'error');
+  
+  // Удалить файлы из storage
+  const storagePaths = errorDocs.map(d => d.storage_path).filter(Boolean);
+  await supabase.storage.from('rag-documents').remove(storagePaths);
+  
+  // Удалить записи (каскадно удалит чанки)
+  await supabase.from('documents').delete().eq('status', 'error');
+};
+```
 
-if (
-  allowWebSearch && 
-  !strictRagMode &&         // Никогда в strict режиме
-  ragInsufficient &&        // ТОЛЬКО если RAG слабый
-  providerConfig.provider_type === 'anthropic' && 
-  PERPLEXITY_API_KEY
-) {
-  // Web search
+### 4. Статистика папки
+
+Добавить в UI отображение:
+- Количество документов
+- Количество чанков
+- Общий размер файлов
+- Количество документов с ошибками
+
+---
+
+## Новые компоненты UI
+
+### FolderActionsMenu (Dropdown для папки)
+
+```typescript
+// src/components/documents/FolderActionsMenu.tsx
+
+interface FolderActionsMenuProps {
+  folderId: string;
+  folderName: string;
+  documentCount: number;
+  onClearFolder: () => void;
+  onReprocessAll: () => void;
+  onDeleteErrors: () => void;
 }
 ```
 
-**Ожидаемая экономия:** 60-80% запросов к Perplexity
+Действия:
+- 🗑️ Очистить папку (удалить все документы)
+- 🔄 Переобработать все документы
+- ⚠️ Удалить документы с ошибками
+- 📊 Показать статистику
 
-### 2. Замена sonar-pro на sonar ✅
-- В fallback конфигурации `chat-stream`: `sonar-pro` → `sonar`
-- В `chat/index.ts`: уже использовался `sonar`
+### BulkDeleteDialog (Подтверждение массового удаления)
 
-**Экономия:** ~50% на каждый запрос
+```typescript
+// src/components/documents/BulkDeleteDialog.tsx
 
-### 3. Изменение приоритета провайдеров (chat/index.ts) ✅
-Было: Perplexity → Anthropic → Lovable
-Стало: Anthropic → Lovable → Perplexity
+interface BulkDeleteDialogProps {
+  open: boolean;
+  onOpenChange: (open: boolean) => void;
+  title: string;
+  description: string;
+  documentCount: number;
+  chunkCount: number;
+  totalSize: string;
+  onConfirm: () => void;
+  isDeleting: boolean;
+}
+```
 
-Perplexity теперь используется только как последний резерв.
+### ReprocessDialog (Настройки переобработки)
 
-### 4. Улучшенное логирование ✅
-Добавлены логи для отслеживания:
-- Причина вызова/пропуска web search
-- Количество RAG чанков и их score
-- Решение системы (skipping vs performing)
+```typescript
+// src/components/documents/ReprocessDialog.tsx
 
----
+type ReprocessMode = 'all' | 'errors' | 'old';
 
-## Итоговый flow
-
-```text
-Пользователь отправляет сообщение
-          ↓
-┌─────────────────────────────────────────┐
-│ 1. RAG поиск (FTS) — бесплатно          │
-│ 2. Re-ranking (Claude) — 1 запрос       │
-│ 3. Golden responses — бесплатно         │
-│ 4. ПРОВЕРКА: RAG достаточен?            │
-│    ├─ ДА → пропустить web search        │ ← ЭКОНОМИЯ
-│    └─ НЕТ → Web Search (Perplexity)     │
-│ 5. Генерация (Claude) — 1 запрос        │
-└─────────────────────────────────────────┘
+interface ReprocessDialogProps {
+  open: boolean;
+  onOpenChange: (open: boolean) => void;
+  folderId: string;
+  documentCount: number;
+  errorCount: number;
+  onReprocess: (mode: ReprocessMode) => void;
+  isProcessing: boolean;
+}
 ```
 
 ---
 
-## Ожидаемый эффект
+## Изменения в Documents.tsx
 
-| Оптимизация | Экономия |
-|-------------|----------|
-| Условный web search | 60-80% вызовов |
-| sonar вместо sonar-pro | 50% на запрос |
-| **Суммарно** | **~70-90%** |
+### Новые функции
+
+```typescript
+// Статистика папки
+const getFolderStats = async (folderId: string) => {
+  const { data } = await supabase
+    .from('documents')
+    .select('id, file_size, status, chunk_count')
+    .eq('folder_id', folderId);
+  
+  return {
+    documentCount: data?.length || 0,
+    totalSize: data?.reduce((sum, d) => sum + (d.file_size || 0), 0) || 0,
+    chunkCount: data?.reduce((sum, d) => sum + (d.chunk_count || 0), 0) || 0,
+    errorCount: data?.filter(d => d.status === 'error').length || 0,
+  };
+};
+
+// Очистка папки
+const handleClearFolder = async (folderId: string) => {
+  // 1. Получить все документы папки
+  const { data: docs } = await supabase
+    .from('documents')
+    .select('id, storage_path')
+    .eq('folder_id', folderId);
+  
+  if (!docs || docs.length === 0) return;
+  
+  // 2. Удалить файлы из Storage
+  const storagePaths = docs.map(d => d.storage_path).filter(Boolean);
+  if (storagePaths.length > 0) {
+    await supabase.storage.from('rag-documents').remove(storagePaths);
+  }
+  
+  // 3. Удалить записи (CASCADE удалит чанки)
+  await supabase.from('documents').delete().eq('folder_id', folderId);
+};
+
+// Переобработка документов
+const handleReprocessFolder = async (folderId: string, mode: 'all' | 'errors') => {
+  let query = supabase.from('documents').select('id').eq('folder_id', folderId);
+  
+  if (mode === 'errors') {
+    query = query.eq('status', 'error');
+  }
+  
+  const { data: docs } = await query;
+  
+  for (const doc of docs) {
+    // Удалить существующие чанки
+    await supabase.from('document_chunks').delete().eq('document_id', doc.id);
+    
+    // Сбросить статус
+    await supabase.from('documents').update({ status: 'pending', chunk_count: 0 }).eq('id', doc.id);
+    
+    // Запустить обработку
+    await supabase.functions.invoke('process-document', {
+      body: { document_id: doc.id }
+    });
+  }
+};
+```
 
 ---
 
-## Будущие улучшения (опционально)
+## Обновление UI папок
 
-1. **Кэширование** — таблица `web_search_cache` с TTL 24 часа
-2. **Rate limiting** — лимиты на пользователя/отдел
-3. **Метрики** — dashboard с расходом API по агентам/отделам
+### Добавить статистику в список папок (Folders.tsx)
+
+```text
+┌─────────────────────────────────────────────────────────────────┐
+│ 📁 Практика ППС -1-1483                          [⋮] Меню       │
+│    Судебные решения • 99 документов • 5,234 чанков              │
+│    ⚠️ 3 с ошибками • 156.2 MB                                   │
+└─────────────────────────────────────────────────────────────────┘
+```
+
+### Dropdown меню папки
+
+```text
+┌────────────────────────────┐
+│ 📄 Открыть документы       │
+│ ─────────────────────────  │
+│ 🔄 Переобработать все      │
+│ ⚠️ Исправить ошибки (3)    │
+│ ─────────────────────────  │
+│ 🗑️ Очистить папку          │
+│ ❌ Удалить папку           │
+└────────────────────────────┘
+```
+
+---
+
+## Файлы для изменения
+
+| Файл | Изменения |
+|------|-----------|
+| `src/pages/Documents.tsx` | + массовые операции, + статистика |
+| `src/pages/Folders.tsx` | + меню папок, + статистика |
+| `src/components/documents/FolderActionsMenu.tsx` | НОВЫЙ - dropdown с действиями |
+| `src/components/documents/BulkDeleteDialog.tsx` | НОВЫЙ - подтверждение удаления |
+| `src/components/documents/ReprocessDialog.tsx` | НОВЫЙ - настройки переобработки |
+
+---
+
+## Безопасность
+
+### Подтверждения
+
+Все деструктивные операции требуют двойного подтверждения:
+1. Первичный клик открывает диалог с информацией
+2. Диалог показывает точное количество затрагиваемых данных
+3. Кнопка подтверждения требует ввода текста "УДАЛИТЬ" для папок >50 документов
+
+### RLS
+
+Существующие политики уже ограничивают доступ:
+- Только админы могут удалять документы
+- Только админы могут управлять папками
+
+---
+
+## UI/UX улучшения
+
+### Progress индикатор для массовых операций
+
+```text
+┌─────────────────────────────────────────────────────────────────┐
+│  🔄 Переобработка документов                                    │
+│  ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━░░░░░░░░░░░  67%     │
+│  Обработано: 67 из 99 документов                                │
+│  Создано чанков: 4,521                                          │
+│                                                                 │
+│  [Отмена]                                                       │
+└─────────────────────────────────────────────────────────────────┘
+```
+
+### Toast уведомления
+
+```typescript
+toast.success(`Удалено ${count} документов и ${chunkCount} чанков`);
+toast.info(`Переобработка ${count} документов запущена`);
+toast.warning(`Не удалось обработать ${errorCount} документов`);
+```
+
+---
+
+## Дополнительно (v2)
+
+1. **Экспорт документов** — скачать все файлы папки как ZIP
+2. **Импорт папки** — массовая загрузка из ZIP архива
+3. **Расписание переобработки** — автоматическая переиндексация по расписанию
+4. **История изменений** — лог всех операций с документами
+
+---
+
+## Примерный порядок реализации
+
+1. **Сначала:** Добавить статистику папок в UI
+2. **Затем:** Реализовать массовое удаление с подтверждением
+3. **Потом:** Добавить переобработку документов
+4. **Финально:** Интегрировать меню в Folders.tsx
