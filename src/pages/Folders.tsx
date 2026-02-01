@@ -1,4 +1,5 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useMemo } from "react";
+import { useNavigate } from "react-router-dom";
 import { supabase } from "@/integrations/supabase/client";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -27,7 +28,13 @@ import {
 } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { toast } from "sonner";
-import { Plus, Folder, FolderOpen, ChevronRight, ChevronDown, Pencil, Trash2 } from "lucide-react";
+import { Plus, Folder, FolderOpen, ChevronRight, ChevronDown } from "lucide-react";
+import { FolderActionsMenu } from "@/components/documents/FolderActionsMenu";
+import { FolderStatsDisplay } from "@/components/documents/FolderStatsDisplay";
+import { BulkDeleteDialog } from "@/components/documents/BulkDeleteDialog";
+import { ReprocessDialog, ReprocessMode } from "@/components/documents/ReprocessDialog";
+import { useFolderStats } from "@/hooks/useFolderStats";
+import { useFolderOperations } from "@/hooks/useFolderOperations";
 
 interface Department {
   id: string;
@@ -55,12 +62,18 @@ const FOLDER_TYPES = [
 ];
 
 export default function Folders() {
+  const navigate = useNavigate();
   const [folders, setFolders] = useState<DocumentFolder[]>([]);
   const [departments, setDepartments] = useState<Department[]>([]);
   const [loading, setLoading] = useState(true);
   const [dialogOpen, setDialogOpen] = useState(false);
   const [editingFolder, setEditingFolder] = useState<DocumentFolder | null>(null);
   const [expandedFolders, setExpandedFolders] = useState<Set<string>>(new Set());
+
+  // Bulk operations state
+  const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
+  const [reprocessDialogOpen, setReprocessDialogOpen] = useState(false);
+  const [selectedFolder, setSelectedFolder] = useState<DocumentFolder | null>(null);
 
   const [formData, setFormData] = useState({
     name: "",
@@ -69,6 +82,22 @@ export default function Folders() {
     parent_id: "",
     department_id: "",
     folder_type: "general",
+  });
+
+  // Fetch folder stats
+  const folderIds = useMemo(() => folders.map(f => f.id), [folders]);
+  const { stats: folderStatsMap, loading: statsLoading, refetch: refetchStats } = useFolderStats(folderIds);
+
+  // Folder operations hook
+  const {
+    clearFolder,
+    reprocessFolder,
+    isDeleting,
+    isReprocessing,
+    reprocessProgress,
+  } = useFolderOperations(() => {
+    fetchData();
+    refetchStats();
   });
 
   useEffect(() => {
@@ -228,16 +257,54 @@ export default function Folders() {
     return departments.find((d) => d.id === deptId)?.name;
   };
 
+  const formatFileSize = (bytes: number): string => {
+    if (bytes === 0) return "0 B";
+    const k = 1024;
+    const sizes = ["B", "KB", "MB", "GB"];
+    const i = Math.floor(Math.log(bytes) / Math.log(k));
+    return parseFloat((bytes / Math.pow(k, i)).toFixed(1)) + " " + sizes[i];
+  };
+
+  // Folder action handlers
+  const handleOpenDocuments = (folder: DocumentFolder) => {
+    navigate(`/documents?folder=${folder.id}`);
+  };
+
+  const handleClearFolderClick = (folder: DocumentFolder) => {
+    setSelectedFolder(folder);
+    setDeleteDialogOpen(true);
+  };
+
+  const handleReprocessClick = (folder: DocumentFolder) => {
+    setSelectedFolder(folder);
+    setReprocessDialogOpen(true);
+  };
+
+  const handleConfirmClear = async () => {
+    if (!selectedFolder) return;
+    await clearFolder(selectedFolder.id);
+    setDeleteDialogOpen(false);
+    setSelectedFolder(null);
+  };
+
+  const handleReprocess = async (mode: ReprocessMode) => {
+    if (!selectedFolder) return;
+    await reprocessFolder(selectedFolder.id, mode);
+    setReprocessDialogOpen(false);
+    setSelectedFolder(null);
+  };
+
   const renderFolderTree = (items: DocumentFolder[], level = 0) => {
     return items.map((folder) => {
       const isExpanded = expandedFolders.has(folder.id);
       const hasChildren = folder.children && folder.children.length > 0;
       const deptName = getDepartmentName(folder.department_id);
+      const stats = folderStatsMap[folder.id];
 
       return (
         <div key={folder.id}>
           <div
-            className="flex items-center gap-2 py-2 px-3 hover:bg-muted/50 rounded-md group"
+            className="flex items-center gap-2 py-3 px-3 hover:bg-muted/50 rounded-md group"
             style={{ paddingLeft: `${level * 24 + 12}px` }}
           >
             <button
@@ -259,35 +326,38 @@ export default function Folders() {
               <Folder className="h-5 w-5 text-muted-foreground" />
             )}
 
-            <span className="font-medium flex-1">{folder.name}</span>
-
-            <Badge variant="outline" className="text-xs">
-              {getFolderTypeLabel(folder.folder_type)}
-            </Badge>
-
-            {deptName && (
-              <Badge variant="secondary" className="text-xs">
-                {deptName}
-              </Badge>
-            )}
+            <div className="flex-1 min-w-0">
+              <div className="flex items-center gap-2">
+                <span className="font-medium">{folder.name}</span>
+                <Badge variant="outline" className="text-xs">
+                  {getFolderTypeLabel(folder.folder_type)}
+                </Badge>
+                {deptName && (
+                  <Badge variant="secondary" className="text-xs">
+                    {deptName}
+                  </Badge>
+                )}
+              </div>
+              <div className="mt-0.5">
+                <FolderStatsDisplay stats={stats} loading={statsLoading} compact />
+              </div>
+            </div>
 
             <div className="opacity-0 group-hover:opacity-100 flex gap-1">
-              <Button
-                variant="ghost"
-                size="icon"
-                className="h-7 w-7"
-                onClick={() => handleEdit(folder)}
-              >
-                <Pencil className="h-3.5 w-3.5" />
-              </Button>
-              <Button
-                variant="ghost"
-                size="icon"
-                className="h-7 w-7 text-destructive"
-                onClick={() => handleDelete(folder)}
-              >
-                <Trash2 className="h-3.5 w-3.5" />
-              </Button>
+              <FolderActionsMenu
+                folderId={folder.id}
+                folderName={folder.name}
+                stats={stats}
+                onOpenDocuments={() => handleOpenDocuments(folder)}
+                onEdit={() => handleEdit(folder)}
+                onClearFolder={() => handleClearFolderClick(folder)}
+                onReprocessAll={() => handleReprocessClick(folder)}
+                onReprocessErrors={() => {
+                  setSelectedFolder(folder);
+                  setReprocessDialogOpen(true);
+                }}
+                onDeleteFolder={() => handleDelete(folder)}
+              />
             </div>
           </div>
 
@@ -471,6 +541,32 @@ export default function Folders() {
           )}
         </CardContent>
       </Card>
+
+      {/* Bulk Delete Dialog */}
+      <BulkDeleteDialog
+        open={deleteDialogOpen}
+        onOpenChange={setDeleteDialogOpen}
+        title={`Очистить папку "${selectedFolder?.name}"`}
+        description="Будут удалены все документы и их чанки из этой папки. Файлы также будут удалены из хранилища. Это действие необратимо."
+        documentCount={selectedFolder ? (folderStatsMap[selectedFolder.id]?.documentCount || 0) : 0}
+        chunkCount={selectedFolder ? (folderStatsMap[selectedFolder.id]?.chunkCount || 0) : 0}
+        totalSize={selectedFolder ? formatFileSize(folderStatsMap[selectedFolder.id]?.totalSize || 0) : "0 B"}
+        onConfirm={handleConfirmClear}
+        isDeleting={isDeleting}
+      />
+
+      {/* Reprocess Dialog */}
+      <ReprocessDialog
+        open={reprocessDialogOpen}
+        onOpenChange={setReprocessDialogOpen}
+        folderName={selectedFolder?.name || ""}
+        documentCount={selectedFolder ? (folderStatsMap[selectedFolder.id]?.documentCount || 0) : 0}
+        errorCount={selectedFolder ? (folderStatsMap[selectedFolder.id]?.errorCount || 0) : 0}
+        pendingCount={selectedFolder ? (folderStatsMap[selectedFolder.id]?.pendingCount || 0) : 0}
+        onReprocess={handleReprocess}
+        isProcessing={isReprocessing}
+        progress={reprocessProgress}
+      />
     </div>
   );
 }
