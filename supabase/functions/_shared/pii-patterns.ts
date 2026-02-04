@@ -1,0 +1,212 @@
+// PII Detection Patterns for Russian Personal Data (152-ФЗ)
+
+export interface PiiPatternConfig {
+  type: string;
+  token_prefix: string;
+  patterns: RegExp[];
+  priority: number; // Lower = higher priority (processed first)
+  enabled: boolean;
+  description: string;
+}
+
+export const PII_PATTERNS: PiiPatternConfig[] = [
+  // ==================== HIGH PRIORITY (Unique identifiers) ====================
+  
+  {
+    type: 'passport',
+    token_prefix: 'PASSPORT',
+    patterns: [
+      // Паспорт: серия 1234 номер 567890
+      /(?:серия\s*)?(\d{2}\s?\d{2})\s*(?:номер\s*)?(\d{6})/gi,
+      // Паспорт: 1234 567890
+      /\b(\d{4})\s+(\d{6})\b/g,
+    ],
+    priority: 5,
+    enabled: true,
+    description: 'Паспортные данные РФ',
+  },
+  
+  {
+    type: 'snils',
+    token_prefix: 'SNILS',
+    patterns: [
+      // СНИЛС: 123-456-789 12 или 123-456-789-12
+      /\b\d{3}[-\s]?\d{3}[-\s]?\d{3}[-\s]?\d{2}\b/g,
+    ],
+    priority: 6,
+    enabled: true,
+    description: 'СНИЛС',
+  },
+  
+  {
+    type: 'inn_person',
+    token_prefix: 'INN',
+    patterns: [
+      // ИНН физлица: 12 цифр
+      /\bИНН[:\s]*(\d{12})\b/gi,
+      /\b\d{12}\b/g, // Fallback - будет проверяться контекстом
+    ],
+    priority: 7,
+    enabled: true,
+    description: 'ИНН физического лица (12 цифр)',
+  },
+  
+  {
+    type: 'inn_org',
+    token_prefix: 'INN_ORG',
+    patterns: [
+      // ИНН юрлица: 10 цифр
+      /\bИНН[:\s]*(\d{10})\b/gi,
+    ],
+    priority: 8,
+    enabled: true,
+    description: 'ИНН юридического лица (10 цифр)',
+  },
+  
+  {
+    type: 'card',
+    token_prefix: 'CARD',
+    patterns: [
+      // Банковская карта: 1234 5678 9012 3456
+      /\b(?:\d{4}[-\s]?){3}\d{4}\b/g,
+    ],
+    priority: 9,
+    enabled: true,
+    description: 'Номер банковской карты',
+  },
+  
+  {
+    type: 'account',
+    token_prefix: 'ACCOUNT',
+    patterns: [
+      // Банковский счёт: 20 цифр, начинается с 408 или 407
+      /\b(?:40[78]\d{17})\b/g,
+    ],
+    priority: 10,
+    enabled: true,
+    description: 'Номер банковского счёта',
+  },
+  
+  // ==================== MEDIUM PRIORITY (Contact info) ====================
+  
+  {
+    type: 'phone',
+    token_prefix: 'PHONE',
+    patterns: [
+      // +7 (999) 123-45-67
+      /(?:\+7|8)[\s\-]?\(?[0-9]{3}\)?[\s\-]?[0-9]{3}[\s\-]?[0-9]{2}[\s\-]?[0-9]{2}/g,
+      // 89991234567
+      /\b8[0-9]{10}\b/g,
+      // +79991234567
+      /\+7[0-9]{10}/g,
+    ],
+    priority: 15,
+    enabled: true,
+    description: 'Номер телефона',
+  },
+  
+  {
+    type: 'email',
+    token_prefix: 'EMAIL',
+    patterns: [
+      /[a-zA-Z0-9._%+\-]+@[a-zA-Z0-9.\-]+\.[a-zA-Z]{2,}/g,
+    ],
+    priority: 16,
+    enabled: true,
+    description: 'Адрес электронной почты',
+  },
+  
+  // ==================== LOWER PRIORITY (Names, Dates, Addresses) ====================
+  
+  {
+    type: 'birthdate',
+    token_prefix: 'BIRTHDATE',
+    patterns: [
+      // Дата рождения в контексте
+      /(?:дата\s*рождения|родил(?:ся|ась)|д\.?\s*р\.?)[:\s]*(\d{1,2}[.\-/]\d{1,2}[.\-/]\d{2,4})/gi,
+      // DD.MM.YYYY (строгий формат)
+      /\b(0?[1-9]|[12][0-9]|3[01])[.\-/](0?[1-9]|1[0-2])[.\-/](19[0-9]{2}|20[0-2][0-9])\b/g,
+    ],
+    priority: 20,
+    enabled: true,
+    description: 'Дата рождения',
+  },
+  
+  {
+    type: 'address',
+    token_prefix: 'ADDRESS',
+    patterns: [
+      // Адрес: г. Город, ул. Улица, д. N, кв. N
+      /(?:г\.?\s*[А-ЯЁа-яё]+[-\s]*[А-ЯЁа-яё]*,?\s*)?(?:ул\.?|улица|пр\.?|проспект|пер\.?|переулок|б-р|бульвар)\s*[А-ЯЁа-яё\s\-]+,?\s*(?:д\.?|дом)\s*\d+[а-яё]?(?:\s*(?:корп\.?|к\.?)\s*\d+)?(?:\s*,?\s*(?:кв\.?|квартира)\s*\d+)?/gi,
+      // Индекс + адрес
+      /\b\d{6}\s*,?\s*(?:г\.?\s*)?[А-ЯЁа-яё]+/g,
+    ],
+    priority: 25,
+    enabled: true,
+    description: 'Почтовый адрес',
+  },
+  
+  {
+    type: 'person',
+    token_prefix: 'PERSON',
+    patterns: [
+      // ФИО: Иванов Иван Иванович
+      /\b[А-ЯЁ][а-яё]+\s+[А-ЯЁ][а-яё]+\s+[А-ЯЁ][а-яё]+(?:ич|на|вна)\b/g,
+      // И.И. Иванов или Иванов И.И.
+      /\b[А-ЯЁ]\.\s?[А-ЯЁ]\.\s*[А-ЯЁ][а-яё]+\b/g,
+      /\b[А-ЯЁ][а-яё]+\s+[А-ЯЁ]\.\s?[А-ЯЁ]\.\b/g,
+    ],
+    priority: 30,
+    enabled: true,
+    description: 'ФИО',
+  },
+];
+
+// Типы ПДн для UI
+export const PII_TYPE_LABELS: Record<string, string> = {
+  passport: 'Паспорт',
+  snils: 'СНИЛС',
+  inn_person: 'ИНН',
+  inn_org: 'ИНН организации',
+  card: 'Банковская карта',
+  account: 'Банковский счёт',
+  phone: 'Телефон',
+  email: 'Email',
+  birthdate: 'Дата рождения',
+  address: 'Адрес',
+  person: 'ФИО',
+};
+
+// Функция для получения активных паттернов
+export function getActivePatterns(): PiiPatternConfig[] {
+  return PII_PATTERNS
+    .filter(p => p.enabled)
+    .sort((a, b) => a.priority - b.priority);
+}
+
+// Функция для подсчёта найденных токенов в тексте
+export function countPiiTokens(text: string): Record<string, number> {
+  const counts: Record<string, number> = {};
+  const tokenPattern = /\[([A-Z_]+)_(\d+)\]/g;
+  
+  let match;
+  while ((match = tokenPattern.exec(text)) !== null) {
+    const type = match[1].toLowerCase();
+    counts[type] = (counts[type] || 0) + 1;
+  }
+  
+  return counts;
+}
+
+// Функция для извлечения токенов из текста
+export function extractPiiTokens(text: string): string[] {
+  const tokenPattern = /\[([A-Z_]+_\d+)\]/g;
+  const tokens: string[] = [];
+  
+  let match;
+  while ((match = tokenPattern.exec(text)) !== null) {
+    tokens.push(match[0]);
+  }
+  
+  return [...new Set(tokens)];
+}

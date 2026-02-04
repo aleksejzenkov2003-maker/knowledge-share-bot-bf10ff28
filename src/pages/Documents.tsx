@@ -52,7 +52,7 @@ import {
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
 import { toast } from "sonner";
-import { Plus, Upload, FileText, Trash2, Eye, Loader2, RefreshCw, ImageIcon, X, Split, AlertTriangle, LayoutList, LayoutGrid } from "lucide-react";
+import { Plus, Upload, FileText, Trash2, Eye, Loader2, RefreshCw, ImageIcon, X, Split, AlertTriangle, LayoutList, LayoutGrid, Shield } from "lucide-react";
 import { splitPdf, getPdfPageCount, generatePartFileName, SplitProgress, estimatePdfParts } from "@/components/documents/pdfSplitter";
 import { DocumentTree, Document as TreeDocument, DocumentFolder as TreeFolder, MissingPartsInfo } from "@/components/documents/DocumentTree";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
@@ -154,6 +154,7 @@ export default function Documents() {
     folder_id: "",
     document_type: "auto",
     has_trademark: false,
+    contains_pii: false,
   });
   const [trademarkFile, setTrademarkFile] = useState<File | null>(null);
   const [trademarkPreview, setTrademarkPreview] = useState<string | null>(null);
@@ -303,6 +304,7 @@ export default function Documents() {
           parent_document_id: parentId || null,
           part_number: partNumber || null,
           total_parts: totalParts || null,
+          contains_pii: !parentId && formData.contains_pii,
         })
         .select()
         .single();
@@ -487,7 +489,7 @@ export default function Documents() {
 
       // Reset form
       setUploadDialogOpen(false);
-      setFormData({ name: "", folder_id: "", document_type: "auto", has_trademark: false });
+      setFormData({ name: "", folder_id: "", document_type: "auto", has_trademark: false, contains_pii: false });
       setTrademarkFile(null);
       setTrademarkPreview(null);
       if (fileInputRef.current) fileInputRef.current.value = "";
@@ -898,6 +900,30 @@ export default function Documents() {
                     <p className="text-xs text-muted-foreground">
                       Загрузите изображение товарного знака (PNG, JPG, WebP)
                     </p>
+                  </div>
+                )}
+              </div>
+
+              {/* PII checkbox */}
+              <div className="space-y-3 border-t pt-4">
+                <div className="flex items-center space-x-2">
+                  <Checkbox
+                    id="contains_pii"
+                    checked={formData.contains_pii}
+                    onCheckedChange={(checked) => {
+                      setFormData((prev) => ({ ...prev, contains_pii: !!checked }));
+                    }}
+                  />
+                  <Label htmlFor="contains_pii" className="font-normal cursor-pointer flex items-center gap-2">
+                    <Shield className="h-4 w-4 text-amber-500" />
+                    Документ содержит персональные данные (152-ФЗ)
+                  </Label>
+                </div>
+
+                {formData.contains_pii && (
+                  <div className="pl-6 text-xs text-muted-foreground space-y-1">
+                    <p>ПДн будут автоматически замаскированы перед отправкой в AI.</p>
+                    <p>Оригиналы доступны только пользователям с соответствующими правами.</p>
                   </div>
                 )}
               </div>
