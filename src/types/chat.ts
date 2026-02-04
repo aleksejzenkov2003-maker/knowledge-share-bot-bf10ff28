@@ -66,6 +66,8 @@ export interface Message {
   replyToMessageId?: string | null;
   stopReason?: string | null; // 'max_tokens' if response was truncated, 'end_turn' for normal completion
   interrupted?: boolean; // True if response was interrupted due to error/disconnect
+  hasMaskedPii?: boolean; // True if message contains masked PII tokens
+  piiTokensCount?: number; // Number of PII tokens in the message
 }
 
 export interface DBMessage {
@@ -79,6 +81,8 @@ export interface DBMessage {
     citations?: Citation[];
     smart_search?: boolean;
     attachments?: { file_path: string; file_name: string; file_type: string; file_size: number }[];
+    has_masked_pii?: boolean;
+    pii_tokens_count?: number;
   } | null;
   created_at: string;
 }

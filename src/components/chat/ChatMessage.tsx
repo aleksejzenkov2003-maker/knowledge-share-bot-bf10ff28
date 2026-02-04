@@ -19,6 +19,7 @@ import {
 import { MessageActions } from "./MessageActions";
 import { SourcesPanel } from "./SourcesPanel";
 import { MarkdownWithCitations } from "./MarkdownWithCitations";
+import { PiiIndicator } from "./PiiIndicator";
 
 import { ChatRole } from "@/types/chat";
 
@@ -184,6 +185,13 @@ function ChatMessageComponent({ message, onEditMessage, onRegenerateResponse, on
                   </TooltipContent>
                 </Tooltip>
               )}
+              
+              {/* PII Indicator */}
+              {message.hasMaskedPii && (
+                <PiiIndicator 
+                  text={message.content}
+                />
+              )}
             </div>
           )}
           
@@ -252,6 +260,8 @@ export const ChatMessage = React.memo(ChatMessageComponent, (prevProps, nextProp
     prev.ragContext?.length === next.ragContext?.length &&
     prev.citations?.length === next.citations?.length &&
     prev.stopReason === next.stopReason &&
+    prev.hasMaskedPii === next.hasMaskedPii &&
+    prev.piiTokensCount === next.piiTokensCount &&
     prevProps.onEditMessage === nextProps.onEditMessage &&
     prevProps.onRegenerateResponse === nextProps.onRegenerateResponse &&
     prevProps.onSaveAsGolden === nextProps.onSaveAsGolden &&
