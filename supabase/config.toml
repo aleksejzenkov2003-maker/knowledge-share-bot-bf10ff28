@@ -17,3 +17,9 @@ verify_jwt = false
 
 [functions.bitrix-chat-api]
 verify_jwt = false
+
+[functions.pii-mask]
+verify_jwt = false
+
+[functions.pii-unmask]
+verify_jwt = false
