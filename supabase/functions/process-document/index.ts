@@ -1,5 +1,7 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
+import { getActivePatterns } from "../_shared/pii-patterns.ts";
+import { encryptAES256 } from "../_shared/pii-crypto.ts";
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
@@ -1859,11 +1861,45 @@ serve(async (req) => {
       text = sanitizeText(text);
       console.log(`Extracted text length: ${text.length}`);
 
+      // =====================================================
+      // PII MASKING - Mask personal data if document has contains_pii flag
+      // =====================================================
+      let documentHasMaskedPii = false;
+      const PII_KEY = Deno.env.get('PII_ENCRYPTION_KEY');
+      
+      if (doc.contains_pii && PII_KEY) {
+        console.log('PII mode enabled for document, masking personal data...');
+        
+        try {
+          const piiResult = await maskDocumentPii(text, {
+            source_type: 'document',
+            source_id: document_id,
+            pii_key: PII_KEY,
+            supabase,
+          });
+          
+          if (piiResult.tokens_count > 0) {
+            text = piiResult.masked_text;
+            documentHasMaskedPii = true;
+            console.log(`PII: Masked ${piiResult.tokens_count} tokens in document. Types: ${piiResult.pii_types_found.join(', ')}`);
+          }
+        } catch (piiError) {
+          console.error('PII masking error (continuing without masking):', piiError);
+        }
+      }
+
       // Process document with hierarchical chunking (use manual document_type if specified)
       const manualType = doc.document_type || 'auto';
       const structuredChunks = processDocumentText(text, doc.file_name || 'unknown', manualType);
       console.log(`Created ${structuredChunks.length} structured chunks (manual type: ${manualType})`);
 
+      // Mark that this document has been processed for PII
+      if (doc.contains_pii) {
+        await supabase
+          .from('documents')
+          .update({ pii_processed: true })
+          .eq('id', document_id);
+      }
       // Delete existing chunks
       await supabase
         .from('document_chunks')
@@ -1964,3 +2000,96 @@ serve(async (req) => {
     );
   }
 });
+
+// =====================================================
+// INLINE PII MASKING FOR DOCUMENTS
+// =====================================================
+interface DocMaskContext {
+  source_type: string;
+  source_id: string;
+  pii_key: string;
+  supabase: any;
+}
+
+interface DocMaskResult {
+  masked_text: string;
+  tokens_count: number;
+  pii_types_found: string[];
+}
+
+async function maskDocumentPii(text: string, context: DocMaskContext): Promise<DocMaskResult> {
+  const patterns = getActivePatterns();
+  const tokenCounters: Record<string, number> = {};
+  let maskedText = text;
+  let totalTokens = 0;
+  const piiTypesFound: string[] = [];
+  
+  // Track already masked positions to avoid overlapping
+  const maskedRanges: Array<{ start: number; end: number }> = [];
+
+  for (const pattern of patterns) {
+    for (const regex of pattern.patterns) {
+      // Reset regex state
+      regex.lastIndex = 0;
+      
+      // Find all matches and store them first
+      const matches: Array<{ match: string; index: number }> = [];
+      let regexMatch: RegExpExecArray | null;
+      
+      while ((regexMatch = regex.exec(maskedText)) !== null) {
+        // Skip if this position is already masked
+        const matchIndex = regexMatch.index;
+        const isOverlapping = maskedRanges.some(
+          range => matchIndex >= range.start && matchIndex < range.end
+        );
+        
+        if (!isOverlapping && !regexMatch[0].startsWith('[') && !regexMatch[0].includes('_')) {
+          matches.push({ match: regexMatch[0], index: matchIndex });
+        }
+      }
+
+      // Process matches in reverse order to maintain indices
+      for (const { match: originalValue, index } of matches.reverse()) {
+        // Increment counter for this type
+        tokenCounters[pattern.type] = (tokenCounters[pattern.type] || 0) + 1;
+        const tokenNum = tokenCounters[pattern.type];
+        const token = `[${pattern.token_prefix}_${tokenNum}]`;
+
+        // Encrypt the original value and store mapping
+        try {
+          const { encrypted, iv } = await encryptAES256(originalValue, context.pii_key);
+          
+          await context.supabase
+            .from('pii_mappings')
+            .insert({
+              token,
+              pii_type: pattern.type,
+              encrypted_value: encrypted,
+              encryption_iv: iv,
+              source_type: context.source_type,
+              source_id: context.source_id,
+            });
+        } catch (err) {
+          console.error('Error storing PII mapping:', err);
+        }
+
+        // Replace in text
+        maskedText = maskedText.substring(0, index) + token + maskedText.substring(index + originalValue.length);
+        
+        // Track masked range
+        maskedRanges.push({ start: index, end: index + token.length });
+        totalTokens++;
+        
+        if (!piiTypesFound.includes(pattern.type)) {
+          piiTypesFound.push(pattern.type);
+        }
+      }
+    }
+  }
+
+  return {
+    masked_text: maskedText,
+    tokens_count: totalTokens,
+    pii_types_found: piiTypesFound,
+  };
+}

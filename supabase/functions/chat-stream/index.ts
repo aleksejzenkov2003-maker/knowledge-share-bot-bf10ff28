@@ -1,5 +1,7 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
+import { getActivePatterns } from "../_shared/pii-patterns.ts";
+import { encryptAES256 } from "../_shared/pii-crypto.ts";
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
@@ -826,6 +828,35 @@ ${goldenExamples.join('\n\n---\n\n')}
     }
 
     // =====================================================
+    // PII MASKING - Mask personal data before sending to LLM
+    // =====================================================
+    let piiMasked = false;
+    let piiTokensCount = 0;
+    
+    const PII_KEY = Deno.env.get('PII_ENCRYPTION_KEY');
+    if (PII_KEY && finalPrompt) {
+      try {
+        const piiResult = await maskPiiInline(finalPrompt, {
+          source_type: 'chat_message',
+          source_id: crypto.randomUUID(), // Will be replaced with actual message ID later
+          session_id: undefined,
+          user_id: userId || undefined,
+          pii_key: PII_KEY,
+          supabase,
+        });
+        
+        if (piiResult.tokens_count > 0) {
+          finalPrompt = piiResult.masked_text;
+          piiMasked = true;
+          piiTokensCount = piiResult.tokens_count;
+          console.log(`PII: Masked ${piiResult.tokens_count} tokens in user message. Types: ${piiResult.pii_types_found.join(', ')}`);
+        }
+      } catch (piiError) {
+        console.error('PII masking error (continuing without masking):', piiError);
+      }
+    }
+
+    // =====================================================
     // PERSISTENT DOCUMENT CONTEXT - Collect attachments from current request + history
     // =====================================================
     const allAttachments: AttachmentInput[] = [];
@@ -1542,3 +1573,100 @@ ${goldenExamples.join('\n\n---\n\n')}
     );
   }
 });
+
+// =====================================================
+// INLINE PII MASKING (to avoid HTTP call latency)
+// =====================================================
+interface InlineMaskContext {
+  source_type: string;
+  source_id: string;
+  session_id?: string;
+  user_id?: string;
+  pii_key: string;
+  supabase: any;
+}
+
+interface InlineMaskResult {
+  masked_text: string;
+  tokens_count: number;
+  pii_types_found: string[];
+}
+
+async function maskPiiInline(text: string, context: InlineMaskContext): Promise<InlineMaskResult> {
+  const patterns = getActivePatterns();
+  const tokenCounters: Record<string, number> = {};
+  let maskedText = text;
+  let totalTokens = 0;
+  const piiTypesFound: string[] = [];
+  
+  // Track already masked positions to avoid overlapping
+  const maskedRanges: Array<{ start: number; end: number }> = [];
+
+  for (const pattern of patterns) {
+    for (const regex of pattern.patterns) {
+      // Reset regex state
+      regex.lastIndex = 0;
+      
+      // Find all matches and store them first
+      const matches: Array<{ match: string; index: number }> = [];
+      let regexMatch: RegExpExecArray | null;
+      
+      while ((regexMatch = regex.exec(maskedText)) !== null) {
+        // Skip if this position is already masked
+        const matchIndex = regexMatch.index;
+        const isOverlapping = maskedRanges.some(
+          range => matchIndex >= range.start && matchIndex < range.end
+        );
+        
+        if (!isOverlapping && !regexMatch[0].startsWith('[') && !regexMatch[0].includes('_')) {
+          matches.push({ match: regexMatch[0], index: matchIndex });
+        }
+      }
+
+      // Process matches in reverse order to maintain indices
+      for (const { match: originalValue, index } of matches.reverse()) {
+        // Increment counter for this type
+        tokenCounters[pattern.type] = (tokenCounters[pattern.type] || 0) + 1;
+        const tokenNum = tokenCounters[pattern.type];
+        const token = `[${pattern.token_prefix}_${tokenNum}]`;
+
+        // Encrypt the original value and store mapping
+        try {
+          const { encrypted, iv } = await encryptAES256(originalValue, context.pii_key);
+          
+          await context.supabase
+            .from('pii_mappings')
+            .insert({
+              token,
+              pii_type: pattern.type,
+              encrypted_value: encrypted,
+              encryption_iv: iv,
+              source_type: context.source_type,
+              source_id: context.source_id,
+              session_id: context.session_id,
+              created_by: context.user_id,
+            });
+        } catch (err) {
+          console.error('Error storing PII mapping:', err);
+        }
+
+        // Replace in text
+        maskedText = maskedText.substring(0, index) + token + maskedText.substring(index + originalValue.length);
+        
+        // Track masked range
+        maskedRanges.push({ start: index, end: index + token.length });
+        totalTokens++;
+        
+        if (!piiTypesFound.includes(pattern.type)) {
+          piiTypesFound.push(pattern.type);
+        }
+      }
+    }
+  }
+
+  return {
+    masked_text: maskedText,
+    tokens_count: totalTokens,
+    pii_types_found: piiTypesFound,
+  };
+}
