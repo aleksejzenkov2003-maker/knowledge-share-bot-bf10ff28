@@ -526,6 +526,7 @@ export type Database = {
           created_at: string
           document_id: string
           embedding: string | null
+          has_masked_pii: boolean | null
           id: string
           metadata: Json | null
           page_end: number | null
@@ -541,6 +542,7 @@ export type Database = {
           created_at?: string
           document_id: string
           embedding?: string | null
+          has_masked_pii?: boolean | null
           id?: string
           metadata?: Json | null
           page_end?: number | null
@@ -556,6 +558,7 @@ export type Database = {
           created_at?: string
           document_id?: string
           embedding?: string | null
+          has_masked_pii?: boolean | null
           id?: string
           metadata?: Json | null
           page_end?: number | null
@@ -626,6 +629,7 @@ export type Database = {
       documents: {
         Row: {
           chunk_count: number | null
+          contains_pii: boolean | null
           created_at: string
           created_by: string | null
           department_id: string | null
@@ -639,6 +643,7 @@ export type Database = {
           name: string
           parent_document_id: string | null
           part_number: number | null
+          pii_processed: boolean | null
           status: string
           storage_path: string | null
           total_parts: number | null
@@ -647,6 +652,7 @@ export type Database = {
         }
         Insert: {
           chunk_count?: number | null
+          contains_pii?: boolean | null
           created_at?: string
           created_by?: string | null
           department_id?: string | null
@@ -660,6 +666,7 @@ export type Database = {
           name: string
           parent_document_id?: string | null
           part_number?: number | null
+          pii_processed?: boolean | null
           status?: string
           storage_path?: string | null
           total_parts?: number | null
@@ -668,6 +675,7 @@ export type Database = {
         }
         Update: {
           chunk_count?: number | null
+          contains_pii?: boolean | null
           created_at?: string
           created_by?: string | null
           department_id?: string | null
@@ -681,6 +689,7 @@ export type Database = {
           name?: string
           parent_document_id?: string | null
           part_number?: number | null
+          pii_processed?: boolean | null
           status?: string
           storage_path?: string | null
           total_parts?: number | null
@@ -889,6 +898,98 @@ export type Database = {
           },
         ]
       }
+      pii_audit_log: {
+        Row: {
+          action: string
+          created_at: string | null
+          id: string
+          mapping_id: string | null
+          pii_type: string
+          source_id: string
+          source_type: string
+          token: string
+          user_email: string | null
+          user_id: string
+          user_ip: string | null
+        }
+        Insert: {
+          action: string
+          created_at?: string | null
+          id?: string
+          mapping_id?: string | null
+          pii_type: string
+          source_id: string
+          source_type: string
+          token: string
+          user_email?: string | null
+          user_id: string
+          user_ip?: string | null
+        }
+        Update: {
+          action?: string
+          created_at?: string | null
+          id?: string
+          mapping_id?: string | null
+          pii_type?: string
+          source_id?: string
+          source_type?: string
+          token?: string
+          user_email?: string | null
+          user_id?: string
+          user_ip?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "pii_audit_log_mapping_id_fkey"
+            columns: ["mapping_id"]
+            isOneToOne: false
+            referencedRelation: "pii_mappings"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      pii_mappings: {
+        Row: {
+          created_at: string | null
+          created_by: string | null
+          encrypted_value: string
+          encryption_iv: string
+          expires_at: string | null
+          id: string
+          pii_type: string
+          session_id: string | null
+          source_id: string
+          source_type: string
+          token: string
+        }
+        Insert: {
+          created_at?: string | null
+          created_by?: string | null
+          encrypted_value: string
+          encryption_iv: string
+          expires_at?: string | null
+          id?: string
+          pii_type: string
+          session_id?: string | null
+          source_id: string
+          source_type: string
+          token: string
+        }
+        Update: {
+          created_at?: string | null
+          created_by?: string | null
+          encrypted_value?: string
+          encryption_iv?: string
+          expires_at?: string | null
+          id?: string
+          pii_type?: string
+          session_id?: string | null
+          source_id?: string
+          source_type?: string
+          token?: string
+        }
+        Relationships: []
+      }
       profiles: {
         Row: {
           avatar_url: string | null
@@ -1039,6 +1140,7 @@ export type Database = {
     }
     Functions: {
       cleanup_expired_bitrix_sessions: { Args: never; Returns: number }
+      cleanup_expired_pii_mappings: { Args: never; Returns: number }
       get_user_department: { Args: { uid: string }; Returns: string }
       get_user_role: {
         Args: { uid: string }
