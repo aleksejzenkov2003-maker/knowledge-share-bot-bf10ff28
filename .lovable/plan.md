@@ -1,190 +1,234 @@
 
-# План тестирования и доработки модуля ПДн (152-ФЗ)
 
-## Текущий статус реализации
+# План: Постоянная авторизация в Bitrix24 (без повторных входов)
 
-### Что уже реализовано и работает
+## Проблема
 
-| Компонент | Статус | Проверено |
-|-----------|--------|-----------|
-| Таблица `pii_mappings` | Работает | Данные сохраняются, шифрование AES-256 |
-| Таблица `pii_audit_log` | Работает | RLS настроен (только admins) |
-| Edge Function `pii-mask` | Работает | Успешно маскирует телефоны, email, даты |
-| Edge Function `pii-unmask` | Развёрнута | Требует тестирования |
-| Интеграция в `chat-stream` | Интегрирована | Маскирование перед LLM |
-| Интеграция в `process-document` | Интегрирована | Маскирование при индексации |
-| Флаг `contains_pii` в Documents.tsx | Работает | Чекбокс отображается |
-| Страница `/pii-audit` | Работает | Фильтрация и статистика |
-| Компонент `PiiIndicator` | Создан | Показывает бейдж "Скрыто N ПДн" |
-| Компонент `PiiUnmaskDialog` | Создан | Диалог подтверждения |
-| Хук `usePiiMasking` | Создан | Клиентские вызовы |
+Сейчас при каждом открытии приложения в Bitrix24 происходит **новая авторизация**, что создаёт неудобства:
 
----
+| Проблема | Причина |
+|----------|---------|
+| JWT токен хранится в `sessionStorage` | Очищается при закрытии вкладки |
+| JWT токен истекает через 1 час | `expiresIn = 3600` секунд |
+| Нет механизма восстановления сессии | Каждое открытие iframe = новый `/auth` запрос |
+| В БД накапливаются дублирующиеся сессии | Нет переиспользования существующих сессий |
 
-## Выявленные проблемы (требуют исправления)
+## Решение
 
-### 1. Проблемы с паттернами regex
+Реализовать **долгосрочную сессию** с использованием:
 
-| Проблема | Причина | Решение |
-|----------|---------|---------|
-| ФИО не детектируется | Паттерн требует окончание `ич/на/вна`, но "Петрович" не матчится | Улучшить regex для кириллических имён |
-| Телефон 89991234567 некорректно распознаётся | Паттерн паспорта `\d{4}\s+\d{6}` перехватывает | Изменить приоритет паттернов, добавить более строгие границы |
-| ИНН 12 цифр не детектируется | Паттерн требует префикс "ИНН", fallback `\d{12}` слишком общий | Добавить контекстное обнаружение |
-| Адрес не маскируется | Сложный паттерн не покрывает все варианты | Расширить regex для адресов |
+1. **localStorage** вместо sessionStorage для хранения токена (сохраняется между сессиями)
+2. **Длинный JWT** (7 дней) с автоматическим обновлением
+3. **Refresh-токен механизм** на бэкенде
+4. **Восстановление сессии** при открытии приложения
 
-### 2. Недоработки интеграции
-
-| Проблема | Описание |
-|----------|----------|
-| `has_masked_pii` не устанавливается в чанках | При индексации документов флаг должен передаваться |
-| `hasMaskedPii` в сообщениях чата | UI показывает индикатор, но реальные данные не проверяются |
-| Кнопка "Показать" в PiiIndicator | Не связана с `pii-unmask` функцией |
-
----
-
-## План исправлений
-
-### Фаза 1: Улучшение паттернов PII (высокий приоритет)
-
-```typescript
-// Исправленные паттерны в pii-patterns.ts
-
-// 1. ФИО - более гибкий паттерн
-{
-  type: 'person',
-  patterns: [
-    // Полное ФИО: Иванов Иван Иванович
-    /\b[А-ЯЁ][а-яё]{1,20}\s+[А-ЯЁ][а-яё]{1,15}\s+[А-ЯЁ][а-яё]{2,20}\b/g,
-    // И.И. Иванов
-    /\b[А-ЯЁ]\.\s?[А-ЯЁ]\.\s*[А-ЯЁ][а-яё]+\b/g,
-  ],
-  priority: 35, // Ниже других, чтобы не перехватывать
-}
-
-// 2. Телефон - более строгий паттерн
-{
-  type: 'phone',
-  patterns: [
-    /(?:\+7|8)[\s\-]?\(?[0-9]{3}\)?[\s\-]?[0-9]{3}[\s\-]?[0-9]{2}[\s\-]?[0-9]{2}/g,
-    /\b8[0-9]{10}\b/g, // 89991234567
-    /\+7[0-9]{10}\b/g,
-  ],
-  priority: 12, // Выше паспорта
-}
-
-// 3. Паспорт - более строгий паттерн
-{
-  type: 'passport',
-  patterns: [
-    // Только с контекстом "серия/номер/паспорт"
-    /(?:серия|паспорт)\s*:?\s*(\d{2}\s?\d{2})\s*(?:номер|№)?\s*(\d{6})/gi,
-    // 4 цифры + пробел + 6 цифр (строго)
-    /\b(\d{4})\s(\d{6})\b/g,
-  ],
-  priority: 5,
-}
-
-// 4. ИНН с контекстом
-{
-  type: 'inn_person',
-  patterns: [
-    /\bИНН[:\s]*(\d{12})\b/gi,
-    /(?:инн|идентификационный номер)[:\s]*(\d{12})\b/gi,
-  ],
-  priority: 7,
-}
-```
-
-### Фаза 2: Исправление интеграции document_chunks
-
-```typescript
-// В process-document/index.ts, при сохранении чанков:
-
-const chunkRecords = batch.map((chunk, index) => ({
-  document_id,
-  content: chunk.content,
-  chunk_index: i + index,
-  // ... другие поля
-  has_masked_pii: documentHasMaskedPii, // <-- Добавить это поле
-}));
-```
-
-### Фаза 3: Полная интеграция кнопки "Показать"
-
-```typescript
-// В ChatMessage.tsx - добавить обработчик unmask
-{message.hasMaskedPii && (
-  <PiiIndicator 
-    text={message.content}
-    canUnmask={userRole === 'admin' || userRole === 'moderator'}
-    onUnmaskRequest={() => handleUnmaskRequest(message.id)}
-  />
-)}
-```
-
----
-
-## Тестовые сценарии
-
-### Тест 1: Маскирование всех типов ПДн
+## Архитектура
 
 ```text
-Входные данные:
-"Клиент Иванов Иван Иванович, паспорт 4510 123456, 
-СНИЛС 123-456-789 12, ИНН 123456789012, 
-телефон +7 999 123-45-67, email client@mail.ru,
-дата рождения 15.03.1985,
-адрес: г. Москва, ул. Пушкина, д. 1, кв. 10"
-
-Ожидаемый результат:
-"Клиент [PERSON_1], паспорт [PASSPORT_1], 
-СНИЛС [SNILS_1], ИНН [INN_1], 
-телефон [PHONE_1], email [EMAIL_1],
-дата рождения [BIRTHDATE_1],
-адрес: [ADDRESS_1]"
+┌─────────────────────────────────────────────────────────────────┐
+│                        BITRIX24 IFRAME                          │
+├─────────────────────────────────────────────────────────────────┤
+│                                                                 │
+│  1. При загрузке:                                              │
+│     localStorage.getItem('bitrix_token_{portal}_{userId}')     │
+│                                                                 │
+│  2. Если токен есть и не просрочен:                            │
+│     → Проверить через GET /me                                  │
+│     → Если 401 → Refresh или новый auth                        │
+│                                                                 │
+│  3. Если токен близок к истечению (< 1 час):                   │
+│     → POST /auth/refresh → Новый токен                         │
+│                                                                 │
+└─────────────────────────────────────────────────────────────────┘
+                              │
+                              ▼
+┌─────────────────────────────────────────────────────────────────┐
+│                   EDGE FUNCTION: bitrix-chat-api                │
+├─────────────────────────────────────────────────────────────────┤
+│                                                                 │
+│  POST /auth                                                     │
+│  - Создаёт JWT на 7 дней                                       │
+│  - Сохраняет bitrix_sessions                                   │
+│                                                                 │
+│  POST /auth/refresh (НОВЫЙ)                                    │
+│  - Проверяет старый токен                                      │
+│  - Выдаёт новый JWT на 7 дней                                  │
+│  - Обновляет bitrix_sessions                                   │
+│                                                                 │
+│  GET /me                                                        │
+│  - Проверяет валидность токена                                 │
+│  - Обновляет last_activity_at                                  │
+│                                                                 │
+└─────────────────────────────────────────────────────────────────┘
 ```
 
-### Тест 2: Восстановление с аудитом
+---
 
-1. Замаскировать текст через `pii-mask`
-2. Вызвать `pii-unmask` с авторизацией admin
-3. Проверить, что в `pii_audit_log` появилась запись
-4. Проверить, что employee получает ошибку `PERMISSION_DENIED`
+## Изменения
 
-### Тест 3: Интеграция с чатом
+### 1. Backend: Edge Function `bitrix-chat-api/index.ts`
 
-1. Отправить сообщение с ПДн в чат
-2. Проверить логи `chat-stream` - должно быть `PII: Masked N tokens`
-3. Проверить, что в ответе LLM нет оригинальных данных
-4. Проверить индикатор "Скрыто N ПДн" в UI
+**Увеличить время жизни токена:**
+```typescript
+// Было: 1 час
+const expiresIn = 3600;
 
-### Тест 4: Индексация документа с ПДн
+// Станет: 7 дней
+const expiresIn = 7 * 24 * 3600; // 604800 секунд
+```
 
-1. Загрузить документ с флагом "Содержит ПДн"
-2. Проверить логи `process-document` - маскирование должно сработать
-3. Проверить `document_chunks.has_masked_pii = true`
-4. Проверить `documents.pii_processed = true`
+**Добавить endpoint `/auth/refresh`:**
+```typescript
+// Новый обработчик для обновления токена
+if (path === 'auth/refresh' && req.method === 'POST') {
+  return await handleRefreshToken(req, supabase, jwtSecret);
+}
+
+async function handleRefreshToken(req, supabase, jwtSecret) {
+  // 1. Получить старый токен из Authorization header
+  // 2. Валидировать JWT (даже если истёк - проверить подпись)
+  // 3. Проверить сессию в БД
+  // 4. Выдать новый JWT на 7 дней
+  // 5. Обновить запись в bitrix_sessions
+}
+```
+
+### 2. Frontend: BitrixPersonalChat.tsx
+
+**Сохранять токен в localStorage:**
+```typescript
+const authStorageKey = `bitrix_auth_${portal}_${bitrixUserId}`;
+
+useEffect(() => {
+  const authenticate = async () => {
+    // 1. Попробовать восстановить токен из localStorage
+    const stored = localStorage.getItem(authStorageKey);
+    if (stored) {
+      const { token, expiresAt } = JSON.parse(stored);
+      
+      // Проверить валидность через /me
+      const meRes = await fetch(`${apiBaseUrl}/me`, {
+        headers: { 'Authorization': `Bearer ${token}` }
+      });
+      
+      if (meRes.ok) {
+        setToken(token);
+        
+        // Если осталось < 1 часа - обновить токен фоном
+        if (expiresAt - Date.now() < 3600000) {
+          refreshToken(token);
+        }
+        return;
+      }
+      
+      // Токен невалиден - очистить
+      localStorage.removeItem(authStorageKey);
+    }
+    
+    // 2. Новая авторизация
+    const response = await fetch(`${apiBaseUrl}/auth`, ...);
+    const data = await response.json();
+    
+    // 3. Сохранить в localStorage
+    localStorage.setItem(authStorageKey, JSON.stringify({
+      token: data.token,
+      expiresAt: Date.now() + (data.expires_in * 1000),
+      user: data.user
+    }));
+    
+    setToken(data.token);
+  };
+}, []);
+```
+
+### 3. Frontend: BitrixDepartmentChat.tsx
+
+Аналогичные изменения для корпоративного чата.
+
+### 4. Frontend: BitrixChatSecure.tsx
+
+Обновить существующую логику:
+- Заменить `sessionStorage` на `localStorage`
+- Увеличить время валидности кеша
+- Добавить фоновое обновление токена
 
 ---
 
-## Дополнительные улучшения (опционально)
+## Детали реализации
 
-| Улучшение | Описание | Приоритет |
-|-----------|----------|-----------|
-| CSV экспорт аудита | Кнопка "Скачать отчёт" на странице /pii-audit | Средний |
-| Графики аналитики | Визуализация обращений по дням через recharts | Низкий |
-| NER модель | Использование Lovable AI для детекции сложных ФИО | Низкий |
-| Автоочистка | Cron job для `cleanup_expired_pii_mappings()` | Средний |
+### Структура хранения в localStorage
+
+```typescript
+interface StoredAuth {
+  token: string;
+  expiresAt: number;      // timestamp миллисекунды
+  user: {
+    user_id: string;
+    full_name: string;
+    department_id: string;
+    role: string;
+  };
+  savedAt: number;        // timestamp сохранения
+}
+```
+
+### Ключ хранения
+
+```typescript
+// Уникальный для каждого пользователя на каждом портале
+const authStorageKey = `bitrix_auth_v2_${portal}_${bitrixUserId}`;
+```
+
+### Фоновое обновление токена
+
+```typescript
+const refreshToken = async (currentToken: string) => {
+  try {
+    const response = await fetch(`${apiBaseUrl}/auth/refresh`, {
+      method: 'POST',
+      headers: { 
+        'Authorization': `Bearer ${currentToken}`,
+        'Content-Type': 'application/json'
+      },
+    });
+    
+    if (response.ok) {
+      const data = await response.json();
+      localStorage.setItem(authStorageKey, JSON.stringify({
+        token: data.token,
+        expiresAt: Date.now() + (data.expires_in * 1000),
+        user: data.user,
+        savedAt: Date.now()
+      }));
+      setToken(data.token);
+    }
+  } catch (error) {
+    console.error('Token refresh failed:', error);
+  }
+};
+```
 
 ---
 
-## Порядок реализации
+## Порядок выполнения
 
-1. **Исправить regex паттерны** - Приоритетные баги с ФИО, телефонами, ИНН
-2. **Добавить `has_masked_pii` в чанки** - Фикс интеграции с документами
-3. **Подключить кнопку "Показать"** - Полный цикл unmask с аудитом
-4. **E2E тест через чат** - Проверить весь флоу маскирования
-5. **E2E тест индексации** - Загрузить документ с ПДн
+1. **Backend**: Увеличить `expiresIn` в `/auth` до 7 дней
+2. **Backend**: Добавить endpoint `/auth/refresh`
+3. **Frontend**: Обновить `BitrixPersonalChat.tsx` - localStorage + восстановление
+4. **Frontend**: Обновить `BitrixDepartmentChat.tsx` - аналогично
+5. **Frontend**: Обновить `BitrixChatSecure.tsx` - заменить sessionStorage на localStorage
+6. **Deploy**: Развернуть обновлённый edge function
+
+---
+
+## Безопасность
+
+| Аспект | Решение |
+|--------|---------|
+| Кража токена | Токен привязан к `bitrix_user_id` + `portal` - бесполезен для других |
+| XSS | localStorage уязвим, но токен короткоживущий относительно (7 дней) |
+| CSRF | Токен передаётся в Authorization header, не в cookies |
+| Сессия в БД | Можно отозвать через удаление записи в `bitrix_sessions` |
 
 ---
 
@@ -192,8 +236,8 @@ const chunkRecords = batch.map((chunk, index) => ({
 
 | Файл | Изменения |
 |------|-----------|
-| `supabase/functions/_shared/pii-patterns.ts` | Исправить regex паттерны |
-| `supabase/functions/process-document/index.ts` | Добавить `has_masked_pii` в чанки |
-| `src/components/chat/ChatMessage.tsx` | Подключить `onUnmaskRequest` |
-| `src/components/chat/PiiIndicator.tsx` | Добавить проверку роли пользователя |
-| `src/pages/PiiAudit.tsx` | Добавить кнопку экспорта CSV (опционально) |
+| `supabase/functions/bitrix-chat-api/index.ts` | +`/auth/refresh`, увеличить TTL токена |
+| `src/pages/BitrixPersonalChat.tsx` | localStorage, восстановление сессии |
+| `src/pages/BitrixDepartmentChat.tsx` | localStorage, восстановление сессии |
+| `src/pages/BitrixChatSecure.tsx` | Заменить sessionStorage на localStorage |
+
