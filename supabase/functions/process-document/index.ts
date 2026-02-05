@@ -1862,88 +1862,92 @@ serve(async (req) => {
         
         // ============= OCR FALLBACK FOR SCANNED PDFs =============
         // If text extraction yielded very little text, the PDF is likely scanned images
-        // Use Lovable AI (Gemini) for OCR, with Anthropic Claude as fallback
+        // Use Anthropic Claude for OCR (primary), with Lovable AI (Gemini) as fallback
         if (text.length < 200 && pdfData.length > 10000) {
-          console.log(`PDF appears to be scanned (text length: ${text.length}). Attempting OCR via Lovable AI...`);
+          console.log(`PDF appears to be scanned (text length: ${text.length}). Attempting OCR via Anthropic Claude...`);
           
           let ocrErrorCode = 0;
           let ocrSucceeded = false;
           
-          // Try Lovable AI OCR first (primary)
-          const lovableOcrResult = await tryLovableAiOcr(pdfData);
+          // Try Anthropic OCR first (primary)
+          const anthropicOcrResult = await tryAnthropicOcr(pdfData);
           
-          if (lovableOcrResult.success && lovableOcrResult.text) {
-            text = lovableOcrResult.text;
+          if (anthropicOcrResult.success && anthropicOcrResult.text) {
+            text = anthropicOcrResult.text;
             ocrSucceeded = true;
             
             // Build page data for getPageForChunk function
-            if (lovableOcrResult.pages && lovableOcrResult.pages.length > 0) {
+            if (anthropicOcrResult.pages && anthropicOcrResult.pages.length > 0) {
               currentPdfPagesData = [];
-              for (let i = 0; i < lovableOcrResult.pages.length; i++) {
-                const start = lovableOcrResult.pages[i].offset;
-                const end = i < lovableOcrResult.pages.length - 1 
-                  ? lovableOcrResult.pages[i + 1].offset 
+              for (let i = 0; i < anthropicOcrResult.pages.length; i++) {
+                const start = anthropicOcrResult.pages[i].offset;
+                const end = i < anthropicOcrResult.pages.length - 1 
+                  ? anthropicOcrResult.pages[i + 1].offset 
                   : text.length;
                 currentPdfPagesData.push({
-                  pageNum: lovableOcrResult.pages[i].pageNum,
+                  pageNum: anthropicOcrResult.pages[i].pageNum,
                   text: text.slice(start, end),
                   startOffset: start,
                   endOffset: end
                 });
               }
               currentPdfFullText = text;
-              console.log(`Lovable AI OCR: Parsed ${currentPdfPagesData.length} pages with offsets`);
+              console.log(`Anthropic OCR: Parsed ${currentPdfPagesData.length} pages with offsets`);
             } else {
               currentPdfPagesData = [];
               currentPdfFullText = text;
-              console.log('Lovable AI OCR: No page markers found, page_start will be 1');
+              console.log('Anthropic OCR: No page markers found, page_start will be 1');
             }
-          } else if (lovableOcrResult.errorCode === 402 || lovableOcrResult.errorCode === 429) {
-            // Credits exhausted or rate limited - try Anthropic fallback
-            ocrErrorCode = lovableOcrResult.errorCode;
-            console.log(`Lovable AI OCR unavailable (error ${ocrErrorCode}). Trying Anthropic Claude fallback...`);
+          } else if (anthropicOcrResult.errorCode === 401 || anthropicOcrResult.errorCode === 402 || anthropicOcrResult.errorCode === 429 || anthropicOcrResult.errorCode === 404 || anthropicOcrResult.errorCode === 408) {
+            // Anthropic unavailable - try Lovable AI fallback
+            ocrErrorCode = anthropicOcrResult.errorCode;
+            console.log(`Anthropic OCR unavailable (error ${ocrErrorCode}). Trying Lovable AI fallback...`);
             
-            const anthropicOcrResult = await tryAnthropicOcr(pdfData);
+            const lovableOcrResult = await tryLovableAiOcr(pdfData);
             
-            if (anthropicOcrResult.success && anthropicOcrResult.text) {
-              text = anthropicOcrResult.text;
+            if (lovableOcrResult.success && lovableOcrResult.text) {
+              text = lovableOcrResult.text;
               ocrSucceeded = true;
               
               // Build page data for getPageForChunk function
-              if (anthropicOcrResult.pages && anthropicOcrResult.pages.length > 0) {
+              if (lovableOcrResult.pages && lovableOcrResult.pages.length > 0) {
                 currentPdfPagesData = [];
-                for (let i = 0; i < anthropicOcrResult.pages.length; i++) {
-                  const start = anthropicOcrResult.pages[i].offset;
-                  const end = i < anthropicOcrResult.pages.length - 1 
-                    ? anthropicOcrResult.pages[i + 1].offset 
+                for (let i = 0; i < lovableOcrResult.pages.length; i++) {
+                  const start = lovableOcrResult.pages[i].offset;
+                  const end = i < lovableOcrResult.pages.length - 1 
+                    ? lovableOcrResult.pages[i + 1].offset 
                     : text.length;
                   currentPdfPagesData.push({
-                    pageNum: anthropicOcrResult.pages[i].pageNum,
+                    pageNum: lovableOcrResult.pages[i].pageNum,
                     text: text.slice(start, end),
                     startOffset: start,
                     endOffset: end
                   });
                 }
                 currentPdfFullText = text;
-                console.log(`Anthropic OCR: Parsed ${currentPdfPagesData.length} pages with offsets`);
+                console.log(`Lovable AI OCR: Parsed ${currentPdfPagesData.length} pages with offsets`);
               } else {
                 currentPdfPagesData = [];
                 currentPdfFullText = text;
-                console.log('Anthropic OCR: No page markers found, page_start will be 1');
+                console.log('Lovable AI OCR: No page markers found, page_start will be 1');
               }
             } else {
-              console.error('Both Lovable AI and Anthropic OCR failed');
+              console.error('Both Anthropic and Lovable AI OCR failed');
             }
           } else {
-            // Other errors from Lovable AI - no fallback needed
-            ocrErrorCode = lovableOcrResult.errorCode || 0;
-            console.log('Lovable AI OCR failed without recoverable error');
+            // Other errors from Anthropic - no fallback needed
+            ocrErrorCode = anthropicOcrResult.errorCode || 0;
+            console.log('Anthropic OCR failed without recoverable error');
           }
         
           // Set error message if OCR failed
           if (!ocrSucceeded && text.length < 100) {
-            const reason = ocrErrorCode === 402 
-              ? 'Исчерпан лимит OCR кредитов и Anthropic fallback недоступен' 
+            const reason = ocrErrorCode === 401 
+              ? 'Ошибка авторизации Anthropic API'
+              : ocrErrorCode === 402
+              ? 'Исчерпан лимит кредитов и fallback недоступен' 
+              : ocrErrorCode === 408
+              ? 'Таймаут OCR обработки'
               : 'Не удалось извлечь текст';
             
             text = `[PDF Document: ${doc.file_name}] - ${reason}. Документ может быть отсканирован без текстового слоя.`;
@@ -1951,56 +1955,6 @@ serve(async (req) => {
         } else if (text.length < 100) {
           // Non-scanned PDF but still couldn't extract text
           text = `[PDF Document: ${doc.file_name}] - Не удалось извлечь текст из PDF.`;
-        }
-      } else if (
-        fileType.includes('word') || 
-        fileType.includes('officedocument.wordprocessingml')
-      ) {
-        // 6. Word by MIME type (fallback if extension didn't match)
-        console.log('Processing Word document by MIME type...');
-        
-        try {
-          const arrayBuffer = await fileData.arrayBuffer();
-          const bytes = new Uint8Array(arrayBuffer);
-          
-          const JSZip = (await import("https://esm.sh/jszip@3.10.1")).default;
-          const zip = await JSZip.loadAsync(bytes);
-          
-          const documentXml = await zip.file("word/document.xml")?.async("string");
-          
-          if (documentXml) {
-            const paragraphs: string[] = [];
-            const pMatches = documentXml.match(/<w:p[^>]*>[\s\S]*?<\/w:p>/g) || [];
-            
-            for (const pMatch of pMatches) {
-              const textParts = pMatch.match(/<w:t[^>]*>([^<]*)<\/w:t>/g) || [];
-              const paraText = textParts
-                .map(t => t.replace(/<w:t[^>]*>/, '').replace(/<\/w:t>/, ''))
-                .join('');
-              if (paraText.trim()) {
-                paragraphs.push(paraText.trim());
-              }
-            }
-            
-            text = paragraphs.join('\n\n');
-            console.log(`Extracted ${paragraphs.length} paragraphs from Word doc, text length: ${text.length}`);
-          }
-          
-          text = text
-            .replace(/&lt;/g, '<')
-            .replace(/&gt;/g, '>')
-            .replace(/&amp;/g, '&')
-            .replace(/&quot;/g, '"')
-            .replace(/&apos;/g, "'")
-            .replace(/&#(\d+);/g, (_, code) => String.fromCharCode(parseInt(code)));
-            
-        } catch (docxError) {
-          console.error('Word extraction failed:', docxError);
-          text = `[Word Document: ${doc.file_name}] - Не удалось извлечь текст. Ошибка: ${docxError}`;
-        }
-        
-        if (text.length < 100) {
-          text = `[Word Document: ${doc.file_name}] - Не удалось извлечь текст из документа.`;
         }
       } else {
         try {
