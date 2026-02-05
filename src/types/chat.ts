@@ -5,6 +5,10 @@ export interface ChatRole {
   slug: string;
   is_active: boolean;
   is_project_mode: boolean;
+  mention_trigger?: string | null;
+  folder_ids?: string[];
+  allow_web_search?: boolean;
+  strict_rag_mode?: boolean;
 }
 
 export interface Conversation {

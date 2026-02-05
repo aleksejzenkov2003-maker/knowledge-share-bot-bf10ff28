@@ -299,6 +299,57 @@ export type Database = {
           },
         ]
       }
+      context_packs: {
+        Row: {
+          created_at: string
+          created_by: string | null
+          department_id: string | null
+          description: string | null
+          folder_ids: string[] | null
+          id: string
+          is_global: boolean | null
+          name: string
+          updated_at: string
+        }
+        Insert: {
+          created_at?: string
+          created_by?: string | null
+          department_id?: string | null
+          description?: string | null
+          folder_ids?: string[] | null
+          id?: string
+          is_global?: boolean | null
+          name: string
+          updated_at?: string
+        }
+        Update: {
+          created_at?: string
+          created_by?: string | null
+          department_id?: string | null
+          description?: string | null
+          folder_ids?: string[] | null
+          id?: string
+          is_global?: boolean | null
+          name?: string
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "context_packs_created_by_fkey"
+            columns: ["created_by"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "context_packs_department_id_fkey"
+            columns: ["department_id"]
+            isOneToOne: false
+            referencedRelation: "departments"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       conversations: {
         Row: {
           created_at: string | null
@@ -1034,6 +1085,374 @@ export type Database = {
           },
         ]
       }
+      project_chat_messages: {
+        Row: {
+          agent_id: string | null
+          chat_id: string
+          content: string
+          created_at: string
+          id: string
+          message_role: string
+          metadata: Json | null
+          reply_to_message_id: string | null
+          user_id: string
+        }
+        Insert: {
+          agent_id?: string | null
+          chat_id: string
+          content: string
+          created_at?: string
+          id?: string
+          message_role: string
+          metadata?: Json | null
+          reply_to_message_id?: string | null
+          user_id: string
+        }
+        Update: {
+          agent_id?: string | null
+          chat_id?: string
+          content?: string
+          created_at?: string
+          id?: string
+          message_role?: string
+          metadata?: Json | null
+          reply_to_message_id?: string | null
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "project_chat_messages_agent_id_fkey"
+            columns: ["agent_id"]
+            isOneToOne: false
+            referencedRelation: "chat_roles"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "project_chat_messages_chat_id_fkey"
+            columns: ["chat_id"]
+            isOneToOne: false
+            referencedRelation: "project_chats"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "project_chat_messages_reply_to_message_id_fkey"
+            columns: ["reply_to_message_id"]
+            isOneToOne: false
+            referencedRelation: "project_chat_messages"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "project_chat_messages_user_id_fkey"
+            columns: ["user_id"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      project_chats: {
+        Row: {
+          created_at: string
+          id: string
+          is_active: boolean | null
+          is_pinned: boolean | null
+          project_id: string
+          title: string
+          updated_at: string
+        }
+        Insert: {
+          created_at?: string
+          id?: string
+          is_active?: boolean | null
+          is_pinned?: boolean | null
+          project_id: string
+          title?: string
+          updated_at?: string
+        }
+        Update: {
+          created_at?: string
+          id?: string
+          is_active?: boolean | null
+          is_pinned?: boolean | null
+          project_id?: string
+          title?: string
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "project_chats_project_id_fkey"
+            columns: ["project_id"]
+            isOneToOne: false
+            referencedRelation: "projects"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      project_context_packs: {
+        Row: {
+          context_pack_id: string
+          id: string
+          is_enabled: boolean | null
+          priority: number | null
+          project_id: string
+        }
+        Insert: {
+          context_pack_id: string
+          id?: string
+          is_enabled?: boolean | null
+          priority?: number | null
+          project_id: string
+        }
+        Update: {
+          context_pack_id?: string
+          id?: string
+          is_enabled?: boolean | null
+          priority?: number | null
+          project_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "project_context_packs_context_pack_id_fkey"
+            columns: ["context_pack_id"]
+            isOneToOne: false
+            referencedRelation: "context_packs"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "project_context_packs_project_id_fkey"
+            columns: ["project_id"]
+            isOneToOne: false
+            referencedRelation: "projects"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      project_documents: {
+        Row: {
+          added_by: string | null
+          created_at: string
+          document_id: string | null
+          file_name: string
+          file_path: string | null
+          file_size: number | null
+          file_type: string | null
+          id: string
+          project_id: string
+        }
+        Insert: {
+          added_by?: string | null
+          created_at?: string
+          document_id?: string | null
+          file_name: string
+          file_path?: string | null
+          file_size?: number | null
+          file_type?: string | null
+          id?: string
+          project_id: string
+        }
+        Update: {
+          added_by?: string | null
+          created_at?: string
+          document_id?: string | null
+          file_name?: string
+          file_path?: string | null
+          file_size?: number | null
+          file_type?: string | null
+          id?: string
+          project_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "project_documents_added_by_fkey"
+            columns: ["added_by"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "project_documents_document_id_fkey"
+            columns: ["document_id"]
+            isOneToOne: false
+            referencedRelation: "documents"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "project_documents_project_id_fkey"
+            columns: ["project_id"]
+            isOneToOne: false
+            referencedRelation: "projects"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      project_members: {
+        Row: {
+          agent_id: string | null
+          id: string
+          invited_by: string | null
+          joined_at: string
+          project_id: string
+          role: Database["public"]["Enums"]["project_member_role"]
+          user_id: string | null
+        }
+        Insert: {
+          agent_id?: string | null
+          id?: string
+          invited_by?: string | null
+          joined_at?: string
+          project_id: string
+          role?: Database["public"]["Enums"]["project_member_role"]
+          user_id?: string | null
+        }
+        Update: {
+          agent_id?: string | null
+          id?: string
+          invited_by?: string | null
+          joined_at?: string
+          project_id?: string
+          role?: Database["public"]["Enums"]["project_member_role"]
+          user_id?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "project_members_agent_id_fkey"
+            columns: ["agent_id"]
+            isOneToOne: false
+            referencedRelation: "chat_roles"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "project_members_invited_by_fkey"
+            columns: ["invited_by"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "project_members_project_id_fkey"
+            columns: ["project_id"]
+            isOneToOne: false
+            referencedRelation: "projects"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "project_members_user_id_fkey"
+            columns: ["user_id"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      project_memory: {
+        Row: {
+          content: string
+          created_at: string
+          created_by: string | null
+          expires_at: string | null
+          id: string
+          is_active: boolean | null
+          memory_type: Database["public"]["Enums"]["project_memory_type"]
+          project_id: string
+          source_message_id: string | null
+        }
+        Insert: {
+          content: string
+          created_at?: string
+          created_by?: string | null
+          expires_at?: string | null
+          id?: string
+          is_active?: boolean | null
+          memory_type: Database["public"]["Enums"]["project_memory_type"]
+          project_id: string
+          source_message_id?: string | null
+        }
+        Update: {
+          content?: string
+          created_at?: string
+          created_by?: string | null
+          expires_at?: string | null
+          id?: string
+          is_active?: boolean | null
+          memory_type?: Database["public"]["Enums"]["project_memory_type"]
+          project_id?: string
+          source_message_id?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "project_memory_created_by_fkey"
+            columns: ["created_by"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "project_memory_project_id_fkey"
+            columns: ["project_id"]
+            isOneToOne: false
+            referencedRelation: "projects"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "project_memory_source_message_id_fkey"
+            columns: ["source_message_id"]
+            isOneToOne: false
+            referencedRelation: "project_chat_messages"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      projects: {
+        Row: {
+          created_at: string
+          created_by: string | null
+          department_id: string | null
+          description: string | null
+          id: string
+          name: string
+          settings: Json | null
+          status: Database["public"]["Enums"]["project_status"]
+          updated_at: string
+        }
+        Insert: {
+          created_at?: string
+          created_by?: string | null
+          department_id?: string | null
+          description?: string | null
+          id?: string
+          name: string
+          settings?: Json | null
+          status?: Database["public"]["Enums"]["project_status"]
+          updated_at?: string
+        }
+        Update: {
+          created_at?: string
+          created_by?: string | null
+          department_id?: string | null
+          description?: string | null
+          id?: string
+          name?: string
+          settings?: Json | null
+          status?: Database["public"]["Enums"]["project_status"]
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "projects_created_by_fkey"
+            columns: ["created_by"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "projects_department_id_fkey"
+            columns: ["department_id"]
+            isOneToOne: false
+            referencedRelation: "departments"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       system_prompts: {
         Row: {
           created_at: string
@@ -1141,6 +1560,10 @@ export type Database = {
     Functions: {
       cleanup_expired_bitrix_sessions: { Args: never; Returns: number }
       cleanup_expired_pii_mappings: { Args: never; Returns: number }
+      get_project_member_role: {
+        Args: { p_project_id: string; p_user_id: string }
+        Returns: Database["public"]["Enums"]["project_member_role"]
+      }
       get_user_department: { Args: { uid: string }; Returns: string }
       get_user_role: {
         Args: { uid: string }
@@ -1155,6 +1578,10 @@ export type Database = {
       }
       increment_golden_usage: { Args: { p_ids: string[] }; Returns: undefined }
       is_admin: { Args: never; Returns: boolean }
+      is_project_member: {
+        Args: { p_project_id: string; p_user_id: string }
+        Returns: boolean
+      }
       keyword_search: {
         Args: {
           keywords: string[]
@@ -1227,6 +1654,9 @@ export type Database = {
     }
     Enums: {
       app_role: "admin" | "moderator" | "employee"
+      project_member_role: "owner" | "admin" | "member" | "viewer"
+      project_memory_type: "fact" | "decision" | "requirement" | "todo"
+      project_status: "active" | "archived" | "completed"
       user_status: "active" | "trial" | "limited" | "blocked"
     }
     CompositeTypes: {
@@ -1356,6 +1786,9 @@ export const Constants = {
   public: {
     Enums: {
       app_role: ["admin", "moderator", "employee"],
+      project_member_role: ["owner", "admin", "member", "viewer"],
+      project_memory_type: ["fact", "decision", "requirement", "todo"],
+      project_status: ["active", "archived", "completed"],
       user_status: ["active", "trial", "limited", "blocked"],
     },
   },

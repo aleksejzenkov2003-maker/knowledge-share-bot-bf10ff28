@@ -30,6 +30,8 @@ import BitrixDepartmentChat from "./pages/BitrixDepartmentChat";
 import BitrixSessions from "./pages/BitrixSessions";
 import GoldenResponses from "./pages/GoldenResponses";
  import PiiAudit from "./pages/PiiAudit";
+import Projects from "./pages/Projects";
+import ProjectChat from "./pages/ProjectChat";
 import NotFound from "./pages/NotFound";
 
 const queryClient = new QueryClient();
@@ -140,6 +142,16 @@ const App = () => (
                  <AdminLayout><PiiAudit /></AdminLayout>
                </ProtectedRoute>
              } />
+            <Route path="/projects" element={
+              <ProtectedRoute>
+                <AdminLayout><Projects /></AdminLayout>
+              </ProtectedRoute>
+            } />
+            <Route path="/projects/:id" element={
+              <ProtectedRoute>
+                <AdminLayout><ProjectChat /></AdminLayout>
+              </ProtectedRoute>
+            } />
             <Route path="*" element={<NotFound />} />
           </Routes>
         </BrowserRouter>
