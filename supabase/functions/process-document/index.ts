@@ -1898,7 +1898,7 @@ serve(async (req) => {
               currentPdfFullText = text;
               console.log('Anthropic OCR: No page markers found, page_start will be 1');
             }
-          } else if (anthropicOcrResult.errorCode === 401 || anthropicOcrResult.errorCode === 402 || anthropicOcrResult.errorCode === 429 || anthropicOcrResult.errorCode === 404 || anthropicOcrResult.errorCode === 408) {
+          } else if (anthropicOcrResult.errorCode === 400 || anthropicOcrResult.errorCode === 401 || anthropicOcrResult.errorCode === 402 || anthropicOcrResult.errorCode === 429 || anthropicOcrResult.errorCode === 404 || anthropicOcrResult.errorCode === 408) {
             // Anthropic unavailable - try Lovable AI fallback
             ocrErrorCode = anthropicOcrResult.errorCode;
             console.log(`Anthropic OCR unavailable (error ${ocrErrorCode}). Trying Lovable AI fallback...`);
