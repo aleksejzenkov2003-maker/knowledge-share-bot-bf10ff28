@@ -30,6 +30,7 @@ import {
   KeyRound,
   ExternalLink,
   Star,
+   Shield,
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 
@@ -54,6 +55,7 @@ const adminItems = [
   { title: 'API-ключи', url: '/api-keys', icon: KeyRound, roles: ['admin'] },
   { title: 'Битрикс-сессии', url: '/bitrix-sessions', icon: ExternalLink, roles: ['admin', 'moderator'] },
   { title: 'Логи чатов', url: '/chat-logs', icon: ClipboardList, roles: ['admin', 'moderator'] },
+   { title: 'Аудит ПДн', url: '/pii-audit', icon: Shield, roles: ['admin'] },
 ];
 
 const settingsItems = [

@@ -29,6 +29,7 @@ import BitrixPersonalChat from "./pages/BitrixPersonalChat";
 import BitrixDepartmentChat from "./pages/BitrixDepartmentChat";
 import BitrixSessions from "./pages/BitrixSessions";
 import GoldenResponses from "./pages/GoldenResponses";
+ import PiiAudit from "./pages/PiiAudit";
 import NotFound from "./pages/NotFound";
 
 const queryClient = new QueryClient();
@@ -134,6 +135,11 @@ const App = () => (
                 <AdminLayout><GoldenResponses /></AdminLayout>
               </ProtectedRoute>
             } />
+             <Route path="/pii-audit" element={
+               <ProtectedRoute allowedRoles={['admin']}>
+                 <AdminLayout><PiiAudit /></AdminLayout>
+               </ProtectedRoute>
+             } />
             <Route path="*" element={<NotFound />} />
           </Routes>
         </BrowserRouter>
