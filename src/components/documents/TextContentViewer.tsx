@@ -10,48 +10,90 @@ import { ScrollArea } from '@/components/ui/scroll-area';
 import { FileText, ExternalLink, Copy, Check } from 'lucide-react';
 import { toast } from '@/hooks/use-toast';
 
+// Insert logical line breaks into continuous text (no \n in source)
+function insertLineBreaks(text: string): string {
+  if (!text) return '';
+  
+  let result = text;
+  
+  // 1. Numbered points like "27. Text" or "28. Text" → break before number
+  result = result.replace(
+    /(\.\s*)(\d{1,3})\.\s+([А-ЯЁA-Z])/g,
+    '$1\n\n$2. $3'
+  );
+  
+  // 2. Sub-points "1)" or "а)" after punctuation → break
+  result = result.replace(
+    /([.;:])\s+(\d+\)|[а-яё]\))\s+/gi,
+    '$1\n$2 '
+  );
+  
+  // 3. "Статья X.", "Глава X", "Раздел X" → new block
+  result = result.replace(
+    /(\.|\s)\s*(Статья\s+\d+|Глава\s+[IVXLCDM\d]+|Раздел\s+[IVXLCDM\d]+)/gi,
+    '$1\n\n$2'
+  );
+  
+  // 4. Editorial notes "(Пункт в редакции..." → break after
+  result = result.replace(
+    /(\([^)]*редакции[^)]*\)\.?)\s*/gi,
+    '$1\n\n'
+  );
+  
+  // 5. Semicolons followed by lowercase letters often indicate list items
+  result = result.replace(
+    /;\s+([а-яё])/g,
+    ';\n$1'
+  );
+  
+  return result;
+}
+
 // Format chunk content for better readability
 function formatChunkContent(text: string): string {
   if (!text) return '';
   
-  // 1. Escape HTML tags for security
-  let formatted = text
+  // 1. First insert logical line breaks
+  let formatted = insertLineBreaks(text);
+  
+  // 2. Escape HTML tags for security
+  formatted = formatted
     .replace(/&/g, '&amp;')
     .replace(/</g, '&lt;')
     .replace(/>/g, '&gt;');
   
-  // 2. Process double line breaks as paragraphs
-  formatted = formatted.replace(/\n\s*\n/g, '</p><p class="mb-3">');
+  // 3. Process double line breaks as paragraphs
+  formatted = formatted.replace(/\n\s*\n/g, '</p><p class="mb-4">');
   
-  // 3. Single line breaks → <br>
+  // 4. Single line breaks → <br>
   formatted = formatted.replace(/\n/g, '<br>');
   
-  // 4. Recognize numbered items (1), 2), а), б), 1., 2.)
+  // 5. Highlight numbered points (27., 28., etc.) at start of paragraphs
   formatted = formatted.replace(
-    /(?:^|<br>)(\d+[\.\)]\s|[а-яё][\.\)]\s|\([а-яё\d]+\)\s)/gi,
-    (match, p1) => match.replace(p1, `<span class="font-medium text-primary/80">${p1}</span>`)
+    /(?:^|<br>|<p[^>]*>)(\d{1,3})\.\s/g,
+    (match, num) => match.replace(`${num}. `, `<span class="font-semibold text-primary">${num}.</span> `)
   );
   
-  // 5. Highlight section headers (lines in ALL CAPS, min 10 chars)
+  // 6. Highlight sub-points (1), а), etc.)
   formatted = formatted.replace(
-    /<br>([A-ZА-ЯЁ][A-ZА-ЯЁ\s\d.,\-():]{9,})<br>/g,
-    '<br><strong class="block mt-4 mb-2 text-base">$1</strong><br>'
+    /(\d+\)|[а-яё]\))\s/gi,
+    '<span class="text-muted-foreground font-medium">$1</span> '
   );
   
-  // 6. Highlight articles and paragraphs
+  // 7. Highlight articles and paragraphs
   formatted = formatted.replace(
     /(Статья\s+\d+(?:\.\d+)?\.?|§\s*\d+\.?|Глава\s+[IVXLCDM\d]+\.?|Раздел\s+[IVXLCDM\d]+\.?)/gi,
     '<span class="font-semibold text-primary">$1</span>'
   );
   
-  // 7. Highlight Roman numerals at start of lines
+  // 8. Highlight section headers (lines in ALL CAPS, min 10 chars)
   formatted = formatted.replace(
-    /(?:^|<br>)([IVXLCDM]+[\.\)]\s)/g,
-    (match, p1) => match.replace(p1, `<span class="font-medium text-primary/80">${p1}</span>`)
+    /<br>([A-ZА-ЯЁ][A-ZА-ЯЁ\s\d.,\-():]{9,})<br>/g,
+    '<br><strong class="block mt-4 mb-2 text-base">$1</strong><br>'
   );
   
   // Wrap in paragraph
-  return `<p class="mb-3">${formatted}</p>`;
+  return `<p class="mb-4">${formatted}</p>`;
 }
 
 interface TextContentViewerProps {
