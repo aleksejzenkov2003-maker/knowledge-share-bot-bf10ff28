@@ -1,4 +1,5 @@
 import React from "react";
+import { useState, useCallback } from "react";
 import { Card } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Bot, User, Clock, FileText, Loader2, BookOpen, Image, Globe, AlertTriangle } from "lucide-react";
@@ -20,6 +21,9 @@ import { MessageActions } from "./MessageActions";
 import { SourcesPanel } from "./SourcesPanel";
 import { MarkdownWithCitations } from "./MarkdownWithCitations";
 import { PiiIndicator } from "./PiiIndicator";
+import { PiiUnmaskDialog } from "./PiiUnmaskDialog";
+import { useAuth } from "@/contexts/AuthContext";
+import { toast } from "sonner";
 
 import { ChatRole } from "@/types/chat";
 
@@ -35,6 +39,19 @@ interface ChatMessageProps {
 function ChatMessageComponent({ message, onEditMessage, onRegenerateResponse, onSaveAsGolden, availableRoles, currentRoleId }: ChatMessageProps) {
   // Get the role name for the agent
   const roleName = availableRoles?.find(r => r.id === currentRoleId)?.name || 'Ассистент';
+  const { role } = useAuth();
+  const [showUnmaskDialog, setShowUnmaskDialog] = useState(false);
+  const [unmaskedContent, setUnmaskedContent] = useState<string | null>(null);
+
+  const canUnmask = role === 'admin' || role === 'moderator';
+
+  const handleUnmaskRequest = () => {
+    setShowUnmaskDialog(true);
+  };
+
+  const handleUnmasked = useCallback((originalText: string) => {
+    setUnmaskedContent(originalText);
+  }, []);
 
   return (
     <div
@@ -189,7 +206,9 @@ function ChatMessageComponent({ message, onEditMessage, onRegenerateResponse, on
               {/* PII Indicator */}
               {message.hasMaskedPii && (
                 <PiiIndicator 
-                  text={message.content}
+                  text={unmaskedContent || message.content}
+                  canUnmask={canUnmask && !unmaskedContent}
+                  onUnmaskRequest={handleUnmaskRequest}
                 />
               )}
             </div>
@@ -209,6 +228,15 @@ function ChatMessageComponent({ message, onEditMessage, onRegenerateResponse, on
             ragContext={message.ragContext}
             citations={message.citations}
             webSearchCitations={message.webSearchCitations}
+          />
+          
+          {/* PII Unmask Dialog */}
+          <PiiUnmaskDialog
+            open={showUnmaskDialog}
+            onOpenChange={setShowUnmaskDialog}
+            text={message.content}
+            sourceId={message.id}
+            onUnmasked={handleUnmasked}
           />
         </div>
       ) : (
