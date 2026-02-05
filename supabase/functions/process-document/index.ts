@@ -3,6 +3,14 @@ import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { getActivePatterns } from "../_shared/pii-patterns.ts";
 import { encryptAES256 } from "../_shared/pii-crypto.ts";
 
+// ============= OCR RESULT TYPE =============
+interface OcrResult {
+  success: boolean;
+  text: string;
+  errorCode?: number;
+  pages?: { pageNum: number; offset: number }[];
+}
+
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
   'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
@@ -10,6 +18,204 @@ const corsHeaders = {
 
 interface ProcessRequest {
   document_id: string;
+}
+
+// ============= SAFE BASE64 CONVERSION =============
+function uint8ArrayToBase64(bytes: Uint8Array): string {
+  let binary = '';
+  const chunkSize = 32768; // Process in 32KB chunks to avoid stack overflow
+  for (let i = 0; i < bytes.length; i += chunkSize) {
+    const chunk = bytes.subarray(i, Math.min(i + chunkSize, bytes.length));
+    binary += String.fromCharCode.apply(null, Array.from(chunk));
+  }
+  return btoa(binary);
+}
+
+// ============= PARSE OCR TEXT WITH PAGE MARKERS =============
+function parseOcrTextWithPages(ocrTextInput: string): { 
+  text: string; 
+  pages: { pageNum: number; offset: number }[] 
+} {
+  const pages: { pageNum: number; offset: number }[] = [];
+  
+  // Find all page markers: [СТРАНИЦА N] or [PAGE N]
+  const pageMarkerRegex = /\[(?:СТРАНИЦА|PAGE)\s*(\d+)\]/gi;
+  
+  // First pass: collect page positions
+  const matches: { index: number; pageNum: number; length: number }[] = [];
+  let match;
+  while ((match = pageMarkerRegex.exec(ocrTextInput)) !== null) {
+    matches.push({
+      index: match.index,
+      pageNum: parseInt(match[1], 10),
+      length: match[0].length
+    });
+  }
+  
+  // Build pages array with adjusted offsets (after removing markers)
+  let removedChars = 0;
+  for (const m of matches) {
+    pages.push({ 
+      pageNum: m.pageNum, 
+      offset: m.index - removedChars 
+    });
+    removedChars += m.length;
+  }
+  
+  // Remove markers from text
+  const cleanText = ocrTextInput.replace(/\[(?:СТРАНИЦА|PAGE)\s*\d+\]/gi, '');
+  
+  return { text: cleanText.trim(), pages };
+}
+
+// ============= LOVABLE AI OCR (PRIMARY) =============
+async function tryLovableAiOcr(pdfData: Uint8Array): Promise<OcrResult> {
+  const LOVABLE_API_KEY = Deno.env.get('LOVABLE_API_KEY');
+  if (!LOVABLE_API_KEY) {
+    console.log('LOVABLE_API_KEY not configured, skipping Lovable AI OCR');
+    return { success: false, text: '', errorCode: 0 };
+  }
+  
+  try {
+    const base64Pdf = uint8ArrayToBase64(pdfData);
+    
+    const ocrResponse = await fetch('https://ai.gateway.lovable.dev/v1/chat/completions', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${LOVABLE_API_KEY}`,
+      },
+      body: JSON.stringify({
+        model: 'google/gemini-2.5-flash',
+        messages: [
+          {
+            role: 'user',
+            content: [
+              {
+                type: 'text',
+                text: `Это PDF документ. Извлеки ВЕСЬ текст со всех страниц.
+
+КРИТИЧЕСКИ ВАЖНО:
+- В НАЧАЛЕ каждой страницы добавь маркер: [СТРАНИЦА N]
+- Например: [СТРАНИЦА 1] текст первой страницы... [СТРАНИЦА 2] текст второй...
+- Сохрани структуру: абзацы, списки, заголовки
+- Таблицы представь в текстовом виде
+- Язык документа сохрани без изменений
+
+Верни ТОЛЬКО извлечённый текст с маркерами страниц.`
+              },
+              {
+                type: 'image_url',
+                image_url: {
+                  url: `data:application/pdf;base64,${base64Pdf}`
+                }
+              }
+            ]
+          }
+        ],
+        max_tokens: 16000,
+      }),
+    });
+    
+    if (!ocrResponse.ok) {
+      const errorText = await ocrResponse.text();
+      console.error(`Lovable AI OCR error: ${ocrResponse.status} - ${errorText}`);
+      return { success: false, text: '', errorCode: ocrResponse.status };
+    }
+    
+    const ocrResult = await ocrResponse.json();
+    const ocrText = ocrResult.choices?.[0]?.message?.content || '';
+    
+    if (ocrText.length > 100) {
+      console.log(`Lovable AI OCR successful! Extracted ${ocrText.length} characters`);
+      const parsed = parseOcrTextWithPages(ocrText);
+      return { success: true, text: parsed.text, pages: parsed.pages };
+    }
+    
+    console.log('Lovable AI OCR returned insufficient text');
+    return { success: false, text: '', errorCode: 0 };
+    
+  } catch (error) {
+    console.error('Lovable AI OCR error:', error);
+    return { success: false, text: '', errorCode: 0 };
+  }
+}
+
+// ============= ANTHROPIC CLAUDE OCR (FALLBACK) =============
+async function tryAnthropicOcr(pdfData: Uint8Array): Promise<OcrResult> {
+  const ANTHROPIC_API_KEY = Deno.env.get('ANTHROPIC_API_KEY');
+  if (!ANTHROPIC_API_KEY) {
+    console.log('ANTHROPIC_API_KEY not configured, skipping Anthropic OCR fallback');
+    return { success: false, text: '', errorCode: 0 };
+  }
+  
+  try {
+    console.log('Attempting OCR via Anthropic Claude...');
+    const base64Pdf = uint8ArrayToBase64(pdfData);
+    
+    const response = await fetch('https://api.anthropic.com/v1/messages', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'x-api-key': ANTHROPIC_API_KEY,
+        'anthropic-version': '2023-06-01',
+      },
+      body: JSON.stringify({
+        model: 'claude-sonnet-4-20250514',
+        max_tokens: 16000,
+        messages: [
+          {
+            role: 'user',
+            content: [
+              {
+                type: 'document',
+                source: {
+                  type: 'base64',
+                  media_type: 'application/pdf',
+                  data: base64Pdf,
+                },
+              },
+              {
+                type: 'text',
+                text: `Извлеки ВЕСЬ текст из этого PDF документа.
+
+КРИТИЧЕСКИ ВАЖНО:
+- В НАЧАЛЕ каждой страницы добавь маркер: [СТРАНИЦА N]
+- Например: [СТРАНИЦА 1] текст первой страницы... [СТРАНИЦА 2] текст второй...
+- Сохрани структуру: абзацы, списки, заголовки
+- Таблицы представь в текстовом виде
+- Язык документа сохрани без изменений
+
+Верни ТОЛЬКО извлечённый текст с маркерами страниц.`,
+              },
+            ],
+          },
+        ],
+      }),
+    });
+    
+    if (!response.ok) {
+      const errorText = await response.text();
+      console.error(`Anthropic API error: ${response.status} - ${errorText}`);
+      return { success: false, text: '', errorCode: response.status };
+    }
+    
+    const result = await response.json();
+    const ocrText = result.content?.[0]?.text || '';
+    
+    if (ocrText.length > 100) {
+      console.log(`Anthropic OCR successful! Extracted ${ocrText.length} characters`);
+      const parsed = parseOcrTextWithPages(ocrText);
+      return { success: true, text: parsed.text, pages: parsed.pages };
+    }
+    
+    console.log('Anthropic OCR returned insufficient text');
+    return { success: false, text: '', errorCode: 0 };
+    
+  } catch (error) {
+    console.error('Anthropic OCR error:', error);
+    return { success: false, text: '', errorCode: 0 };
+  }
 }
 
 // ============= STRUCTURE PATTERNS FOR LEGAL DOCUMENTS =============
@@ -1644,160 +1850,95 @@ serve(async (req) => {
         
         // ============= OCR FALLBACK FOR SCANNED PDFs =============
         // If text extraction yielded very little text, the PDF is likely scanned images
-        // Use Lovable AI (Gemini) for OCR
+        // Use Lovable AI (Gemini) for OCR, with Anthropic Claude as fallback
         if (text.length < 200 && pdfData.length > 10000) {
           console.log(`PDF appears to be scanned (text length: ${text.length}). Attempting OCR via Lovable AI...`);
           
-          try {
-            // Convert first few pages to images and use Gemini for OCR
-            // We'll use the pdfData directly and send to Gemini with a specific prompt
+          let ocrErrorCode = 0;
+          let ocrSucceeded = false;
+          
+          // Try Lovable AI OCR first (primary)
+          const lovableOcrResult = await tryLovableAiOcr(pdfData);
+          
+          if (lovableOcrResult.success && lovableOcrResult.text) {
+            text = lovableOcrResult.text;
+            ocrSucceeded = true;
             
-            const LOVABLE_API_KEY = Deno.env.get('LOVABLE_API_KEY');
-            if (!LOVABLE_API_KEY) {
-              console.error('LOVABLE_API_KEY not configured for OCR');
-              throw new Error('OCR service not configured');
-            }
-            
-            // Safe base64 conversion using chunks to avoid stack overflow
-            function uint8ArrayToBase64(bytes: Uint8Array): string {
-              let binary = '';
-              const chunkSize = 32768; // Process in 32KB chunks to avoid stack overflow
-              for (let i = 0; i < bytes.length; i += chunkSize) {
-                const chunk = bytes.subarray(i, Math.min(i + chunkSize, bytes.length));
-                binary += String.fromCharCode.apply(null, Array.from(chunk));
+            // Build page data for getPageForChunk function
+            if (lovableOcrResult.pages && lovableOcrResult.pages.length > 0) {
+              currentPdfPagesData = [];
+              for (let i = 0; i < lovableOcrResult.pages.length; i++) {
+                const start = lovableOcrResult.pages[i].offset;
+                const end = i < lovableOcrResult.pages.length - 1 
+                  ? lovableOcrResult.pages[i + 1].offset 
+                  : text.length;
+                currentPdfPagesData.push({
+                  pageNum: lovableOcrResult.pages[i].pageNum,
+                  text: text.slice(start, end),
+                  startOffset: start,
+                  endOffset: end
+                });
               }
-              return btoa(binary);
+              currentPdfFullText = text;
+              console.log(`Lovable AI OCR: Parsed ${currentPdfPagesData.length} pages with offsets`);
+            } else {
+              currentPdfPagesData = [];
+              currentPdfFullText = text;
+              console.log('Lovable AI OCR: No page markers found, page_start will be 1');
             }
+          } else if (lovableOcrResult.errorCode === 402 || lovableOcrResult.errorCode === 429) {
+            // Credits exhausted or rate limited - try Anthropic fallback
+            ocrErrorCode = lovableOcrResult.errorCode;
+            console.log(`Lovable AI OCR unavailable (error ${ocrErrorCode}). Trying Anthropic Claude fallback...`);
             
-            // Convert PDF bytes to base64 for API call
-            const base64Pdf = uint8ArrayToBase64(pdfData);
+            const anthropicOcrResult = await tryAnthropicOcr(pdfData);
             
-            // Use Gemini for OCR via Lovable AI Gateway
-            const ocrResponse = await fetch('https://ai.gateway.lovable.dev/v1/chat/completions', {
-              method: 'POST',
-              headers: {
-                'Content-Type': 'application/json',
-                'Authorization': `Bearer ${LOVABLE_API_KEY}`,
-              },
-              body: JSON.stringify({
-                model: 'google/gemini-2.5-flash',
-                messages: [
-                  {
-                    role: 'user',
-                    content: [
-                      {
-                        type: 'text',
-                        text: `Это PDF документ. Извлеки ВЕСЬ текст со всех страниц.
-
-КРИТИЧЕСКИ ВАЖНО:
-- В НАЧАЛЕ каждой страницы добавь маркер: [СТРАНИЦА N]
-- Например: [СТРАНИЦА 1] текст первой страницы... [СТРАНИЦА 2] текст второй...
-- Сохрани структуру: абзацы, списки, заголовки
-- Таблицы представь в текстовом виде
-- Язык документа сохрани без изменений
-
-Верни ТОЛЬКО извлечённый текст с маркерами страниц.`
-                      },
-                      {
-                        type: 'image_url',
-                        image_url: {
-                          url: `data:application/pdf;base64,${base64Pdf}`
-                        }
-                      }
-                    ]
-                  }
-                ],
-                max_tokens: 16000,
-              }),
-            });
-            
-            if (!ocrResponse.ok) {
-              const errorText = await ocrResponse.text();
-              console.error(`OCR API error: ${ocrResponse.status} - ${errorText}`);
-              throw new Error(`OCR API failed: ${ocrResponse.status}`);
-            }
-            
-            const ocrResult = await ocrResponse.json();
-            const ocrText = ocrResult.choices?.[0]?.message?.content || '';
-            
-            if (ocrText.length > 100) {
-              console.log(`OCR successful! Extracted ${ocrText.length} characters`);
-              
-              // Parse OCR result to extract page markers
-              function parseOcrTextWithPages(ocrTextInput: string): { 
-                text: string; 
-                pages: { pageNum: number; offset: number }[] 
-              } {
-                const pages: { pageNum: number; offset: number }[] = [];
-                
-                // Find all page markers: [СТРАНИЦА N] or [PAGE N]
-                const pageMarkerRegex = /\[(?:СТРАНИЦА|PAGE)\s*(\d+)\]/gi;
-                
-                // First pass: collect page positions
-                const matches: { index: number; pageNum: number; length: number }[] = [];
-                let match;
-                while ((match = pageMarkerRegex.exec(ocrTextInput)) !== null) {
-                  matches.push({
-                    index: match.index,
-                    pageNum: parseInt(match[1], 10),
-                    length: match[0].length
-                  });
-                }
-                
-                // Build pages array with adjusted offsets (after removing markers)
-                let removedChars = 0;
-                for (const m of matches) {
-                  pages.push({ 
-                    pageNum: m.pageNum, 
-                    offset: m.index - removedChars 
-                  });
-                  removedChars += m.length;
-                }
-                
-                // Remove markers from text
-                const cleanText = ocrTextInput.replace(/\[(?:СТРАНИЦА|PAGE)\s*\d+\]/gi, '');
-                
-                return { text: cleanText.trim(), pages };
-              }
-              
-              const parsed = parseOcrTextWithPages(ocrText);
-              text = parsed.text;
+            if (anthropicOcrResult.success && anthropicOcrResult.text) {
+              text = anthropicOcrResult.text;
+              ocrSucceeded = true;
               
               // Build page data for getPageForChunk function
-              if (parsed.pages.length > 0) {
+              if (anthropicOcrResult.pages && anthropicOcrResult.pages.length > 0) {
                 currentPdfPagesData = [];
-                for (let i = 0; i < parsed.pages.length; i++) {
-                  const start = parsed.pages[i].offset;
-                  const end = i < parsed.pages.length - 1 
-                    ? parsed.pages[i + 1].offset 
+                for (let i = 0; i < anthropicOcrResult.pages.length; i++) {
+                  const start = anthropicOcrResult.pages[i].offset;
+                  const end = i < anthropicOcrResult.pages.length - 1 
+                    ? anthropicOcrResult.pages[i + 1].offset 
                     : text.length;
                   currentPdfPagesData.push({
-                    pageNum: parsed.pages[i].pageNum,
+                    pageNum: anthropicOcrResult.pages[i].pageNum,
                     text: text.slice(start, end),
                     startOffset: start,
                     endOffset: end
                   });
                 }
                 currentPdfFullText = text;
-                console.log(`OCR: Parsed ${currentPdfPagesData.length} pages with offsets`);
+                console.log(`Anthropic OCR: Parsed ${currentPdfPagesData.length} pages with offsets`);
               } else {
-                // Fallback: no page markers found
                 currentPdfPagesData = [];
                 currentPdfFullText = text;
-                console.log('OCR: No page markers found, page_start will be 1');
+                console.log('Anthropic OCR: No page markers found, page_start will be 1');
               }
             } else {
-              console.log('OCR returned insufficient text');
+              console.error('Both Lovable AI and Anthropic OCR failed');
             }
-            
-          } catch (ocrError) {
-            console.error('OCR failed:', ocrError);
-            // Continue with whatever text we have
+          } else {
+            // Other errors from Lovable AI - no fallback needed
+            ocrErrorCode = lovableOcrResult.errorCode || 0;
+            console.log('Lovable AI OCR failed without recoverable error');
           }
-        }
         
-        if (text.length < 100) {
-          text = `[PDF Document: ${doc.file_name}] - Не удалось извлечь текст из PDF. Документ может быть отсканирован без текстового слоя. Попробуйте загрузить текстовую версию документа.`;
+          // Set error message if OCR failed
+          if (!ocrSucceeded && text.length < 100) {
+            const reason = ocrErrorCode === 402 
+              ? 'Исчерпан лимит OCR кредитов и Anthropic fallback недоступен' 
+              : 'Не удалось извлечь текст';
+            
+            text = `[PDF Document: ${doc.file_name}] - ${reason}. Документ может быть отсканирован без текстового слоя.`;
+          }
+        } else if (text.length < 100) {
+          // Non-scanned PDF but still couldn't extract text
+          text = `[PDF Document: ${doc.file_name}] - Не удалось извлечь текст из PDF.`;
         }
       } else if (
         fileType.includes('word') || 
