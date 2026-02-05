@@ -1,243 +1,131 @@
 
-
-# План: Постоянная авторизация в Bitrix24 (без повторных входов)
+# План: Форматирование текста источников в TextContentViewer
 
 ## Проблема
 
-Сейчас при каждом открытии приложения в Bitrix24 происходит **новая авторизация**, что создаёт неудобства:
+При отображении фрагмента документа текст показывается как сплошной блок без переносов строк и структуры.
 
-| Проблема | Причина |
-|----------|---------|
-| JWT токен хранится в `sessionStorage` | Очищается при закрытии вкладки |
-| JWT токен истекает через 1 час | `expiresIn = 3600` секунд |
-| Нет механизма восстановления сессии | Каждое открытие iframe = новый `/auth` запрос |
-| В БД накапливаются дублирующиеся сессии | Нет переиспользования существующих сессий |
+**Причина**: Используется `dangerouslySetInnerHTML` с `whitespace-pre-wrap`, но в HTML символ `\n` не создаёт визуальный перенос - это происходит только в `<pre>` тегах или при преобразовании в `<br>`.
 
 ## Решение
 
-Реализовать **долгосрочную сессию** с использованием:
+Добавить функцию форматирования текста, которая:
 
-1. **localStorage** вместо sessionStorage для хранения токена (сохраняется между сессиями)
-2. **Длинный JWT** (7 дней) с автоматическим обновлением
-3. **Refresh-токен механизм** на бэкенде
-4. **Восстановление сессии** при открытии приложения
+1. **Преобразует переносы строк** в HTML-теги:
+   - Двойной перенос `\n\n` → новый параграф `</p><p>`
+   - Одинарный `\n` → разрыв строки `<br>`
 
-## Архитектура
+2. **Распознаёт структуры документа**:
+   - Нумерованные пункты (`1)`, `2)`, `а)`, `б)`) → элементы списка или отступы
+   - Заголовки разделов (ЗАГЛАВНЫЕ БУКВЫ на отдельной строке) → выделение `<strong>`
+   - Римские номера (`I.`, `II.`, `III.`) → структурные маркеры
+   - Статьи и параграфы (`Статья 123.`, `§ 5`) → заголовки подразделов
 
-```text
-┌─────────────────────────────────────────────────────────────────┐
-│                        BITRIX24 IFRAME                          │
-├─────────────────────────────────────────────────────────────────┤
-│                                                                 │
-│  1. При загрузке:                                              │
-│     localStorage.getItem('bitrix_token_{portal}_{userId}')     │
-│                                                                 │
-│  2. Если токен есть и не просрочен:                            │
-│     → Проверить через GET /me                                  │
-│     → Если 401 → Refresh или новый auth                        │
-│                                                                 │
-│  3. Если токен близок к истечению (< 1 час):                   │
-│     → POST /auth/refresh → Новый токен                         │
-│                                                                 │
-└─────────────────────────────────────────────────────────────────┘
-                              │
-                              ▼
-┌─────────────────────────────────────────────────────────────────┐
-│                   EDGE FUNCTION: bitrix-chat-api                │
-├─────────────────────────────────────────────────────────────────┤
-│                                                                 │
-│  POST /auth                                                     │
-│  - Создаёт JWT на 7 дней                                       │
-│  - Сохраняет bitrix_sessions                                   │
-│                                                                 │
-│  POST /auth/refresh (НОВЫЙ)                                    │
-│  - Проверяет старый токен                                      │
-│  - Выдаёт новый JWT на 7 дней                                  │
-│  - Обновляет bitrix_sessions                                   │
-│                                                                 │
-│  GET /me                                                        │
-│  - Проверяет валидность токена                                 │
-│  - Обновляет last_activity_at                                  │
-│                                                                 │
-└─────────────────────────────────────────────────────────────────┘
-```
-
----
-
-## Изменения
-
-### 1. Backend: Edge Function `bitrix-chat-api/index.ts`
-
-**Увеличить время жизни токена:**
-```typescript
-// Было: 1 час
-const expiresIn = 3600;
-
-// Станет: 7 дней
-const expiresIn = 7 * 24 * 3600; // 604800 секунд
-```
-
-**Добавить endpoint `/auth/refresh`:**
-```typescript
-// Новый обработчик для обновления токена
-if (path === 'auth/refresh' && req.method === 'POST') {
-  return await handleRefreshToken(req, supabase, jwtSecret);
-}
-
-async function handleRefreshToken(req, supabase, jwtSecret) {
-  // 1. Получить старый токен из Authorization header
-  // 2. Валидировать JWT (даже если истёк - проверить подпись)
-  // 3. Проверить сессию в БД
-  // 4. Выдать новый JWT на 7 дней
-  // 5. Обновить запись в bitrix_sessions
-}
-```
-
-### 2. Frontend: BitrixPersonalChat.tsx
-
-**Сохранять токен в localStorage:**
-```typescript
-const authStorageKey = `bitrix_auth_${portal}_${bitrixUserId}`;
-
-useEffect(() => {
-  const authenticate = async () => {
-    // 1. Попробовать восстановить токен из localStorage
-    const stored = localStorage.getItem(authStorageKey);
-    if (stored) {
-      const { token, expiresAt } = JSON.parse(stored);
-      
-      // Проверить валидность через /me
-      const meRes = await fetch(`${apiBaseUrl}/me`, {
-        headers: { 'Authorization': `Bearer ${token}` }
-      });
-      
-      if (meRes.ok) {
-        setToken(token);
-        
-        // Если осталось < 1 часа - обновить токен фоном
-        if (expiresAt - Date.now() < 3600000) {
-          refreshToken(token);
-        }
-        return;
-      }
-      
-      // Токен невалиден - очистить
-      localStorage.removeItem(authStorageKey);
-    }
-    
-    // 2. Новая авторизация
-    const response = await fetch(`${apiBaseUrl}/auth`, ...);
-    const data = await response.json();
-    
-    // 3. Сохранить в localStorage
-    localStorage.setItem(authStorageKey, JSON.stringify({
-      token: data.token,
-      expiresAt: Date.now() + (data.expires_in * 1000),
-      user: data.user
-    }));
-    
-    setToken(data.token);
-  };
-}, []);
-```
-
-### 3. Frontend: BitrixDepartmentChat.tsx
-
-Аналогичные изменения для корпоративного чата.
-
-### 4. Frontend: BitrixChatSecure.tsx
-
-Обновить существующую логику:
-- Заменить `sessionStorage` на `localStorage`
-- Увеличить время валидности кеша
-- Добавить фоновое обновление токена
-
----
-
-## Детали реализации
-
-### Структура хранения в localStorage
-
-```typescript
-interface StoredAuth {
-  token: string;
-  expiresAt: number;      // timestamp миллисекунды
-  user: {
-    user_id: string;
-    full_name: string;
-    department_id: string;
-    role: string;
-  };
-  savedAt: number;        // timestamp сохранения
-}
-```
-
-### Ключ хранения
-
-```typescript
-// Уникальный для каждого пользователя на каждом портале
-const authStorageKey = `bitrix_auth_v2_${portal}_${bitrixUserId}`;
-```
-
-### Фоновое обновление токена
-
-```typescript
-const refreshToken = async (currentToken: string) => {
-  try {
-    const response = await fetch(`${apiBaseUrl}/auth/refresh`, {
-      method: 'POST',
-      headers: { 
-        'Authorization': `Bearer ${currentToken}`,
-        'Content-Type': 'application/json'
-      },
-    });
-    
-    if (response.ok) {
-      const data = await response.json();
-      localStorage.setItem(authStorageKey, JSON.stringify({
-        token: data.token,
-        expiresAt: Date.now() + (data.expires_in * 1000),
-        user: data.user,
-        savedAt: Date.now()
-      }));
-      setToken(data.token);
-    }
-  } catch (error) {
-    console.error('Token refresh failed:', error);
-  }
-};
-```
-
----
-
-## Порядок выполнения
-
-1. **Backend**: Увеличить `expiresIn` в `/auth` до 7 дней
-2. **Backend**: Добавить endpoint `/auth/refresh`
-3. **Frontend**: Обновить `BitrixPersonalChat.tsx` - localStorage + восстановление
-4. **Frontend**: Обновить `BitrixDepartmentChat.tsx` - аналогично
-5. **Frontend**: Обновить `BitrixChatSecure.tsx` - заменить sessionStorage на localStorage
-6. **Deploy**: Развернуть обновлённый edge function
-
----
-
-## Безопасность
-
-| Аспект | Решение |
-|--------|---------|
-| Кража токена | Токен привязан к `bitrix_user_id` + `portal` - бесполезен для других |
-| XSS | localStorage уязвим, но токен короткоживущий относительно (7 дней) |
-| CSRF | Токен передаётся в Authorization header, не в cookies |
-| Сессия в БД | Можно отозвать через удаление записи в `bitrix_sessions` |
-
----
+3. **Сохраняет выделение ключевых слов** (`<mark>`) для поиска
 
 ## Файлы для изменения
 
 | Файл | Изменения |
 |------|-----------|
-| `supabase/functions/bitrix-chat-api/index.ts` | +`/auth/refresh`, увеличить TTL токена |
-| `src/pages/BitrixPersonalChat.tsx` | localStorage, восстановление сессии |
-| `src/pages/BitrixDepartmentChat.tsx` | localStorage, восстановление сессии |
-| `src/pages/BitrixChatSecure.tsx` | Заменить sessionStorage на localStorage |
+| `src/components/documents/TextContentViewer.tsx` | Добавить функцию `formatChunkContent()` для преобразования текста |
 
+## Техническая реализация
+
+```typescript
+// Новая функция форматирования
+function formatChunkContent(text: string): string {
+  if (!text) return '';
+  
+  // 1. Экранируем HTML-теги для безопасности
+  let formatted = text
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;');
+  
+  // 2. Обрабатываем двойные переносы как параграфы
+  formatted = formatted.replace(/\n\s*\n/g, '</p><p class="mb-3">');
+  
+  // 3. Одиночные переносы → <br>
+  formatted = formatted.replace(/\n/g, '<br>');
+  
+  // 4. Распознаём нумерованные пункты (1), 2), а), б))
+  formatted = formatted.replace(
+    /^(\d+\)|\d+\.|\([a-zа-яё]\)|[а-яё]\))/gim,
+    '<span class="font-medium text-primary/80">$1</span>'
+  );
+  
+  // 5. Выделяем заголовки разделов (строки ЗАГЛАВНЫМИ БУКВАМИ)
+  formatted = formatted.replace(
+    /<br>([A-ZА-ЯЁ][A-ZА-ЯЁ\s\d.,\-()]+)<br>/g,
+    '<br><strong class="block mt-3 mb-1">$1</strong><br>'
+  );
+  
+  // 6. Выделяем статьи и параграфы
+  formatted = formatted.replace(
+    /(Статья\s+\d+(?:\.\d+)?\.?|§\s*\d+\.?)/g,
+    '<span class="font-semibold text-primary">$1</span>'
+  );
+  
+  // Оборачиваем в параграф
+  return `<p class="mb-3">${formatted}</p>`;
+}
+```
+
+## Обновлённый useMemo
+
+```typescript
+const highlightedContent = useMemo(() => {
+  if (!chunkContent) return '';
+  
+  // Сначала форматируем
+  let formatted = formatChunkContent(chunkContent);
+  
+  // Затем подсвечиваем искомый текст (если есть)
+  if (highlightText) {
+    const escaped = highlightText.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    try {
+      const regex = new RegExp(`(${escaped})`, 'gi');
+      formatted = formatted.replace(
+        regex, 
+        '<mark class="bg-yellow-300/60 dark:bg-yellow-500/40 px-0.5 rounded">$1</mark>'
+      );
+    } catch {
+      // Regex failed, keep formatted content
+    }
+  }
+  
+  return formatted;
+}, [chunkContent, highlightText]);
+```
+
+## Примеры результата
+
+**До (сплошной текст):**
+```
+49. Предоставление государственной услуги в электронной форме начинается с момента приема и регистрации электронных документов... 50. При предоставлении государственной услуги в электронной форме заявителю...
+```
+
+**После (структурированный):**
+```
+49. Предоставление государственной услуги в электронной форме 
+    начинается с момента приема и регистрации электронных документов...
+
+50. При предоставлении государственной услуги в электронной форме 
+    заявителю направляются:
+      1) уведомление о приеме и регистрации заявления...
+      2) уведомление о результатах рассмотрения...
+```
+
+## CSS-классы (уже есть в Tailwind)
+
+- `mb-3` — отступ между абзацами
+- `font-medium`, `font-semibold` — выделение заголовков
+- `text-primary` — цвет для номеров статей
+- `block mt-3 mb-1` — блочные заголовки разделов
+
+## Порядок реализации
+
+1. Добавить функцию `formatChunkContent()` в `TextContentViewer.tsx`
+2. Обновить логику `highlightedContent` useMemo
+3. Убрать `whitespace-pre-wrap` из className (уже не нужен)
+4. Протестировать на различных типах документов (законы, регламенты, судебные решения)
