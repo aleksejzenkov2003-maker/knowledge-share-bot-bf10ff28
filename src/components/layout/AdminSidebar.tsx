@@ -31,6 +31,7 @@ import {
   ExternalLink,
   Star,
    Shield,
+  FolderKanban,
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 
@@ -38,6 +39,7 @@ const mainMenuItems = [
   { title: 'Дашборд', url: '/', icon: LayoutDashboard, roles: ['admin', 'moderator'] },
   { title: 'Чат', url: '/chat', icon: MessageSquare },
   { title: 'Чат отдела', url: '/department-chat', icon: MessagesSquare },
+  { title: 'Проекты', url: '/projects', icon: FolderKanban },
 ];
 
 const managementItems = [
