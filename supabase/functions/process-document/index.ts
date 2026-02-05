@@ -149,19 +149,25 @@ async function tryAnthropicOcr(pdfData: Uint8Array): Promise<OcrResult> {
     return { success: false, text: '', errorCode: 0 };
   }
   
+  // Timeout 55 seconds (Edge Functions have ~60s limit)
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), 55000);
+  
   try {
     console.log('Attempting OCR via Anthropic Claude...');
     const base64Pdf = uint8ArrayToBase64(pdfData);
     
     const response = await fetch('https://api.anthropic.com/v1/messages', {
       method: 'POST',
+      signal: controller.signal,
       headers: {
         'Content-Type': 'application/json',
         'x-api-key': ANTHROPIC_API_KEY,
         'anthropic-version': '2023-06-01',
+        'anthropic-beta': 'pdfs-2024-09-25',
       },
       body: JSON.stringify({
-        model: 'claude-sonnet-4-20250514',
+        model: 'claude-3-5-sonnet-latest',
         max_tokens: 16000,
         messages: [
           {
@@ -212,9 +218,15 @@ async function tryAnthropicOcr(pdfData: Uint8Array): Promise<OcrResult> {
     console.log('Anthropic OCR returned insufficient text');
     return { success: false, text: '', errorCode: 0 };
     
-  } catch (error) {
+  } catch (error: unknown) {
+    if (error instanceof Error && error.name === 'AbortError') {
+      console.error('Anthropic OCR timeout (55s exceeded)');
+      return { success: false, text: '', errorCode: 408 };
+    }
     console.error('Anthropic OCR error:', error);
     return { success: false, text: '', errorCode: 0 };
+  } finally {
+    clearTimeout(timeoutId);
   }
 }
 
