@@ -54,7 +54,7 @@ import {
 import { toast } from "sonner";
 import { Plus, Upload, FileText, Trash2, Eye, Loader2, RefreshCw, ImageIcon, X, Split, AlertTriangle, LayoutList, LayoutGrid, Shield } from "lucide-react";
 import { splitPdf, getPdfPageCount, generatePartFileName, SplitProgress, estimatePdfParts } from "@/components/documents/pdfSplitter";
-import { DocumentTree, Document as TreeDocument, DocumentFolder as TreeFolder, MissingPartsInfo } from "@/components/documents/DocumentTree";
+import { DocumentTree, Document as TreeDocument, DocumentFolder as TreeFolder, MissingPartsInfo, DocumentGroup } from "@/components/documents/DocumentTree";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 
 interface DocumentFolder {
@@ -148,6 +148,11 @@ export default function Documents() {
   const [missingPartsDialogOpen, setMissingPartsDialogOpen] = useState(false);
   const [missingPartsInfo, setMissingPartsInfo] = useState<MissingPartsInfo | null>(null);
   const missingPartsFileInputRef = useRef<HTMLInputElement>(null);
+  
+  // Delete group state
+  const [deleteGroupDialogOpen, setDeleteGroupDialogOpen] = useState(false);
+  const [pendingDeleteGroup, setPendingDeleteGroup] = useState<DocumentGroup | null>(null);
+  const [deletingGroup, setDeletingGroup] = useState(false);
 
   const [formData, setFormData] = useState({
     name: "",
@@ -524,6 +529,72 @@ export default function Documents() {
     } catch (error: any) {
       console.error("Error deleting document:", error);
       toast.error(error.message || "Ошибка удаления");
+    }
+  };
+
+  // Handle delete entire document group (all parts)
+  const handleDeleteGroup = (group: DocumentGroup) => {
+    setPendingDeleteGroup(group);
+    setDeleteGroupDialogOpen(true);
+  };
+
+  const confirmDeleteGroup = async () => {
+    if (!pendingDeleteGroup) return;
+    
+    setDeletingGroup(true);
+    
+    try {
+      const docsToDelete = pendingDeleteGroup.documents;
+      const parentDoc = pendingDeleteGroup.parentDocument;
+      
+      // Collect all storage paths
+      const storagePaths: string[] = [];
+      const docIds: string[] = [];
+      
+      for (const doc of docsToDelete) {
+        if (doc.storage_path) {
+          storagePaths.push(doc.storage_path);
+        }
+        docIds.push(doc.id);
+      }
+      
+      // Also include parent document if exists
+      if (parentDoc) {
+        if (parentDoc.storage_path) {
+          storagePaths.push(parentDoc.storage_path);
+        }
+        docIds.push(parentDoc.id);
+      }
+      
+      // Delete files from storage
+      if (storagePaths.length > 0) {
+        const { error: storageError } = await supabase.storage
+          .from("rag-documents")
+          .remove(storagePaths);
+        
+        if (storageError) {
+          console.error("Storage delete error:", storageError);
+          // Continue anyway - DB records are more important
+        }
+      }
+      
+      // Delete document records (cascade will delete chunks)
+      const { error: deleteError } = await supabase
+        .from("documents")
+        .delete()
+        .in("id", docIds);
+      
+      if (deleteError) throw deleteError;
+      
+      toast.success(`Удалено ${docIds.length} документов (все части)`);
+      setDeleteGroupDialogOpen(false);
+      setPendingDeleteGroup(null);
+      fetchData();
+    } catch (error: any) {
+      console.error("Error deleting document group:", error);
+      toast.error(error.message || "Ошибка удаления группы документов");
+    } finally {
+      setDeletingGroup(false);
     }
   };
 
@@ -1045,6 +1116,7 @@ export default function Documents() {
               onReprocess={handleReprocess}
               onViewChunks={handleViewChunks}
               onDelete={handleDelete}
+              onDeleteGroup={handleDeleteGroup}
               onUploadMissingParts={handleUploadMissingParts}
               formatFileSize={formatFileSize}
             />
@@ -1244,6 +1316,72 @@ export default function Documents() {
           </div>
         </DialogContent>
       </Dialog>
+
+      {/* Delete Group Confirmation Dialog */}
+      <AlertDialog open={deleteGroupDialogOpen} onOpenChange={setDeleteGroupDialogOpen}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle className="flex items-center gap-2">
+              <AlertTriangle className="h-5 w-5 text-destructive" />
+              Удалить все части документа?
+            </AlertDialogTitle>
+            <AlertDialogDescription className="space-y-2">
+              {pendingDeleteGroup && (
+                <>
+                  <p>
+                    Будет удалено <strong>{pendingDeleteGroup.documents.length} частей</strong> документа
+                    {pendingDeleteGroup.parentDocument && ` и родительский документ`}.
+                  </p>
+                  <div className="rounded-lg border bg-muted/50 p-3 mt-2 text-sm">
+                    <div className="flex justify-between">
+                      <span className="text-muted-foreground">Всего файлов:</span>
+                      <span className="font-medium">
+                        {pendingDeleteGroup.documents.length + (pendingDeleteGroup.parentDocument ? 1 : 0)}
+                      </span>
+                    </div>
+                    <div className="flex justify-between">
+                      <span className="text-muted-foreground">Размер:</span>
+                      <span className="font-medium">
+                        {formatFileSize(
+                          pendingDeleteGroup.documents.reduce((sum, d) => sum + (d.file_size || 0), 0) +
+                          (pendingDeleteGroup.parentDocument?.file_size || 0)
+                        )}
+                      </span>
+                    </div>
+                    <div className="flex justify-between">
+                      <span className="text-muted-foreground">Чанков:</span>
+                      <span className="font-medium">
+                        {pendingDeleteGroup.documents.reduce((sum, d) => sum + (d.chunk_count || 0), 0) +
+                          (pendingDeleteGroup.parentDocument?.chunk_count || 0)}
+                      </span>
+                    </div>
+                  </div>
+                  <p className="text-destructive font-medium mt-2">
+                    Это действие нельзя отменить. Файлы и индексы будут удалены безвозвратно.
+                  </p>
+                </>
+              )}
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={deletingGroup}>Отмена</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={confirmDeleteGroup}
+              disabled={deletingGroup}
+              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+            >
+              {deletingGroup ? (
+                <>
+                  <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                  Удаление...
+                </>
+              ) : (
+                "Удалить всё"
+              )}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   );
 }
