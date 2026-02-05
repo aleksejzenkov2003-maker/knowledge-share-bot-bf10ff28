@@ -155,8 +155,9 @@ export default function BitrixDepartmentChat() {
   const departmentIdParam = searchParams.get('departmentId') || '';
   const theme = searchParams.get('theme') || 'light';
   
-  // Storage key for state persistence (unique per department/portal)
-  const storageKey = `bitrix_dept_chat_${portal}_${departmentIdParam || 'default'}_${bitrixUserId}`;
+  // Storage keys (unique per department/portal)
+  const stateStorageKey = `bitrix_dept_chat_${portal}_${departmentIdParam || 'default'}_${bitrixUserId}`;
+  const authStorageKey = `bitrix_auth_v2_${portal}_${bitrixUserId}`;
 
   // STATE PERSISTENCE: Save state on visibility change or blur
   useEffect(() => {
@@ -172,7 +173,7 @@ export default function BitrixDepartmentChat() {
       };
       
       try {
-        sessionStorage.setItem(storageKey, JSON.stringify(stateToSave));
+        sessionStorage.setItem(stateStorageKey, JSON.stringify(stateToSave));
         console.log('Bitrix Dept: State saved to sessionStorage');
       } catch (e) {
         console.error('Failed to save state:', e);
@@ -198,12 +199,12 @@ export default function BitrixDepartmentChat() {
       window.removeEventListener('blur', saveState);
       window.removeEventListener('beforeunload', handleBeforeUnload);
     };
-  }, [token, inputValue, selectedAgentId, sidebarOpen, filterAgentId, storageKey]);
+  }, [token, inputValue, selectedAgentId, sidebarOpen, filterAgentId, stateStorageKey]);
   
   // STATE PERSISTENCE: Restore state on mount
   useEffect(() => {
     try {
-      const savedState = sessionStorage.getItem(storageKey);
+      const savedState = sessionStorage.getItem(stateStorageKey);
       if (savedState) {
         const parsed = JSON.parse(savedState);
         // Only restore if saved within the last 30 minutes
@@ -218,7 +219,7 @@ export default function BitrixDepartmentChat() {
     } catch (e) {
       console.error('Failed to restore state:', e);
     }
-  }, [storageKey]);
+  }, [stateStorageKey]);
 
   // Apply theme
   useEffect(() => {
@@ -238,6 +239,57 @@ export default function BitrixDepartmentChat() {
         setAuthError('Отсутствуют параметры авторизации. Проверьте настройки приложения в Bitrix24.');
         setIsAuthenticating(false);
         return;
+      }
+
+      // Try to restore token from localStorage (persistent auth)
+      try {
+        const stored = localStorage.getItem(authStorageKey);
+        if (stored) {
+          const { token: storedToken, expiresAt } = JSON.parse(stored);
+          
+          // Check if token is still valid (with 1 hour buffer)
+          if (expiresAt && expiresAt > Date.now() + 3600000) {
+            // Verify token is still valid on server
+            const meResponse = await fetch(`${apiBaseUrl}/me`, {
+              headers: { 'Authorization': `Bearer ${storedToken}` },
+            });
+
+            if (meResponse.ok) {
+              const meData = await meResponse.json();
+              setToken(storedToken);
+              setUser(meData);
+              console.log('Bitrix Dept: Restored session from localStorage');
+              
+              // Background refresh if less than 1 day remaining
+              if (expiresAt - Date.now() < 24 * 3600 * 1000) {
+                refreshTokenInBackground(storedToken);
+              }
+              
+              setIsAuthenticating(false);
+              return;
+            } else {
+              // Token invalid, try to refresh
+              const refreshed = await refreshToken(storedToken);
+              if (refreshed) {
+                setIsAuthenticating(false);
+                return;
+              }
+            }
+          } else if (expiresAt && expiresAt > Date.now()) {
+            // Token close to expiring, try refresh first
+            const refreshed = await refreshToken(storedToken);
+            if (refreshed) {
+              setIsAuthenticating(false);
+              return;
+            }
+          }
+          
+          // Token expired or invalid - clear and re-authenticate
+          localStorage.removeItem(authStorageKey);
+        }
+      } catch (e) {
+        console.error('Failed to restore auth from localStorage:', e);
+        localStorage.removeItem(authStorageKey);
       }
 
       const controller = new AbortController();
@@ -270,6 +322,14 @@ export default function BitrixDepartmentChat() {
         const data = await response.json();
         setToken(data.token);
         setUser(data.user);
+
+        // Save to localStorage for persistent auth
+        localStorage.setItem(authStorageKey, JSON.stringify({
+          token: data.token,
+          expiresAt: Date.now() + (data.expires_in * 1000),
+          user: data.user,
+          savedAt: Date.now(),
+        }));
       } catch (error) {
         console.error('Auth error:', error);
         if (error instanceof Error) {
@@ -288,8 +348,45 @@ export default function BitrixDepartmentChat() {
       }
     };
 
+    // Refresh token helper
+    const refreshToken = async (currentToken: string): Promise<boolean> => {
+      try {
+        const response = await fetch(`${apiBaseUrl}/auth/refresh`, {
+          method: 'POST',
+          headers: {
+            'Authorization': `Bearer ${currentToken}`,
+            'Content-Type': 'application/json',
+          },
+        });
+
+        if (response.ok) {
+          const data = await response.json();
+          setToken(data.token);
+          setUser(data.user);
+          
+          localStorage.setItem(authStorageKey, JSON.stringify({
+            token: data.token,
+            expiresAt: Date.now() + (data.expires_in * 1000),
+            user: data.user,
+            savedAt: Date.now(),
+          }));
+          
+          console.log('Bitrix Dept: Token refreshed successfully');
+          return true;
+        }
+      } catch (error) {
+        console.error('Token refresh failed:', error);
+      }
+      return false;
+    };
+
+    // Background refresh (non-blocking)
+    const refreshTokenInBackground = (currentToken: string) => {
+      refreshToken(currentToken).catch(console.error);
+    };
+
     authenticate();
-  }, [portal, bitrixUserId, userName, userEmail, apiBaseUrl]);
+  }, [portal, bitrixUserId, userName, userEmail, apiBaseUrl, authStorageKey]);
 
   // Fetch agents and messages after auth
   useEffect(() => {

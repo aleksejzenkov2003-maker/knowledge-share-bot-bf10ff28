@@ -88,6 +88,9 @@ const BitrixChatSecure = () => {
   const userEmailFromUrl = params.get('userEmail') || '';
 
   const baseUrl = `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/bitrix-chat-api`;
+  
+  // Storage key for persistent auth
+  const authStorageKey = `bitrix_auth_v2_${portalFromUrl}_${bitrixUserIdFromUrl}`;
 
   // Get headers with JWT token
   const getHeaders = useCallback(() => {
@@ -98,11 +101,55 @@ const BitrixChatSecure = () => {
     };
   }, [authState?.token]);
 
-  // Authenticate with Bitrix
-  const authenticate = useCallback(async (portal: string, bitrixUserId: string, userName?: string, userEmail?: string) => {
+  // Authenticate with Bitrix (with localStorage persistence)
+  const authenticate = useCallback(async (portal: string, bitrixUserId: string, userName?: string, userEmail?: string, skipRestore = false) => {
     try {
       setAuthError(null);
       
+      // Build storage key for this user
+      const storageKey = `bitrix_auth_v2_${portal}_${bitrixUserId}`;
+      
+      // Try to restore from localStorage first (unless skipping)
+      if (!skipRestore) {
+        try {
+          const stored = localStorage.getItem(storageKey);
+          if (stored) {
+            const parsed: AuthState & { savedAt: number } = JSON.parse(stored);
+            
+            // Check if token is still valid (with 1 hour buffer)
+            if (parsed.expiresAt > Date.now() + 3600000) {
+              // Verify token with server
+              const meRes = await fetch(`${baseUrl}/me`, {
+                headers: { 'Authorization': `Bearer ${parsed.token}` }
+              });
+              
+              if (meRes.ok) {
+                setAuthState(parsed);
+                console.log('BitrixChatSecure: Restored session from localStorage');
+                
+                // Background refresh if less than 1 day remaining
+                if (parsed.expiresAt - Date.now() < 24 * 3600 * 1000) {
+                  refreshTokenInBackground(parsed.token, storageKey);
+                }
+                
+                return parsed;
+              }
+            } else if (parsed.expiresAt > Date.now()) {
+              // Token close to expiring, try refresh
+              const refreshed = await refreshStoredToken(parsed.token, storageKey);
+              if (refreshed) return refreshed;
+            }
+            
+            // Token invalid - clear
+            localStorage.removeItem(storageKey);
+          }
+        } catch (e) {
+          console.error('Failed to restore from localStorage:', e);
+          localStorage.removeItem(storageKey);
+        }
+      }
+      
+      // New authentication
       const response = await fetch(`${baseUrl}/auth`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -129,14 +176,17 @@ const BitrixChatSecure = () => {
 
       setAuthState(newAuthState);
       
-      // Store in sessionStorage (more secure than localStorage)
-      sessionStorage.setItem('bitrix_auth', JSON.stringify(newAuthState));
+      // Store in localStorage for persistent sessions
+      localStorage.setItem(storageKey, JSON.stringify({
+        ...newAuthState,
+        savedAt: Date.now(),
+      }));
 
-      // Schedule token refresh (5 minutes before expiration)
-      const refreshIn = (data.expires_in - 300) * 1000;
+      // Schedule token refresh (1 day before expiration)
+      const refreshIn = (data.expires_in - 86400) * 1000;
       if (refreshIn > 0) {
         refreshTimerRef.current = setTimeout(() => {
-          authenticate(portal, bitrixUserId, userName, userEmail);
+          refreshStoredToken(data.token, storageKey);
         }, refreshIn);
       }
 
@@ -147,25 +197,48 @@ const BitrixChatSecure = () => {
     }
   }, [baseUrl]);
 
+  // Refresh token helper
+  const refreshStoredToken = async (currentToken: string, storageKey: string): Promise<AuthState | null> => {
+    try {
+      const response = await fetch(`${baseUrl}/auth/refresh`, {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${currentToken}`,
+          'Content-Type': 'application/json',
+        },
+      });
+
+      if (response.ok) {
+        const data = await response.json();
+        const newAuthState: AuthState = {
+          token: data.token,
+          expiresAt: Date.now() + (data.expires_in * 1000),
+          user: data.user,
+        };
+        
+        setAuthState(newAuthState);
+        localStorage.setItem(storageKey, JSON.stringify({
+          ...newAuthState,
+          savedAt: Date.now(),
+        }));
+        
+        console.log('BitrixChatSecure: Token refreshed successfully');
+        return newAuthState;
+      }
+    } catch (error) {
+      console.error('Token refresh failed:', error);
+    }
+    return null;
+  };
+
+  // Background refresh (non-blocking)
+  const refreshTokenInBackground = (currentToken: string, storageKey: string) => {
+    refreshStoredToken(currentToken, storageKey).catch(console.error);
+  };
+
   // Initialize authentication
   useEffect(() => {
     const initAuth = async () => {
-      // Try to restore from sessionStorage
-      const stored = sessionStorage.getItem('bitrix_auth');
-      if (stored) {
-        try {
-          const parsed: AuthState = JSON.parse(stored);
-          // Check if still valid (with 5 min buffer)
-          if (parsed.expiresAt > Date.now() + 300000) {
-            setAuthState(parsed);
-            setIsLoading(false);
-            return;
-          }
-        } catch {
-          sessionStorage.removeItem('bitrix_auth');
-        }
-      }
-
       // Check if BX24 SDK is available
       if (window.BX24) {
         window.BX24.init(() => {

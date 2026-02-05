@@ -264,6 +264,11 @@ serve(async (req: Request) => {
     }
 
     // Route to appropriate handler
+    // === AUTH REFRESH ENDPOINT ===
+    if (path === 'auth/refresh' && req.method === 'POST') {
+      return await handleAuthRefresh(req, supabase, jwtSecret);
+    }
+
     // === PERSONAL CHAT ENDPOINTS ===
     if (path === 'personal/conversations' && req.method === 'GET') {
       return await handleGetPersonalConversations(url, supabase, userId);
@@ -622,8 +627,8 @@ async function handleAuth(
 
   const { userId, isNew, role } = await getOrCreateUser(supabase, departmentId!, bitrixUserInfo);
 
-  // Create JWT (1 hour expiration)
-  const expiresIn = 3600; // 1 hour
+  // Create JWT (7 days expiration for persistent sessions)
+  const expiresIn = 7 * 24 * 3600; // 7 days (604800 seconds)
   const expiresAt = Math.floor(Date.now() / 1000) + expiresIn;
   
   const jwtPayload: Omit<JWTPayload, 'iat'> = {
@@ -677,6 +682,171 @@ async function handleAuth(
       department_name: departmentName,
     },
     is_new_user: isNew,
+  }), {
+    headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+  });
+}
+
+// ============ AUTH REFRESH HANDLER ============
+async function handleAuthRefresh(
+  req: Request,
+  supabase: any,
+  jwtSecret: string
+): Promise<Response> {
+  const authHeader = req.headers.get('Authorization');
+  if (!authHeader?.startsWith('Bearer ')) {
+    return new Response(JSON.stringify({ error: 'Missing token' }), {
+      status: 401,
+      headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+    });
+  }
+
+  const token = authHeader.substring(7);
+  
+  // Verify JWT signature (ignore expiration for refresh)
+  let payload: JWTPayload | null = null;
+  try {
+    const parts = token.split('.');
+    if (parts.length !== 3) throw new Error('Invalid token format');
+    
+    const [headerB64, payloadB64, signatureB64] = parts;
+    
+    const encoder = new TextEncoder();
+    const data = encoder.encode(`${headerB64}.${payloadB64}`);
+    const key = await crypto.subtle.importKey(
+      'raw',
+      encoder.encode(jwtSecret),
+      { name: 'HMAC', hash: 'SHA-256' },
+      false,
+      ['verify']
+    );
+    
+    const signatureStr = signatureB64.replace(/-/g, '+').replace(/_/g, '/');
+    const padding = '='.repeat((4 - signatureStr.length % 4) % 4);
+    const signature = Uint8Array.from(atob(signatureStr + padding), c => c.charCodeAt(0));
+    
+    const valid = await crypto.subtle.verify('HMAC', key, signature, data);
+    if (!valid) throw new Error('Invalid signature');
+    
+    const payloadStr = payloadB64.replace(/-/g, '+').replace(/_/g, '/');
+    const payloadPadding = '='.repeat((4 - payloadStr.length % 4) % 4);
+    payload = JSON.parse(atob(payloadStr + payloadPadding));
+  } catch (error) {
+    console.log('[AUTH REFRESH] Token verification failed:', error);
+    return new Response(JSON.stringify({ error: 'Invalid token' }), {
+      status: 401,
+      headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+    });
+  }
+
+  if (!payload) {
+    return new Response(JSON.stringify({ error: 'Invalid token payload' }), {
+      status: 401,
+      headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+    });
+  }
+
+  // Check if token is not too old (max 14 days for refresh)
+  const tokenAge = Math.floor(Date.now() / 1000) - payload.iat;
+  const maxRefreshAge = 14 * 24 * 3600; // 14 days
+  if (tokenAge > maxRefreshAge) {
+    return new Response(JSON.stringify({ error: 'Token too old for refresh' }), {
+      status: 401,
+      headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+    });
+  }
+
+  // Verify session exists in database
+  const oldTokenHash = await hashToken(token);
+  const { data: existingSession } = await supabase
+    .from('bitrix_sessions')
+    .select('id, user_id, department_id')
+    .eq('jwt_token_hash', oldTokenHash)
+    .single();
+
+  // If no session found with old token hash, check if user/department still valid
+  if (!existingSession) {
+    // Check if user still exists and has valid department
+    const { data: profile } = await supabase
+      .from('profiles')
+      .select('id, department_id')
+      .eq('id', payload.sub)
+      .single();
+
+    if (!profile) {
+      return new Response(JSON.stringify({ error: 'User not found' }), {
+        status: 401,
+        headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+      });
+    }
+  }
+
+  // Create new JWT with fresh expiration
+  const expiresIn = 7 * 24 * 3600; // 7 days
+  const expiresAt = Math.floor(Date.now() / 1000) + expiresIn;
+  
+  const newPayload: Omit<JWTPayload, 'iat'> = {
+    sub: payload.sub,
+    department_id: payload.department_id,
+    bitrix_user_id: payload.bitrix_user_id,
+    portal: payload.portal,
+    role: payload.role,
+    exp: expiresAt,
+  };
+
+  const newToken = await createJWT(newPayload, jwtSecret);
+  const newTokenHash = await hashToken(newToken);
+
+  // Update or create session
+  if (existingSession) {
+    await supabase
+      .from('bitrix_sessions')
+      .update({
+        jwt_token_hash: newTokenHash,
+        expires_at: new Date(expiresAt * 1000).toISOString(),
+        last_activity_at: new Date().toISOString(),
+      })
+      .eq('id', existingSession.id);
+  } else {
+    await supabase
+      .from('bitrix_sessions')
+      .insert({
+        user_id: payload.sub,
+        department_id: payload.department_id,
+        bitrix_user_id: payload.bitrix_user_id,
+        portal_domain: payload.portal,
+        jwt_token_hash: newTokenHash,
+        expires_at: new Date(expiresAt * 1000).toISOString(),
+      });
+  }
+
+  // Get user profile for response
+  const { data: profile } = await supabase
+    .from('profiles')
+    .select('id, full_name, email, avatar_url, department_id')
+    .eq('id', payload.sub)
+    .single();
+
+  let departmentName = null;
+  if (profile?.department_id) {
+    const { data: dept } = await supabase
+      .from('departments')
+      .select('name')
+      .eq('id', profile.department_id)
+      .single();
+    departmentName = dept?.name;
+  }
+
+  console.log('[AUTH REFRESH] Token refreshed for user:', payload.sub);
+
+  return new Response(JSON.stringify({
+    token: newToken,
+    expires_in: expiresIn,
+    user: {
+      ...profile,
+      role: payload.role,
+      department_name: departmentName,
+    },
   }), {
     headers: { ...corsHeaders, 'Content-Type': 'application/json' },
   });
