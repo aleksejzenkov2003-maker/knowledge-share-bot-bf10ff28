@@ -1898,59 +1898,28 @@ serve(async (req) => {
               currentPdfFullText = text;
               console.log('Anthropic OCR: No page markers found, page_start will be 1');
             }
-          } else if (anthropicOcrResult.errorCode === 400 || anthropicOcrResult.errorCode === 401 || anthropicOcrResult.errorCode === 402 || anthropicOcrResult.errorCode === 429 || anthropicOcrResult.errorCode === 404 || anthropicOcrResult.errorCode === 408) {
-            // Anthropic unavailable - try Lovable AI fallback
-            ocrErrorCode = anthropicOcrResult.errorCode;
-            console.log(`Anthropic OCR unavailable (error ${ocrErrorCode}). Trying Lovable AI fallback...`);
-            
-            const lovableOcrResult = await tryLovableAiOcr(pdfData);
-            
-            if (lovableOcrResult.success && lovableOcrResult.text) {
-              text = lovableOcrResult.text;
-              ocrSucceeded = true;
-              
-              // Build page data for getPageForChunk function
-              if (lovableOcrResult.pages && lovableOcrResult.pages.length > 0) {
-                currentPdfPagesData = [];
-                for (let i = 0; i < lovableOcrResult.pages.length; i++) {
-                  const start = lovableOcrResult.pages[i].offset;
-                  const end = i < lovableOcrResult.pages.length - 1 
-                    ? lovableOcrResult.pages[i + 1].offset 
-                    : text.length;
-                  currentPdfPagesData.push({
-                    pageNum: lovableOcrResult.pages[i].pageNum,
-                    text: text.slice(start, end),
-                    startOffset: start,
-                    endOffset: end
-                  });
-                }
-                currentPdfFullText = text;
-                console.log(`Lovable AI OCR: Parsed ${currentPdfPagesData.length} pages with offsets`);
-              } else {
-                currentPdfPagesData = [];
-                currentPdfFullText = text;
-                console.log('Lovable AI OCR: No page markers found, page_start will be 1');
-              }
-            } else {
-              console.error('Both Anthropic and Lovable AI OCR failed');
-            }
           } else {
-            // Other errors from Anthropic - no fallback needed
+            // Anthropic OCR failed - set appropriate error message
             ocrErrorCode = anthropicOcrResult.errorCode || 0;
-            console.log('Anthropic OCR failed without recoverable error');
+            console.log(`Anthropic OCR failed (error ${ocrErrorCode})`);
           }
         
           // Set error message if OCR failed
           if (!ocrSucceeded && text.length < 100) {
-            const reason = ocrErrorCode === 401 
-              ? 'Ошибка авторизации Anthropic API'
-              : ocrErrorCode === 402
-              ? 'Исчерпан лимит кредитов и fallback недоступен' 
-              : ocrErrorCode === 408
-              ? 'Таймаут OCR обработки'
-              : 'Не удалось извлечь текст';
+            let reason: string;
+            if (ocrErrorCode === 400 || ocrErrorCode === 402) {
+              reason = 'Недостаточно средств на балансе Anthropic API. Пополните баланс в консоли Anthropic.';
+            } else if (ocrErrorCode === 401) {
+              reason = 'Ошибка авторизации Anthropic API. Проверьте API ключ.';
+            } else if (ocrErrorCode === 429) {
+              reason = 'Превышен лимит запросов Anthropic API. Попробуйте позже.';
+            } else if (ocrErrorCode === 408) {
+              reason = 'Таймаут OCR обработки. Попробуйте обработать документ повторно.';
+            } else {
+              reason = 'Не удалось извлечь текст. Документ может быть отсканирован без текстового слоя.';
+            }
             
-            text = `[PDF Document: ${doc.file_name}] - ${reason}. Документ может быть отсканирован без текстового слоя.`;
+            text = `[PDF Document: ${doc.file_name}] - ${reason}`;
           }
         } else if (text.length < 100) {
           // Non-scanned PDF but still couldn't extract text
