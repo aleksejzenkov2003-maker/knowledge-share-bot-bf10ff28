@@ -1,6 +1,7 @@
 import { Shield } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import { Loader2 } from "lucide-react";
 import {
   Tooltip,
   TooltipContent,
@@ -30,6 +31,7 @@ interface PiiIndicatorProps {
   text: string;
   onUnmaskRequest?: () => void;
   canUnmask?: boolean;
+  isUnmasking?: boolean;
   className?: string;
 }
 
@@ -37,6 +39,7 @@ export function PiiIndicator({
   text, 
   onUnmaskRequest, 
   canUnmask = false,
+  isUnmasking = false,
   className = "" 
 }: PiiIndicatorProps) {
   // Count PII tokens by type
@@ -86,9 +89,17 @@ export function PiiIndicator({
           variant="ghost"
           size="sm"
           onClick={onUnmaskRequest}
+          disabled={isUnmasking}
           className="h-6 px-2 text-xs text-amber-700 hover:text-amber-900 hover:bg-amber-100 dark:text-amber-300 dark:hover:bg-amber-900/50"
         >
-          Показать
+          {isUnmasking ? (
+            <>
+              <Loader2 className="h-3 w-3 mr-1 animate-spin" />
+              Загрузка...
+            </>
+          ) : (
+            'Показать'
+          )}
         </Button>
       )}
     </div>

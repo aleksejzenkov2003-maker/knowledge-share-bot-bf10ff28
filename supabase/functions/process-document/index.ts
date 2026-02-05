@@ -1926,6 +1926,7 @@ serve(async (req) => {
               chunk_type: chunk.chunk_type,
               page_start: chunk.page_start || pageInfo.page_start, // From chunk or calculated
               page_end: chunk.page_end || pageInfo.page_end,
+              has_masked_pii: documentHasMaskedPii, // Track PII masking at chunk level
               embedding: `[${createSimpleEmbedding(chunk.content).join(',')}]`,
               metadata: {
                 file_name: doc.file_name,

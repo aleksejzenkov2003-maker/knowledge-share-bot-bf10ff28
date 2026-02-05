@@ -1,5 +1,8 @@
 // PII Detection Patterns for Russian Personal Data (152-ФЗ)
 
+// Priority order: Lower number = higher priority (processed first)
+// Phone should be processed BEFORE passport to avoid misdetection
+
 export interface PiiPatternConfig {
   type: string;
   token_prefix: string;
@@ -12,14 +15,32 @@ export interface PiiPatternConfig {
 export const PII_PATTERNS: PiiPatternConfig[] = [
   // ==================== HIGH PRIORITY (Unique identifiers) ====================
   
+  // ==================== PHONE (before passport to prevent misdetection) ====================
+  
+  {
+    type: 'phone',
+    token_prefix: 'PHONE',
+    patterns: [
+      // +7 (999) 123-45-67
+      /(?:\+7|8)[\s\-]?\(?[0-9]{3}\)?[\s\-]?[0-9]{3}[\s\-]?[0-9]{2}[\s\-]?[0-9]{2}/g,
+      // 89991234567 - строго 11 цифр
+      /\b8[0-9]{10}\b/g,
+      // +79991234567
+      /\+7[0-9]{10}\b/g,
+    ],
+    priority: 4, // Higher priority than passport
+    enabled: true,
+    description: 'Номер телефона',
+  },
+  
   {
     type: 'passport',
     token_prefix: 'PASSPORT',
     patterns: [
-      // Паспорт: серия 1234 номер 567890
-      /(?:серия\s*)?(\d{2}\s?\d{2})\s*(?:номер\s*)?(\d{6})/gi,
-      // Паспорт: 1234 567890
-      /\b(\d{4})\s+(\d{6})\b/g,
+      // Паспорт с контекстом: серия XXXX номер XXXXXX
+      /(?:паспорт|серия)\s*:?\s*(\d{2}\s?\d{2})\s*(?:номер|№)?\s*(\d{6})/gi,
+      // Строго: 4 цифры + пробел + 6 цифр (не склеенные, не телефон)
+      /\b(\d{4})\s(\d{6})\b/g,
     ],
     priority: 5,
     enabled: true,
@@ -44,7 +65,8 @@ export const PII_PATTERNS: PiiPatternConfig[] = [
     patterns: [
       // ИНН физлица: 12 цифр
       /\bИНН[:\s]*(\d{12})\b/gi,
-      /\b\d{12}\b/g, // Fallback - будет проверяться контекстом
+      // ИНН с контекстом
+      /(?:инн|идентификационный\s*номер)[:\s]*(\d{12})\b/gi,
     ],
     priority: 7,
     enabled: true,
@@ -68,7 +90,7 @@ export const PII_PATTERNS: PiiPatternConfig[] = [
     token_prefix: 'CARD',
     patterns: [
       // Банковская карта: 1234 5678 9012 3456
-      /\b(?:\d{4}[-\s]?){3}\d{4}\b/g,
+      /\b\d{4}[-\s]\d{4}[-\s]\d{4}[-\s]\d{4}\b/g,
     ],
     priority: 9,
     enabled: true,
@@ -90,28 +112,12 @@ export const PII_PATTERNS: PiiPatternConfig[] = [
   // ==================== MEDIUM PRIORITY (Contact info) ====================
   
   {
-    type: 'phone',
-    token_prefix: 'PHONE',
-    patterns: [
-      // +7 (999) 123-45-67
-      /(?:\+7|8)[\s\-]?\(?[0-9]{3}\)?[\s\-]?[0-9]{3}[\s\-]?[0-9]{2}[\s\-]?[0-9]{2}/g,
-      // 89991234567
-      /\b8[0-9]{10}\b/g,
-      // +79991234567
-      /\+7[0-9]{10}/g,
-    ],
-    priority: 15,
-    enabled: true,
-    description: 'Номер телефона',
-  },
-  
-  {
     type: 'email',
     token_prefix: 'EMAIL',
     patterns: [
       /[a-zA-Z0-9._%+\-]+@[a-zA-Z0-9.\-]+\.[a-zA-Z]{2,}/g,
     ],
-    priority: 16,
+    priority: 15,
     enabled: true,
     description: 'Адрес электронной почты',
   },
@@ -136,10 +142,12 @@ export const PII_PATTERNS: PiiPatternConfig[] = [
     type: 'address',
     token_prefix: 'ADDRESS',
     patterns: [
-      // Адрес: г. Город, ул. Улица, д. N, кв. N
-      /(?:г\.?\s*[А-ЯЁа-яё]+[-\s]*[А-ЯЁа-яё]*,?\s*)?(?:ул\.?|улица|пр\.?|проспект|пер\.?|переулок|б-р|бульвар)\s*[А-ЯЁа-яё\s\-]+,?\s*(?:д\.?|дом)\s*\d+[а-яё]?(?:\s*(?:корп\.?|к\.?)\s*\d+)?(?:\s*,?\s*(?:кв\.?|квартира)\s*\d+)?/gi,
+      // Адрес с улицей, домом, квартирой
+      /(?:г\.?\s*[А-ЯЁа-яё\-]+\s*,?\s*)?(?:ул\.?|улица|пр\.?|проспект|пер\.?|переулок|б-р\.?|бульвар|ш\.?|шоссе|наб\.?|набережная)\s*[А-ЯЁа-яё][а-яёА-ЯЁ\s\-]*,?\s*(?:д\.?|дом)\s*\d+[а-яё]?(?:\s*(?:корп\.?|к\.?|стр\.?)\s*\d+)?(?:\s*,?\s*(?:кв\.?|квартира|офис)\s*\d+)?/gi,
       // Индекс + адрес
       /\b\d{6}\s*,?\s*(?:г\.?\s*)?[А-ЯЁа-яё]+/g,
+      // Расширенный адрес с городом
+      /адрес[:\s]*[^,\n]{10,80}/gi,
     ],
     priority: 25,
     enabled: true,
@@ -150,13 +158,16 @@ export const PII_PATTERNS: PiiPatternConfig[] = [
     type: 'person',
     token_prefix: 'PERSON',
     patterns: [
-      // ФИО: Иванов Иван Иванович
-      /\b[А-ЯЁ][а-яё]+\s+[А-ЯЁ][а-яё]+\s+[А-ЯЁ][а-яё]+(?:ич|на|вна)\b/g,
-      // И.И. Иванов или Иванов И.И.
-      /\b[А-ЯЁ]\.\s?[А-ЯЁ]\.\s*[А-ЯЁ][а-яё]+\b/g,
-      /\b[А-ЯЁ][а-яё]+\s+[А-ЯЁ]\.\s?[А-ЯЁ]\.\b/g,
+      // Полное ФИО с отчеством (Иванов Иван Иванович, Петрова Анна Сергеевна)
+      /[А-ЯЁ][а-яё]{2,15}\s+[А-ЯЁ][а-яё]{2,12}\s+[А-ЯЁ][а-яё]*(?:вич|вна|ич|ьич|евич|ович|евна|овна|ьевна|ьевич)\b/gi,
+      // И.И. Иванов (инициалы + фамилия)
+      /[А-ЯЁ]\.\s?[А-ЯЁ]\.\s+[А-ЯЁ][а-яё]{2,15}/g,
+      // Иванов И.И. (фамилия + инициалы) 
+      /[А-ЯЁ][а-яё]{2,15}\s+[А-ЯЁ]\.\s?[А-ЯЁ]\./g,
+      // Творительный падеж ФИО (с Ивановым Иваном Ивановичем)
+      /[А-ЯЁ][а-яё]{2,15}(?:ым|ой|ем)\s+[А-ЯЁ][а-яё]{2,12}(?:ом|ой|ем)\s+[А-ЯЁ][а-яё]*(?:вичем|вной|ичем|евичем|овичем|евной|овной)\b/gi,
     ],
-    priority: 30,
+    priority: 35, // Lower priority to avoid false positives
     enabled: true,
     description: 'ФИО',
   },
