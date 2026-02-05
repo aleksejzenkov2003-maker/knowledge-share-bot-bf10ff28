@@ -53,12 +53,15 @@ interface DocumentGroup {
   isMultiPart: boolean;
 }
 
+export type { DocumentGroup };
+
 interface DocumentTreeProps {
   documents: Document[];
   folders: DocumentFolder[];
   onReprocess: (doc: Document) => void;
   onViewChunks: (doc: Document) => void;
   onDelete: (doc: Document) => void;
+  onDeleteGroup?: (group: DocumentGroup) => void;
   onUploadMissingParts?: (info: MissingPartsInfo) => void;
   formatFileSize: (bytes: number | null) => string;
 }
@@ -172,6 +175,7 @@ function DocumentGroupItem({
   onReprocess,
   onViewChunks,
   onDelete,
+  onDeleteGroup,
   onUploadMissingParts,
   formatFileSize,
   folders,
@@ -180,6 +184,7 @@ function DocumentGroupItem({
   onReprocess: (doc: Document) => void;
   onViewChunks: (doc: Document) => void;
   onDelete: (doc: Document) => void;
+  onDeleteGroup?: (group: DocumentGroup) => void;
   onUploadMissingParts?: (info: MissingPartsInfo) => void;
   formatFileSize: (bytes: number | null) => string;
   folders: DocumentFolder[];
@@ -244,6 +249,13 @@ function DocumentGroupItem({
     }
   };
   
+  const handleDeleteGroup = (e: React.MouseEvent) => {
+    e.stopPropagation();
+    if (onDeleteGroup) {
+      onDeleteGroup(group);
+    }
+  };
+  
   return (
     <Collapsible open={isOpen} onOpenChange={setIsOpen}>
       <CollapsibleTrigger asChild>
@@ -296,6 +308,24 @@ function DocumentGroupItem({
               Дозагрузить
             </Button>
           )}
+          {onDeleteGroup && group.isMultiPart && (
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild onClick={(e) => e.stopPropagation()}>
+                <Button variant="ghost" size="icon" className="h-8 w-8 ml-1">
+                  <MoreVertical className="h-4 w-4" />
+                </Button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="end">
+                <DropdownMenuItem 
+                  onClick={handleDeleteGroup}
+                  className="text-destructive focus:text-destructive"
+                >
+                  <Trash2 className="h-4 w-4 mr-2" />
+                  Удалить все части ({group.documents.length})
+                </DropdownMenuItem>
+              </DropdownMenuContent>
+            </DropdownMenu>
+          )}
         </div>
       </CollapsibleTrigger>
       <CollapsibleContent>
@@ -337,6 +367,7 @@ export function DocumentTree({
   onReprocess,
   onViewChunks,
   onDelete,
+  onDeleteGroup,
   onUploadMissingParts,
   formatFileSize,
 }: DocumentTreeProps) {
@@ -453,6 +484,7 @@ export function DocumentTree({
           onReprocess={onReprocess}
           onViewChunks={onViewChunks}
           onDelete={onDelete}
+          onDeleteGroup={onDeleteGroup}
           onUploadMissingParts={onUploadMissingParts}
           formatFileSize={formatFileSize}
           folders={folders}
