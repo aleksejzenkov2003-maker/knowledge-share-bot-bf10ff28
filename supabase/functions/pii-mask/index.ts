@@ -14,6 +14,7 @@ interface PiiMaskRequest {
   source_id: string;
   session_id?: string;
   user_id?: string;
+  preview_mode?: boolean; // If true, don't save mappings to DB
 }
 
 interface PiiMapping {
@@ -32,6 +33,13 @@ interface MaskResult {
   tokens_count: number;
   pii_types_found: string[];
   mapping_ids: string[];
+  highlights?: Array<{
+    original: string;
+    token: string;
+    type: string;
+    start: number;
+    end: number;
+  }>;
 }
 
 serve(async (req) => {
@@ -50,7 +58,7 @@ serve(async (req) => {
     const supabase = createClient(supabaseUrl, supabaseKey);
 
     const body: PiiMaskRequest = await req.json();
-    const { text, source_type, source_id, session_id, user_id } = body;
+    const { text, source_type, source_id, session_id, user_id, preview_mode } = body;
 
     if (!text || !source_type || !source_id) {
       return new Response(
@@ -66,6 +74,7 @@ serve(async (req) => {
       user_id,
       pii_key: PII_KEY,
       supabase,
+      preview_mode: preview_mode || false,
     });
 
     return new Response(
@@ -89,6 +98,7 @@ interface MaskContext {
   user_id?: string;
   pii_key: string;
   supabase: any;
+  preview_mode: boolean;
 }
 
 async function maskPii(text: string, context: MaskContext): Promise<MaskResult> {
@@ -151,9 +161,9 @@ async function maskPii(text: string, context: MaskContext): Promise<MaskResult> 
     }
   }
 
-  // Save mappings to database
+  // Save mappings to database only if NOT in preview mode
   const mappingIds: string[] = [];
-  if (mappings.length > 0) {
+  if (mappings.length > 0 && !context.preview_mode) {
     const { data, error } = await context.supabase
       .from('pii_mappings')
       .insert(mappings.map(m => ({
@@ -177,7 +187,8 @@ async function maskPii(text: string, context: MaskContext): Promise<MaskResult> 
 
   const piiTypesFound = [...new Set(mappings.map(m => m.pii_type))];
   
-  console.log(`Masked ${mappings.length} PII tokens. Types: ${piiTypesFound.join(', ')}`);
+  const mode = context.preview_mode ? 'preview' : 'production';
+  console.log(`[${mode}] Masked ${mappings.length} PII tokens. Types: ${piiTypesFound.join(', ')}`);
 
   return {
     masked_text: maskedText,
