@@ -228,10 +228,37 @@ export default function Documents() {
       });
     }
 
-    // For PDFs, we'll use a simple approach - return a placeholder message
-    // Real extraction happens on backend during processing
+    // For PDFs, extract real text using pdfjs-dist
     if (file.type === "application/pdf") {
-      return `[PDF файл: ${file.name}]\n\nПревью для PDF файлов показывает примерный результат маскирования.\nПолная обработка текста произойдёт после загрузки документа.\n\nДля демонстрации введите тестовый текст с ПДн:\nИванов Иван Иванович, паспорт 4512 123456\nТелефон: +7 (999) 123-45-67\nEmail: test@example.com\nИНН: 123456789012`;
+      try {
+        const pdfjs = await import("pdfjs-dist");
+        pdfjs.GlobalWorkerOptions.workerSrc = `//unpkg.com/pdfjs-dist@${pdfjs.version}/build/pdf.worker.min.mjs`;
+        
+        const arrayBuffer = await file.arrayBuffer();
+        const pdf = await pdfjs.getDocument({ data: arrayBuffer }).promise;
+        
+        let text = "";
+        const maxPages = Math.min(pdf.numPages, 3); // First 3 pages for preview
+        
+        for (let i = 1; i <= maxPages; i++) {
+          const page = await pdf.getPage(i);
+          const content = await page.getTextContent();
+          const pageText = content.items
+            .map((item) => ("str" in item ? item.str : ""))
+            .join(" ");
+          text += pageText + "\n\n";
+        }
+        
+        const trimmedText = text.trim();
+        if (!trimmedText) {
+          return `[PDF файл: ${file.name}]\n\nPDF не содержит текстового слоя.\nЕсли это скан, текст будет извлечён через OCR после загрузки документа.`;
+        }
+        
+        return trimmedText.slice(0, 5000);
+      } catch (err) {
+        console.error("Error extracting PDF text:", err);
+        return `[Ошибка извлечения текста из PDF: ${file.name}]`;
+      }
     }
 
     return `[${file.type || "Неизвестный"} файл: ${file.name}]\n\nПревью недоступно для данного типа файла.`;
