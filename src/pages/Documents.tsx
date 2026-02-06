@@ -261,6 +261,49 @@ export default function Documents() {
       }
     }
 
+    // For DOCX files, extract text using JSZip
+    if (file.name.endsWith(".docx") || file.type === "application/vnd.openxmlformats-officedocument.wordprocessingml.document") {
+      try {
+        const JSZip = (await import("jszip")).default;
+        const arrayBuffer = await file.arrayBuffer();
+        const zip = await JSZip.loadAsync(arrayBuffer);
+        
+        const documentXml = await zip.file("word/document.xml")?.async("text");
+        if (!documentXml) {
+          return `[DOCX файл: ${file.name}]\n\nНе удалось прочитать содержимое документа.`;
+        }
+        
+        // Parse XML and extract text from <w:t> tags
+        const parser = new DOMParser();
+        const xmlDoc = parser.parseFromString(documentXml, "text/xml");
+        
+        const paragraphs: string[] = [];
+        const pNodes = xmlDoc.getElementsByTagName("w:p");
+        
+        for (let i = 0; i < pNodes.length; i++) {
+          const textNodes = pNodes[i].getElementsByTagName("w:t");
+          let paragraphText = "";
+          for (let j = 0; j < textNodes.length; j++) {
+            paragraphText += textNodes[j].textContent || "";
+          }
+          if (paragraphText.trim()) {
+            paragraphs.push(paragraphText);
+          }
+        }
+        
+        const text = paragraphs.join("\n");
+        return text.slice(0, 5000) || `[DOCX файл: ${file.name}]\n\nДокумент не содержит текста.`;
+      } catch (err) {
+        console.error("Error extracting DOCX text:", err);
+        return `[Ошибка извлечения текста из DOCX: ${file.name}]`;
+      }
+    }
+
+    // For old DOC format - not supported client-side
+    if (file.name.endsWith(".doc") || file.type === "application/msword") {
+      return `[DOC файл: ${file.name}]\n\nФормат .doc (старый Word) не поддерживает превью на клиенте.\nТекст будет извлечён после загрузки документа на сервер.\n\nРекомендуем сохранить документ в формате .docx для превью.`;
+    }
+
     return `[${file.type || "Неизвестный"} файл: ${file.name}]\n\nПревью недоступно для данного типа файла.`;
   };
 
