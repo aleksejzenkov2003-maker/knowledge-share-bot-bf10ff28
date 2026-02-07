@@ -83,7 +83,7 @@ export function AttachmentPreview({
           </div>
 
           {/* Knowledge Base checkbox */}
-          {showKnowledgeBaseOption && !readonly && attachment.status === 'uploaded' && onToggleKnowledgeBase && (
+          {showKnowledgeBaseOption && !readonly && attachment.status !== 'uploading' && onToggleKnowledgeBase && (
             <TooltipProvider>
               <Tooltip>
                 <TooltipTrigger asChild>
@@ -108,7 +108,7 @@ export function AttachmentPreview({
           )}
 
           {/* PII checkbox */}
-          {showPiiOption && !readonly && attachment.status === 'uploaded' && onTogglePii && (
+          {showPiiOption && !readonly && attachment.status !== 'uploading' && onTogglePii && (
             <TooltipProvider>
               <Tooltip>
                 <TooltipTrigger asChild>
@@ -133,7 +133,7 @@ export function AttachmentPreview({
           )}
 
           {/* PII Preview button */}
-          {showPiiOption && !readonly && attachment.status === 'uploaded' && attachment.containsPii && onPiiPreview && !isImage(attachment.file_type) && (
+          {showPiiOption && !readonly && attachment.status !== 'uploading' && attachment.containsPii && onPiiPreview && !isImage(attachment.file_type) && (
             <TooltipProvider>
               <Tooltip>
                 <TooltipTrigger asChild>
