@@ -1,91 +1,64 @@
 
 
-## План: Автоматическое размаскирование ПДн в ответах LLM
+## Plan: PII checkbox on attachments + automatic masking/unmasking for flagged documents
 
-### Суть проблемы
+### What changes
 
-Сейчас система маскирует ПДн в сообщениях пользователя перед отправкой в LLM (например, `Иванов Иван Иванович` -> `[PERSON_1]`). LLM генерирует ответ, используя эти токены: `Согласно документу, [PERSON_1] является...`. Но этот ответ отправляется пользователю **как есть** с токенами вместо реальных данных. Нужно автоматически подменять токены обратно на реальные значения.
+Instead of automatically masking PII in all documents, the user will see a checkbox (shield icon) on each attachment in the chat to mark whether the document contains personal data. Only documents with this flag will go through the PII masking pipeline before being sent to the LLM, and the unmasking will apply to all responses where PII was masked.
 
-### Архитектура решения
+### Changes
 
-```text
-Пользователь: "Какие права у Иванова И.И.?"
-        |
-        v  PII Masking (уже работает)
-        |
-Промпт для LLM: "Какие права у [PERSON_1]?"
-        |
-        v  LLM генерирует ответ
-        |
-Ответ LLM: "Согласно документу, [PERSON_1] имеет право на..."
-        |
-        v  PII Unmasking (НОВОЕ) -- подменяем токены обратно
-        |
-Пользователю: "Согласно документу, Иванов И.И. имеет право на..."
-```
+#### 1. `src/types/chat.ts` -- add `containsPii` field to `Attachment`
 
-### Изменения в файлах
+Add a new optional field `containsPii?: boolean` to the `Attachment` interface, similar to the existing `addToKnowledgeBase` field. Default will be `false`.
 
-#### 1. `supabase/functions/chat-stream/index.ts`
+#### 2. `src/components/chat/AttachmentPreview.tsx` -- add PII checkbox
 
-**Новая функция `unmaskPiiInline`:**
-- Принимает текст ответа LLM и `source_id` (тот же, что использовался при маскировании)
-- Извлекает все PII-токены из текста (`[PERSON_1]`, `[PHONE_1]` и т.д.)
-- Запрашивает соответствующие записи из `pii_mappings` по `source_id` и списку токенов
-- Дешифрует значения через `decryptAES256` и заменяет токены на оригинальные данные
-- Возвращает восстановленный текст
+- Add a new prop `onTogglePii?: (id: string, value: boolean) => void`
+- Add a new prop `showPiiOption?: boolean`
+- Render a second checkbox with a `ShieldAlert` icon next to uploaded attachments when `showPiiOption` is true
+- Tooltip: "Документ содержит ПДн (персональные данные)"
+- Works identically to the existing knowledge base checkbox pattern
 
-**Изменение в блоке стриминга (после накопления `fullContent`):**
-- После завершения чтения стрима от провайдера, перед отправкой metadata-события клиенту, вызвать `unmaskPiiInline` для `fullContent`
-- Это происходит в двух местах: блок non-streaming (строки ~1378-1380) и streaming (строки ~1605-1617)
+#### 3. `src/hooks/useOptimizedChat.ts` -- add PII toggle handler
 
-**Изменение в потоковой отдаче контента:**
-- Так как ответ стримится по частям, невозможно размаскировать каждый чанк отдельно (токен может быть разбит между чанками)
-- Решение: буферизировать стриминг и отдавать клиенту текст с задержкой, проверяя наличие токенов и подменяя их на лету
-- Конкретно: при каждом чанке проверять буфер на полные токены `[XXXX_N]` через регулярное выражение, размаскировать найденные и отправить размаскированный текст клиенту, оставляя в буфере неполные фрагменты
+- Add `toggleAttachmentPii` callback (same pattern as `toggleAttachmentKnowledgeBase` if present, or add new)
+- Pass `containsPii` flag in the attachment data sent to the edge function
+- In the request body attachments array, include `contains_pii: boolean` for each attachment
 
-**Маскирование содержимого документов-вложений:**
-- В блоке обработки вложений (строки ~949-1050), после загрузки текстового содержимого файлов, пропускать текст через `maskPiiInline` перед добавлением в промпт
-- Использовать тот же `source_id` чтобы маппинги были связаны
+#### 4. `src/hooks/useOptimizedDepartmentChat.ts` -- add PII toggle handler
 
-#### 2. Детали буферизированного размаскирования в стриме
+- Same changes as useOptimizedChat: add `toggleAttachmentPii`, pass `contains_pii` in request body
 
-Вместо отправки каждого чанка контента напрямую клиенту:
+#### 5. `src/pages/Chat.tsx` / `src/pages/DepartmentChat.tsx` / related chat pages -- wire up PII toggle
 
-```text
-Текущий поток:
-  LLM чанк "Согласно док" -> клиенту "Согласно док"
-  LLM чанк "ументу, [PER" -> клиенту "ументу, [PER"  (ПРОБЛЕМА: неполный токен)
-  LLM чанк "SON_1] имеет" -> клиенту "SON_1] имеет"  (ПРОБЛЕМА: обрезанный токен)
+- Pass `onTogglePii` and `showPiiOption={true}` to `AttachmentPreview` (or to `ChatInputEnhanced` / `MentionInput` which renders it)
 
-Новый поток с буфером:
-  LLM чанк "Согласно док" -> буфер "Согласно док" -> клиенту "Согласно док"
-  LLM чанк "ументу, [PER" -> буфер "[PER" -> клиенту "ументу, "  (задерживаем возможный токен)
-  LLM чанк "SON_1] имеет" -> буфер пуст -> клиенту "Иванов И.И. имеет"  (токен найден и размаскирован)
-```
+#### 6. `src/components/chat/ChatInputEnhanced.tsx` and `src/components/chat/MentionInput.tsx` -- pass PII props
 
-Логика буфера:
-- Накапливаем текст в буфере
-- Ищем полные токены `[XXXX_N]` -- размаскируем и отправляем
-- Если в конце буфера есть незакрытая скобка `[` -- оставляем в буфере до следующего чанка
-- При завершении стрима (done) -- отправляем остаток буфера как есть
+- Accept and forward `onTogglePii` and `showPiiOption` to `AttachmentPreview`
 
-#### 3. Кеширование маппингов
+#### 7. `supabase/functions/chat-stream/index.ts` -- conditional PII masking for attachments
 
-Чтобы не делать запрос к БД на каждый токен в стриме:
-- Перед началом стриминга, если `piiMasked === true`, загружаем **все** маппинги для данного `source_id` одним запросом
-- Создаём `Map<string, string>` (token -> decrypted_value)
-- Используем этот кеш для мгновенной подмены токенов в буфере
+- Add `contains_pii?: boolean` to the `AttachmentInput` interface
+- In the attachment processing block (lines ~950-992), check `attachment.contains_pii`
+- For text-based attachments (PDF text extraction) marked with `contains_pii: true`, run content through `maskPiiInline` before adding to the prompt
+- For image/document attachments marked with PII, add a system note that the document contains PII
+- The existing PII masking of the user message text remains as-is (always on)
+- The existing stream unmasking buffer logic remains unchanged -- it automatically handles any PII tokens regardless of source
 
-### Что НЕ меняется
+### What stays the same
 
-- Клиентский код (useOptimizedChat, useOptimizedDepartmentChat) -- не нужны изменения, так как размаскирование происходит на бэкенде
-- PiiIndicator и PiiUnmaskDialog -- остаются для ручного размаскирования в других контекстах (документы)
-- pii-unmask edge function -- остаётся для отдельных запросов на раскрытие
+- The PII masking of the user's text message (always runs if PII_KEY is set)
+- The stream unmasking buffer logic (unchanged, handles all tokens)
+- The PII audit log, pii-unmask function, PiiIndicator components
+- RAG document processing pipeline (separate from chat attachments)
 
-### Результат
+### User experience
 
-- Пользователь отправляет сообщение с ПДн -> ПДн маскируются перед LLM -> LLM отвечает с токенами -> токены автоматически подменяются обратно -> пользователь видит нормальный текст с реальными именами
-- Документы-вложения также маскируются перед отправкой в LLM
-- Работает и в обычном чате, и в чате отдела (оба используют `chat-stream`)
+1. User drags/attaches a document in chat
+2. After upload, a shield icon with checkbox appears next to the file
+3. User checks it if the document contains personal data
+4. On send: document content is masked before LLM processing
+5. LLM response with tokens like `[PERSON_1]` is automatically unmasked back to real values in the stream
 
