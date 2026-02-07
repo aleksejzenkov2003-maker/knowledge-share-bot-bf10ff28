@@ -1,64 +1,52 @@
 
 
-## Plan: PII checkbox on attachments + automatic masking/unmasking for flagged documents
+## Plan: Fix attachment checkboxes and add PII preview in chat
 
-### What changes
+### Issues identified
 
-Instead of automatically masking PII in all documents, the user will see a checkbox (shield icon) on each attachment in the chat to mark whether the document contains personal data. Only documents with this flag will go through the PII masking pipeline before being sent to the LLM, and the unmasking will apply to all responses where PII was masked.
+1. **PII checkbox missing in personal chat**: Both Chat.tsx and DepartmentChat.tsx pass `onToggleAttachmentPii` to `ChatInputEnhanced`, and `ChatInputEnhanced` passes `showPiiOption={true}` to `AttachmentPreview` -- so the PII checkbox should appear in both. Need to verify if there's a rendering issue or if the screenshot is from personal chat specifically.
+
+2. **Knowledge Base bookmark icon disappeared**: `ChatInputEnhanced` renders `AttachmentPreview` (line 326) but does NOT pass `showKnowledgeBaseOption` or `onToggleKnowledgeBase`. The department chat hook (`useOptimizedDepartmentChat`) exports `toggleAttachmentKnowledgeBase` but it's never wired through `DepartmentChat.tsx` -> `ChatInputEnhanced` -> `AttachmentPreview`. The `ChatInputEnhanced` component doesn't even accept these props.
+
+3. **PII preview needed**: When user toggles the PII checkbox on an attachment, show `PiiPreviewDialog` with the document's text content so they can see what will be masked before sending.
 
 ### Changes
 
-#### 1. `src/types/chat.ts` -- add `containsPii` field to `Attachment`
+#### 1. `src/components/chat/ChatInputEnhanced.tsx`
 
-Add a new optional field `containsPii?: boolean` to the `Attachment` interface, similar to the existing `addToKnowledgeBase` field. Default will be `false`.
+- Add new props: `onToggleAttachmentKnowledgeBase?: (id: string, value: boolean) => void` and `showKnowledgeBaseOption?: boolean`
+- Pass these props through to `AttachmentPreview` alongside the existing PII props
+- Add new prop: `onPiiPreview?: (attachment: Attachment) => void` -- to trigger PII preview dialog from parent
 
-#### 2. `src/components/chat/AttachmentPreview.tsx` -- add PII checkbox
+#### 2. `src/components/chat/AttachmentPreview.tsx`
 
-- Add a new prop `onTogglePii?: (id: string, value: boolean) => void`
-- Add a new prop `showPiiOption?: boolean`
-- Render a second checkbox with a `ShieldAlert` icon next to uploaded attachments when `showPiiOption` is true
-- Tooltip: "Документ содержит ПДн (персональные данные)"
-- Works identically to the existing knowledge base checkbox pattern
+- Add a "preview" eye icon button next to the PII checkbox
+- When PII is toggled ON, show a small eye/preview button that triggers `onPiiPreview` callback
+- This allows the parent to open `PiiPreviewDialog`
 
-#### 3. `src/hooks/useOptimizedChat.ts` -- add PII toggle handler
+#### 3. `src/pages/DepartmentChat.tsx`
 
-- Add `toggleAttachmentPii` callback (same pattern as `toggleAttachmentKnowledgeBase` if present, or add new)
-- Pass `containsPii` flag in the attachment data sent to the edge function
-- In the request body attachments array, include `contains_pii: boolean` for each attachment
+- Wire `toggleAttachmentKnowledgeBase` from hook to `ChatInputEnhanced` via new props `onToggleAttachmentKnowledgeBase` and `showKnowledgeBaseOption={true}`
+- Add PII preview state: `piiPreviewOpen`, `piiPreviewText`, `piiPreviewFileName`
+- Add handler that extracts text from the attachment file (PDF via pdfjs-dist, or plain text) and opens `PiiPreviewDialog`
+- Render `PiiPreviewDialog` component
 
-#### 4. `src/hooks/useOptimizedDepartmentChat.ts` -- add PII toggle handler
+#### 4. `src/pages/Chat.tsx`
 
-- Same changes as useOptimizedChat: add `toggleAttachmentPii`, pass `contains_pii` in request body
+- Add PII preview state and handler (same as DepartmentChat)
+- Render `PiiPreviewDialog`
+- Pass `onPiiPreview` to `ChatInputEnhanced`
 
-#### 5. `src/pages/Chat.tsx` / `src/pages/DepartmentChat.tsx` / related chat pages -- wire up PII toggle
+#### 5. Text extraction for PII preview
 
-- Pass `onTogglePii` and `showPiiOption={true}` to `AttachmentPreview` (or to `ChatInputEnhanced` / `MentionInput` which renders it)
+- Reuse the existing client-side text extraction logic (PDF via `pdfjs-dist`, DOCX via `jszip`) already used in the documents section
+- For PDF: use `pdfjs-dist` to extract text page by page
+- For CSV/XLS: read as text directly
+- For images: skip preview (no text to mask)
+- Extract first ~3000 chars and pass to `PiiPreviewDialog` which calls `pii-mask` edge function in preview mode
 
-#### 6. `src/components/chat/ChatInputEnhanced.tsx` and `src/components/chat/MentionInput.tsx` -- pass PII props
+### Result
 
-- Accept and forward `onTogglePii` and `showPiiOption` to `AttachmentPreview`
-
-#### 7. `supabase/functions/chat-stream/index.ts` -- conditional PII masking for attachments
-
-- Add `contains_pii?: boolean` to the `AttachmentInput` interface
-- In the attachment processing block (lines ~950-992), check `attachment.contains_pii`
-- For text-based attachments (PDF text extraction) marked with `contains_pii: true`, run content through `maskPiiInline` before adding to the prompt
-- For image/document attachments marked with PII, add a system note that the document contains PII
-- The existing PII masking of the user message text remains as-is (always on)
-- The existing stream unmasking buffer logic remains unchanged -- it automatically handles any PII tokens regardless of source
-
-### What stays the same
-
-- The PII masking of the user's text message (always runs if PII_KEY is set)
-- The stream unmasking buffer logic (unchanged, handles all tokens)
-- The PII audit log, pii-unmask function, PiiIndicator components
-- RAG document processing pipeline (separate from chat attachments)
-
-### User experience
-
-1. User drags/attaches a document in chat
-2. After upload, a shield icon with checkbox appears next to the file
-3. User checks it if the document contains personal data
-4. On send: document content is masked before LLM processing
-5. LLM response with tokens like `[PERSON_1]` is automatically unmasked back to real values in the stream
-
+- Both personal and department chats will show the knowledge base bookmark checkbox on attachments
+- Both chats will show the PII shield checkbox
+- When PII is toggled on, user can preview what data will be masked via the existing `PiiPreviewDialog` component
