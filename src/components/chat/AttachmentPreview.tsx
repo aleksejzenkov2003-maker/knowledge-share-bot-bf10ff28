@@ -1,4 +1,4 @@
-import { X, FileText, Image, Loader2, BookMarked, ShieldAlert } from "lucide-react";
+import { X, FileText, Image, Loader2, BookMarked, ShieldAlert, Eye } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
 import { cn } from "@/lib/utils";
@@ -17,6 +17,7 @@ interface AttachmentPreviewProps {
   showKnowledgeBaseOption?: boolean;
   onTogglePii?: (id: string, value: boolean) => void;
   showPiiOption?: boolean;
+  onPiiPreview?: (attachment: Attachment) => void;
   readonly?: boolean;
 }
 
@@ -27,6 +28,7 @@ export function AttachmentPreview({
   showKnowledgeBaseOption = false,
   onTogglePii,
   showPiiOption = false,
+  onPiiPreview,
   readonly = false 
 }: AttachmentPreviewProps) {
   if (attachments.length === 0) return null;
@@ -125,6 +127,27 @@ export function AttachmentPreview({
                 </TooltipTrigger>
                 <TooltipContent side="top">
                   <p className="text-xs">Документ содержит ПДн (персональные данные)</p>
+                </TooltipContent>
+              </Tooltip>
+            </TooltipProvider>
+          )}
+
+          {/* PII Preview button */}
+          {showPiiOption && !readonly && attachment.status === 'uploaded' && attachment.containsPii && onPiiPreview && !isImage(attachment.file_type) && (
+            <TooltipProvider>
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <Button
+                    variant="ghost"
+                    size="icon"
+                    className="h-6 w-6 text-primary hover:bg-primary/10"
+                    onClick={() => onPiiPreview(attachment)}
+                  >
+                    <Eye className="h-3.5 w-3.5" />
+                  </Button>
+                </TooltipTrigger>
+                <TooltipContent side="top">
+                  <p className="text-xs">Превью маскирования ПДн</p>
                 </TooltipContent>
               </Tooltip>
             </TooltipProvider>
