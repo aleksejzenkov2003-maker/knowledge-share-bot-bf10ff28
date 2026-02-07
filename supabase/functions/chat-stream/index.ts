@@ -77,6 +77,43 @@ function arrayBufferToBase64(buffer: ArrayBuffer): string {
   return btoa(binary);
 }
 
+// ============= GIGACHAT OAUTH TOKEN CACHE =============
+let gigachatTokenCache: { token: string; expiresAt: number } | null = null;
+
+async function getGigaChatAccessToken(authKey: string): Promise<string> {
+  // Return cached token if still valid (with 60s buffer)
+  if (gigachatTokenCache && Date.now() < gigachatTokenCache.expiresAt - 60000) {
+    return gigachatTokenCache.token;
+  }
+  
+  console.log('GigaChat: Requesting new OAuth access token...');
+  const response = await fetch('https://ngw.devices.sberbank.ru:9443/api/v2/oauth', {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/x-www-form-urlencoded',
+      'Accept': 'application/json',
+      'RqUID': crypto.randomUUID(),
+      'Authorization': `Basic ${authKey}`,
+    },
+    body: 'scope=GIGACHAT_API_PERS',
+  });
+  
+  if (!response.ok) {
+    const errorText = await response.text();
+    console.error('GigaChat OAuth error:', response.status, errorText);
+    throw new Error(`GigaChat OAuth failed: ${response.status}`);
+  }
+  
+  const data = await response.json();
+  gigachatTokenCache = {
+    token: data.access_token,
+    expiresAt: data.expires_at * 1000, // Convert to milliseconds
+  };
+  
+  console.log('GigaChat: OAuth token obtained successfully');
+  return data.access_token;
+}
+
 serve(async (req) => {
   if (req.method === 'OPTIONS') {
     return new Response(null, { headers: corsHeaders });
@@ -88,6 +125,7 @@ serve(async (req) => {
     const PERPLEXITY_API_KEY = Deno.env.get('PERPLEXITY_API_KEY');
     const ANTHROPIC_API_KEY = Deno.env.get('ANTHROPIC_API_KEY');
     const GEMINI_API_KEY = Deno.env.get('GEMINI_API_KEY');
+    const GIGACHAT_API_KEY = Deno.env.get('GIGACHAT_API_KEY');
 
     const supabaseUrl = Deno.env.get('SUPABASE_URL')!;
     const supabaseKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!;
@@ -165,6 +203,8 @@ serve(async (req) => {
           return ANTHROPIC_API_KEY || '';
         case 'gemini':
           return GEMINI_API_KEY || '';
+        case 'gigachat':
+          return GIGACHAT_API_KEY || '';
         default:
           return '';
       }
@@ -1147,6 +1187,26 @@ ${goldenExamples.join('\n\n---\n\n')}
             }),
           }
         );
+        break;
+      }
+
+      case 'gigachat': {
+        const gigachatAuthKey = providerConfig.api_key || GIGACHAT_API_KEY || '';
+        const gigachatAccessToken = await getGigaChatAccessToken(gigachatAuthKey);
+        
+        streamResponse = await fetch('https://gigachat.devices.sberbank.ru/api/v1/chat/completions', {
+          method: 'POST',
+          headers: {
+            'Authorization': `Bearer ${gigachatAccessToken}`,
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({
+            model: finalModel,
+            messages: [{ role: 'system', content: enhancedSystemPrompt }, ...simpleMessages],
+            stream: true,
+            max_tokens: 8192,
+          }),
+        });
         break;
       }
 
