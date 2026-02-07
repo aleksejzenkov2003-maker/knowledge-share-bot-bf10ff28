@@ -68,31 +68,31 @@ function parseOcrTextWithPages(ocrTextInput: string): {
   return { text: cleanText.trim(), pages };
 }
 
-// ============= LOVABLE AI OCR (PRIMARY) =============
-async function tryLovableAiOcr(pdfData: Uint8Array): Promise<OcrResult> {
-  const LOVABLE_API_KEY = Deno.env.get('LOVABLE_API_KEY');
-  if (!LOVABLE_API_KEY) {
-    console.log('LOVABLE_API_KEY not configured, skipping Lovable AI OCR');
+// ============= GEMINI OCR (PRIMARY - CHEAP & FAST) =============
+async function tryGeminiOcr(pdfData: Uint8Array): Promise<OcrResult> {
+  const GEMINI_API_KEY = Deno.env.get('GEMINI_API_KEY');
+  if (!GEMINI_API_KEY) {
+    console.log('GEMINI_API_KEY not configured, skipping Gemini OCR');
     return { success: false, text: '', errorCode: 0 };
   }
+  
+  // Timeout 50 seconds
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), 50000);
   
   try {
     const base64Pdf = uint8ArrayToBase64(pdfData);
     
-    const ocrResponse = await fetch('https://ai.gateway.lovable.dev/v1/chat/completions', {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'Authorization': `Bearer ${LOVABLE_API_KEY}`,
-      },
-      body: JSON.stringify({
-        model: 'google/gemini-2.5-flash',
-        messages: [
-          {
-            role: 'user',
-            content: [
+    const ocrResponse = await fetch(
+      `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${GEMINI_API_KEY}`,
+      {
+        method: 'POST',
+        signal: controller.signal,
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          contents: [{
+            parts: [
               {
-                type: 'text',
                 text: `Это PDF документ. Извлеки ВЕСЬ текст со всех страниц.
 
 КРИТИЧЕСКИ ВАЖНО:
@@ -105,39 +105,47 @@ async function tryLovableAiOcr(pdfData: Uint8Array): Promise<OcrResult> {
 Верни ТОЛЬКО извлечённый текст с маркерами страниц.`
               },
               {
-                type: 'image_url',
-                image_url: {
-                  url: `data:application/pdf;base64,${base64Pdf}`
+                inlineData: {
+                  mimeType: 'application/pdf',
+                  data: base64Pdf,
                 }
               }
             ]
-          }
-        ],
-        max_tokens: 16000,
-      }),
-    });
+          }],
+          generationConfig: {
+            maxOutputTokens: 16000,
+          },
+        }),
+      }
+    );
     
     if (!ocrResponse.ok) {
       const errorText = await ocrResponse.text();
-      console.error(`Lovable AI OCR error: ${ocrResponse.status} - ${errorText}`);
+      console.error(`Gemini OCR error: ${ocrResponse.status} - ${errorText}`);
       return { success: false, text: '', errorCode: ocrResponse.status };
     }
     
     const ocrResult = await ocrResponse.json();
-    const ocrText = ocrResult.choices?.[0]?.message?.content || '';
+    const ocrText = ocrResult.candidates?.[0]?.content?.parts?.[0]?.text || '';
     
     if (ocrText.length > 100) {
-      console.log(`Lovable AI OCR successful! Extracted ${ocrText.length} characters`);
+      console.log(`Gemini OCR successful! Extracted ${ocrText.length} characters`);
       const parsed = parseOcrTextWithPages(ocrText);
       return { success: true, text: parsed.text, pages: parsed.pages };
     }
     
-    console.log('Lovable AI OCR returned insufficient text');
+    console.log('Gemini OCR returned insufficient text');
     return { success: false, text: '', errorCode: 0 };
     
-  } catch (error) {
-    console.error('Lovable AI OCR error:', error);
+  } catch (error: unknown) {
+    if (error instanceof Error && error.name === 'AbortError') {
+      console.error('Gemini OCR timeout (50s exceeded)');
+      return { success: false, text: '', errorCode: 408 };
+    }
+    console.error('Gemini OCR error:', error);
     return { success: false, text: '', errorCode: 0 };
+  } finally {
+    clearTimeout(timeoutId);
   }
 }
 
@@ -1864,44 +1872,74 @@ serve(async (req) => {
         // If text extraction yielded very little text, the PDF is likely scanned images
         // Use Anthropic Claude for OCR (primary), with Lovable AI (Gemini) as fallback
         if (text.length < 200 && pdfData.length > 10000) {
-          console.log(`PDF appears to be scanned (text length: ${text.length}). Attempting OCR via Anthropic Claude...`);
+          console.log(`PDF appears to be scanned (text length: ${text.length}). Attempting OCR via Gemini (primary)...`);
           
           let ocrErrorCode = 0;
           let ocrSucceeded = false;
           
-          // Try Anthropic OCR first (primary)
-          const anthropicOcrResult = await tryAnthropicOcr(pdfData);
+          // Try Gemini OCR first (primary - cheap & fast)
+          const geminiOcrResult = await tryGeminiOcr(pdfData);
           
-          if (anthropicOcrResult.success && anthropicOcrResult.text) {
-            text = anthropicOcrResult.text;
+          if (geminiOcrResult.success && geminiOcrResult.text) {
+            text = geminiOcrResult.text;
             ocrSucceeded = true;
             
             // Build page data for getPageForChunk function
-            if (anthropicOcrResult.pages && anthropicOcrResult.pages.length > 0) {
+            if (geminiOcrResult.pages && geminiOcrResult.pages.length > 0) {
               currentPdfPagesData = [];
-              for (let i = 0; i < anthropicOcrResult.pages.length; i++) {
-                const start = anthropicOcrResult.pages[i].offset;
-                const end = i < anthropicOcrResult.pages.length - 1 
-                  ? anthropicOcrResult.pages[i + 1].offset 
+              for (let i = 0; i < geminiOcrResult.pages.length; i++) {
+                const start = geminiOcrResult.pages[i].offset;
+                const end = i < geminiOcrResult.pages.length - 1 
+                  ? geminiOcrResult.pages[i + 1].offset 
                   : text.length;
                 currentPdfPagesData.push({
-                  pageNum: anthropicOcrResult.pages[i].pageNum,
+                  pageNum: geminiOcrResult.pages[i].pageNum,
                   text: text.slice(start, end),
                   startOffset: start,
                   endOffset: end
                 });
               }
               currentPdfFullText = text;
-              console.log(`Anthropic OCR: Parsed ${currentPdfPagesData.length} pages with offsets`);
+              console.log(`Gemini OCR: Parsed ${currentPdfPagesData.length} pages with offsets`);
             } else {
               currentPdfPagesData = [];
               currentPdfFullText = text;
-              console.log('Anthropic OCR: No page markers found, page_start will be 1');
+              console.log('Gemini OCR: No page markers found, page_start will be 1');
             }
           } else {
-            // Anthropic OCR failed - set appropriate error message
-            ocrErrorCode = anthropicOcrResult.errorCode || 0;
-            console.log(`Anthropic OCR failed (error ${ocrErrorCode})`);
+            console.log(`Gemini OCR failed (error ${geminiOcrResult.errorCode || 0}), trying Anthropic fallback...`);
+            
+            // Fallback to Anthropic OCR
+            const anthropicOcrResult = await tryAnthropicOcr(pdfData);
+            
+            if (anthropicOcrResult.success && anthropicOcrResult.text) {
+              text = anthropicOcrResult.text;
+              ocrSucceeded = true;
+              
+              if (anthropicOcrResult.pages && anthropicOcrResult.pages.length > 0) {
+                currentPdfPagesData = [];
+                for (let i = 0; i < anthropicOcrResult.pages.length; i++) {
+                  const start = anthropicOcrResult.pages[i].offset;
+                  const end = i < anthropicOcrResult.pages.length - 1 
+                    ? anthropicOcrResult.pages[i + 1].offset 
+                    : text.length;
+                  currentPdfPagesData.push({
+                    pageNum: anthropicOcrResult.pages[i].pageNum,
+                    text: text.slice(start, end),
+                    startOffset: start,
+                    endOffset: end
+                  });
+                }
+                currentPdfFullText = text;
+                console.log(`Anthropic OCR fallback: Parsed ${currentPdfPagesData.length} pages`);
+              } else {
+                currentPdfPagesData = [];
+                currentPdfFullText = text;
+              }
+            } else {
+              ocrErrorCode = anthropicOcrResult.errorCode || geminiOcrResult.errorCode || 0;
+              console.log(`Both OCR methods failed (error ${ocrErrorCode})`);
+            }
           }
         
           // Set error message if OCR failed
