@@ -54,16 +54,23 @@ const providerModels: Record<string, { value: string; label: string }[]> = {
     { value: 'gemini-2.5-flash-lite', label: 'Gemini 2.5 Flash Lite (самый дешёвый)' },
     { value: 'gemini-2.0-flash', label: 'Gemini 2.0 Flash (предыдущее поколение)' },
   ],
+  gigachat: [
+    { value: 'GigaChat', label: 'GigaChat (стандартный)' },
+    { value: 'GigaChat-Plus', label: 'GigaChat Plus (улучшенный)' },
+    { value: 'GigaChat-Pro', label: 'GigaChat Pro (мощный)' },
+    { value: 'GigaChat-Max', label: 'GigaChat Max (максимальный)' },
+  ],
 };
 
 // Проверка наличия API ключей из env (для подсказок в UI)
-const envConfiguredProviders = ['perplexity', 'anthropic', 'gemini'];
+const envConfiguredProviders = ['perplexity', 'anthropic', 'gemini', 'gigachat'];
 
 const providerLabels: Record<string, string> = {
   perplexity: 'Perplexity',
   openai: 'OpenAI',
   anthropic: 'Anthropic',
   gemini: 'Google Gemini',
+  gigachat: 'GigaChat (Сбер)',
 };
 
 const Providers = () => {
@@ -291,6 +298,7 @@ const Providers = () => {
                       <SelectItem value="anthropic">Anthropic (Claude)</SelectItem>
                       <SelectItem value="openai">OpenAI</SelectItem>
                       <SelectItem value="gemini">Google Gemini</SelectItem>
+                      <SelectItem value="gigachat">GigaChat (Сбер)</SelectItem>
                     </SelectContent>
                   </Select>
                 </div>
@@ -327,6 +335,8 @@ const Providers = () => {
                           ? 'pplx-... (опционально)'
                           : newProvider.provider_type === 'gemini'
                           ? 'AIza... (опционально)'
+                          : newProvider.provider_type === 'gigachat'
+                          ? 'Base64 ключ авторизации (опционально)'
                           : 'Введите API ключ'
                       }
                       value={newProvider.api_key}

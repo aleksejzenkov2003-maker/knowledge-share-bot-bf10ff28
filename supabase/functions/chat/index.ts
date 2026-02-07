@@ -164,6 +164,87 @@ async function callOpenAI(
   };
 }
 
+// ============= GIGACHAT OAUTH TOKEN CACHE =============
+let gigachatTokenCacheChat: { token: string; expiresAt: number } | null = null;
+
+async function getGigaChatAccessTokenChat(authKey: string): Promise<string> {
+  if (gigachatTokenCacheChat && Date.now() < gigachatTokenCacheChat.expiresAt - 60000) {
+    return gigachatTokenCacheChat.token;
+  }
+  
+  const response = await fetch('https://ngw.devices.sberbank.ru:9443/api/v2/oauth', {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/x-www-form-urlencoded',
+      'Accept': 'application/json',
+      'RqUID': crypto.randomUUID(),
+      'Authorization': `Basic ${authKey}`,
+    },
+    body: 'scope=GIGACHAT_API_PERS',
+  });
+  
+  if (!response.ok) {
+    throw new Error(`GigaChat OAuth failed: ${response.status}`);
+  }
+  
+  const data = await response.json();
+  gigachatTokenCacheChat = {
+    token: data.access_token,
+    expiresAt: data.expires_at * 1000,
+  };
+  return data.access_token;
+}
+
+async function callGigaChat(
+  authKey: string,
+  model: string,
+  systemPrompt: string,
+  userMessage: string,
+  messageHistory?: { role: string; content: string }[]
+): Promise<{ content: string; usage?: any }> {
+  const accessToken = await getGigaChatAccessTokenChat(authKey);
+  
+  const messages: { role: string; content: string }[] = [
+    { role: 'system', content: systemPrompt }
+  ];
+  
+  if (messageHistory && messageHistory.length > 0) {
+    messages.push(...messageHistory);
+  } else {
+    messages.push({ role: 'user', content: userMessage });
+  }
+
+  const response = await fetch('https://gigachat.devices.sberbank.ru/api/v1/chat/completions', {
+    method: 'POST',
+    headers: {
+      'Authorization': `Bearer ${accessToken}`,
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({
+      model,
+      messages,
+      max_tokens: 8192,
+    }),
+  });
+
+  if (!response.ok) {
+    const errorText = await response.text();
+    console.error('GigaChat API error:', response.status, errorText);
+    throw new Error(`GigaChat API error: ${response.status}`);
+  }
+
+  const data = await response.json();
+  const content = data.choices?.[0]?.message?.content || '';
+  return {
+    content,
+    usage: {
+      prompt_tokens: data.usage?.prompt_tokens || 0,
+      completion_tokens: data.usage?.completion_tokens || 0,
+      total_tokens: data.usage?.total_tokens || 0,
+    },
+  };
+}
+
 async function callGemini(
   apiKey: string,
   model: string,
@@ -226,6 +307,7 @@ serve(async (req) => {
     const PERPLEXITY_API_KEY = Deno.env.get('PERPLEXITY_API_KEY');
     const ANTHROPIC_API_KEY = Deno.env.get('ANTHROPIC_API_KEY');
     const GEMINI_API_KEY = Deno.env.get('GEMINI_API_KEY');
+    const GIGACHAT_API_KEY = Deno.env.get('GIGACHAT_API_KEY');
 
     const supabaseUrl = Deno.env.get('SUPABASE_URL')!;
     const supabaseKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!;
@@ -495,6 +577,15 @@ serve(async (req) => {
       case 'gemini':
         response = await callGemini(
           GEMINI_API_KEY || providerConfig.api_key,
+          finalModel,
+          systemPrompt,
+          finalPrompt,
+          finalMessageHistory
+        );
+        break;
+      case 'gigachat':
+        response = await callGigaChat(
+          GIGACHAT_API_KEY || providerConfig.api_key,
           finalModel,
           systemPrompt,
           finalPrompt,
