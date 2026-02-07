@@ -1,4 +1,4 @@
-import { X, FileText, Image, Loader2, BookMarked } from "lucide-react";
+import { X, FileText, Image, Loader2, BookMarked, ShieldAlert } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
 import { cn } from "@/lib/utils";
@@ -15,6 +15,8 @@ interface AttachmentPreviewProps {
   onRemove: (id: string) => void;
   onToggleKnowledgeBase?: (id: string, value: boolean) => void;
   showKnowledgeBaseOption?: boolean;
+  onTogglePii?: (id: string, value: boolean) => void;
+  showPiiOption?: boolean;
   readonly?: boolean;
 }
 
@@ -23,6 +25,8 @@ export function AttachmentPreview({
   onRemove, 
   onToggleKnowledgeBase,
   showKnowledgeBaseOption = false,
+  onTogglePii,
+  showPiiOption = false,
   readonly = false 
 }: AttachmentPreviewProps) {
   if (attachments.length === 0) return null;
@@ -96,6 +100,31 @@ export function AttachmentPreview({
                 </TooltipTrigger>
                 <TooltipContent side="top">
                   <p className="text-xs">Добавить в базу знаний</p>
+                </TooltipContent>
+              </Tooltip>
+            </TooltipProvider>
+          )}
+
+          {/* PII checkbox */}
+          {showPiiOption && !readonly && attachment.status === 'uploaded' && onTogglePii && (
+            <TooltipProvider>
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <div className="flex items-center gap-1">
+                    <Checkbox
+                      id={`pii-${attachment.id}`}
+                      checked={attachment.containsPii ?? false}
+                      onCheckedChange={(checked) => onTogglePii(attachment.id, !!checked)}
+                      className="h-4 w-4"
+                    />
+                    <ShieldAlert className={cn(
+                      "h-3.5 w-3.5",
+                      attachment.containsPii ? "text-destructive" : "text-muted-foreground"
+                    )} />
+                  </div>
+                </TooltipTrigger>
+                <TooltipContent side="top">
+                  <p className="text-xs">Документ содержит ПДн (персональные данные)</p>
                 </TooltipContent>
               </Tooltip>
             </TooltipProvider>

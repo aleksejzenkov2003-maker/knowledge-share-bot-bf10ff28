@@ -99,6 +99,12 @@ export function useOptimizedChat(userId: string | undefined, departmentId: strin
     });
   }, []);
 
+  const toggleAttachmentPii = useCallback((id: string, value: boolean) => {
+    setAttachments(prev => prev.map(a => 
+      a.id === id ? { ...a, containsPii: value } : a
+    ));
+  }, []);
+
   const clearAttachments = useCallback(() => {
     setAttachments(prev => {
       prev.forEach(a => {
@@ -295,7 +301,10 @@ export function useOptimizedChat(userId: string | undefined, departmentId: strin
             role_id: selectedRoleId || undefined,
             conversation_id: conversationId,
             message_history: messageHistory,
-            attachments: uploadedAttachments.length > 0 ? uploadedAttachments : undefined,
+            attachments: uploadedAttachments.length > 0 ? uploadedAttachments.map((ua, i) => ({
+              ...ua,
+              contains_pii: attachments[i]?.containsPii || false,
+            })) : undefined,
           }),
           signal: abortControllerRef.current.signal,
         }
@@ -650,5 +659,6 @@ export function useOptimizedChat(userId: string | undefined, departmentId: strin
     addAttachments,
     removeAttachment,
     clearAttachments,
+    toggleAttachmentPii,
   };
 }

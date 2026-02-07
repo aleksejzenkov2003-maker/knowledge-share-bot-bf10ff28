@@ -50,6 +50,7 @@ export interface Attachment {
   preview_url?: string;
   status: 'pending' | 'uploading' | 'uploaded' | 'error';
   addToKnowledgeBase?: boolean; // Whether to save this attachment to knowledge base
+  containsPii?: boolean; // Whether this document contains personal data (PII)
 }
 
 export interface Message {

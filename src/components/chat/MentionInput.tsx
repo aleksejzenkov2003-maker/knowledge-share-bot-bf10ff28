@@ -29,6 +29,8 @@ interface MentionInputProps {
   onRemoveAttachment?: (id: string) => void;
   onToggleAttachmentKnowledgeBase?: (id: string, value: boolean) => void;
   showKnowledgeBaseOption?: boolean;
+  onTogglePii?: (id: string, value: boolean) => void;
+  showPiiOption?: boolean;
 }
 
 export const MentionInput: React.FC<MentionInputProps> = ({
@@ -42,6 +44,8 @@ export const MentionInput: React.FC<MentionInputProps> = ({
   onRemoveAttachment,
   onToggleAttachmentKnowledgeBase,
   showKnowledgeBaseOption = false,
+  onTogglePii,
+  showPiiOption = false,
 }) => {
   const [value, setValue] = useState('');
   const [showSuggestions, setShowSuggestions] = useState(false);
@@ -263,6 +267,8 @@ export const MentionInput: React.FC<MentionInputProps> = ({
           onRemove={onRemoveAttachment!}
           onToggleKnowledgeBase={onToggleAttachmentKnowledgeBase}
           showKnowledgeBaseOption={showKnowledgeBaseOption}
+          onTogglePii={onTogglePii}
+          showPiiOption={showPiiOption}
         />
       )}
 

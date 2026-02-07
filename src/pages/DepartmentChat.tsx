@@ -47,6 +47,7 @@ const DepartmentChat: React.FC = () => {
     attachments,
     handleAttach,
     removeAttachment,
+    toggleAttachmentPii,
     regenerateResponse,
     // Multi-chat support
     departmentChats,
@@ -404,6 +405,7 @@ const DepartmentChat: React.FC = () => {
             attachments={attachments}
             onAttach={handleAttach}
             onRemoveAttachment={removeAttachment}
+            onToggleAttachmentPii={toggleAttachmentPii}
             // Department-specific
             availableAgents={availableAgents}
             departmentId={activeDepartmentId || undefined}

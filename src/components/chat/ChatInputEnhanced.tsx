@@ -49,6 +49,7 @@ interface ChatInputEnhancedProps {
   attachments: Attachment[];
   onAttach: (files: File[]) => void;
   onRemoveAttachment: (id: string) => void;
+  onToggleAttachmentPii?: (id: string, value: boolean) => void;
   roles?: ChatRole[];
   selectedRoleId?: string | null;
   onRoleChange?: (roleId: string) => void;
@@ -75,6 +76,7 @@ export function ChatInputEnhanced({
   attachments,
   onAttach,
   onRemoveAttachment,
+  onToggleAttachmentPii,
   roles = [],
   selectedRoleId,
   onRoleChange,
@@ -323,7 +325,9 @@ export function ChatInputEnhanced({
         <div className="mb-2">
           <AttachmentPreview 
             attachments={attachments} 
-            onRemove={onRemoveAttachment} 
+            onRemove={onRemoveAttachment}
+            showPiiOption={true}
+            onTogglePii={onToggleAttachmentPii}
           />
         </div>
       )}
