@@ -147,6 +147,81 @@ async function tryGeminiOcr(pdfData: Uint8Array, timeoutMs = 30000, addPageMarke
   }
 }
 
+// ============= GEMINI OCR WITH GLOBAL PAGE NUMBERS (FOR CHUNKED PROCESSING) =============
+async function tryGeminiOcrWithGlobalPages(
+  pdfData: Uint8Array, globalStartPage: number, numPagesInChunk: number, timeoutMs: number
+): Promise<OcrResult> {
+  const GEMINI_API_KEY = Deno.env.get('GEMINI_API_KEY');
+  if (!GEMINI_API_KEY) return { success: false, text: '', errorCode: 0 };
+  
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
+  
+  try {
+    const base64Pdf = uint8ArrayToBase64(pdfData);
+    
+    // Build page number mapping for prompt
+    const pageNumbers = Array.from({ length: numPagesInChunk }, (_, i) => globalStartPage + i);
+    const pageList = pageNumbers.join(', ');
+    
+    const prompt = `Это PDF документ содержащий страницы ${pageList} (${numPagesInChunk} стр.).
+
+Извлеки ВЕСЬ текст. КРИТИЧЕСКИ ВАЖНО:
+- Перед текстом КАЖДОЙ страницы добавь маркер с ПРАВИЛЬНЫМ номером:
+  [СТРАНИЦА ${pageNumbers[0]}] текст первой страницы...
+  [СТРАНИЦА ${pageNumbers[1] || ''}] текст второй страницы...
+  и т.д.
+- Номера страниц: ${pageList}
+- Сохрани структуру: абзацы, списки, заголовки
+- Таблицы представь в текстовом виде
+- Язык документа сохрани без изменений
+
+Верни ТОЛЬКО извлечённый текст с маркерами страниц.`;
+    
+    const ocrResponse = await fetch(
+      `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${GEMINI_API_KEY}`,
+      {
+        method: 'POST',
+        signal: controller.signal,
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          contents: [{ parts: [
+            { text: prompt },
+            { inlineData: { mimeType: 'application/pdf', data: base64Pdf } }
+          ]}],
+          generationConfig: { maxOutputTokens: 16000 },
+        }),
+      }
+    );
+    
+    if (!ocrResponse.ok) {
+      const errorText = await ocrResponse.text();
+      console.error(`Gemini OCR chunk error: ${ocrResponse.status} - ${errorText}`);
+      return { success: false, text: '', errorCode: ocrResponse.status };
+    }
+    
+    const ocrResult = await ocrResponse.json();
+    const ocrText = ocrResult.candidates?.[0]?.content?.parts?.[0]?.text || '';
+    
+    if (ocrText.length > 50) {
+      console.log(`Gemini OCR chunk (pages ${pageList}): ${ocrText.length} chars`);
+      const parsed = parseOcrTextWithPages(ocrText);
+      return { success: true, text: parsed.text, pages: parsed.pages };
+    }
+    
+    return { success: false, text: '', errorCode: 0 };
+  } catch (error: unknown) {
+    if (error instanceof Error && error.name === 'AbortError') {
+      console.error(`Gemini OCR chunk timeout (${timeoutMs}ms)`);
+      return { success: false, text: '', errorCode: 408 };
+    }
+    console.error('Gemini OCR chunk error:', error);
+    return { success: false, text: '', errorCode: 0 };
+  } finally {
+    clearTimeout(timeoutId);
+  }
+}
+
 // ============= CHUNKED GEMINI OCR (SPLITS PDF INTO 4-PAGE CHUNKS) =============
 async function tryGeminiOcrChunked(pdfData: Uint8Array, numPages: number): Promise<OcrResult> {
   const GEMINI_API_KEY = Deno.env.get('GEMINI_API_KEY');
@@ -180,8 +255,7 @@ async function tryGeminiOcrChunked(pdfData: Uint8Array, numPages: number): Promi
     
     console.log(`Split into ${chunks.length} chunks of up to ${PAGES_PER_CHUNK} pages`);
     
-    // Process chunks in batches of PARALLEL_LIMIT
-    const results: { chunkIndex: number; text: string; success: boolean }[] = [];
+    const results: { chunkIndex: number; text: string; success: boolean; pages: { pageNum: number; offset: number }[] }[] = [];
     
     for (let batchStart = 0; batchStart < chunks.length; batchStart += PARALLEL_LIMIT) {
       const batch = chunks.slice(batchStart, batchStart + PARALLEL_LIMIT);
@@ -198,14 +272,18 @@ async function tryGeminiOcrChunked(pdfData: Uint8Array, numPages: number): Promi
           copiedPages.forEach((page: any) => subDoc.addPage(page));
           const subPdfBytes = await subDoc.save();
           
-          console.log(`Chunk ${chunkIndex + 1}/${chunks.length}: pages ${chunk.startPage + 1}-${chunk.endPage}, size ${subPdfBytes.length} bytes`);
+          const chunkPages = chunk.endPage - chunk.startPage;
+          const globalStartPage = chunk.startPage + 1;
+          console.log(`Chunk ${chunkIndex + 1}/${chunks.length}: pages ${globalStartPage}-${chunk.endPage}, size ${subPdfBytes.length} bytes`);
           
-          // OCR this chunk (30s timeout, no page markers — we add them ourselves)
-          const result = await tryGeminiOcr(new Uint8Array(subPdfBytes), 30000, false);
-          return { chunkIndex, text: result.text || '', success: result.success };
+          // Ask Gemini for page markers with GLOBAL page numbers
+          const chunkResult = await tryGeminiOcrWithGlobalPages(
+            new Uint8Array(subPdfBytes), globalStartPage, chunkPages, 30000
+          );
+          return { chunkIndex, text: chunkResult.text || '', success: chunkResult.success, pages: chunkResult.pages };
         } catch (err) {
           console.error(`Chunk ${chunkIndex + 1} failed:`, err);
-          return { chunkIndex, text: '', success: false };
+          return { chunkIndex, text: '', success: false, pages: [] as { pageNum: number; offset: number }[] };
         }
       });
       
@@ -221,7 +299,7 @@ async function tryGeminiOcrChunked(pdfData: Uint8Array, numPages: number): Promi
       return { success: false, text: '', errorCode: 408 };
     }
     
-    // Sort by chunk index and merge with page markers
+    // Sort by chunk index and merge
     results.sort((a, b) => a.chunkIndex - b.chunkIndex);
     
     let mergedText = '';
@@ -231,9 +309,15 @@ async function tryGeminiOcrChunked(pdfData: Uint8Array, numPages: number): Promi
       if (!result.success || !result.text) continue;
       const chunk = chunks[result.chunkIndex];
       
-      // Add page marker for the first page of this chunk
-      const pageNum = chunk.startPage + 1;
-      pages.push({ pageNum, offset: mergedText.length });
+      // Add page markers from parsed chunk results (with correct global offsets)
+      if (result.pages && result.pages.length > 0) {
+        for (const p of result.pages) {
+          pages.push({ pageNum: p.pageNum, offset: mergedText.length + p.offset });
+        }
+      } else {
+        // Fallback: at least mark the first page of the chunk
+        pages.push({ pageNum: chunk.startPage + 1, offset: mergedText.length });
+      }
       
       mergedText += result.text + '\n\n';
     }
