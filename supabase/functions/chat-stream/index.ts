@@ -1,7 +1,7 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
-import { getActivePatterns } from "../_shared/pii-patterns.ts";
-import { encryptAES256 } from "../_shared/pii-crypto.ts";
+import { getActivePatterns, extractPiiTokens } from "../_shared/pii-patterns.ts";
+import { encryptAES256, decryptAES256 } from "../_shared/pii-crypto.ts";
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
@@ -872,13 +872,14 @@ ${goldenExamples.join('\n\n---\n\n')}
     // =====================================================
     let piiMasked = false;
     let piiTokensCount = 0;
+    const piiSourceId = crypto.randomUUID(); // Shared source_id for masking + unmasking
     
     const PII_KEY = Deno.env.get('PII_ENCRYPTION_KEY');
     if (PII_KEY && finalPrompt) {
       try {
         const piiResult = await maskPiiInline(finalPrompt, {
           source_type: 'chat_message',
-          source_id: crypto.randomUUID(), // Will be replaced with actual message ID later
+          source_id: piiSourceId,
           session_id: undefined,
           user_id: userId || undefined,
           pii_key: PII_KEY,
@@ -1327,6 +1328,19 @@ ${goldenExamples.join('\n\n---\n\n')}
       const jsonResponse = await streamResponse.json();
       fullContent = jsonResponse.choices?.[0]?.message?.content || '';
       
+      // PII UNMASKING for non-streaming response
+      if (piiMasked && PII_KEY) {
+        try {
+          const piiCache = await loadPiiCache(piiSourceId, PII_KEY, supabase);
+          if (piiCache.size > 0) {
+            fullContent = unmaskWithCache(fullContent, piiCache);
+            console.log(`PII: Unmasked ${piiCache.size} tokens in non-streaming response`);
+          }
+        } catch (unmaskErr) {
+          console.error('PII unmasking error (non-stream):', unmaskErr);
+        }
+      }
+      
       const responseTimeMs = Date.now() - startTime;
       // Fetch document metadata for storage_path AND page numbers (non-streaming)
       let chunkToDocNonStream = new Map<string, { document_id: string; storage_path: string | null; page_start: number | null; page_end: number | null }>();
@@ -1436,6 +1450,59 @@ ${goldenExamples.join('\n\n---\n\n')}
           let perplexityCitations: string[] = []; // Capture Perplexity citations
           let stopReason: string | null = null; // Track if response was truncated
 
+          // PII UNMASKING BUFFER: accumulate text, detect and unmask tokens before sending to client
+          let piiUnmaskBuffer = '';
+          let piiCache: Map<string, string> | null = null;
+          
+          // Pre-load PII cache if masking was applied
+          if (piiMasked && PII_KEY) {
+            try {
+              piiCache = await loadPiiCache(piiSourceId, PII_KEY, supabase);
+              console.log(`PII: Pre-loaded ${piiCache.size} mappings for stream unmasking`);
+            } catch (cacheErr) {
+              console.error('PII cache load error:', cacheErr);
+            }
+          }
+          
+          // Helper: flush safe portion of piiUnmaskBuffer to client
+          function flushPiiBuffer(force: boolean) {
+            if (!piiCache || piiCache.size === 0) return;
+            
+            // Replace complete tokens in buffer
+            const tokenRegex = /\[[A-Z_]+_\d+\]/g;
+            piiUnmaskBuffer = piiUnmaskBuffer.replace(tokenRegex, (match) => {
+              return piiCache!.get(match) || match;
+            });
+            
+            if (force) {
+              // Send everything remaining
+              if (piiUnmaskBuffer) {
+                controller.enqueue(encoder.encode(`data: ${JSON.stringify({ type: 'content', content: piiUnmaskBuffer })}\n\n`));
+                piiUnmaskBuffer = '';
+              }
+              return;
+            }
+            
+            // Find last '[' that might be start of incomplete token
+            const lastBracket = piiUnmaskBuffer.lastIndexOf('[');
+            let safeEnd = piiUnmaskBuffer.length;
+            
+            if (lastBracket !== -1) {
+              // Check if there's a closing ']' after this '['
+              const closingBracket = piiUnmaskBuffer.indexOf(']', lastBracket);
+              if (closingBracket === -1) {
+                // Incomplete token - hold back from '['
+                safeEnd = lastBracket;
+              }
+            }
+            
+            if (safeEnd > 0) {
+              const safeContent = piiUnmaskBuffer.substring(0, safeEnd);
+              controller.enqueue(encoder.encode(`data: ${JSON.stringify({ type: 'content', content: safeContent })}\n\n`));
+              piiUnmaskBuffer = piiUnmaskBuffer.substring(safeEnd);
+            }
+          }
+
           while (true) {
             const { done, value } = await reader.read();
             if (done) break;
@@ -1484,7 +1551,14 @@ ${goldenExamples.join('\n\n---\n\n')}
 
                   if (content) {
                     fullContent += content;
-                    controller.enqueue(encoder.encode(`data: ${JSON.stringify({ type: 'content', content })}\n\n`));
+                    
+                    // If PII unmasking is active, buffer the content
+                    if (piiCache && piiCache.size > 0) {
+                      piiUnmaskBuffer += content;
+                      flushPiiBuffer(false);
+                    } else {
+                      controller.enqueue(encoder.encode(`data: ${JSON.stringify({ type: 'content', content })}\n\n`));
+                    }
                   }
                 } catch {
                   // Ignore parsing errors
@@ -1493,7 +1567,7 @@ ${goldenExamples.join('\n\n---\n\n')}
             }
           }
 
-          // Process remaining buffer
+          // Process remaining SSE buffer
           if (buffer.startsWith('data: ')) {
             const data = buffer.slice(6).trim();
             if (data && data !== '[DONE]') {
@@ -1505,10 +1579,24 @@ ${goldenExamples.join('\n\n---\n\n')}
                 const content = parsed.choices?.[0]?.delta?.content || parsed.choices?.[0]?.message?.content || '';
                 if (content) {
                   fullContent += content;
-                  controller.enqueue(encoder.encode(`data: ${JSON.stringify({ type: 'content', content })}\n\n`));
+                  if (piiCache && piiCache.size > 0) {
+                    piiUnmaskBuffer += content;
+                  } else {
+                    controller.enqueue(encoder.encode(`data: ${JSON.stringify({ type: 'content', content })}\n\n`));
+                  }
                 }
               } catch { }
             }
+          }
+          
+          // Flush remaining PII buffer
+          if (piiCache && piiCache.size > 0) {
+            flushPiiBuffer(true);
+          }
+          
+          // Also unmask fullContent for logging/metadata
+          if (piiCache && piiCache.size > 0) {
+            fullContent = unmaskWithCache(fullContent, piiCache);
           }
 
           // Send metadata at the end with citations
@@ -1749,4 +1837,47 @@ async function maskPiiInline(text: string, context: InlineMaskContext): Promise<
     tokens_count: totalTokens,
     pii_types_found: piiTypesFound,
   };
+}
+
+// =====================================================
+// PII UNMASKING - Load cache and replace tokens in LLM response
+// =====================================================
+
+// Load all PII mappings for a source_id into a Map<token, decrypted_value>
+async function loadPiiCache(
+  sourceId: string,
+  piiKey: string,
+  supabaseClient: any,
+): Promise<Map<string, string>> {
+  const cache = new Map<string, string>();
+  
+  const { data: mappings, error } = await supabaseClient
+    .from('pii_mappings')
+    .select('token, encrypted_value, encryption_iv')
+    .eq('source_id', sourceId);
+  
+  if (error) {
+    console.error('Error loading PII mappings for cache:', error);
+    return cache;
+  }
+  
+  for (const mapping of mappings || []) {
+    try {
+      const decrypted = await decryptAES256(
+        mapping.encrypted_value,
+        mapping.encryption_iv,
+        piiKey,
+      );
+      cache.set(mapping.token, decrypted);
+    } catch (err) {
+      console.error(`Error decrypting token ${mapping.token}:`, err);
+    }
+  }
+  
+  return cache;
+}
+
+// Replace all PII tokens in text using pre-loaded cache
+function unmaskWithCache(text: string, cache: Map<string, string>): string {
+  return text.replace(/\[[A-Z_]+_\d+\]/g, (match) => cache.get(match) || match);
 }
