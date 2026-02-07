@@ -69,19 +69,32 @@ function parseOcrTextWithPages(ocrTextInput: string): {
 }
 
 // ============= GEMINI OCR (PRIMARY - CHEAP & FAST) =============
-async function tryGeminiOcr(pdfData: Uint8Array): Promise<OcrResult> {
+// Single-chunk OCR — called per chunk from tryGeminiOcrChunked
+async function tryGeminiOcr(pdfData: Uint8Array, timeoutMs = 30000, addPageMarkers = false): Promise<OcrResult> {
   const GEMINI_API_KEY = Deno.env.get('GEMINI_API_KEY');
   if (!GEMINI_API_KEY) {
     console.log('GEMINI_API_KEY not configured, skipping Gemini OCR');
     return { success: false, text: '', errorCode: 0 };
   }
   
-  // Timeout 50 seconds
   const controller = new AbortController();
-  const timeoutId = setTimeout(() => controller.abort(), 50000);
+  const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
   
   try {
     const base64Pdf = uint8ArrayToBase64(pdfData);
+    
+    const prompt = addPageMarkers
+      ? `Это PDF документ. Извлеки ВЕСЬ текст со всех страниц.
+
+КРИТИЧЕСКИ ВАЖНО:
+- В НАЧАЛЕ каждой страницы добавь маркер: [СТРАНИЦА N]
+- Например: [СТРАНИЦА 1] текст первой страницы... [СТРАНИЦА 2] текст второй...
+- Сохрани структуру: абзацы, списки, заголовки
+- Таблицы представь в текстовом виде
+- Язык документа сохрани без изменений
+
+Верни ТОЛЬКО извлечённый текст с маркерами страниц.`
+      : `Извлеки ВЕСЬ текст из этого PDF документа. Сохрани структуру: абзацы, списки, заголовки. Таблицы представь в текстовом виде. Язык документа сохрани без изменений. Верни ТОЛЬКО извлечённый текст.`;
     
     const ocrResponse = await fetch(
       `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${GEMINI_API_KEY}`,
@@ -92,29 +105,11 @@ async function tryGeminiOcr(pdfData: Uint8Array): Promise<OcrResult> {
         body: JSON.stringify({
           contents: [{
             parts: [
-              {
-                text: `Это PDF документ. Извлеки ВЕСЬ текст со всех страниц.
-
-КРИТИЧЕСКИ ВАЖНО:
-- В НАЧАЛЕ каждой страницы добавь маркер: [СТРАНИЦА N]
-- Например: [СТРАНИЦА 1] текст первой страницы... [СТРАНИЦА 2] текст второй...
-- Сохрани структуру: абзацы, списки, заголовки
-- Таблицы представь в текстовом виде
-- Язык документа сохрани без изменений
-
-Верни ТОЛЬКО извлечённый текст с маркерами страниц.`
-              },
-              {
-                inlineData: {
-                  mimeType: 'application/pdf',
-                  data: base64Pdf,
-                }
-              }
+              { text: prompt },
+              { inlineData: { mimeType: 'application/pdf', data: base64Pdf } }
             ]
           }],
-          generationConfig: {
-            maxOutputTokens: 16000,
-          },
+          generationConfig: { maxOutputTokens: 16000 },
         }),
       }
     );
@@ -128,10 +123,13 @@ async function tryGeminiOcr(pdfData: Uint8Array): Promise<OcrResult> {
     const ocrResult = await ocrResponse.json();
     const ocrText = ocrResult.candidates?.[0]?.content?.parts?.[0]?.text || '';
     
-    if (ocrText.length > 100) {
+    if (ocrText.length > 50) {
       console.log(`Gemini OCR successful! Extracted ${ocrText.length} characters`);
-      const parsed = parseOcrTextWithPages(ocrText);
-      return { success: true, text: parsed.text, pages: parsed.pages };
+      if (addPageMarkers) {
+        const parsed = parseOcrTextWithPages(ocrText);
+        return { success: true, text: parsed.text, pages: parsed.pages };
+      }
+      return { success: true, text: ocrText.trim() };
     }
     
     console.log('Gemini OCR returned insufficient text');
@@ -139,13 +137,117 @@ async function tryGeminiOcr(pdfData: Uint8Array): Promise<OcrResult> {
     
   } catch (error: unknown) {
     if (error instanceof Error && error.name === 'AbortError') {
-      console.error('Gemini OCR timeout (50s exceeded)');
+      console.error(`Gemini OCR timeout (${timeoutMs}ms exceeded)`);
       return { success: false, text: '', errorCode: 408 };
     }
     console.error('Gemini OCR error:', error);
     return { success: false, text: '', errorCode: 0 };
   } finally {
     clearTimeout(timeoutId);
+  }
+}
+
+// ============= CHUNKED GEMINI OCR (SPLITS PDF INTO 4-PAGE CHUNKS) =============
+async function tryGeminiOcrChunked(pdfData: Uint8Array, numPages: number): Promise<OcrResult> {
+  const GEMINI_API_KEY = Deno.env.get('GEMINI_API_KEY');
+  if (!GEMINI_API_KEY) {
+    return { success: false, text: '', errorCode: 0 };
+  }
+
+  // For small PDFs (<=4 pages), just send directly with page markers
+  if (numPages <= 4) {
+    console.log(`Small PDF (${numPages} pages), sending directly to Gemini`);
+    return tryGeminiOcr(pdfData, 45000, true);
+  }
+
+  console.log(`Large scanned PDF (${numPages} pages), splitting into 4-page chunks...`);
+
+  const PAGES_PER_CHUNK = 4;
+  const PARALLEL_LIMIT = 2;
+  
+  try {
+    // Import pdf-lib from esm.sh for Deno
+    const { PDFDocument } = await import('https://esm.sh/pdf-lib@1.17.1');
+    
+    const srcDoc = await PDFDocument.load(pdfData, { ignoreEncryption: true });
+    const totalPages = srcDoc.getPageCount();
+    
+    // Build chunk definitions
+    const chunks: { startPage: number; endPage: number }[] = [];
+    for (let i = 0; i < totalPages; i += PAGES_PER_CHUNK) {
+      chunks.push({ startPage: i, endPage: Math.min(i + PAGES_PER_CHUNK, totalPages) });
+    }
+    
+    console.log(`Split into ${chunks.length} chunks of up to ${PAGES_PER_CHUNK} pages`);
+    
+    // Process chunks in batches of PARALLEL_LIMIT
+    const results: { chunkIndex: number; text: string; success: boolean }[] = [];
+    
+    for (let batchStart = 0; batchStart < chunks.length; batchStart += PARALLEL_LIMIT) {
+      const batch = chunks.slice(batchStart, batchStart + PARALLEL_LIMIT);
+      const batchPromises = batch.map(async (chunk, idx) => {
+        const chunkIndex = batchStart + idx;
+        try {
+          // Create sub-PDF for this chunk
+          const subDoc = await PDFDocument.create();
+          const pageIndices = Array.from(
+            { length: chunk.endPage - chunk.startPage },
+            (_, i) => chunk.startPage + i
+          );
+          const copiedPages = await subDoc.copyPages(srcDoc, pageIndices);
+          copiedPages.forEach((page: any) => subDoc.addPage(page));
+          const subPdfBytes = await subDoc.save();
+          
+          console.log(`Chunk ${chunkIndex + 1}/${chunks.length}: pages ${chunk.startPage + 1}-${chunk.endPage}, size ${subPdfBytes.length} bytes`);
+          
+          // OCR this chunk (30s timeout, no page markers — we add them ourselves)
+          const result = await tryGeminiOcr(new Uint8Array(subPdfBytes), 30000, false);
+          return { chunkIndex, text: result.text || '', success: result.success };
+        } catch (err) {
+          console.error(`Chunk ${chunkIndex + 1} failed:`, err);
+          return { chunkIndex, text: '', success: false };
+        }
+      });
+      
+      const batchResults = await Promise.all(batchPromises);
+      results.push(...batchResults);
+    }
+    
+    // Merge results with page markers
+    const successCount = results.filter(r => r.success).length;
+    console.log(`OCR complete: ${successCount}/${chunks.length} chunks succeeded`);
+    
+    if (successCount === 0) {
+      return { success: false, text: '', errorCode: 408 };
+    }
+    
+    // Sort by chunk index and merge with page markers
+    results.sort((a, b) => a.chunkIndex - b.chunkIndex);
+    
+    let mergedText = '';
+    const pages: { pageNum: number; offset: number }[] = [];
+    
+    for (const result of results) {
+      if (!result.success || !result.text) continue;
+      const chunk = chunks[result.chunkIndex];
+      
+      // Add page marker for the first page of this chunk
+      const pageNum = chunk.startPage + 1;
+      pages.push({ pageNum, offset: mergedText.length });
+      
+      mergedText += result.text + '\n\n';
+    }
+    
+    const finalText = mergedText.trim();
+    console.log(`Chunked OCR merged: ${finalText.length} chars, ${pages.length} page markers`);
+    
+    return { success: true, text: finalText, pages };
+    
+  } catch (error) {
+    console.error('Chunked OCR failed (pdf-lib error):', error);
+    // Fallback: try sending the whole PDF with longer timeout
+    console.log('Falling back to single-request Gemini OCR...');
+    return tryGeminiOcr(pdfData, 50000, true);
   }
 }
 
@@ -1793,6 +1895,7 @@ serve(async (req) => {
         const arrayBuffer = await fileData.arrayBuffer();
         const pdfData = new Uint8Array(arrayBuffer);
         
+        let numPages = 0;
         try {
           // Dynamic import of unpdf for proper PDF text extraction
           const unpdf = await import("https://esm.sh/unpdf@0.12.1");
@@ -1800,7 +1903,7 @@ serve(async (req) => {
           console.log(`PDF file size: ${pdfData.length} bytes`);
           
           const pdf = await unpdf.getDocumentProxy(pdfData);
-          const numPages = pdf.numPages;
+          numPages = pdf.numPages;
           console.log(`PDF has ${numPages} pages`);
           
           // Extract text page by page to track page positions
@@ -1877,8 +1980,11 @@ serve(async (req) => {
           let ocrErrorCode = 0;
           let ocrSucceeded = false;
           
-          // Try Gemini OCR first (primary - cheap & fast)
-          const geminiOcrResult = await tryGeminiOcr(pdfData);
+          // Try chunked Gemini OCR (splits large PDFs into 4-page chunks)
+          // If numPages is 0 (unpdf failed), estimate from file size
+          const estimatedPages = numPages > 0 ? numPages : Math.max(1, Math.ceil(pdfData.length / (35 * 1024)));
+          console.log(`OCR: using ${numPages > 0 ? 'actual' : 'estimated'} page count: ${estimatedPages}`);
+          const geminiOcrResult = await tryGeminiOcrChunked(pdfData, estimatedPages);
           
           if (geminiOcrResult.success && geminiOcrResult.text) {
             text = geminiOcrResult.text;
