@@ -71,20 +71,25 @@ export default function ChatFullscreen() {
   const [piiPreviewFileName, setPiiPreviewFileName] = useState("");
   const { extractText } = useAttachmentTextExtractor();
 
+  // Save initial URL param before any effects can clear it
+  const initialConvIdRef = useRef(searchParams.get('conversationId'));
+
   // Restore conversation from URL param only on initial load
   useEffect(() => {
-    const urlConvId = searchParams.get('conversationId');
+    const urlConvId = initialConvIdRef.current;
     if (!hasRestoredRef.current && urlConvId && conversations.length > 0) {
       const exists = conversations.find(c => c.id === urlConvId);
       if (exists) {
         setActiveConversationId(urlConvId);
       }
       hasRestoredRef.current = true;
+      initialConvIdRef.current = null;
     }
-  }, [conversations, searchParams, setActiveConversationId]);
+  }, [conversations, setActiveConversationId]);
 
-  // Sync URL when active conversation changes
+  // Sync URL when active conversation changes, but only after initial restore
   useEffect(() => {
+    if (!hasRestoredRef.current && initialConvIdRef.current) return; // don't clear URL before restore
     if (activeConversationId) {
       setSearchParams({ conversationId: activeConversationId }, { replace: true });
     } else {
@@ -94,6 +99,7 @@ export default function ChatFullscreen() {
 
   // Wrapper for new chat that works with URL sync
   const handleNewChatFullscreen = useCallback(() => {
+    hasRestoredRef.current = true; // prevent restore from fighting back
     handleNewChat();
   }, [handleNewChat]);
 
