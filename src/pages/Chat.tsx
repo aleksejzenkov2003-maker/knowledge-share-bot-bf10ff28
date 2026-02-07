@@ -21,7 +21,11 @@ import { ChatMessage } from "@/components/chat/ChatMessage";
 import { ChatSidebarEnhanced } from "@/components/chat/ChatSidebarEnhanced";
 import { ChatInputEnhanced } from "@/components/chat/ChatInputEnhanced";
 import { GoldenResponseDialog } from "@/components/chat/GoldenResponseDialog";
+import { PiiPreviewDialog } from "@/components/documents/PiiPreviewDialog";
 import { useConversationRolesQuery } from "@/hooks/queries/useChatQueries";
+import { useAttachmentTextExtractor } from "@/hooks/useAttachmentTextExtractor";
+import { Attachment } from "@/types/chat";
+import { toast } from "sonner";
 
 export default function Chat() {
   const navigate = useNavigate();
@@ -65,6 +69,12 @@ export default function Chat() {
   const [goldenDialogOpen, setGoldenDialogOpen] = useState(false);
   const [goldenQuestion, setGoldenQuestion] = useState("");
   const [goldenAnswer, setGoldenAnswer] = useState("");
+
+  // PII preview state
+  const [piiPreviewOpen, setPiiPreviewOpen] = useState(false);
+  const [piiPreviewText, setPiiPreviewText] = useState("");
+  const [piiPreviewFileName, setPiiPreviewFileName] = useState("");
+  const { extractText } = useAttachmentTextExtractor();
 
   // Restore conversation from URL param on mount
   useEffect(() => {
@@ -140,7 +150,18 @@ export default function Chat() {
     setGoldenDialogOpen(true);
   }, [messages]);
 
-  // Wait for auth first, then roles
+  // PII preview handler
+  const handlePiiPreview = useCallback(async (attachment: Attachment) => {
+    const text = await extractText(attachment);
+    if (!text) {
+      toast.error('Не удалось извлечь текст из файла');
+      return;
+    }
+    setPiiPreviewText(text);
+    setPiiPreviewFileName(attachment.file_name);
+    setPiiPreviewOpen(true);
+  }, [extractText]);
+
   if (authLoading || (user && rolesLoading)) {
     return (
       <div className="flex items-center justify-center h-[calc(100vh-120px)]">
@@ -287,6 +308,7 @@ export default function Chat() {
             onAttach={addAttachments}
             onRemoveAttachment={removeAttachment}
             onToggleAttachmentPii={toggleAttachmentPii}
+            onPiiPreview={handlePiiPreview}
             roles={roles}
             selectedRoleId={selectedRoleId}
             onRoleChange={handleRoleChange}
@@ -303,6 +325,14 @@ export default function Chat() {
         answer={goldenAnswer}
         roleId={selectedRoleId}
         departmentId={departmentId}
+      />
+
+      {/* PII Preview Dialog */}
+      <PiiPreviewDialog
+        open={piiPreviewOpen}
+        onOpenChange={setPiiPreviewOpen}
+        text={piiPreviewText}
+        fileName={piiPreviewFileName}
       />
     </div>
   );
