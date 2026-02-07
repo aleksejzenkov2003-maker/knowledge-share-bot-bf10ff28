@@ -51,20 +51,20 @@ serve(async (req) => {
 
     const results: { step: string; status: string; message?: string }[] = [];
 
-    // 1. Check and create default AI provider (Lovable AI)
+    // 1. Check and create default AI provider (Gemini)
     const { data: existingProvider } = await supabase
       .from('ai_providers')
       .select('id')
-      .eq('provider_type', 'lovable')
+      .eq('provider_type', 'gemini')
       .single();
 
     if (!existingProvider) {
       const { error: providerError } = await supabase
         .from('ai_providers')
         .insert({
-          name: 'Lovable AI (по умолчанию)',
-          provider_type: 'lovable',
-          default_model: 'google/gemini-2.5-flash',
+          name: 'Google Gemini (по умолчанию)',
+          provider_type: 'gemini',
+          default_model: 'gemini-2.5-flash',
           is_active: true,
           is_default: true,
         });
@@ -72,10 +72,10 @@ serve(async (req) => {
       if (providerError) {
         results.push({ step: 'provider', status: 'error', message: providerError.message });
       } else {
-        results.push({ step: 'provider', status: 'created', message: 'Lovable AI provider created and set as default' });
+        results.push({ step: 'provider', status: 'created', message: 'Gemini provider created and set as default' });
       }
     } else {
-      results.push({ step: 'provider', status: 'exists', message: 'Lovable AI provider already exists' });
+      results.push({ step: 'provider', status: 'exists', message: 'Gemini provider already exists' });
     }
 
     // 2. Check and create default system prompt
@@ -143,7 +143,7 @@ serve(async (req) => {
           slug: 'universal-assistant',
           description: 'Общий AI-ассистент для любых вопросов',
           system_prompt_id: prompt?.id || null,
-          model_config: provider ? { provider_id: provider.id, model: 'google/gemini-2.5-flash' } : null,
+          model_config: provider ? { provider_id: provider.id, model: 'gemini-2.5-flash' } : null,
           is_active: true,
           is_project_mode: false,
         });

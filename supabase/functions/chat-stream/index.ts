@@ -87,7 +87,7 @@ serve(async (req) => {
   try {
     const PERPLEXITY_API_KEY = Deno.env.get('PERPLEXITY_API_KEY');
     const ANTHROPIC_API_KEY = Deno.env.get('ANTHROPIC_API_KEY');
-    const LOVABLE_API_KEY = Deno.env.get('LOVABLE_API_KEY');
+    const GEMINI_API_KEY = Deno.env.get('GEMINI_API_KEY');
 
     const supabaseUrl = Deno.env.get('SUPABASE_URL')!;
     const supabaseKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!;
@@ -163,8 +163,8 @@ serve(async (req) => {
           return PERPLEXITY_API_KEY || '';
         case 'anthropic':
           return ANTHROPIC_API_KEY || '';
-        case 'lovable':
-          return LOVABLE_API_KEY || '';
+        case 'gemini':
+          return GEMINI_API_KEY || '';
         default:
           return '';
       }
@@ -211,7 +211,13 @@ serve(async (req) => {
 
     // Fallback to env-configured providers if no provider in DB
     if (!providerConfig) {
-      if (ANTHROPIC_API_KEY) {
+      if (GEMINI_API_KEY) {
+        providerConfig = {
+          provider_type: 'gemini',
+          api_key: GEMINI_API_KEY,
+          default_model: 'gemini-2.5-flash',
+        };
+      } else if (ANTHROPIC_API_KEY) {
         providerConfig = {
           provider_type: 'anthropic',
           api_key: ANTHROPIC_API_KEY,
@@ -221,13 +227,7 @@ serve(async (req) => {
         providerConfig = {
           provider_type: 'perplexity',
           api_key: PERPLEXITY_API_KEY,
-          default_model: 'sonar',  // Changed from sonar-pro for cost savings (~50%)
-        };
-      } else if (LOVABLE_API_KEY) {
-        providerConfig = {
-          provider_type: 'lovable',
-          api_key: LOVABLE_API_KEY,
-          default_model: 'google/gemini-2.5-flash',
+          default_model: 'sonar',
         };
       }
     }
@@ -1123,20 +1123,32 @@ ${goldenExamples.join('\n\n---\n\n')}
         });
         break;
 
-      case 'lovable':
-        streamResponse = await fetch('https://ai.gateway.lovable.dev/v1/chat/completions', {
-          method: 'POST',
-          headers: {
-            'Authorization': `Bearer ${LOVABLE_API_KEY || providerConfig.api_key}`,
-            'Content-Type': 'application/json',
-          },
-          body: JSON.stringify({
-            model: finalModel,
-            messages: [{ role: 'system', content: enhancedSystemPrompt }, ...simpleMessages],
-            stream: true,
-          }),
-        });
+      case 'gemini': {
+        const geminiApiKey = providerConfig.api_key || GEMINI_API_KEY || '';
+        const geminiModel = finalModel;
+        
+        // Build Gemini contents from simpleMessages
+        const geminiContents = simpleMessages.map(m => ({
+          role: m.role === 'assistant' ? 'model' : 'user',
+          parts: [{ text: m.content }],
+        }));
+        
+        streamResponse = await fetch(
+          `https://generativelanguage.googleapis.com/v1beta/models/${geminiModel}:streamGenerateContent?alt=sse&key=${geminiApiKey}`,
+          {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              contents: geminiContents,
+              systemInstruction: { parts: [{ text: enhancedSystemPrompt }] },
+              generationConfig: {
+                maxOutputTokens: 8192,
+              },
+            }),
+          }
+        );
         break;
+      }
 
       case 'perplexity':
       default:
@@ -1171,9 +1183,9 @@ ${goldenExamples.join('\n\n---\n\n')}
       if (streamResponse.status === 401 && providerConfig.provider_type === 'perplexity') {
         console.log('Perplexity 401 error, attempting fallback...');
         
-        // Try Lovable AI first, then Anthropic
+        // Try Gemini first, then Anthropic
         const fallbackProviders = [
-          { type: 'lovable', key: LOVABLE_API_KEY, model: 'google/gemini-2.5-flash' },
+          { type: 'gemini', key: GEMINI_API_KEY, model: 'gemini-2.5-flash' },
           { type: 'anthropic', key: ANTHROPIC_API_KEY, model: 'claude-sonnet-4-5-20250929' },
         ];
         
@@ -1183,19 +1195,24 @@ ${goldenExamples.join('\n\n---\n\n')}
             
             let fallbackResponse: Response;
             
-            if (fallback.type === 'lovable') {
-              fallbackResponse = await fetch('https://ai.gateway.lovable.dev/v1/chat/completions', {
-                method: 'POST',
-                headers: {
-                  'Authorization': `Bearer ${fallback.key}`,
-                  'Content-Type': 'application/json',
-                },
-                body: JSON.stringify({
-                  model: fallback.model,
-                  messages: [{ role: 'system', content: enhancedSystemPrompt }, ...simpleMessages],
-                  stream: true,
-                }),
-              });
+            if (fallback.type === 'gemini') {
+              const geminiContents = simpleMessages.map(m => ({
+                role: m.role === 'assistant' ? 'model' : 'user',
+                parts: [{ text: m.content }],
+              }));
+              
+              fallbackResponse = await fetch(
+                `https://generativelanguage.googleapis.com/v1beta/models/${fallback.model}:streamGenerateContent?alt=sse&key=${fallback.key}`,
+                {
+                  method: 'POST',
+                  headers: { 'Content-Type': 'application/json' },
+                  body: JSON.stringify({
+                    contents: geminiContents,
+                    systemInstruction: { parts: [{ text: enhancedSystemPrompt }] },
+                    generationConfig: { maxOutputTokens: 8192 },
+                  }),
+                }
+              );
             } else {
               fallbackResponse = await fetch('https://api.anthropic.com/v1/messages', {
                 method: 'POST',
@@ -1392,6 +1409,9 @@ ${goldenExamples.join('\n\n---\n\n')}
                     if (parsed.type === 'message_delta' && parsed.delta?.stop_reason) {
                       stopReason = parsed.delta.stop_reason;
                     }
+                  } else if (providerConfig!.provider_type === 'gemini') {
+                    // Gemini SSE format: candidates[0].content.parts[0].text
+                    content = parsed.candidates?.[0]?.content?.parts?.[0]?.text || '';
                   } else {
                     // Capture stop reason from OpenAI/Perplexity format
                     if (parsed.choices?.[0]?.finish_reason) {

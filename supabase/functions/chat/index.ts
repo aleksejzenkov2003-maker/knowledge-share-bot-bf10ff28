@@ -164,46 +164,54 @@ async function callOpenAI(
   };
 }
 
-async function callLovableAI(
+async function callGemini(
   apiKey: string,
   model: string,
   systemPrompt: string,
   userMessage: string,
   messageHistory?: { role: string; content: string }[]
 ): Promise<{ content: string; usage?: any }> {
-  // Build messages array
-  const messages: { role: string; content: string }[] = [
-    { role: 'system', content: systemPrompt }
-  ];
+  // Build contents array for Gemini format
+  const contents: { role: string; parts: { text: string }[] }[] = [];
   
   if (messageHistory && messageHistory.length > 0) {
-    messages.push(...messageHistory);
+    for (const msg of messageHistory) {
+      contents.push({
+        role: msg.role === 'assistant' ? 'model' : 'user',
+        parts: [{ text: msg.content }],
+      });
+    }
   } else {
-    messages.push({ role: 'user', content: userMessage });
+    contents.push({ role: 'user', parts: [{ text: userMessage }] });
   }
 
-  const response = await fetch('https://ai.gateway.lovable.dev/v1/chat/completions', {
-    method: 'POST',
-    headers: {
-      'Authorization': `Bearer ${apiKey}`,
-      'Content-Type': 'application/json',
-    },
-    body: JSON.stringify({
-      model,
-      messages,
-    }),
-  });
+  const response = await fetch(
+    `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${apiKey}`,
+    {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        contents,
+        systemInstruction: { parts: [{ text: systemPrompt }] },
+      }),
+    }
+  );
 
   if (!response.ok) {
     const errorText = await response.text();
-    console.error('Lovable AI error:', response.status, errorText);
-    throw new Error(`Lovable AI error: ${response.status}`);
+    console.error('Gemini API error:', response.status, errorText);
+    throw new Error(`Gemini API error: ${response.status}`);
   }
 
   const data = await response.json();
+  const content = data.candidates?.[0]?.content?.parts?.[0]?.text || '';
   return {
-    content: data.choices?.[0]?.message?.content || '',
-    usage: data.usage,
+    content,
+    usage: {
+      prompt_tokens: data.usageMetadata?.promptTokenCount || 0,
+      completion_tokens: data.usageMetadata?.candidatesTokenCount || 0,
+      total_tokens: data.usageMetadata?.totalTokenCount || 0,
+    },
   };
 }
 
@@ -217,7 +225,7 @@ serve(async (req) => {
   try {
     const PERPLEXITY_API_KEY = Deno.env.get('PERPLEXITY_API_KEY');
     const ANTHROPIC_API_KEY = Deno.env.get('ANTHROPIC_API_KEY');
-    const LOVABLE_API_KEY = Deno.env.get('LOVABLE_API_KEY');
+    const GEMINI_API_KEY = Deno.env.get('GEMINI_API_KEY');
 
     const supabaseUrl = Deno.env.get('SUPABASE_URL')!;
     const supabaseKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!;
@@ -330,26 +338,25 @@ serve(async (req) => {
     }
 
     // Fallback to environment-based providers
-    // Priority: Anthropic > Lovable > Perplexity (to minimize Perplexity costs)
+    // Priority: Gemini > Anthropic > Perplexity
     if (!providerConfig) {
-      if (ANTHROPIC_API_KEY) {
+      if (GEMINI_API_KEY) {
+        providerConfig = {
+          provider_type: 'gemini',
+          api_key: GEMINI_API_KEY,
+          default_model: 'gemini-2.5-flash',
+        };
+      } else if (ANTHROPIC_API_KEY) {
         providerConfig = {
           provider_type: 'anthropic',
           api_key: ANTHROPIC_API_KEY,
           default_model: 'claude-sonnet-4-20250514',
         };
-      } else if (LOVABLE_API_KEY) {
-        providerConfig = {
-          provider_type: 'lovable',
-          api_key: LOVABLE_API_KEY,
-          default_model: 'google/gemini-2.5-flash',
-        };
       } else if (PERPLEXITY_API_KEY) {
-        // Perplexity as last resort to minimize API costs
         providerConfig = {
           provider_type: 'perplexity',
           api_key: PERPLEXITY_API_KEY,
-          default_model: 'sonar',  // Use base model, not sonar-pro
+          default_model: 'sonar',
         };
       }
     }
@@ -368,11 +375,11 @@ serve(async (req) => {
     if (folderIds.length > 0) {
       console.log(`Searching in folders: ${folderIds.join(', ')}`);
       
-      // Try semantic search first if we have Lovable AI
-      if (LOVABLE_API_KEY) {
+      // Try semantic search first if we have Gemini API
+      if (GEMINI_API_KEY) {
         try {
           console.log('Generating query embedding for semantic search...');
-          const queryEmbedding = await generateQueryEmbedding(message, LOVABLE_API_KEY);
+          const queryEmbedding = await generateQueryEmbedding(message, GEMINI_API_KEY);
           
           if (queryEmbedding && queryEmbedding.length === 1536) {
             const { data: semanticChunks, error: semanticError } = await supabase.rpc(
@@ -485,9 +492,9 @@ serve(async (req) => {
           finalMessageHistory
         );
         break;
-      case 'lovable':
-        response = await callLovableAI(
-          LOVABLE_API_KEY || providerConfig.api_key,
+      case 'gemini':
+        response = await callGemini(
+          GEMINI_API_KEY || providerConfig.api_key,
           finalModel,
           systemPrompt,
           finalPrompt,
@@ -551,42 +558,38 @@ serve(async (req) => {
   }
 });
 
-// Generate query embedding using Lovable AI
+// Generate query embedding using Gemini API directly
 async function generateQueryEmbedding(text: string, apiKey: string): Promise<number[]> {
-  const response = await fetch('https://ai.gateway.lovable.dev/v1/chat/completions', {
-    method: 'POST',
-    headers: {
-      'Authorization': `Bearer ${apiKey}`,
-      'Content-Type': 'application/json',
-    },
-    body: JSON.stringify({
-      model: 'google/gemini-2.5-flash-lite',
-      messages: [
-        {
-          role: 'system',
-          content: `You are a text embedding generator. Analyze the given text and generate a semantic embedding.
+  const response = await fetch(
+    `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-lite:generateContent?key=${apiKey}`,
+    {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        contents: [{
+          parts: [{ text: `You are a text embedding generator. Analyze the given text and generate a semantic embedding.
 For the given text, output ONLY a JSON array of exactly 1536 floating point numbers between -1 and 1.
 These numbers should represent the semantic meaning of the text.
-Output ONLY the JSON array, nothing else. Example: [0.1, -0.2, 0.3, ...]`
+Output ONLY the JSON array, nothing else. Example: [0.1, -0.2, 0.3, ...]
+
+Generate embedding for: "${text.substring(0, 500)}"` }]
+        }],
+        generationConfig: {
+          temperature: 0,
+          maxOutputTokens: 8000,
         },
-        {
-          role: 'user',
-          content: `Generate embedding for: "${text.substring(0, 500)}"`
-        }
-      ],
-      temperature: 0,
-      max_tokens: 8000,
-    }),
-  });
+      }),
+    }
+  );
 
   if (!response.ok) {
     const errorText = await response.text();
-    console.error('Lovable AI embedding error:', response.status, errorText);
+    console.error('Gemini embedding error:', response.status, errorText);
     throw new Error(`Failed to generate query embedding: ${response.status}`);
   }
 
   const data = await response.json();
-  const content = data.choices?.[0]?.message?.content || '';
+  const content = data.candidates?.[0]?.content?.parts?.[0]?.text || '';
   
   try {
     const jsonMatch = content.match(/\[[\d\s,.\-e]+\]/);

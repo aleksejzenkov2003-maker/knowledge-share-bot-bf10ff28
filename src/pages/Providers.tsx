@@ -48,26 +48,22 @@ const providerModels: Record<string, { value: string; label: string }[]> = {
     { value: 'claude-3-5-haiku-20241022', label: 'Claude 3.5 Haiku (быстрый)' },
     { value: 'claude-3-opus-20240229', label: 'Claude 3 Opus (мощный)' },
   ],
-  lovable: [
-    { value: 'google/gemini-2.5-flash', label: 'Gemini 2.5 Flash' },
-    { value: 'google/gemini-2.5-pro', label: 'Gemini 2.5 Pro' },
-    { value: 'google/gemini-3-flash-preview', label: 'Gemini 3 Flash Preview' },
-    { value: 'google/gemini-3-pro-preview', label: 'Gemini 3 Pro Preview' },
-    { value: 'google/gemini-2.5-flash-lite', label: 'Gemini 2.5 Flash Lite' },
-    { value: 'openai/gpt-5', label: 'GPT-5' },
-    { value: 'openai/gpt-5-mini', label: 'GPT-5 Mini' },
-    { value: 'openai/gpt-5.2', label: 'GPT-5.2 (новейший)' },
+  gemini: [
+    { value: 'gemini-2.5-flash', label: 'Gemini 2.5 Flash (быстрый, дешёвый)' },
+    { value: 'gemini-2.5-pro', label: 'Gemini 2.5 Pro (мощный)' },
+    { value: 'gemini-2.5-flash-lite', label: 'Gemini 2.5 Flash Lite (самый дешёвый)' },
+    { value: 'gemini-2.0-flash', label: 'Gemini 2.0 Flash (предыдущее поколение)' },
   ],
 };
 
 // Проверка наличия API ключей из env (для подсказок в UI)
-const envConfiguredProviders = ['perplexity', 'anthropic', 'lovable'];
+const envConfiguredProviders = ['perplexity', 'anthropic', 'gemini'];
 
 const providerLabels: Record<string, string> = {
   perplexity: 'Perplexity',
   openai: 'OpenAI',
   anthropic: 'Anthropic',
-  lovable: 'Lovable AI',
+  gemini: 'Google Gemini',
 };
 
 const Providers = () => {
@@ -229,7 +225,7 @@ const Providers = () => {
       ...newProvider,
       provider_type: value,
       default_model: firstModel,
-      api_key: value === 'lovable' ? '' : newProvider.api_key,
+      api_key: value === 'gemini' ? '' : newProvider.api_key,
     });
   };
 
@@ -294,7 +290,7 @@ const Providers = () => {
                       <SelectItem value="perplexity">Perplexity</SelectItem>
                       <SelectItem value="anthropic">Anthropic (Claude)</SelectItem>
                       <SelectItem value="openai">OpenAI</SelectItem>
-                      <SelectItem value="lovable">Lovable AI (без API ключа)</SelectItem>
+                      <SelectItem value="gemini">Google Gemini</SelectItem>
                     </SelectContent>
                   </Select>
                 </div>
@@ -329,7 +325,9 @@ const Providers = () => {
                           ? 'sk-...'
                           : newProvider.provider_type === 'perplexity'
                           ? 'pplx-... (опционально)'
-                          : 'Оставьте пустым для использования системного ключа'
+                          : newProvider.provider_type === 'gemini'
+                          ? 'AIza... (опционально)'
+                          : 'Введите API ключ'
                       }
                       value={newProvider.api_key}
                       onChange={(e) => setNewProvider({ ...newProvider, api_key: e.target.value })}
