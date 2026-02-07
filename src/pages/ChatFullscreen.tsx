@@ -25,8 +25,8 @@ import { toast } from "sonner";
 
 export default function ChatFullscreen() {
   const navigate = useNavigate();
-  const [searchParams] = useSearchParams();
-  const initialConversationId = searchParams.get('conversationId');
+  const [searchParams, setSearchParams] = useSearchParams();
+  const hasRestoredRef = useRef(false);
   const { user, departmentId, isLoading: authLoading } = useAuth();
   const [sidebarOpen, setSidebarOpen] = useState(true);
   const [inputValue, setInputValue] = useState("");
@@ -71,15 +71,31 @@ export default function ChatFullscreen() {
   const [piiPreviewFileName, setPiiPreviewFileName] = useState("");
   const { extractText } = useAttachmentTextExtractor();
 
-  // Restore conversation from URL param on mount
+  // Restore conversation from URL param only on initial load
   useEffect(() => {
-    if (initialConversationId && !activeConversationId && conversations.length > 0) {
-      const exists = conversations.find(c => c.id === initialConversationId);
+    const urlConvId = searchParams.get('conversationId');
+    if (!hasRestoredRef.current && urlConvId && conversations.length > 0) {
+      const exists = conversations.find(c => c.id === urlConvId);
       if (exists) {
-        setActiveConversationId(initialConversationId);
+        setActiveConversationId(urlConvId);
       }
+      hasRestoredRef.current = true;
     }
-  }, [initialConversationId, activeConversationId, conversations, setActiveConversationId]);
+  }, [conversations, searchParams, setActiveConversationId]);
+
+  // Sync URL when active conversation changes
+  useEffect(() => {
+    if (activeConversationId) {
+      setSearchParams({ conversationId: activeConversationId }, { replace: true });
+    } else {
+      setSearchParams({}, { replace: true });
+    }
+  }, [activeConversationId, setSearchParams]);
+
+  // Wrapper for new chat that works with URL sync
+  const handleNewChatFullscreen = useCallback(() => {
+    handleNewChat();
+  }, [handleNewChat]);
 
   // Fetch roles used in messages for each conversation
   const conversationIds = useMemo(() => conversations.map(c => c.id), [conversations]);
@@ -171,7 +187,7 @@ export default function ChatFullscreen() {
           <ChatSidebarEnhanced
             conversations={conversations}
             activeConversationId={activeConversationId}
-            onNewChat={handleNewChat}
+            onNewChat={handleNewChatFullscreen}
             onSelectConversation={handleSelectConversation}
             onDeleteConversation={deleteConversation}
             onRenameConversation={renameConversation}
