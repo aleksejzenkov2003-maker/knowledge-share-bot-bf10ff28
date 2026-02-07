@@ -58,6 +58,7 @@ export default function Chat() {
     addAttachments,
     removeAttachment,
     clearAttachments,
+    toggleAttachmentPii,
   } = useOptimizedChat(user?.id, departmentId);
 
   // Golden response dialog state
@@ -285,6 +286,7 @@ export default function Chat() {
             attachments={attachments}
             onAttach={addAttachments}
             onRemoveAttachment={removeAttachment}
+            onToggleAttachmentPii={toggleAttachmentPii}
             roles={roles}
             selectedRoleId={selectedRoleId}
             onRoleChange={handleRoleChange}

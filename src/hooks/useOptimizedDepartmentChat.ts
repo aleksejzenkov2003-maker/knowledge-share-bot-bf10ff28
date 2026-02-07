@@ -227,6 +227,12 @@ export function useOptimizedDepartmentChat(userId: string | undefined, departmen
     ));
   }, []);
 
+  const toggleAttachmentPii = useCallback((id: string, value: boolean) => {
+    setAttachments(prev => prev.map(a => 
+      a.id === id ? { ...a, containsPii: value } : a
+    ));
+  }, []);
+
   const clearAttachments = useCallback(() => {
     setAttachments(prev => {
       prev.forEach(a => {
@@ -404,12 +410,18 @@ export function useOptimizedDepartmentChat(userId: string | undefined, departmen
       };
 
       if (attachmentsMetadata.length > 0) {
-        requestBody.attachments = attachmentsMetadata.map(a => ({
-          file_path: a.file_path,
-          file_name: a.file_name,
-          file_type: a.file_type,
-          file_size: a.file_size
-        }));
+        // Find original attachment objects to get containsPii flag
+        const currentAttachments = messageAttachments || [];
+        requestBody.attachments = attachmentsMetadata.map(a => {
+          const original = currentAttachments.find(att => att.file_path === a.file_path);
+          return {
+            file_path: a.file_path,
+            file_name: a.file_name,
+            file_type: a.file_type,
+            file_size: a.file_size,
+            contains_pii: original?.containsPii || false,
+          };
+        });
       }
 
       // Add reply-to context if present
@@ -688,6 +700,7 @@ export function useOptimizedDepartmentChat(userId: string | undefined, departmen
     handleAttach,
     removeAttachment,
     toggleAttachmentKnowledgeBase,
+    toggleAttachmentPii,
     
     // Knowledge base
     selectedKnowledgeDocs,

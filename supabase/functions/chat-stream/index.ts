@@ -16,6 +16,7 @@ interface AttachmentInput {
   file_name: string;
   file_type: string;
   file_size: number;
+  contains_pii?: boolean;
 }
 
 interface ChatRequest {
@@ -1107,7 +1108,12 @@ ${goldenExamples.join('\n\n---\n\n')}
     }
     
     if (hasAttachments) {
-      enhancedSystemPrompt += '\n\nПользователь прикрепил файлы к сообщению. Проанализируй их содержимое и ответь на вопрос пользователя, учитывая информацию из файлов.';
+      const piiAttachments = limitedAttachments.filter(a => a.contains_pii);
+      if (piiAttachments.length > 0) {
+        enhancedSystemPrompt += `\n\nПользователь прикрепил файлы к сообщению. Проанализируй их содержимое и ответь на вопрос пользователя. ВНИМАНИЕ: Следующие файлы содержат персональные данные (ПДн): ${piiAttachments.map(a => a.file_name).join(', ')}. При ответе используй маскирующие токены из текста сообщения (например [PERSON_1], [PHONE_1]) для всех персональных данных из этих документов. НЕ раскрывай настоящие персональные данные из документов.`;
+      } else {
+        enhancedSystemPrompt += '\n\nПользователь прикрепил файлы к сообщению. Проанализируй их содержимое и ответь на вопрос пользователя, учитывая информацию из файлов.';
+      }
     }
 
     console.log(`Streaming from ${providerConfig.provider_type} with model: ${finalModel}, attachments: ${hasAttachments}, trademarks: ${hasTrademarkImages}`);
