@@ -2057,7 +2057,7 @@ serve(async (req) => {
         
         // ============= OCR FALLBACK FOR SCANNED PDFs =============
         // If text extraction yielded very little text, the PDF is likely scanned images
-        // Use Anthropic Claude for OCR (primary), with Lovable AI (Gemini) as fallback
+        // Primary: Gemini (chunked for large PDFs). Anthropic only if Gemini completely fails.
         if (text.length < 200 && pdfData.length > 10000) {
           console.log(`PDF appears to be scanned (text length: ${text.length}). Attempting OCR via Gemini (primary)...`);
           
