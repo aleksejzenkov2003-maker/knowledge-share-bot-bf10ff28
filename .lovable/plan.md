@@ -1,97 +1,61 @@
 
 
-## План: Заменить Lovable AI на прямой Gemini API + добавить Gemini как провайдера
+## План: Постраничная OCR обработка для устранения таймаутов
 
-### Что делаем
-Отказываемся от Lovable AI gateway (`ai.gateway.lovable.dev`) и переходим на прямой вызов Google Gemini API (`generativelanguage.googleapis.com`) с вашим собственным ключом. Также добавляем Gemini как отдельный тип провайдера для создания агентов.
+### Проблема
+Сканированный PDF (506 КБ, 16 страниц) отправляется **целиком** как base64 (~675 КБ) в один запрос к Gemini. Gemini не успевает обработать такой объём за 50 секунд — таймаут. Anthropic тоже не успевает за 55 секунд. Результат: оба метода проваливаются.
 
-### Шаг 1: Добавить секрет GEMINI_API_KEY
-Запросим ваш ключ Gemini через систему секретов.
+### Решение: Постраничная OCR через pdf-lib
 
-### Шаг 2: Обновить edge-функции
+Вместо отправки всего PDF целиком, разбивать его на порции по 3-4 страницы с помощью `pdf-lib` (уже используется на клиенте для сплиттинга) и обрабатывать каждую порцию отдельным запросом к Gemini.
 
-#### 2.1 `process-document/index.ts` — OCR через Gemini напрямую
-- Заменить `tryLovableAiOcr()` на `tryGeminiOcr()` 
-- URL: `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent`
-- Использовать `GEMINI_API_KEY` вместо `LOVABLE_API_KEY`
-- Gemini напрямую поддерживает PDF через `inlineData` с `mimeType: application/pdf`
-- Это будет **основной OCR** (дешевый и быстрый), Anthropic останется как резерв
-
-#### 2.2 `chat-stream/index.ts` — стриминг через Gemini
-- Добавить новый `case 'gemini'` в switch провайдеров
-- URL для стриминга: `https://generativelanguage.googleapis.com/v1beta/models/{model}:streamGenerateContent?alt=sse&key={API_KEY}`
-- Gemini SSE формат отличается от OpenAI — парсить `candidates[0].content.parts[0].text`
-- Обновить fallback-логику: заменить `lovable` на `gemini`
-- Обновить `getEffectiveApiKey`: добавить `case 'gemini'` с `GEMINI_API_KEY`
-
-#### 2.3 `chat/index.ts` — не-стриминговые вызовы
-- Заменить `callLovableAI()` на `callGemini()` 
-- URL: `https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent?key={API_KEY}`
-- Обновить `generateQueryEmbedding()` — использовать Gemini для генерации эмбеддингов
-- Обновить fallback-цепочку провайдеров
-
-#### 2.4 `rerank-chunks/index.ts` — опционально
-- Можно переключить с Anthropic на Gemini для экономии (reranking использует Claude Sonnet 4)
-- Или оставить на Anthropic если качество важнее
-
-### Шаг 3: Обновить UI провайдеров (`src/pages/Providers.tsx`)
-- Добавить `gemini` в `providerModels` со списком моделей:
-  - `gemini-2.5-flash` (быстрый, дешёвый)
-  - `gemini-2.5-pro` (мощный)
-  - `gemini-2.5-flash-lite` (самый дешёвый)
-  - `gemini-2.0-flash` (предыдущее поколение)
-- Добавить `gemini` в `providerLabels`: `'Google Gemini'`
-- Добавить `gemini` в `envConfiguredProviders` (ключ из env)
-- Добавить `SelectItem value="gemini"` в форму создания
-- Обновить плейсхолдер API ключа: `'AIza... (опционально)'`
-
-### Шаг 4: Обновить `init-system/index.ts`
-- Заменить дефолтный провайдер `lovable` на `gemini` при инициализации системы
-
-### Технические детали
-
-**Формат вызова Gemini API (не-стриминг):**
 ```text
-POST https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent?key={API_KEY}
-{
-  "contents": [
-    {"role": "user", "parts": [{"text": "..."}]}
-  ],
-  "systemInstruction": {"parts": [{"text": "..."}]}
-}
+PDF 16 страниц (506 КБ)
+    |
+    v  unpdf: 0 символов текста (скан)
+    |
+    v  Разбиваем на порции по 4 страницы
+    |
+Порция 1: стр. 1-4  --> Gemini (~30 КБ base64) --> текст ✓
+Порция 2: стр. 5-8  --> Gemini (~30 КБ base64) --> текст ✓
+Порция 3: стр. 9-12 --> Gemini (~30 КБ base64) --> текст ✓
+Порция 4: стр. 13-16 --> Gemini (~30 КБ base64) --> текст ✓
+    |
+    v  Объединяем тексты с маркерами страниц
 ```
 
-**Формат вызова Gemini API (стриминг):**
-```text
-POST https://generativelanguage.googleapis.com/v1beta/models/{model}:streamGenerateContent?alt=sse&key={API_KEY}
-```
-SSE формат: `data: {"candidates":[{"content":{"parts":[{"text":"chunk"}]}}]}`
+### Преимущества
+- Каждый запрос к Gemini обрабатывает маленький PDF (~30-50 КБ) — укладывается в 15-20 секунд
+- Общее время: 4 порции x ~15 сек = ~60 сек, но можно параллелить 2 запроса
+- Если одна порция упала — остальные всё равно обработаются (частичный результат лучше нуля)
+- Стоимость та же (тот же объём данных, просто по частям)
 
-**OCR с PDF:**
-```text
-"contents": [{
-  "parts": [
-    {"text": "Извлеки текст..."},
-    {"inlineData": {"mimeType": "application/pdf", "data": "base64..."}}
-  ]
-}]
-```
+### Изменения в файлах
 
-### Какие файлы меняются
-1. `supabase/functions/process-document/index.ts` — OCR
-2. `supabase/functions/chat-stream/index.ts` — стриминг чата
-3. `supabase/functions/chat/index.ts` — не-стриминговый чат + эмбеддинги
-4. `supabase/functions/init-system/index.ts` — дефолтный провайдер
-5. `src/pages/Providers.tsx` — UI управления провайдерами
+#### 1. `supabase/functions/process-document/index.ts`
 
-### Что НЕ меняется
-- Anthropic остаётся как резервный OCR и как отдельный провайдер для агентов
-- Perplexity остаётся для веб-поиска
-- Структура БД не меняется (provider_type — текстовое поле)
-- `rerank-chunks` оставляем на Anthropic (качество reranking критично)
+**Новая функция `tryGeminiOcrChunked`:**
+- Принимает `pdfData: Uint8Array` и `numPages: number`
+- Использует `pdf-lib` (import из esm.sh) для создания под-PDF по 4 страницы
+- Отправляет каждую порцию в `tryGeminiOcr` (маленький PDF)
+- Объединяет результаты с правильными маркерами `[СТРАНИЦА N]`
+- Если порция не успела — пропускает, продолжает с остальными
+
+**Обновлённая функция `tryGeminiOcr`:**
+- Упрощённый промпт без маркеров страниц (маркеры добавляются в `tryGeminiOcrChunked`)
+- Таймаут уменьшить до 30 секунд (порция маленькая — быстро обрабатывается)
+
+**Обновлённый OCR fallback блок (строки 1874-1943):**
+- Вместо `tryGeminiOcr(pdfData)` вызывать `tryGeminiOcrChunked(pdfData, numPages)`
+- Anthropic fallback остаётся для случая полного провала Gemini
+
+#### 2. Оптимизация параллелизма
+- Обрабатывать по 2 порции одновременно (параллельно), чтобы уложиться в 60 секунд
+- Это даёт: 16 страниц / 4 на порцию = 4 порции / 2 параллельно = 2 раунда x ~20 сек = ~40 сек
 
 ### Ожидаемый результат
-- Расходы на OCR снижаются в 10-20 раз (Gemini Flash вместо Claude Sonnet)
-- Полная независимость от Lovable AI gateway
-- Gemini доступен как провайдер для создания агентов в UI
-- Anthropic/Perplexity продолжают работать как раньше
+- Документ 16 страниц обрабатывается за ~40 секунд вместо таймаута
+- Стоимость остаётся такой же (Gemini Flash, дешёвый)
+- Частичные результаты при ошибках (лучше чем полный провал)
+- Поддержка PDF до ~50 страниц без таймаутов
+
