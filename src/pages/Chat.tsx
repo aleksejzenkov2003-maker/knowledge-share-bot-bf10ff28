@@ -1,19 +1,20 @@
 import { useState, useEffect, useRef, useMemo, useCallback } from "react";
-import { useNavigate, useSearchParams } from "react-router-dom";
+import { useSearchParams } from "react-router-dom";
 import { useAuth } from "@/contexts/AuthContext";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { 
   Loader2, 
-  Bot, 
   RotateCcw, 
   History,
   PanelLeftClose,
   PanelLeft,
   StopCircle,
   Maximize2,
-  MessageSquare
+  Minimize2,
+  MessageSquare,
+  Trash2
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useOptimizedChat } from "@/hooks/useOptimizedChat";
@@ -28,9 +29,9 @@ import { Attachment } from "@/types/chat";
 import { toast } from "sonner";
 
 export default function Chat() {
-  const navigate = useNavigate();
   const [searchParams] = useSearchParams();
   const { user, departmentId, isLoading: authLoading } = useAuth();
+  const [isFullscreen, setIsFullscreen] = useState(false);
   const [sidebarOpen, setSidebarOpen] = useState(true);
   const [inputValue, setInputValue] = useState("");
   const [selectedRoleFilter, setSelectedRoleFilter] = useState("all");
@@ -86,6 +87,13 @@ export default function Chat() {
     }
   }, [initialConversationId, activeConversationId, conversations, setActiveConversationId]);
 
+  // Check URL for fullscreen flag
+  useEffect(() => {
+    if (searchParams.get('fullscreen') === 'true') {
+      setIsFullscreen(true);
+    }
+  }, [searchParams]);
+
   // Fetch roles used in messages for each conversation
   const conversationIds = useMemo(() => conversations.map(c => c.id), [conversations]);
   const { data: conversationRolesMap = new Map() } = useConversationRolesQuery(conversationIds);
@@ -132,7 +140,6 @@ export default function Chat() {
     const message = messages[messageIndex];
     if (message.role !== "assistant") return;
     
-    // Find the previous user message as the "question"
     let questionContent = "";
     for (let i = messageIndex - 1; i >= 0; i--) {
       if (messages[i].role === "user") {
@@ -170,6 +177,188 @@ export default function Chat() {
     );
   }
 
+  // Shared chat content (used in both normal and fullscreen modes)
+  const sidebarContent = (
+    <ChatSidebarEnhanced
+      conversations={conversations}
+      activeConversationId={activeConversationId}
+      onNewChat={handleNewChat}
+      onSelectConversation={handleSelectConversation}
+      onDeleteConversation={deleteConversation}
+      onRenameConversation={renameConversation}
+      onPinConversation={pinConversation}
+      roles={roles}
+      selectedRoleFilter={selectedRoleFilter}
+      onRoleFilterChange={setSelectedRoleFilter}
+      conversationRolesMap={conversationRolesMap}
+    />
+  );
+
+  const messagesContent = (
+    <ScrollArea className="flex-1">
+      <div className="max-w-4xl mx-auto py-6 px-4 lg:px-8">
+        {messages.length === 0 ? (
+          <div className={cn(
+            "flex flex-col items-center justify-center text-center",
+            isFullscreen ? "h-[60vh]" : "h-[50vh]"
+          )}>
+            <div className={cn(
+              "rounded-full bg-primary/10 flex items-center justify-center mb-4",
+              isFullscreen ? "w-16 h-16" : "w-14 h-14"
+            )}>
+              <MessageSquare className={cn("text-primary", isFullscreen ? "h-8 w-8" : "h-7 w-7")} />
+            </div>
+            <h2 className={cn("font-semibold mb-1", isFullscreen ? "text-xl mb-2" : "text-lg")}>
+              {selectedRole?.name || "Чат с ассистентом"}
+            </h2>
+            <p className={cn("text-muted-foreground", isFullscreen ? "max-w-md" : "text-sm max-w-sm")}>
+              {selectedRole?.description || "Начните диалог, задав вопрос или выбрав тему для обсуждения"}
+            </p>
+            {isProjectMode && !isFullscreen && (
+              <Badge variant="secondary" className="mt-3">
+                <History className="h-3 w-3 mr-1" />
+                История сохраняется в контексте
+              </Badge>
+            )}
+          </div>
+        ) : (
+          <div className="space-y-4">
+            {messages.map((message) => (
+              <ChatMessage 
+                key={message.id} 
+                message={message}
+                onEditMessage={editMessage}
+                onRegenerateResponse={regenerateResponse}
+                onSaveAsGolden={handleSaveAsGolden}
+                availableRoles={roles}
+                currentRoleId={selectedRoleId}
+              />
+            ))}
+            {isLoading && (
+              <div className="flex items-center gap-2 text-muted-foreground">
+                <Loader2 className="h-4 w-4 animate-spin" />
+                <span className="text-sm">Генерация ответа...</span>
+              </div>
+            )}
+            <div ref={messagesEndRef} />
+          </div>
+        )}
+      </div>
+    </ScrollArea>
+  );
+
+  const inputContent = (
+    <div className="border-t bg-background py-4">
+      <ChatInputEnhanced
+        value={inputValue}
+        onChange={setInputValue}
+        onSend={handleSend}
+        onStop={stopGeneration}
+        isLoading={isLoading}
+        attachments={attachments}
+        onAttach={addAttachments}
+        onRemoveAttachment={removeAttachment}
+        onToggleAttachmentPii={toggleAttachmentPii}
+        onPiiPreview={handlePiiPreview}
+        roles={roles}
+        selectedRoleId={selectedRoleId}
+        onRoleChange={handleRoleChange}
+        placeholder="Спросите что-нибудь..."
+      />
+    </div>
+  );
+
+  const dialogs = (
+    <>
+      <GoldenResponseDialog
+        isOpen={goldenDialogOpen}
+        onClose={() => setGoldenDialogOpen(false)}
+        question={goldenQuestion}
+        answer={goldenAnswer}
+        roleId={selectedRoleId}
+        departmentId={departmentId}
+      />
+      <PiiPreviewDialog
+        open={piiPreviewOpen}
+        onOpenChange={setPiiPreviewOpen}
+        text={piiPreviewText}
+        fileName={piiPreviewFileName}
+      />
+    </>
+  );
+
+  // ── Fullscreen overlay ──
+  if (isFullscreen) {
+    return (
+      <div className="fixed inset-0 z-50 bg-background flex overflow-hidden">
+        {/* Sidebar */}
+        <div 
+          className={cn(
+            "h-full border-r border-border transition-all duration-300 flex-shrink-0",
+            sidebarOpen ? "w-64" : "w-0"
+          )}
+        >
+          {sidebarOpen && sidebarContent}
+        </div>
+
+        {/* Main Chat Area */}
+        <div className="flex-1 flex flex-col min-w-0">
+          {/* Fullscreen Header */}
+          <header className="h-14 border-b border-border flex items-center justify-between px-4 flex-shrink-0">
+            <div className="flex items-center gap-2">
+              <Button
+                variant="ghost"
+                size="icon"
+                onClick={() => setSidebarOpen(!sidebarOpen)}
+                className="h-8 w-8"
+              >
+                {sidebarOpen ? <PanelLeftClose className="h-4 w-4" /> : <PanelLeft className="h-4 w-4" />}
+              </Button>
+              {activeConversation && (
+                <span className="text-sm font-medium truncate max-w-[300px]">
+                  {activeConversation.title}
+                </span>
+              )}
+            </div>
+            <div className="flex items-center gap-2">
+              {isLoading && (
+                <Button variant="destructive" size="sm" onClick={stopGeneration} className="h-8">
+                  <StopCircle className="h-4 w-4 mr-1" />
+                  Стоп
+                </Button>
+              )}
+              {activeConversation && (
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  onClick={() => deleteConversation(activeConversation.id)}
+                  className="text-muted-foreground hover:text-destructive"
+                >
+                  <Trash2 className="h-4 w-4" />
+                </Button>
+              )}
+              <Button
+                variant="ghost"
+                size="icon"
+                onClick={() => setIsFullscreen(false)}
+                className="h-8 w-8"
+                title="Выйти из полноэкранного режима"
+              >
+                <Minimize2 className="h-4 w-4" />
+              </Button>
+            </div>
+          </header>
+
+          {messagesContent}
+          {inputContent}
+        </div>
+
+        {dialogs}
+      </div>
+    );
+  }
+
+  // ── Normal (inline) layout ──
   return (
     <div className="flex h-[calc(100vh-120px)]">
       {/* Sidebar */}
@@ -179,19 +368,7 @@ export default function Chat() {
           sidebarOpen ? "w-72" : "w-0 overflow-hidden"
         )}
       >
-        <ChatSidebarEnhanced
-          conversations={conversations}
-          activeConversationId={activeConversationId}
-          onNewChat={handleNewChat}
-          onSelectConversation={handleSelectConversation}
-          onDeleteConversation={deleteConversation}
-          onRenameConversation={renameConversation}
-          onPinConversation={pinConversation}
-          roles={roles}
-          selectedRoleFilter={selectedRoleFilter}
-          onRoleFilterChange={setSelectedRoleFilter}
-          conversationRolesMap={conversationRolesMap}
-        />
+        {sidebarContent}
       </div>
 
       {/* Main Chat Area */}
@@ -241,7 +418,7 @@ export default function Chat() {
             <Button 
               variant="ghost" 
               size="icon" 
-              onClick={() => navigate(`/chat-fullscreen${activeConversationId ? `?conversationId=${activeConversationId}` : ''}`)}
+              onClick={() => setIsFullscreen(true)}
               className="h-8 w-8"
               title="Полноэкранный режим"
             >
@@ -250,90 +427,11 @@ export default function Chat() {
           </div>
         </div>
 
-        {/* Messages */}
-        <ScrollArea className="flex-1">
-          <div className="max-w-4xl mx-auto py-6 px-4 lg:px-8">
-            {messages.length === 0 ? (
-              <div className="flex flex-col items-center justify-center h-[50vh] text-center">
-                <div className="w-14 h-14 rounded-full bg-primary/10 flex items-center justify-center mb-4">
-                  <MessageSquare className="h-7 w-7 text-primary" />
-                </div>
-                <h2 className="text-lg font-semibold mb-1">
-                  {selectedRole?.name || "Чат с ассистентом"}
-                </h2>
-                <p className="text-sm text-muted-foreground max-w-sm">
-                  {selectedRole?.description || "Начните диалог, задав вопрос или выбрав тему для обсуждения"}
-                </p>
-                {isProjectMode && (
-                  <Badge variant="secondary" className="mt-3">
-                    <History className="h-3 w-3 mr-1" />
-                    История сохраняется в контексте
-                  </Badge>
-                )}
-              </div>
-            ) : (
-              <div className="space-y-4">
-                {messages.map((message) => (
-                  <ChatMessage 
-                    key={message.id} 
-                    message={message}
-                    onEditMessage={editMessage}
-                    onRegenerateResponse={regenerateResponse}
-                    onSaveAsGolden={handleSaveAsGolden}
-                    availableRoles={roles}
-                    currentRoleId={selectedRoleId}
-                  />
-                ))}
-                {isLoading && (
-                  <div className="flex items-center gap-2 text-muted-foreground">
-                    <Loader2 className="h-4 w-4 animate-spin" />
-                    <span className="text-sm">Генерация ответа...</span>
-                  </div>
-                )}
-                <div ref={messagesEndRef} />
-              </div>
-            )}
-          </div>
-        </ScrollArea>
-
-        {/* Input Area - sticky at bottom of main area */}
-        <div className="border-t bg-background py-4">
-          <ChatInputEnhanced
-            value={inputValue}
-            onChange={setInputValue}
-            onSend={handleSend}
-            onStop={stopGeneration}
-            isLoading={isLoading}
-            attachments={attachments}
-            onAttach={addAttachments}
-            onRemoveAttachment={removeAttachment}
-            onToggleAttachmentPii={toggleAttachmentPii}
-            onPiiPreview={handlePiiPreview}
-            roles={roles}
-            selectedRoleId={selectedRoleId}
-            onRoleChange={handleRoleChange}
-            placeholder="Спросите что-нибудь..."
-          />
-        </div>
+        {messagesContent}
+        {inputContent}
       </div>
 
-      {/* Golden Response Dialog */}
-      <GoldenResponseDialog
-        isOpen={goldenDialogOpen}
-        onClose={() => setGoldenDialogOpen(false)}
-        question={goldenQuestion}
-        answer={goldenAnswer}
-        roleId={selectedRoleId}
-        departmentId={departmentId}
-      />
-
-      {/* PII Preview Dialog */}
-      <PiiPreviewDialog
-        open={piiPreviewOpen}
-        onOpenChange={setPiiPreviewOpen}
-        text={piiPreviewText}
-        fileName={piiPreviewFileName}
-      />
+      {dialogs}
     </div>
   );
 }
