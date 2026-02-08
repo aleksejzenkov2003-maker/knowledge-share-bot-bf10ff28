@@ -1,96 +1,87 @@
 
 
-## Plan: Fix document processing failures (CPU timeout + stuck status)
+## Plan: Fix PII False Positives and Text Truncation
 
-### Root Cause Analysis
+### Problem Analysis
 
-From the logs:
-- "Руков по регистрации ТЗ" (7.2 MB, 297 pages, scanned) -- "CPU Time exceeded" after only processing chunk 2 of 75
-- "Рук по экспертизе ТЗ" (5.4 MB, 341 pages, scanned) -- "CPU Time exceeded" after only processing chunk 2 of 86
-- "mktu_13_26_2lang.xlsx" (900 KB) -- stuck in "processing" status
-- All three documents are currently stuck with `status: "processing"` and `chunk_count: 0`
+From the screenshots, there are **two categories** of issues:
 
-The core issue: when the edge function crashes from CPU timeout, the `catch` block that sets `status: 'error'` never executes, leaving documents permanently stuck.
+---
 
-### Changes
+### A. PII Regex False Positives (3 patterns need calibration)
 
-#### 1. Add "stuck processing" detection and auto-reset (edge function)
+**1. BIRTHDATE: matches ALL dates, not just birthdates**
 
-At the start of `process-document`, before processing, check if the document has been "processing" for more than 5 minutes and reset it to "error" with an appropriate message.
+The second pattern `/\b(0?[1-9]|[12][0-9]|3[01])[.\-/](0?[1-9]|1[0-2])[.\-/](19[0-9]{2}|20[0-2][0-9])\b/g` matches every date in DD.MM.YYYY format. In legal/patent documents, dates like "15.01.2024" or "22.01.2024" are document dates, court ruling dates, application dates -- NOT birthdates.
 
-**File**: `supabase/functions/process-document/index.ts`
+**Fix**: Remove the generic date pattern, keep ONLY the context-based pattern (with keywords like "дата рождения", "родился", "д.р.").
 
-Add logic near the beginning (after fetching the document record) to detect stale processing state:
+**2. ADDRESS: `адрес[:\s]*` captures organizational addresses**
 
-```typescript
-// If document is already "processing" and was updated > 5 min ago, it's stuck
-if (doc.status === 'processing') {
-  const updatedAt = new Date(doc.updated_at || doc.created_at);
-  const minutesElapsed = (Date.now() - updatedAt.getTime()) / 60000;
-  if (minutesElapsed > 5) {
-    console.log(`Document stuck in processing for ${minutesElapsed.toFixed(0)} minutes, resetting to error`);
-    await supabase.from('documents').update({ 
-      status: 'error'
-    }).eq('id', document_id);
-    return new Response(JSON.stringify({ 
-      error: 'Document was stuck in processing. Reset to error. Please retry.' 
-    }), { status: 200, headers: { ...corsHeaders, 'Content-Type': 'application/json' } });
-  }
-}
-```
+The pattern `/адрес[:\s]*[^,\n]{10,80}/gi` matches phrases like "в адрес ФГБОУ ВО Московский государственный университет..." -- masking organization names and important legal text. The postal index pattern `/\b\d{6}\s*,?\s*(?:г\.?\s*)?[А-ЯЁа-яё]+/g` can also match certificate/application numbers (6-digit numbers followed by Russian words).
 
-#### 2. Limit maximum pages for OCR to prevent CPU timeout
+**Fix**: 
+- Make the `адрес` pattern stricter: require "адрес:" or "адрес проживания/регистрации" context, not just "в адрес" (which means "to").
+- Add negative lookbehind for "в " before "адрес" to exclude the common phrase "в адрес".
+- Make postal index pattern require a comma after the 6 digits.
 
-**File**: `supabase/functions/process-document/index.ts`
+**3. PERSON: matches legal terms**
 
-In the `tryGeminiOcrChunked` function, add a maximum page cap. PDFs with 200+ pages simply cannot be processed in a single edge function call (60s CPU limit). Cap at ~120 pages (30 chunks of 4 pages, 2 parallel = 15 batches).
+The pattern for "Имя + Фамилия без отчества" `/[А-ЯЁ][а-яё]{2,12}(?:у|ю)[\s\u00A0]+[А-ЯЁ][а-яё]{2,15}/g` is too broad. It matches any two capitalized Russian words where the first ends in "у"/"ю" (accusative case). This catches phrases like "Резолютивную Часть" or similar legal terms.
 
-```typescript
-const MAX_OCR_PAGES = 120;
-if (numPages > MAX_OCR_PAGES) {
-  console.log(`PDF has ${numPages} pages, exceeding OCR limit of ${MAX_OCR_PAGES}. Processing first ${MAX_OCR_PAGES} pages only.`);
-  numPages = MAX_OCR_PAGES;
-}
-```
+**Fix**: Add a stop-word list of common false positives (Резолютивную, Арбитражному, Федеральному, Государственную, etc.) and check against it before masking.
 
-Also reduce `PARALLEL_LIMIT` from 2 to 2 (keep) but add a small delay between batches to reduce CPU spikes:
+---
 
-```typescript
-// Add 500ms delay between batches
-if (batchStart + PARALLEL_LIMIT < chunks.length) {
-  await new Promise(r => setTimeout(r, 500));
-}
-```
+### B. Text Coming Back Incomplete (Chunk Truncation)
 
-#### 3. Fix the three currently stuck documents in DB
+From comparing screenshots image-177 (masked) vs image-178 (original PDF):
+- Masked text ends with "...по контракту No0803 - 44 - 2023 в ад" -- cut mid-word
+- Original shows "...по контракту No0803-44-2023 в адрес ФГБОУ ВО..."
 
-Run a migration to reset the three stuck documents from "processing" to "pending" so they can be retried:
+This happens because:
+1. The chunking algorithm cuts text at ~1500 characters (see `targetSize = 1500` in the fallback chunker)
+2. The sentence-end search window (`text.slice(end - 200, end + 200)`) looks for `. ` or `) ` but these may not appear in the text
+3. The word "адрес" gets split as "ад" + cut
 
-```sql
-UPDATE documents 
-SET status = 'pending', chunk_count = 0
-WHERE status = 'processing' 
-AND created_at < NOW() - INTERVAL '10 minutes';
-```
+**Fix**: Improve the sentence-boundary detection in the fallback chunker to also break on `\n`, `;`, and to never cut mid-word (at minimum, find the last space before the cut point).
 
-#### 4. Add client-side "stuck detection" in the Documents page
+---
 
-**File**: `src/pages/Documents.tsx` (or relevant component)
+### Technical Changes
 
-Add a periodic check (every 60 seconds) that resets documents stuck in "processing" for more than 10 minutes, updating their status to "error" client-side so users see the actual state.
+#### File 1: `supabase/functions/_shared/pii-patterns.ts`
 
-### Summary of changes
+**BIRTHDATE** (lines 131-143):
+- Remove the second generic pattern that matches all DD.MM.YYYY dates
+- Keep only the context-based pattern (with "дата рождения", "родился", etc.)
 
-| File | Change |
-|---|---|
-| `supabase/functions/process-document/index.ts` | Add stuck-processing detection, add OCR page cap (120 pages), add inter-batch delay |
-| Database migration | Reset currently stuck documents to "pending" |
-| `src/pages/Documents.tsx` | Add client-side stuck detection (10 min threshold) |
+**ADDRESS** (lines 145-158):
+- Remove the broad `адрес[:\s]*[^,\n]{10,80}` pattern
+- Make postal index pattern stricter: require comma after 6 digits (`\b\d{6}\s*,\s*`)
+- Keep the street/building address pattern unchanged (it's specific enough)
 
-### Expected result
+**PERSON** (lines 161-186):
+- Remove or restrict the "Имя + Фамилия без отчества" pattern (line 175) -- too many false positives
+- Add a post-match filter for common Russian legal/administrative words in accusative case
 
-- The three currently stuck documents will be reset and retryable
-- Future large PDFs (200+ pages) will process first 120 pages instead of crashing
-- If an edge function crashes, the next retry will detect the stuck state and reset it
-- Users will see "error" status instead of perpetual "processing" spinner
+#### File 2: `supabase/functions/process-document/index.ts`
+
+**Chunk truncation fix** (around line 1580-1615):
+- In the fallback chunker, improve boundary detection:
+  - After finding the target end position, search for the last space/newline before cutting
+  - Expand the sentence-end pattern to include `\n`, `;`, and `:` in addition to `.` and `)`
+  - Never cut mid-word: if no sentence boundary found, at least find the last whitespace
+
+#### File 3: Redeploy both edge functions
+- `process-document` -- for new uploads
+- `pii-mask` -- for chat PII masking (uses same patterns)
+
+### Expected Results
+
+- Dates in legal documents (court rulings, applications) will NOT be masked unless preceded by birth-related context
+- Organization addresses ("в адрес ФГБОУ ВО...") will NOT be masked
+- Legal terms like "Резолютивная часть" will NOT be falsely detected as person names
+- Certificate numbers ("Свидетельство No...") and application numbers ("заявка No...") will NOT be masked
+- Document chunks will not be cut mid-word
 
