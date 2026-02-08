@@ -262,7 +262,7 @@ serve(async (req) => {
         providerConfig = {
           provider_type: 'anthropic',
           api_key: ANTHROPIC_API_KEY,
-          default_model: 'claude-sonnet-4-5-20250929',
+          default_model: 'claude-sonnet-4-20250514',
         };
       } else if (PERPLEXITY_API_KEY) {
         providerConfig = {
@@ -1120,7 +1120,6 @@ ${goldenExamples.join('\n\n---\n\n')}
 
     // Validate model identifiers for each provider
     const validAnthropicModels = [
-      'claude-sonnet-4-5-20250929',
       'claude-sonnet-4-20250514',
       'claude-3-5-sonnet-20241022',
       'claude-3-5-haiku-20241022',
@@ -1128,8 +1127,8 @@ ${goldenExamples.join('\n\n---\n\n')}
     ];
     
     if (providerConfig.provider_type === 'anthropic' && !validAnthropicModels.includes(finalModel)) {
-      console.warn(`Invalid Anthropic model: ${finalModel}, falling back to claude-sonnet-4-5-20250929`);
-      finalModel = 'claude-sonnet-4-5-20250929';
+      console.warn(`Invalid Anthropic model: ${finalModel}, falling back to claude-sonnet-4-20250514`);
+      finalModel = 'claude-sonnet-4-20250514';
     }
 
     // Create streaming response based on provider
@@ -1253,7 +1252,7 @@ ${goldenExamples.join('\n\n---\n\n')}
         // Try Gemini first, then Anthropic
         const fallbackProviders = [
           { type: 'gemini', key: GEMINI_API_KEY, model: 'gemini-2.5-flash' },
-          { type: 'anthropic', key: ANTHROPIC_API_KEY, model: 'claude-sonnet-4-5-20250929' },
+          { type: 'anthropic', key: ANTHROPIC_API_KEY, model: 'claude-sonnet-4-20250514' },
         ];
         
         for (const fallback of fallbackProviders) {
