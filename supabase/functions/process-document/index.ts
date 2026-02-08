@@ -3,6 +3,30 @@ import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { getActivePatterns } from "../_shared/pii-patterns.ts";
 import { encryptAES256 } from "../_shared/pii-crypto.ts";
 
+// ============= TEXT QUALITY CHECK =============
+// Detects broken word boundaries from bad PDF text extraction
+// Russian natural single-letter words: в, с, и, о, а, у, к, я
+function checkTextQualityRu(text: string): boolean {
+  const naturalSingleLetters = new Set(['в', 'с', 'и', 'о', 'а', 'у', 'к', 'я', 'В', 'С', 'И', 'О', 'А', 'У', 'К', 'Я']);
+  const words = text.split(/\s+/);
+  let suspiciousFragments = 0;
+  let totalWords = 0;
+  
+  for (const word of words) {
+    if (word.length === 0) continue;
+    totalWords++;
+    if (word.length === 1 && /[а-яА-ЯёЁ]/.test(word) && !naturalSingleLetters.has(word)) {
+      suspiciousFragments++;
+    }
+  }
+  
+  if (totalWords < 50) return true; // Too short to judge
+  
+  const fragmentRatio = suspiciousFragments / totalWords;
+  console.log(`Text quality check: ${suspiciousFragments}/${totalWords} suspicious fragments (${(fragmentRatio * 100).toFixed(1)}%)`);
+  return fragmentRatio < 0.05;
+}
+
 // ============= OCR RESULT TYPE =============
 interface OcrResult {
   success: boolean;
@@ -2067,6 +2091,12 @@ serve(async (req) => {
           text = text
             .replace(/\s{3,}/g, '\n\n')     // Convert multiple spaces to paragraphs
             .trim();
+
+          // Check text quality - unpdf sometimes breaks words with extra spaces
+          var textQualityOk = checkTextQualityRu(text);
+          if (!textQualityOk) {
+            console.log(`PDF text quality is poor (broken word boundaries detected, ${text.length} chars). Will fall through to OCR...`);
+          }
             
         } catch (pdfError) {
           console.error('PDF extraction with unpdf failed:', pdfError);
@@ -2087,13 +2117,15 @@ serve(async (req) => {
               .filter(t => t.length > 2 && /[a-zA-Zа-яА-Я]/.test(t))
               .join(' ');
           }
+          var textQualityOk = true; // Can't check quality of fallback extraction
         }
         
         // ============= OCR FALLBACK FOR SCANNED PDFs =============
-        // If text extraction yielded very little text, the PDF is likely scanned images
+        // If text extraction yielded very little text OR quality is poor, use OCR
         // Primary: Gemini (chunked for large PDFs). Anthropic only if Gemini completely fails.
-        if (text.length < 200 && pdfData.length > 10000) {
-          console.log(`PDF appears to be scanned (text length: ${text.length}). Attempting OCR via Gemini (primary)...`);
+        const needsOcr = (text.length < 200 || !textQualityOk) && pdfData.length > 10000;
+        if (needsOcr) {
+          console.log(`PDF appears to be scanned or has poor text quality (text length: ${text.length}). Attempting OCR via Gemini (primary)...`);
           
           let ocrErrorCode = 0;
           let ocrSucceeded = false;
