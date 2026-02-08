@@ -17,16 +17,8 @@ const PII_TOKEN_PATTERN = /\[([A-Z_]+)_(\d+)\]/g;
 
 // Human-readable labels for PII types
 const PII_TYPE_LABELS: Record<string, string> = {
-  PASSPORT: "Паспорт",
-  SNILS: "СНИЛС",
-  INN: "ИНН",
-  INN_ORG: "ИНН организации",
-  CARD: "Банковская карта",
-  ACCOUNT: "Банковский счёт",
   PHONE: "Телефон",
   EMAIL: "Email",
-  BIRTHDATE: "Дата рождения",
-  ADDRESS: "Адрес",
   PERSON: "ФИО",
 };
 

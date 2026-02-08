@@ -38,17 +38,9 @@
  import { Skeleton } from "@/components/ui/skeleton";
  
  // Human-readable labels for PII types
- const PII_TYPE_LABELS: Record<string, string> = {
-   PASSPORT: "Паспорт",
-   SNILS: "СНИЛС",
-   INN: "ИНН",
-   INN_ORG: "ИНН орг.",
-   CARD: "Карта",
-   ACCOUNT: "Счёт",
+const PII_TYPE_LABELS: Record<string, string> = {
    PHONE: "Телефон",
    EMAIL: "Email",
-   BIRTHDATE: "Дата рождения",
-   ADDRESS: "Адрес",
    PERSON: "ФИО",
  };
  
