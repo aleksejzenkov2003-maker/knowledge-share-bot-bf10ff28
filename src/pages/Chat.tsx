@@ -248,7 +248,7 @@ export default function Chat() {
   );
 
   const inputContent = (
-    <div className="border-t bg-background py-4">
+    <div className="border-t bg-background py-4" data-tour="chat-input">
       <ChatInputEnhanced
         value={inputValue}
         onChange={setInputValue}
@@ -363,6 +363,7 @@ export default function Chat() {
     <div className="flex h-[calc(100vh-120px)]">
       {/* Sidebar */}
       <div 
+        data-tour="chat-sidebar"
         className={cn(
           "border-r transition-all duration-300 flex-shrink-0",
           sidebarOpen ? "w-72" : "w-0 overflow-hidden"

@@ -36,28 +36,28 @@ import {
 import { Button } from '@/components/ui/button';
 
 const mainMenuItems = [
-  { title: 'Дашборд', url: '/', icon: LayoutDashboard, roles: ['admin', 'moderator'] },
-  { title: 'Чат', url: '/chat', icon: MessageSquare },
-  { title: 'Чат отдела', url: '/department-chat', icon: MessagesSquare },
-  { title: 'Проекты', url: '/projects', icon: FolderKanban },
+  { title: 'Дашборд', url: '/', icon: LayoutDashboard, roles: ['admin', 'moderator'], tourId: 'sidebar-dashboard' },
+  { title: 'Чат', url: '/chat', icon: MessageSquare, tourId: 'sidebar-chat' },
+  { title: 'Чат отдела', url: '/department-chat', icon: MessagesSquare, tourId: 'sidebar-department-chat' },
+  { title: 'Проекты', url: '/projects', icon: FolderKanban, tourId: 'sidebar-projects' },
 ];
 
 const managementItems = [
-  { title: 'Роли чатов', url: '/chat-roles', icon: UserCircle, roles: ['admin'] },
-  { title: 'Эталоны', url: '/golden-responses', icon: Star, roles: ['admin'] },
-  { title: 'Папки', url: '/folders', icon: FolderTree, roles: ['admin'] },
-  { title: 'Документы', url: '/documents', icon: FileText, roles: ['admin'] },
-  { title: 'Промпты', url: '/prompts', icon: MessageSquare, roles: ['admin'] },
-  { title: 'AI Провайдеры', url: '/providers', icon: Bot, roles: ['admin'] },
+  { title: 'Роли чатов', url: '/chat-roles', icon: UserCircle, roles: ['admin'], tourId: 'sidebar-chat-roles' },
+  { title: 'Эталоны', url: '/golden-responses', icon: Star, roles: ['admin'], tourId: 'sidebar-golden' },
+  { title: 'Папки', url: '/folders', icon: FolderTree, roles: ['admin'], tourId: 'sidebar-folders' },
+  { title: 'Документы', url: '/documents', icon: FileText, roles: ['admin'], tourId: 'sidebar-documents' },
+  { title: 'Промпты', url: '/prompts', icon: MessageSquare, roles: ['admin'], tourId: 'sidebar-prompts' },
+  { title: 'AI Провайдеры', url: '/providers', icon: Bot, roles: ['admin'], tourId: 'sidebar-providers' },
 ];
 
 const adminItems = [
-  { title: 'Пользователи', url: '/users', icon: Users, roles: ['admin', 'moderator'] },
-  { title: 'Отделы', url: '/departments', icon: Building2, roles: ['admin', 'moderator'] },
-  { title: 'API-ключи', url: '/api-keys', icon: KeyRound, roles: ['admin'] },
-  { title: 'Битрикс-сессии', url: '/bitrix-sessions', icon: ExternalLink, roles: ['admin', 'moderator'] },
-  { title: 'Логи чатов', url: '/chat-logs', icon: ClipboardList, roles: ['admin', 'moderator'] },
-   { title: 'Аудит ПДн', url: '/pii-audit', icon: Shield, roles: ['admin'] },
+  { title: 'Пользователи', url: '/users', icon: Users, roles: ['admin', 'moderator'], tourId: 'sidebar-users' },
+  { title: 'Отделы', url: '/departments', icon: Building2, roles: ['admin', 'moderator'], tourId: 'sidebar-departments' },
+  { title: 'API-ключи', url: '/api-keys', icon: KeyRound, roles: ['admin'], tourId: 'sidebar-api-keys' },
+  { title: 'Битрикс-сессии', url: '/bitrix-sessions', icon: ExternalLink, roles: ['admin', 'moderator'], tourId: 'sidebar-bitrix-sessions' },
+  { title: 'Логи чатов', url: '/chat-logs', icon: ClipboardList, roles: ['admin', 'moderator'], tourId: 'sidebar-chat-logs' },
+  { title: 'Аудит ПДн', url: '/pii-audit', icon: Shield, roles: ['admin'], tourId: 'sidebar-pii-audit' },
 ];
 
 const settingsItems = [
@@ -108,7 +108,7 @@ export const AdminSidebar = () => {
               {filteredMainItems.map((item) => (
                 <SidebarMenuItem key={item.title}>
                   <SidebarMenuButton asChild isActive={isActive(item.url)}>
-                    <NavLink to={item.url} end className="hover:bg-muted/50" activeClassName="bg-muted text-primary font-medium">
+                    <NavLink to={item.url} end className="hover:bg-muted/50" activeClassName="bg-muted text-primary font-medium" data-tour={(item as any).tourId}>
                       <item.icon className="h-4 w-4" />
                       {!collapsed && <span>{item.title}</span>}
                     </NavLink>
@@ -127,7 +127,7 @@ export const AdminSidebar = () => {
                 {filteredManagementItems.map((item) => (
                   <SidebarMenuItem key={item.title}>
                     <SidebarMenuButton asChild isActive={isActive(item.url)}>
-                      <NavLink to={item.url} end className="hover:bg-muted/50" activeClassName="bg-muted text-primary font-medium">
+                      <NavLink to={item.url} end className="hover:bg-muted/50" activeClassName="bg-muted text-primary font-medium" data-tour={(item as any).tourId}>
                         <item.icon className="h-4 w-4" />
                         {!collapsed && <span>{item.title}</span>}
                       </NavLink>
@@ -147,7 +147,7 @@ export const AdminSidebar = () => {
                 {filteredAdminItems.map((item) => (
                   <SidebarMenuItem key={item.title}>
                     <SidebarMenuButton asChild isActive={isActive(item.url)}>
-                      <NavLink to={item.url} end className="hover:bg-muted/50" activeClassName="bg-muted text-primary font-medium">
+                      <NavLink to={item.url} end className="hover:bg-muted/50" activeClassName="bg-muted text-primary font-medium" data-tour={(item as any).tourId}>
                         <item.icon className="h-4 w-4" />
                         {!collapsed && <span>{item.title}</span>}
                       </NavLink>
@@ -167,7 +167,7 @@ export const AdminSidebar = () => {
                 {filteredSettingsItems.map((item) => (
                   <SidebarMenuItem key={item.title}>
                     <SidebarMenuButton asChild isActive={isActive(item.url)}>
-                      <NavLink to={item.url} end className="hover:bg-muted/50" activeClassName="bg-muted text-primary font-medium">
+                      <NavLink to={item.url} end className="hover:bg-muted/50" activeClassName="bg-muted text-primary font-medium" data-tour={(item as any).tourId}>
                         <item.icon className="h-4 w-4" />
                         {!collapsed && <span>{item.title}</span>}
                       </NavLink>
