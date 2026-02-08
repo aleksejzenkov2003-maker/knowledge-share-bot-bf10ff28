@@ -96,7 +96,7 @@ async function callAnthropic(
     },
     body: JSON.stringify({
       model,
-      max_tokens: 4096,
+      max_tokens: 16384,
       system: systemPrompt,
       messages,
     }),
@@ -223,7 +223,7 @@ async function callGigaChat(
     body: JSON.stringify({
       model,
       messages,
-      max_tokens: 8192,
+      max_tokens: 16384,
     }),
   });
 

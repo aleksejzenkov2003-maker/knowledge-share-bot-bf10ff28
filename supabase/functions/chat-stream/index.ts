@@ -1146,7 +1146,7 @@ ${goldenExamples.join('\n\n---\n\n')}
           },
           body: JSON.stringify({
             model: finalModel,
-            max_tokens: 8192,
+            max_tokens: 16384,
             system: enhancedSystemPrompt,
             messages: anthropicMessages.map(m => ({ role: m.role === 'assistant' ? 'assistant' : 'user', content: m.content })),
             stream: true,
@@ -1161,10 +1161,11 @@ ${goldenExamples.join('\n\n---\n\n')}
             'Authorization': `Bearer ${providerConfig.api_key}`,
             'Content-Type': 'application/json',
           },
-          body: JSON.stringify({
+           body: JSON.stringify({
             model: finalModel,
             messages: [{ role: 'system', content: enhancedSystemPrompt }, ...simpleMessages],
             stream: true,
+            max_tokens: 16384,
           }),
         });
         break;
@@ -1188,7 +1189,7 @@ ${goldenExamples.join('\n\n---\n\n')}
               contents: geminiContents,
               systemInstruction: { parts: [{ text: enhancedSystemPrompt }] },
               generationConfig: {
-                maxOutputTokens: 8192,
+                maxOutputTokens: 16384,
               },
             }),
           }
@@ -1210,7 +1211,7 @@ ${goldenExamples.join('\n\n---\n\n')}
             model: finalModel,
             messages: [{ role: 'system', content: enhancedSystemPrompt }, ...simpleMessages],
             stream: true,
-            max_tokens: 8192,
+            max_tokens: 16384,
           }),
         });
         break;
@@ -1231,7 +1232,7 @@ ${goldenExamples.join('\n\n---\n\n')}
           body: JSON.stringify({
             model: finalModel,
             messages: [{ role: 'system', content: enhancedSystemPrompt }, ...simpleMessages],
-            max_tokens: 8000, // Perplexity sonar-pro supports up to 8k output tokens
+            max_tokens: 12000, // Perplexity sonar supports up to 12k output tokens
             stream: !isDeepResearch, // Deep research doesn't support streaming well
           }),
         });
@@ -1275,7 +1276,7 @@ ${goldenExamples.join('\n\n---\n\n')}
                   body: JSON.stringify({
                     contents: geminiContents,
                     systemInstruction: { parts: [{ text: enhancedSystemPrompt }] },
-                    generationConfig: { maxOutputTokens: 8192 },
+                    generationConfig: { maxOutputTokens: 16384 },
                   }),
                 }
               );
@@ -1289,7 +1290,7 @@ ${goldenExamples.join('\n\n---\n\n')}
                 },
                 body: JSON.stringify({
                   model: fallback.model,
-                  max_tokens: 8192,
+                  max_tokens: 16384,
                   system: enhancedSystemPrompt,
                   messages: simpleMessages.map(m => ({ role: m.role === 'assistant' ? 'assistant' : 'user', content: m.content })),
                   stream: true,
