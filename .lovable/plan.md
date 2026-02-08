@@ -1,52 +1,96 @@
 
 
-## Plan: Increase max_tokens across all AI providers
+## Plan: Fix document processing failures (CPU timeout + stuck status)
 
-### Problem
+### Root Cause Analysis
 
-Current `max_tokens` values (4096-8192) limit responses to roughly 6000-12000 characters. To support ~50,000 character outputs, we need to increase these limits significantly.
+From the logs:
+- "Руков по регистрации ТЗ" (7.2 MB, 297 pages, scanned) -- "CPU Time exceeded" after only processing chunk 2 of 75
+- "Рук по экспертизе ТЗ" (5.4 MB, 341 pages, scanned) -- "CPU Time exceeded" after only processing chunk 2 of 86
+- "mktu_13_26_2lang.xlsx" (900 KB) -- stuck in "processing" status
+- All three documents are currently stuck with `status: "processing"` and `chunk_count: 0`
 
-### Token-to-character ratio
-
-Roughly 1 token = 3-4 characters (for Russian text, closer to 2-3). To get 50,000 characters, we need approximately 16,000-25,000 tokens. Setting max_tokens to 16384 should cover most cases.
-
-### Provider limits (max output tokens)
-
-- **Anthropic (Claude Sonnet 4)**: supports up to 64,000 output tokens -- set to **16384**
-- **Gemini 2.5 Flash**: supports up to 65,536 output tokens -- set to **16384**
-- **GigaChat**: supports up to 32,768 output tokens -- set to **16384**
-- **Perplexity (sonar)**: supports up to 12,000 output tokens -- set to **12000** (API limit)
-- **OpenAI**: supports up to 16,384 output tokens -- set to **16384**
+The core issue: when the edge function crashes from CPU timeout, the `catch` block that sets `status: 'error'` never executes, leaving documents permanently stuck.
 
 ### Changes
 
-#### 1. `supabase/functions/chat-stream/index.ts`
+#### 1. Add "stuck processing" detection and auto-reset (edge function)
 
-Update all `max_tokens` / `maxOutputTokens` values:
+At the start of `process-document`, before processing, check if the document has been "processing" for more than 5 minutes and reset it to "error" with an appropriate message.
 
-| Location | Provider | Current | New |
-|---|---|---|---|
-| Line 1149 | Anthropic | 8192 | 16384 |
-| Line 1191 | Gemini | 8192 | 16384 |
-| Line 1213 | GigaChat | 8192 | 16384 |
-| Line 1234 | Perplexity | 8000 | 12000 |
-| Line 1164-1168 | OpenAI | not set | add `max_tokens: 16384` |
-| Line 1278 | Gemini fallback | 8192 | 16384 |
-| Line 1292 | Anthropic fallback | 8192 | 16384 |
+**File**: `supabase/functions/process-document/index.ts`
 
-#### 2. `supabase/functions/chat/index.ts` (non-streaming function)
+Add logic near the beginning (after fetching the document record) to detect stale processing state:
 
-| Location | Provider | Current | New |
-|---|---|---|---|
-| Line 99 | Anthropic | 4096 | 16384 |
-| Line 226 | GigaChat | 8192 | 16384 |
+```typescript
+// If document is already "processing" and was updated > 5 min ago, it's stuck
+if (doc.status === 'processing') {
+  const updatedAt = new Date(doc.updated_at || doc.created_at);
+  const minutesElapsed = (Date.now() - updatedAt.getTime()) / 60000;
+  if (minutesElapsed > 5) {
+    console.log(`Document stuck in processing for ${minutesElapsed.toFixed(0)} minutes, resetting to error`);
+    await supabase.from('documents').update({ 
+      status: 'error'
+    }).eq('id', document_id);
+    return new Response(JSON.stringify({ 
+      error: 'Document was stuck in processing. Reset to error. Please retry.' 
+    }), { status: 200, headers: { ...corsHeaders, 'Content-Type': 'application/json' } });
+  }
+}
+```
 
-Gemini and Perplexity in this file have no explicit limit set (uses provider default), which is fine. OpenAI also has no limit set.
+#### 2. Limit maximum pages for OCR to prevent CPU timeout
 
-#### 3. No changes to `process-document` or `rerank-chunks`
+**File**: `supabase/functions/process-document/index.ts`
 
-These are utility functions with different purposes, not user-facing chat. Their limits are appropriate.
+In the `tryGeminiOcrChunked` function, add a maximum page cap. PDFs with 200+ pages simply cannot be processed in a single edge function call (60s CPU limit). Cap at ~120 pages (30 chunks of 4 pages, 2 parallel = 15 batches).
 
-### Result
+```typescript
+const MAX_OCR_PAGES = 120;
+if (numPages > MAX_OCR_PAGES) {
+  console.log(`PDF has ${numPages} pages, exceeding OCR limit of ${MAX_OCR_PAGES}. Processing first ${MAX_OCR_PAGES} pages only.`);
+  numPages = MAX_OCR_PAGES;
+}
+```
 
-All chat providers will support generating responses up to ~50,000 characters (16,384 tokens). Perplexity is capped at 12,000 tokens due to API limits but will still produce significantly longer responses than before.
+Also reduce `PARALLEL_LIMIT` from 2 to 2 (keep) but add a small delay between batches to reduce CPU spikes:
+
+```typescript
+// Add 500ms delay between batches
+if (batchStart + PARALLEL_LIMIT < chunks.length) {
+  await new Promise(r => setTimeout(r, 500));
+}
+```
+
+#### 3. Fix the three currently stuck documents in DB
+
+Run a migration to reset the three stuck documents from "processing" to "pending" so they can be retried:
+
+```sql
+UPDATE documents 
+SET status = 'pending', chunk_count = 0
+WHERE status = 'processing' 
+AND created_at < NOW() - INTERVAL '10 minutes';
+```
+
+#### 4. Add client-side "stuck detection" in the Documents page
+
+**File**: `src/pages/Documents.tsx` (or relevant component)
+
+Add a periodic check (every 60 seconds) that resets documents stuck in "processing" for more than 10 minutes, updating their status to "error" client-side so users see the actual state.
+
+### Summary of changes
+
+| File | Change |
+|---|---|
+| `supabase/functions/process-document/index.ts` | Add stuck-processing detection, add OCR page cap (120 pages), add inter-batch delay |
+| Database migration | Reset currently stuck documents to "pending" |
+| `src/pages/Documents.tsx` | Add client-side stuck detection (10 min threshold) |
+
+### Expected result
+
+- The three currently stuck documents will be reset and retryable
+- Future large PDFs (200+ pages) will process first 120 pages instead of crashing
+- If an edge function crashes, the next retry will detect the stuck state and reset it
+- Users will see "error" status instead of perpetual "processing" spinner
+
