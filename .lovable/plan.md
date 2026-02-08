@@ -1,87 +1,93 @@
 
 
-## Plan: Fix PII False Positives and Text Truncation
+## Plan: Fix Text Extraction Quality and PII False Positives
 
-### Problem Analysis
+### Root Cause
 
-From the screenshots, there are **two categories** of issues:
+The PDF text extraction library (`unpdf`) extracts text from this PDF but breaks words apart with extra spaces: "анализ" becomes "а нализ", "ходатайству" becomes "ход атайству", "государственный" becomes "государстве нный".
 
----
+The OCR fallback (Gemini) only triggers when extracted text is under 200 characters. Since `unpdf` does extract text (just corrupted), the quality check never fires and the garbage text gets stored.
 
-### A. PII Regex False Positives (3 patterns need calibration)
+Additionally, the BIRTHDATE masking and text truncation seen in the screenshots are from documents processed BEFORE our last fix. They need reprocessing.
 
-**1. BIRTHDATE: matches ALL dates, not just birthdates**
+### Changes
 
-The second pattern `/\b(0?[1-9]|[12][0-9]|3[01])[.\-/](0?[1-9]|1[0-2])[.\-/](19[0-9]{2}|20[0-2][0-9])\b/g` matches every date in DD.MM.YYYY format. In legal/patent documents, dates like "15.01.2024" or "22.01.2024" are document dates, court ruling dates, application dates -- NOT birthdates.
+#### 1. Add text quality check after `unpdf` extraction
 
-**Fix**: Remove the generic date pattern, keep ONLY the context-based pattern (with keywords like "дата рождения", "родился", "д.р.").
+**File**: `supabase/functions/process-document/index.ts` (around line 2062-2095)
 
-**2. ADDRESS: `адрес[:\s]*` captures organizational addresses**
+After extracting text with `unpdf`, add a quality check. If the text quality is poor, treat it as a scanned PDF and fall through to OCR.
 
-The pattern `/адрес[:\s]*[^,\n]{10,80}/gi` matches phrases like "в адрес ФГБОУ ВО Московский государственный университет..." -- masking organization names and important legal text. The postal index pattern `/\b\d{6}\s*,?\s*(?:г\.?\s*)?[А-ЯЁа-яё]+/g` can also match certificate/application numbers (6-digit numbers followed by Russian words).
+Quality metric: count single-letter "word fragments" (single Cyrillic letter followed by space and more letters). In Russian, natural single-letter words are limited to prepositions: "в", "с", "и", "о", "а", "у", "к". If there are many other single-letter fragments, the extraction is broken.
 
-**Fix**: 
-- Make the `адрес` pattern stricter: require "адрес:" or "адрес проживания/регистрации" context, not just "в адрес" (which means "to").
-- Add negative lookbehind for "в " before "адрес" to exclude the common phrase "в адрес".
-- Make postal index pattern require a comma after the 6 digits.
+```typescript
+// After line 2068 (text cleanup), add quality check:
+function checkTextQuality(text: string): boolean {
+  // Count suspicious single-letter word fragments
+  // Natural single-letter Russian words: в, с, и, о, а, у, к, я
+  const naturalSingleLetters = new Set(['в', 'с', 'и', 'о', 'а', 'у', 'к', 'я', 'В', 'С', 'И', 'О', 'А', 'У', 'К', 'Я']);
+  const words = text.split(/\s+/);
+  let suspiciousFragments = 0;
+  let totalWords = 0;
+  
+  for (const word of words) {
+    if (word.length === 0) continue;
+    totalWords++;
+    // Single Cyrillic letter that isn't a natural preposition
+    if (word.length === 1 && /[а-яА-ЯёЁ]/.test(word) && !naturalSingleLetters.has(word)) {
+      suspiciousFragments++;
+    }
+  }
+  
+  if (totalWords < 50) return true; // Too short to judge
+  
+  const fragmentRatio = suspiciousFragments / totalWords;
+  // If more than 5% of words are suspicious single-letter fragments, quality is poor
+  return fragmentRatio < 0.05;
+}
+```
 
-**3. PERSON: matches legal terms**
+Then modify the OCR fallback condition (line 2095):
 
-The pattern for "Имя + Фамилия без отчества" `/[А-ЯЁ][а-яё]{2,12}(?:у|ю)[\s\u00A0]+[А-ЯЁ][а-яё]{2,15}/g` is too broad. It matches any two capitalized Russian words where the first ends in "у"/"ю" (accusative case). This catches phrases like "Резолютивную Часть" or similar legal terms.
+```typescript
+// BEFORE (only checks length):
+if (text.length < 200 && pdfData.length > 10000) {
 
-**Fix**: Add a stop-word list of common false positives (Резолютивную, Арбитражному, Федеральному, Государственную, etc.) and check against it before masking.
+// AFTER (checks length OR quality):
+const textQualityOk = checkTextQuality(text);
+if (!textQualityOk) {
+  console.log(`PDF text quality is poor (broken word boundaries detected). Falling back to OCR...`);
+}
+if ((text.length < 200 || !textQualityOk) && pdfData.length > 10000) {
+```
 
----
+This ensures that even if `unpdf` extracts a lot of text, if the words are broken, we use Gemini OCR instead which produces clean text.
 
-### B. Text Coming Back Incomplete (Chunk Truncation)
+#### 2. Reset affected documents for reprocessing
 
-From comparing screenshots image-177 (masked) vs image-178 (original PDF):
-- Masked text ends with "...по контракту No0803 - 44 - 2023 в ад" -- cut mid-word
-- Original shows "...по контракту No0803-44-2023 в адрес ФГБОУ ВО..."
+Run a database update to reset documents that were processed with the old PII patterns and old chunking logic, so they get reprocessed with the fixes:
 
-This happens because:
-1. The chunking algorithm cuts text at ~1500 characters (see `targetSize = 1500` in the fallback chunker)
-2. The sentence-end search window (`text.slice(end - 200, end + 200)`) looks for `. ` or `) ` but these may not appear in the text
-3. The word "адрес" gets split as "ад" + cut
+```sql
+UPDATE documents 
+SET status = 'pending', chunk_count = 0
+WHERE status = 'ready' 
+AND contains_pii = true 
+AND updated_at < NOW() - INTERVAL '1 hour';
+```
 
-**Fix**: Improve the sentence-boundary detection in the fallback chunker to also break on `\n`, `;`, and to never cut mid-word (at minimum, find the last space before the cut point).
+Note: This is optional -- you may want to selectively reprocess only the problematic documents rather than all PII documents.
 
----
+#### 3. Redeploy `process-document` edge function
 
-### Technical Changes
+### Summary
 
-#### File 1: `supabase/functions/_shared/pii-patterns.ts`
-
-**BIRTHDATE** (lines 131-143):
-- Remove the second generic pattern that matches all DD.MM.YYYY dates
-- Keep only the context-based pattern (with "дата рождения", "родился", etc.)
-
-**ADDRESS** (lines 145-158):
-- Remove the broad `адрес[:\s]*[^,\n]{10,80}` pattern
-- Make postal index pattern stricter: require comma after 6 digits (`\b\d{6}\s*,\s*`)
-- Keep the street/building address pattern unchanged (it's specific enough)
-
-**PERSON** (lines 161-186):
-- Remove or restrict the "Имя + Фамилия без отчества" pattern (line 175) -- too many false positives
-- Add a post-match filter for common Russian legal/administrative words in accusative case
-
-#### File 2: `supabase/functions/process-document/index.ts`
-
-**Chunk truncation fix** (around line 1580-1615):
-- In the fallback chunker, improve boundary detection:
-  - After finding the target end position, search for the last space/newline before cutting
-  - Expand the sentence-end pattern to include `\n`, `;`, and `:` in addition to `.` and `)`
-  - Never cut mid-word: if no sentence boundary found, at least find the last whitespace
-
-#### File 3: Redeploy both edge functions
-- `process-document` -- for new uploads
-- `pii-mask` -- for chat PII masking (uses same patterns)
+| File | Change |
+|---|---|
+| `supabase/functions/process-document/index.ts` | Add `checkTextQuality()` function; expand OCR fallback to trigger on poor-quality text, not just missing text |
+| Database (optional) | Reset affected documents for reprocessing |
 
 ### Expected Results
 
-- Dates in legal documents (court rulings, applications) will NOT be masked unless preceded by birth-related context
-- Organization addresses ("в адрес ФГБОУ ВО...") will NOT be masked
-- Legal terms like "Резолютивная часть" will NOT be falsely detected as person names
-- Certificate numbers ("Свидетельство No...") and application numbers ("заявка No...") will NOT be masked
-- Document chunks will not be cut mid-word
-
+- PDFs with broken word extraction will automatically fall through to Gemini OCR, producing clean text
+- Previously processed documents (with old BIRTHDATE regex and old chunking) will be reprocessed with all fixes applied
+- No more "а нализ", "ход атайству" broken words in extracted text
