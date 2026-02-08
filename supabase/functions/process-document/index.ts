@@ -235,6 +235,13 @@ async function tryGeminiOcrChunked(pdfData: Uint8Array, numPages: number): Promi
     return tryGeminiOcr(pdfData, 45000, true);
   }
 
+  // Cap OCR pages to prevent CPU timeout on very large PDFs
+  const MAX_OCR_PAGES = 120;
+  if (numPages > MAX_OCR_PAGES) {
+    console.log(`PDF has ${numPages} pages, exceeding OCR limit of ${MAX_OCR_PAGES}. Processing first ${MAX_OCR_PAGES} pages only.`);
+    numPages = MAX_OCR_PAGES;
+  }
+
   console.log(`Large scanned PDF (${numPages} pages), splitting into 4-page chunks...`);
 
   const PAGES_PER_CHUNK = 4;
@@ -289,6 +296,11 @@ async function tryGeminiOcrChunked(pdfData: Uint8Array, numPages: number): Promi
       
       const batchResults = await Promise.all(batchPromises);
       results.push(...batchResults);
+      
+      // Add delay between batches to reduce CPU spikes
+      if (batchStart + PARALLEL_LIMIT < chunks.length) {
+        await new Promise(r => setTimeout(r, 500));
+      }
     }
     
     // Merge results with page markers
@@ -1768,6 +1780,19 @@ serve(async (req) => {
         JSON.stringify({ error: 'Document not found' }),
         { status: 404, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
       );
+    }
+
+    // Detect stuck documents: if already "processing" for > 5 minutes, reset to error
+    if (doc.status === 'processing') {
+      const updatedAt = new Date(doc.updated_at || doc.created_at);
+      const minutesElapsed = (Date.now() - updatedAt.getTime()) / 60000;
+      if (minutesElapsed > 5) {
+        console.log(`Document stuck in processing for ${minutesElapsed.toFixed(0)} minutes, resetting to error`);
+        await supabase.from('documents').update({ status: 'error' }).eq('id', document_id);
+        return new Response(JSON.stringify({ 
+          error: 'Document was stuck in processing. Reset to error. Please retry.' 
+        }), { status: 200, headers: { ...corsHeaders, 'Content-Type': 'application/json' } });
+      }
     }
 
     // Check file size limit (10 MB max for edge functions)
