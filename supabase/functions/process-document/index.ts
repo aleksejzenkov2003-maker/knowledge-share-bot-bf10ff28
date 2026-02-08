@@ -1581,12 +1581,21 @@ function parseRegistrationDecision(text: string): StructuredChunk[] {
     while (start < text.length) {
       let end = Math.min(start + targetSize, text.length);
       
-      // Ищем конец предложения (. или ) ближайший к target)
+      // Ищем конец предложения или хотя бы границу слова
       if (end < text.length) {
-        const searchWindow = text.slice(end - 200, end + 200);
-        const sentenceEnd = searchWindow.search(/[.)] /);
+        const searchStart = Math.max(start, end - 200);
+        const searchEnd = Math.min(text.length, end + 200);
+        const searchWindow = text.slice(searchStart, searchEnd);
+        // Расширенный набор: точка, скобка, перенос строки, точка с запятой
+        const sentenceEnd = searchWindow.search(/[.);\n]\s/);
         if (sentenceEnd !== -1) {
-          end = end - 200 + sentenceEnd + 2;
+          end = searchStart + sentenceEnd + 2;
+        } else {
+          // Не нашли границу предложения — хотя бы не режем слово
+          const lastSpace = text.lastIndexOf(' ', end);
+          if (lastSpace > start) {
+            end = lastSpace + 1;
+          }
         }
       }
       
