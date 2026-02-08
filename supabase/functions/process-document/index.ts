@@ -27,6 +27,66 @@ function checkTextQualityRu(text: string): boolean {
   return fragmentRatio < 0.05;
 }
 
+// ============= BROKEN TEXT REPAIR =============
+// Fixes word boundaries broken by unpdf (PDF.js) in Russian PDFs
+// e.g. "а нализ" -> "анализ", "государстве нный" -> "государственный"
+function repairBrokenText(text: string): string {
+  const naturalPrepositions = new Set([
+    'в', 'с', 'и', 'о', 'а', 'у', 'к', 'я',
+    'В', 'С', 'И', 'О', 'А', 'У', 'К', 'Я'
+  ]);
+
+  // Common short Russian words (2-3 letters) that should NOT be merged
+  const commonShortWords = new Set([
+    'по', 'на', 'за', 'из', 'от', 'до', 'не', 'но', 'их', 'мы',
+    'он', 'ты', 'вы', 'те', 'то', 'ни', 'же', 'бы', 'ее', 'её',
+    'мне', 'вам', 'нам', 'нас', 'вас', 'нем', 'ней', 'них', 'ему',
+    'ещё', 'еще', 'что', 'как', 'так', 'все', 'всё', 'или', 'для',
+    'при', 'без', 'под', 'над', 'про', 'вот', 'это', 'тут', 'там',
+    'где', 'кто', 'чем', 'чем', 'она', 'оно', 'они', 'его', 'ему',
+    'два', 'три', 'раз', 'был', 'был', 'дня', 'дел', 'лет', 'год',
+    'суд', 'акт', 'ст', 'гр', 'др', 'пр', 'тд', 'тп',
+    'По', 'На', 'За', 'Из', 'От', 'До', 'Не', 'Но', 'Ни',
+    'Все', 'Всё', 'Что', 'Как', 'Так', 'Или', 'Для', 'При',
+    'Без', 'Под', 'Над', 'Про', 'Вот', 'Это', 'Где', 'Кто',
+    'Она', 'Оно', 'Они', 'Его', 'Два', 'Три', 'Суд'
+  ]);
+
+  const originalLength = text.length;
+
+  // Step 1: Merge single Cyrillic letters (not prepositions) with the following word
+  // "а нализ" -> "анализ", but "в суд" stays
+  text = text.replace(/([а-яА-ЯёЁ]) ([а-яё])/g, (match, letter, next) => {
+    if (naturalPrepositions.has(letter)) {
+      return match;
+    }
+    return letter + next;
+  });
+
+  // Step 2: Merge 2-3 letter fragments before lowercase continuation
+  // "ход атайству" -> "ходатайству"
+  // "государстве нный" -> "государственный"
+  text = text.replace(/([а-яА-ЯёЁ]{2,3}) ([а-яё]{2,})/g, (match, frag, next) => {
+    // If fragment is a common short word, don't merge
+    if (commonShortWords.has(frag)) {
+      return match;
+    }
+    // Only merge if the fragment ends with a lowercase letter (mid-word break)
+    const lastChar = frag[frag.length - 1];
+    if (/[а-яёь]/.test(lastChar)) {
+      return frag + next;
+    }
+    return match;
+  });
+
+  const repaired = originalLength - text.length;
+  if (repaired > 0) {
+    console.log(`repairBrokenText: removed ${repaired} extra spaces (${originalLength} -> ${text.length} chars)`);
+  }
+
+  return text;
+}
+
 // ============= OCR RESULT TYPE =============
 interface OcrResult {
   success: boolean;
@@ -2092,10 +2152,26 @@ serve(async (req) => {
             .replace(/\s{3,}/g, '\n\n')     // Convert multiple spaces to paragraphs
             .trim();
 
-          // Check text quality - unpdf sometimes breaks words with extra spaces
+          // Repair broken word boundaries from unpdf extraction
+          text = repairBrokenText(text);
+          
+          // Also repair page-level texts for accurate page tracking
+          if (currentPdfPagesData.length > 0) {
+            let repairedOffset = 0;
+            currentPdfFullText = '';
+            for (const page of currentPdfPagesData) {
+              page.text = repairBrokenText(page.text);
+              page.startOffset = repairedOffset;
+              currentPdfFullText += page.text + '\n\n';
+              repairedOffset = currentPdfFullText.length;
+              page.endOffset = repairedOffset;
+            }
+          }
+
+          // Check text quality after repair - if still poor, fall through to OCR
           var textQualityOk = checkTextQualityRu(text);
           if (!textQualityOk) {
-            console.log(`PDF text quality is poor (broken word boundaries detected, ${text.length} chars). Will fall through to OCR...`);
+            console.log(`PDF text quality still poor after repair (${text.length} chars). Will fall through to OCR...`);
           }
             
         } catch (pdfError) {
