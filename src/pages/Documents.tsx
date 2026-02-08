@@ -174,6 +174,33 @@ export default function Documents() {
     fetchData();
   }, [filterFolder]);
 
+  // Client-side stuck detection: mark documents stuck in "processing" > 10 min as "error"
+  useEffect(() => {
+    const STUCK_THRESHOLD_MS = 10 * 60 * 1000; // 10 minutes
+    
+    const checkStuckDocuments = async () => {
+      const { data: stuckDocs } = await supabase
+        .from('documents')
+        .select('id')
+        .eq('status', 'processing')
+        .lt('updated_at', new Date(Date.now() - STUCK_THRESHOLD_MS).toISOString());
+      
+      if (stuckDocs && stuckDocs.length > 0) {
+        console.log(`Found ${stuckDocs.length} stuck documents, resetting to error`);
+        const ids = stuckDocs.map(d => d.id);
+        await supabase
+          .from('documents')
+          .update({ status: 'error' })
+          .in('id', ids);
+        fetchData(); // Refresh
+      }
+    };
+
+    checkStuckDocuments();
+    const interval = setInterval(checkStuckDocuments, 60000);
+    return () => clearInterval(interval);
+  }, []);
+
   const fetchData = async () => {
     setLoading(true);
     try {
