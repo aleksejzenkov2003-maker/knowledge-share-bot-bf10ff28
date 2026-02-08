@@ -6,6 +6,7 @@ import { BrowserRouter, Routes, Route } from "react-router-dom";
 import { AuthProvider } from "@/contexts/AuthContext";
 import { ProtectedRoute } from "@/components/auth/ProtectedRoute";
 import { AdminLayout } from "@/components/layout/AdminLayout";
+import { TourProvider } from "@/components/tour/TourProvider";
 import Login from "./pages/Login";
 import Register from "./pages/Register";
 import Unauthorized from "./pages/Unauthorized";
@@ -43,6 +44,7 @@ const App = () => (
         <Toaster />
         <Sonner />
         <BrowserRouter>
+          <TourProvider>
           <Routes>
             {/* Public Bitrix widget routes - JWT auth inside */}
             <Route path="/bitrix-chat" element={<BitrixChatSecure />} />
@@ -154,6 +156,7 @@ const App = () => (
             } />
             <Route path="*" element={<NotFound />} />
           </Routes>
+          </TourProvider>
         </BrowserRouter>
       </AuthProvider>
     </TooltipProvider>

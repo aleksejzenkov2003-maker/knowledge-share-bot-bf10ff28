@@ -2,6 +2,7 @@ import { useAuth } from '@/contexts/AuthContext';
 import { SidebarTrigger } from '@/components/ui/sidebar';
 import { Avatar, AvatarFallback } from '@/components/ui/avatar';
 import { Badge } from '@/components/ui/badge';
+import { TourButton } from '@/components/tour/TourButton';
 
 const roleLabels: Record<string, string> = {
   admin: 'Администратор',
@@ -27,6 +28,7 @@ export const AdminHeader = () => {
       </div>
 
       <div className="flex items-center gap-3">
+        <TourButton />
         {role && (
           <Badge variant="outline" className={roleColors[role]}>
             {roleLabels[role]}

@@ -371,7 +371,7 @@ const DepartmentChat: React.FC = () => {
   );
 
   const inputContent = (
-    <div className="border-t bg-background py-4">
+    <div className="border-t bg-background py-4" data-tour="dept-chat-input">
       <ChatInputEnhanced
         value={inputValue}
         onChange={setInputValue}
