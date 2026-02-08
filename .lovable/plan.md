@@ -1,93 +1,98 @@
 
 
-## Plan: Fix Text Extraction Quality and PII False Positives
+## План: Починить извлечение текста без LLM
 
-### Root Cause
+### Проблема
 
-The PDF text extraction library (`unpdf`) extracts text from this PDF but breaks words apart with extra spaces: "анализ" becomes "а нализ", "ходатайству" becomes "ход атайству", "государственный" becomes "государстве нный".
+`unpdf` (PDF.js) извлекает текст, но ломает границы слов в русскоязычных PDF: "анализ" -> "а нализ", "государственный" -> "государстве нный". Это происходит из-за нестандартной кодировки шрифтов в PDF — библиотека разбивает глифы на отдельные символы.
 
-The OCR fallback (Gemini) only triggers when extracted text is under 200 characters. Since `unpdf` does extract text (just corrupted), the quality check never fires and the garbage text gets stored.
+Сейчас при обнаружении плохого качества мы переключаемся на Gemini OCR, что дорого, медленно и ненадёжно для больших текстов.
 
-Additionally, the BIRTHDATE masking and text truncation seen in the screenshots are from documents processed BEFORE our last fix. They need reprocessing.
+### Решение: постобработка текста вместо LLM
 
-### Changes
+Вместо вызова LLM — **склеить разорванные слова обратно**. Паттерн поломки предсказуемый: одиночная буква + пробел + продолжение слова (строчная). Это можно исправить регулярным выражением.
 
-#### 1. Add text quality check after `unpdf` extraction
+### Алгоритм склейки
 
-**File**: `supabase/functions/process-document/index.ts` (around line 2062-2095)
+```text
+Вход:  "а нализ ход атайству государстве нный в суд"
+                                                    
+Правило: если [одиночная кириллическая буква] + пробел + [строчная буква...],
+         И эта одиночная буква НЕ является естественным предлогом (в, с, и, о, а, у, к, я),
+         то убрать пробел между ними.
 
-After extracting text with `unpdf`, add a quality check. If the text quality is poor, treat it as a scanned PDF and fall through to OCR.
-
-Quality metric: count single-letter "word fragments" (single Cyrillic letter followed by space and more letters). In Russian, natural single-letter words are limited to prepositions: "в", "с", "и", "о", "а", "у", "к". If there are many other single-letter fragments, the extraction is broken.
-
-```typescript
-// After line 2068 (text cleanup), add quality check:
-function checkTextQuality(text: string): boolean {
-  // Count suspicious single-letter word fragments
-  // Natural single-letter Russian words: в, с, и, о, а, у, к, я
-  const naturalSingleLetters = new Set(['в', 'с', 'и', 'о', 'а', 'у', 'к', 'я', 'В', 'С', 'И', 'О', 'А', 'У', 'К', 'Я']);
-  const words = text.split(/\s+/);
-  let suspiciousFragments = 0;
-  let totalWords = 0;
-  
-  for (const word of words) {
-    if (word.length === 0) continue;
-    totalWords++;
-    // Single Cyrillic letter that isn't a natural preposition
-    if (word.length === 1 && /[а-яА-ЯёЁ]/.test(word) && !naturalSingleLetters.has(word)) {
-      suspiciousFragments++;
-    }
-  }
-  
-  if (totalWords < 50) return true; // Too short to judge
-  
-  const fragmentRatio = suspiciousFragments / totalWords;
-  // If more than 5% of words are suspicious single-letter fragments, quality is poor
-  return fragmentRatio < 0.05;
-}
+Выход: "анализ ходатайству государственный в суд"
 ```
 
-Then modify the OCR fallback condition (line 2095):
+Дополнительно: склейка фрагментов из 2-3 букв, которые явно являются частью слова (строчная + пробел + строчная продолжение).
 
-```typescript
-// BEFORE (only checks length):
-if (text.length < 200 && pdfData.length > 10000) {
+### Технические изменения
 
-// AFTER (checks length OR quality):
-const textQualityOk = checkTextQuality(text);
-if (!textQualityOk) {
-  console.log(`PDF text quality is poor (broken word boundaries detected). Falling back to OCR...`);
-}
-if ((text.length < 200 || !textQualityOk) && pdfData.length > 10000) {
+**Файл**: `supabase/functions/process-document/index.ts`
+
+1. **Добавить функцию `repairBrokenText(text)`** — постобработка после `unpdf`:
+   - Склеить одиночные кириллические буквы (не предлоги) с последующим словом
+   - Склеить короткие фрагменты (2-3 буквы), за которыми идёт строчная буква — признак разрыва внутри слова
+   - Сохранить естественные предлоги ("в суд", "с ним", "и так") нетронутыми
+
+2. **Вызывать `repairBrokenText()` сразу после извлечения текста через `unpdf`** — до проверки качества
+
+3. **Оставить проверку качества `checkTextQualityRu()` как страховку** — если после склейки текст всё ещё плохой (>5% фрагментов), тогда уже переключаться на Gemini OCR
+
+4. **Убрать Gemini как основной** — он остаётся только для сканированных PDF (где текста вообще нет)
+
+### Логика постобработки (псевдокод)
+
+```text
+function repairBrokenText(text):
+  naturalPrepositions = {в, с, и, о, а, у, к, я}  (+ заглавные)
+  
+  // Шаг 1: Склеить одиночные буквы с продолжением
+  // "а нализ" -> "анализ", но "в суд" остаётся
+  text = regex_replace(text, /([а-яА-ЯёЁ]) ([а-яё])/g, function(match, letter, next):
+    if letter.toLowerCase() in naturalPrepositions:
+      return match  // оставить как есть
+    else:
+      return letter + next  // склеить
+  )
+  
+  // Шаг 2: Склеить 2-3 буквенные фрагменты перед строчной
+  // "ход атайству" -> "ходатайству"  
+  // "государстве нный" -> "государственный"
+  text = regex_replace(text, /([а-яА-ЯёЁ]{2,3}) ([а-яё]{2,})/g, function(match, frag, next):
+    // Если фрагмент заканчивается на строчную и следующее слово начинается
+    // со строчной — скорее всего это разрыв внутри слова
+    if frag[-1] is lowercase AND not_a_real_word(frag):
+      return frag + next
+    return match
+  )
+  
+  return text
 ```
 
-This ensures that even if `unpdf` extracts a lot of text, if the words are broken, we use Gemini OCR instead which produces clean text.
+Для шага 2 нужна осторожность: "по контракту" — это два нормальных слова, не надо их склеивать. Поэтому проверяем: если фрагмент является распространённым коротким словом (по, на, за, из, от, до, не, но, их, мы, он, ты, вы, те, то, ни, же, бы), оставляем.
 
-#### 2. Reset affected documents for reprocessing
+### Результат
 
-Run a database update to reset documents that were processed with the old PII patterns and old chunking logic, so they get reprocessed with the fixes:
-
-```sql
-UPDATE documents 
-SET status = 'pending', chunk_count = 0
-WHERE status = 'ready' 
-AND contains_pii = true 
-AND updated_at < NOW() - INTERVAL '1 hour';
-```
-
-Note: This is optional -- you may want to selectively reprocess only the problematic documents rather than all PII documents.
-
-#### 3. Redeploy `process-document` edge function
-
-### Summary
-
-| File | Change |
+| До | После |
 |---|---|
-| `supabase/functions/process-document/index.ts` | Add `checkTextQuality()` function; expand OCR fallback to trigger on poor-quality text, not just missing text |
-| Database (optional) | Reset affected documents for reprocessing |
+| `а нализ` | `анализ` |
+| `ход атайству` | `ходатайству` |
+| `государстве нный` | `государственный` |
+| `в суд` | `в суд` (без изменений) |
+| `по контракту` | `по контракту` (без изменений) |
 
-### Expected Results
+### Преимущества над Gemini OCR
 
-- PDFs with broken word extraction will automatically fall through to Gemini OCR, producing clean text
-- Previously processed documents (with old BIRTHDATE regex and old chunking) will be reprocessed with all fixes applied
-- No more "а нализ", "ход атайству" broken words in extracted text
+- Мгновенная обработка (regex vs API-вызов)
+- Бесплатно (нет вызовов LLM)
+- Работает на любом размере текста
+- Не зависит от внешнего API
+- Gemini остаётся только для настоящих сканов (где текста нет вообще)
+
+### Файлы для изменения
+
+| Файл | Изменение |
+|---|---|
+| `supabase/functions/process-document/index.ts` | Добавить `repairBrokenText()`, вызвать после unpdf-извлечения, до проверки качества |
+
