@@ -1,63 +1,90 @@
 
-# Fix: Large Scanned PDFs Crash During OCR Processing
+# Глубокая оптимизация RAG для роли "Юрист"
 
-## Root Cause
+## Диагностика: почему RAG работает поверхностно
 
-The edge function crashes with `CPU Time exceeded` when processing scanned PDFs like "Рук по экспертизе.pdf" (5.6MB, 221 pages) and "Руков по регистрации ТЗ.pdf" (7.5MB). Here is why:
+Проанализировав систему, я нашёл несколько ключевых проблем:
 
-1. These files are under the 10MB split threshold, so they upload as **single files**
-2. The edge function detects 0 extractable text (scanned PDF) and enters OCR mode
-3. OCR loads the **entire** 5-7MB PDF into memory with pdf-lib, then creates sub-PDFs for each 4-page chunk
-4. After processing ~4 chunks, the edge function exceeds CPU time limits and crashes
+### Проблема 1: Большинство папок ПУСТЫЕ
+Из 21 подключённой к роли "Юрист" папки -- **13 папок содержат 0 документов/чанков**:
+- Практика по АП, Практика СИП, Практика ППС, КС и ВС РФ, АПК РФ, СИП журнал, Патенты и другие -- всё пусто.
+- Реально данные есть только в: МКТУ (1364 чанка), Нормативка по ТЗ (466), Доказывание (105), Норм-Изобретения (89), ВС РФ Обзоры (66), Патенты-нормативка (55), Законы Общая (12).
 
-The `mktu_13_26_2lang.xlsx` (922KB) was actually successfully processed earlier (164 chunks, status: ready). If the user is uploading a new copy, it should work fine.
+Итого: **~2150 чанков** в базе. Судебная практика **полностью отсутствует** -- агент физически не может её цитировать.
 
-## Solution
+### Проблема 2: FTS находит 50 кандидатов, но rerank обрезает до 10
+Текущие настройки:
+- `FTS_CANDIDATES = 50` -- полнотекстовый поиск находит 50 чанков-кандидатов
+- `TOP_K_FINAL = 10` -- после re-ranking Claude оставляет только 10 лучших
+- `MIN_RELEVANCE_SCORE = 6` -- чанки с оценкой ниже 6 отбрасываются
 
-**Lower the PDF split threshold from 10MB to 4MB** so that scanned PDFs get split client-side before upload. Client-side splitting uses `pdf-lib` in the browser (no edge function limits), then each small part (~50 pages, typically 1-3MB) is uploaded and processed independently.
+Для юридического анализа **10 чанков недостаточно**. Если вопрос касается нескольких нормативных актов + практики, нужно 15-20 чанков.
 
-Additionally, **reduce the OCR page cap** for single-file processing from 80 to 30 pages to ensure even unsplit PDFs that slip through can complete within CPU limits.
+### Проблема 3: Чанки обрезаются при re-ranking
+В `rerank-chunks` каждый чанк обрезается до 1500 символов для оценки Claude. Юридические тексты часто содержат 2000+ символов, и ключевая информация (номер статьи, суть нормы) может быть в конце.
 
-## Changes
+### Проблема 4: Системный промпт не инструктирует по работе с RAG
+Промпт роли "Юрист" подробно описывает формат ответа и антигаллюцинационные правила, но **не говорит модели**, как работать с предоставленным контекстом из базы знаний. Модель не знает, что ей нужно:
+- Искать информацию ИМЕННО в предоставленных документах
+- Анализировать ВСЕ предоставленные фрагменты, а не только первые
+- Сопоставлять информацию из разных документов
 
-### 1. `src/pages/Documents.tsx` (2 lines)
+### Проблема 5: Контекстное окно используется неэффективно
+Gemini 2.5 Pro имеет окно 1M токенов, но система передаёт ему только ~10 чанков по ~2000 символов = ~20,000 символов (~5,000 токенов). Это **0.5% от доступного контекста**. Можно безопасно увеличить в 5-10 раз.
 
-Lower the split threshold so PDFs over 4MB are automatically split client-side:
+## План изменений
+
+### 1. Увеличить количество чанков для юридического анализа
+
+**Файл: `supabase/functions/chat-stream/index.ts`**
+
+Изменить константы поиска:
+- `FTS_CANDIDATES`: 50 --> 100 (больше кандидатов для re-ranking)
+- `TOP_K_FINAL`: 10 --> 20 (больше чанков в финальном контексте)
+- `MIN_RELEVANCE_SCORE`: 6 --> 5 (не отбрасывать частично релевантные чанки)
+
+### 2. Увеличить лимит контента при re-ranking
+
+**Файл: `supabase/functions/rerank-chunks/index.ts`**
+
+- Увеличить обрезку чанков с 1500 до 2500 символов -- Claude увидит больше контекста для оценки
+- Увеличить `max_tokens` ответа с 4096 до 8192 (для оценки 100 чанков)
+- Увеличить лимит чанков для оценки с 50 до 80
+
+### 3. Добавить RAG-инструкции в промпт контекста
+
+**Файл: `supabase/functions/chat-stream/index.ts`**
+
+Расширить блок `ИНСТРУКЦИИ` (строки 826-858), добавив специальные указания по глубокому анализу документов:
 
 ```
-Before: const SPLIT_THRESHOLD = 10 * 1024 * 1024; // 10 MB
-After:  const SPLIT_THRESHOLD = 4 * 1024 * 1024;  // 4 MB
-
-Before: const SPLIT_THRESHOLD_MB = 10;
-After:  const SPLIT_THRESHOLD_MB = 4;
+ПРАВИЛА РАБОТЫ С БАЗОЙ ЗНАНИЙ:
+1. Проанализируй ВСЕ предоставленные фрагменты документов, не ограничивайся первыми
+2. Сопоставь информацию из РАЗНЫХ документов для полноты ответа
+3. Если вопрос затрагивает несколько нормативных актов -- процитируй КАЖДЫЙ
+4. Судебная практика: укажи ВСЕ найденные дела, даже если они частично релевантны
+5. Не ограничивайся пересказом -- проведи АНАЛИЗ и сделай ВЫВОДЫ
 ```
 
-### 2. `supabase/functions/process-document/index.ts` (1 line)
+### 4. Передеплоить edge functions
 
-Reduce the OCR page cap for safety (in case single unsplit PDFs still come through):
+Обе функции (`chat-stream` и `rerank-chunks`) будут передеплоены.
 
-```
-Before: const MAX_OCR_PAGES = 80;
-After:  const MAX_OCR_PAGES = 30;
-```
+## Что НЕ решается кодом
 
-### 3. `src/pages/Documents.tsx` - Remove reprocess block for files > threshold
+- **Пустые папки** (Практика СИП, Практика по АП, КС и ВС РФ и т.д.) -- туда нужно загрузить документы. Пока в них пусто, агент не может анализировать судебную практику.
+- **Выбор модели**: Gemini 2.5 Pro имеет огромное контекстное окно и хорошо подходит для RAG. Claude Sonnet 4 лучше для сложного юридического анализа, но имеет меньше контекста. Рекомендация: оставить Gemini для RAG, но можно попробовать Claude для сравнения качества после наполнения базы.
 
-Since the threshold is now 4MB, reprocessing documents that were already split should work. But for scanned PDFs that were uploaded as single files before this fix, the user will need to delete and re-upload them. The reprocess size check should use a higher threshold (10MB) since the edge function can handle non-scanned PDFs up to 10MB fine.
+## Технические детали
 
-```
-Before: doc.file_size > SPLIT_THRESHOLD
-After:  doc.file_size > 10 * 1024 * 1024  // Hard limit for edge function
-```
+### Изменяемые файлы
 
-## How It Fixes the Problem
+1. **`supabase/functions/chat-stream/index.ts`** (3 константы + расширение промпта)
+2. **`supabase/functions/rerank-chunks/index.ts`** (3 параметра)
 
-After the change, uploading "Рук по экспертизе.pdf" (5.6MB, 221 pages):
-1. Client detects 5.6MB > 4MB threshold -- triggers split
-2. PDF is split into 5 parts of ~50 pages each (~1-1.5MB per part)
-3. Each part is uploaded and processed independently
-4. Edge function OCRs 50 pages max per invocation (well within limits)
+### Ожидаемый результат
 
-## User Action Required
-
-The existing failed documents ("Рук по экспертизе" and "Руков по регистрации ТЗ") must be **deleted and re-uploaded** after the fix, since they were uploaded as single files and cannot be retroactively split on the server.
+- Модель будет получать в 2 раза больше контекста из документов (20 чанков вместо 10)
+- Re-ranking будет точнее за счёт полного текста чанков
+- Модель будет явно инструктирована анализировать ВСЕ фрагменты и делать выводы
+- Общий объём контекста вырастет до ~50,000 символов (~12,000 токенов) -- всё ещё менее 2% от окна Gemini
