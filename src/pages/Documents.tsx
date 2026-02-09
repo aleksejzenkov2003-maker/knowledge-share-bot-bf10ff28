@@ -103,8 +103,8 @@ interface DocumentChunk {
 // New limits for split upload
 const MAX_FILE_SIZE = 50 * 1024 * 1024; // 50 MB - maximum file we can handle with splitting
 const MAX_FILE_SIZE_MB = 50;
-const SPLIT_THRESHOLD = 10 * 1024 * 1024; // 10 MB - threshold for automatic splitting
-const SPLIT_THRESHOLD_MB = 10;
+const SPLIT_THRESHOLD = 4 * 1024 * 1024; // 4 MB - threshold for automatic splitting
+const SPLIT_THRESHOLD_MB = 4;
 const PAGES_PER_PART = 50; // Pages per split part
 
 const STATUS_LABELS: Record<string, { label: string; variant: "default" | "secondary" | "destructive" | "outline" }> = {
@@ -750,7 +750,7 @@ export default function Documents() {
 
   const handleReprocess = async (doc: Document) => {
     // Check file size before reprocessing
-    if (doc.file_size && doc.file_size > SPLIT_THRESHOLD) {
+    if (doc.file_size && doc.file_size > 10 * 1024 * 1024) {
       toast.error(`Файл слишком большой для переобработки (${(doc.file_size / (1024 * 1024)).toFixed(1)} MB). Удалите документ и загрузите заново — он будет автоматически разбит на части.`);
       return;
     }
@@ -1343,13 +1343,13 @@ export default function Documents() {
                                   size="icon"
                                   className="h-8 w-8 text-amber-500"
                                   onClick={() => handleReprocess(doc)}
-                                  disabled={doc.status === "processing" || (doc.file_size && doc.file_size > SPLIT_THRESHOLD)}
+                                  disabled={doc.status === "processing" || (doc.file_size != null && doc.file_size > 10 * 1024 * 1024)}
                                   title="Переобработать"
                                 >
                                   <RefreshCw className="h-4 w-4" />
                                 </Button>
                               </TooltipTrigger>
-                              {doc.file_size && doc.file_size > SPLIT_THRESHOLD && (
+                              {doc.file_size != null && doc.file_size > 10 * 1024 * 1024 && (
                                 <TooltipContent>
                                   <p>Файл слишком большой для переобработки</p>
                                 </TooltipContent>

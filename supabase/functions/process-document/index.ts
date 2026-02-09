@@ -320,7 +320,7 @@ async function tryGeminiOcrChunked(pdfData: Uint8Array, numPages: number): Promi
   }
 
   // Cap OCR pages to prevent CPU timeout on very large PDFs
-  const MAX_OCR_PAGES = 80;
+  const MAX_OCR_PAGES = 30;
   if (numPages > MAX_OCR_PAGES) {
     console.log(`PDF has ${numPages} pages, exceeding OCR limit of ${MAX_OCR_PAGES}. Processing first ${MAX_OCR_PAGES} pages only.`);
     numPages = MAX_OCR_PAGES;
