@@ -320,7 +320,7 @@ async function tryGeminiOcrChunked(pdfData: Uint8Array, numPages: number): Promi
   }
 
   // Cap OCR pages to prevent CPU timeout on very large PDFs
-  const MAX_OCR_PAGES = 120;
+  const MAX_OCR_PAGES = 80;
   if (numPages > MAX_OCR_PAGES) {
     console.log(`PDF has ${numPages} pages, exceeding OCR limit of ${MAX_OCR_PAGES}. Processing first ${MAX_OCR_PAGES} pages only.`);
     numPages = MAX_OCR_PAGES;
@@ -329,19 +329,21 @@ async function tryGeminiOcrChunked(pdfData: Uint8Array, numPages: number): Promi
   console.log(`Large scanned PDF (${numPages} pages), splitting into 4-page chunks...`);
 
   const PAGES_PER_CHUNK = 4;
-  const PARALLEL_LIMIT = 2;
+  const PARALLEL_LIMIT = 1; // Process one chunk at a time to avoid CPU limits
   
   try {
     // Import pdf-lib from esm.sh for Deno
     const { PDFDocument } = await import('https://esm.sh/pdf-lib@1.17.1');
     
     const srcDoc = await PDFDocument.load(pdfData, { ignoreEncryption: true });
-    const totalPages = srcDoc.getPageCount();
     
-    // Build chunk definitions
+    // CRITICAL: Use capped numPages, NOT srcDoc.getPageCount() which may be much larger
+    const pagesToProcess = Math.min(numPages, srcDoc.getPageCount());
+    
+    // Build chunk definitions using capped page count
     const chunks: { startPage: number; endPage: number }[] = [];
-    for (let i = 0; i < totalPages; i += PAGES_PER_CHUNK) {
-      chunks.push({ startPage: i, endPage: Math.min(i + PAGES_PER_CHUNK, totalPages) });
+    for (let i = 0; i < pagesToProcess; i += PAGES_PER_CHUNK) {
+      chunks.push({ startPage: i, endPage: Math.min(i + PAGES_PER_CHUNK, pagesToProcess) });
     }
     
     console.log(`Split into ${chunks.length} chunks of up to ${PAGES_PER_CHUNK} pages`);
@@ -383,7 +385,7 @@ async function tryGeminiOcrChunked(pdfData: Uint8Array, numPages: number): Promi
       
       // Add delay between batches to reduce CPU spikes
       if (batchStart + PARALLEL_LIMIT < chunks.length) {
-        await new Promise(r => setTimeout(r, 500));
+        await new Promise(r => setTimeout(r, 1000));
       }
     }
     
