@@ -713,7 +713,6 @@ serve(async (req) => {
       allowWebSearch && // Check role setting
       !strictRagMode && // Never do web search in strict RAG mode
       ragInsufficient && // ONLY if RAG didn't find enough good context
-      providerConfig.provider_type === 'anthropic' && 
       PERPLEXITY_API_KEY &&
       message // Only if there's a user message
     ) {

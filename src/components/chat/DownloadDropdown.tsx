@@ -11,7 +11,7 @@ import {
 } from "@/components/ui/dropdown-menu";
 import { toast } from "@/hooks/use-toast";
 import { Citation } from "@/types/chat";
-import { Document, Packer, Paragraph, TextRun, HeadingLevel, AlignmentType } from "docx";
+import { Document, Packer, Paragraph, TextRun, HeadingLevel, AlignmentType, Table, TableRow, TableCell, WidthType, BorderStyle, ExternalHyperlink } from "docx";
 import { saveAs } from "file-saver";
 import jsPDF from "jspdf";
 import html2canvas from "html2canvas";
@@ -81,91 +81,137 @@ export function DownloadDropdown({
     });
   };
 
+  // Parse inline markdown formatting into TextRun array
+  const parseInlineFormatting = (text: string): TextRun[] => {
+    const children: TextRun[] = [];
+    // Handle bold, italic, links, and clean up stray asterisks
+    const parts = text.split(/(\*\*[^*]+\*\*|\*[^*]+\*|__[^_]+__|_[^_]+_|\[[^\]]+\]\([^)]+\))/);
+    for (const part of parts) {
+      if (part.startsWith('**') && part.endsWith('**')) {
+        children.push(new TextRun({ text: part.slice(2, -2), bold: true }));
+      } else if (part.startsWith('*') && part.endsWith('*') && part.length > 2) {
+        children.push(new TextRun({ text: part.slice(1, -1), italics: true }));
+      } else if (part.startsWith('__') && part.endsWith('__')) {
+        children.push(new TextRun({ text: part.slice(2, -2), bold: true }));
+      } else if (part.startsWith('_') && part.endsWith('_') && part.length > 2) {
+        children.push(new TextRun({ text: part.slice(1, -1), italics: true }));
+      } else if (part.match(/^\[([^\]]+)\]\(([^)]+)\)$/)) {
+        const match = part.match(/^\[([^\]]+)\]\(([^)]+)\)$/)!;
+        children.push(new TextRun({ text: match[1], color: "0563C1", underline: { type: "single" } }));
+      } else {
+        // Clean stray asterisks that weren't matched
+        children.push(new TextRun({ text: part.replace(/\*/g, '') }));
+      }
+    }
+    return children.length > 0 ? children : [new TextRun({ text })];
+  };
+
+  // Parse markdown table lines into a docx Table
+  const parseMarkdownTable = (tableLines: string[]): Table => {
+    const parseRow = (line: string) =>
+      line.split('|').map(c => c.trim()).filter(c => c !== '');
+
+    const headerCells = parseRow(tableLines[0]);
+    const dataRows = tableLines.slice(2); // skip separator line
+
+    const borderStyle = {
+      style: BorderStyle.SINGLE,
+      size: 1,
+      color: "CCCCCC",
+    };
+    const borders = { top: borderStyle, bottom: borderStyle, left: borderStyle, right: borderStyle };
+
+    const rows: TableRow[] = [];
+
+    // Header row
+    rows.push(new TableRow({
+      children: headerCells.map(cell => new TableCell({
+        borders,
+        width: { size: Math.floor(9000 / headerCells.length), type: WidthType.DXA },
+        children: [new Paragraph({ children: [new TextRun({ text: cell, bold: true })] })],
+      })),
+    }));
+
+    // Data rows
+    for (const line of dataRows) {
+      if (!line.trim()) continue;
+      const cells = parseRow(line);
+      rows.push(new TableRow({
+        children: headerCells.map((_, i) => new TableCell({
+          borders,
+          width: { size: Math.floor(9000 / headerCells.length), type: WidthType.DXA },
+          children: [new Paragraph({ children: parseInlineFormatting(cells[i] || '') })],
+        })),
+      }));
+    }
+
+    return new Table({
+      rows,
+      width: { size: 9000, type: WidthType.DXA },
+    });
+  };
+
   const handleDownloadDOCX = async () => {
     setIsGenerating('docx');
     try {
-      const paragraphs: Paragraph[] = [];
-      
-      // Parse markdown content and convert to docx paragraphs
+      const docChildren: (Paragraph | Table)[] = [];
       const lines = content.split('\n');
-      
-      for (const line of lines) {
+      let i = 0;
+
+      while (i < lines.length) {
+        const line = lines[i];
+
+        // Detect markdown table (line starts with |, next line is separator)
+        if (line.trim().startsWith('|') && i + 1 < lines.length && lines[i + 1].match(/^\|[\s\-:|]+\|/)) {
+          const tableLines: string[] = [];
+          while (i < lines.length && lines[i].trim().startsWith('|')) {
+            tableLines.push(lines[i]);
+            i++;
+          }
+          docChildren.push(parseMarkdownTable(tableLines));
+          docChildren.push(new Paragraph({ text: "" }));
+          continue;
+        }
+
         if (line.startsWith('# ')) {
-          paragraphs.push(new Paragraph({
-            text: line.slice(2),
-            heading: HeadingLevel.HEADING_1,
-            spacing: { before: 400, after: 200 },
-          }));
+          docChildren.push(new Paragraph({ text: line.slice(2), heading: HeadingLevel.HEADING_1, spacing: { before: 400, after: 200 } }));
         } else if (line.startsWith('## ')) {
-          paragraphs.push(new Paragraph({
-            text: line.slice(3),
-            heading: HeadingLevel.HEADING_2,
-            spacing: { before: 300, after: 150 },
-          }));
+          docChildren.push(new Paragraph({ text: line.slice(3), heading: HeadingLevel.HEADING_2, spacing: { before: 300, after: 150 } }));
         } else if (line.startsWith('### ')) {
-          paragraphs.push(new Paragraph({
-            text: line.slice(4),
-            heading: HeadingLevel.HEADING_3,
-            spacing: { before: 200, after: 100 },
-          }));
+          docChildren.push(new Paragraph({ text: line.slice(4), heading: HeadingLevel.HEADING_3, spacing: { before: 200, after: 100 } }));
         } else if (line.startsWith('- ') || line.startsWith('* ')) {
-          paragraphs.push(new Paragraph({
-            children: [new TextRun({ text: "• " + line.slice(2) })],
-            indent: { left: 720 },
-          }));
+          docChildren.push(new Paragraph({ children: parseInlineFormatting("• " + line.slice(2)), indent: { left: 720 } }));
         } else if (line.match(/^\d+\.\s/)) {
-          paragraphs.push(new Paragraph({
-            text: line,
-            indent: { left: 720 },
-          }));
+          docChildren.push(new Paragraph({ children: parseInlineFormatting(line), indent: { left: 720 } }));
         } else if (line.startsWith('> ')) {
-          paragraphs.push(new Paragraph({
+          docChildren.push(new Paragraph({
             children: [new TextRun({ text: line.slice(2), italics: true })],
             indent: { left: 720 },
             border: { left: { color: "999999", size: 2, space: 10, style: "single" } },
           }));
         } else if (line.trim() === '') {
-          paragraphs.push(new Paragraph({ text: "" }));
+          docChildren.push(new Paragraph({ text: "" }));
         } else {
-          // Handle bold and italic in regular text
-          const children: TextRun[] = [];
-          let remaining = line;
-          
-          // Simple bold/italic parsing
-          const parts = remaining.split(/(\*\*[^*]+\*\*|\*[^*]+\*|__[^_]+__|_[^_]+_)/);
-          for (const part of parts) {
-            if (part.startsWith('**') && part.endsWith('**')) {
-              children.push(new TextRun({ text: part.slice(2, -2), bold: true }));
-            } else if (part.startsWith('*') && part.endsWith('*')) {
-              children.push(new TextRun({ text: part.slice(1, -1), italics: true }));
-            } else if (part.startsWith('__') && part.endsWith('__')) {
-              children.push(new TextRun({ text: part.slice(2, -2), bold: true }));
-            } else if (part.startsWith('_') && part.endsWith('_')) {
-              children.push(new TextRun({ text: part.slice(1, -1), italics: true }));
-            } else {
-              children.push(new TextRun({ text: part }));
-            }
-          }
-          
-          paragraphs.push(new Paragraph({ children }));
+          docChildren.push(new Paragraph({ children: parseInlineFormatting(line) }));
         }
+        i++;
       }
       
       // Add sources section
-      paragraphs.push(new Paragraph({ text: "" }));
-      paragraphs.push(new Paragraph({
+      docChildren.push(new Paragraph({ text: "" }));
+      docChildren.push(new Paragraph({
         children: [new TextRun({ text: "─".repeat(50) })],
         alignment: AlignmentType.CENTER,
       }));
-      paragraphs.push(new Paragraph({ text: "" }));
-      paragraphs.push(new Paragraph({
+      docChildren.push(new Paragraph({ text: "" }));
+      docChildren.push(new Paragraph({
         text: "Источники ответа",
         heading: HeadingLevel.HEADING_1,
         spacing: { before: 400, after: 200 },
       }));
       
       if (ragContext && ragContext.length > 0) {
-        paragraphs.push(new Paragraph({
+        docChildren.push(new Paragraph({
           text: "Источники из базы знаний",
           heading: HeadingLevel.HEADING_2,
           spacing: { before: 200, after: 100 },
@@ -173,7 +219,7 @@ export function DownloadDropdown({
         ragContext.forEach((source, idx) => {
           const lines = source.split('\n');
           const headerLine = lines[0] || '';
-          paragraphs.push(new Paragraph({
+          docChildren.push(new Paragraph({
             children: [new TextRun({ text: `${idx + 1}. ${headerLine}` })],
             spacing: { before: 100, after: 50 },
           }));
@@ -181,7 +227,7 @@ export function DownloadDropdown({
       }
       
       if (citations && citations.length > 0) {
-        paragraphs.push(new Paragraph({
+        docChildren.push(new Paragraph({
           text: "Цитаты из документов",
           heading: HeadingLevel.HEADING_2,
           spacing: { before: 200, after: 100 },
@@ -191,7 +237,7 @@ export function DownloadDropdown({
           if (citation.section) text += ` | ${citation.section}`;
           if (citation.article) text += ` | Ст. ${citation.article}`;
           text += ` (релевантность: ${(citation.relevance * 100).toFixed(0)}%)`;
-          paragraphs.push(new Paragraph({
+          docChildren.push(new Paragraph({
             children: [new TextRun({ text })],
             spacing: { before: 100, after: 50 },
           }));
@@ -199,13 +245,13 @@ export function DownloadDropdown({
       }
       
       if (webSearchCitations && webSearchCitations.length > 0) {
-        paragraphs.push(new Paragraph({
+        docChildren.push(new Paragraph({
           text: "Веб-источники",
           heading: HeadingLevel.HEADING_2,
           spacing: { before: 200, after: 100 },
         }));
         webSearchCitations.forEach((url, idx) => {
-          paragraphs.push(new Paragraph({
+          docChildren.push(new Paragraph({
             children: [new TextRun({ text: `${idx + 1}. ${url}` })],
             spacing: { before: 100, after: 50 },
           }));
@@ -215,7 +261,7 @@ export function DownloadDropdown({
       const doc = new Document({
         sections: [{
           properties: {},
-          children: paragraphs,
+          children: docChildren,
         }],
       });
       

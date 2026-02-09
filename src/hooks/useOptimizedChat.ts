@@ -200,7 +200,8 @@ export function useOptimizedChat(userId: string | undefined, departmentId: strin
 
   const sendMessage = useCallback(async (
     inputValue: string,
-    isProjectMode: boolean
+    isProjectMode: boolean,
+    overrideRoleId?: string
   ) => {
     const trimmedInput = inputValue.trim();
     const hasAttachments = attachments.length > 0;
@@ -298,7 +299,7 @@ export function useOptimizedChat(userId: string | undefined, departmentId: strin
           },
           body: JSON.stringify({
             message: trimmedInput,
-            role_id: selectedRoleId || undefined,
+            role_id: overrideRoleId || selectedRoleId || undefined,
             conversation_id: conversationId,
             message_history: messageHistory,
             attachments: uploadedAttachments.length > 0 ? uploadedAttachments.map((ua, i) => ({
@@ -595,7 +596,7 @@ export function useOptimizedChat(userId: string | undefined, departmentId: strin
     setLocalMessages(messagesToKeep);
     
     // Отправляем новое сообщение
-    sendMessage(newContent, selectedRoleId ? roles.find(r => r.id === selectedRoleId)?.is_project_mode || false : false);
+    sendMessage(newContent, selectedRoleId ? roles.find(r => r.id === selectedRoleId)?.is_project_mode || false : false, undefined);
   }, [messages, sendMessage, selectedRoleId, roles]);
 
   // Регенерация ответа ассистента (повторяет последний вопрос, опционально с другой ролью)
@@ -623,8 +624,9 @@ export function useOptimizedChat(userId: string | undefined, departmentId: strin
     const messagesToKeep = messages.slice(0, messageIndex);
     setLocalMessages(messagesToKeep);
     
-    // Повторно отправляем вопрос с выбранной ролью
-    sendMessage(userMessage.content, roleIdToUse ? roles.find(r => r.id === roleIdToUse)?.is_project_mode || false : false);
+    // Повторно отправляем вопрос с выбранной ролью, передавая roleId напрямую
+    const isProjectMode = roleIdToUse ? roles.find(r => r.id === roleIdToUse)?.is_project_mode || false : false;
+    sendMessage(userMessage.content, isProjectMode, roleIdToUse || undefined);
   }, [messages, sendMessage, selectedRoleId, roles, setSelectedRoleId]);
 
   // Needed for backward compatibility - no-op since we use React Query
