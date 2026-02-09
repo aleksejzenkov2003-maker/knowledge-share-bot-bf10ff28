@@ -362,7 +362,7 @@ export function useOptimizedChat(userId: string | undefined, departmentId: strin
                     rag_context: parsed.rag_context,
                     citations: parsed.citations,
                     smart_search: parsed.smart_search,
-                    web_search_citations: parsed.web_search_citations,
+                    web_search_citations: parsed.perplexity_citations || parsed.web_search_citations,
                     web_search_used: parsed.web_search_used,
                     stop_reason: parsed.stop_reason,
                   };
@@ -383,15 +383,15 @@ export function useOptimizedChat(userId: string | undefined, departmentId: strin
               if (parsed.type === 'content') {
                 streamingContentRef.current += parsed.content;
               } else if (parsed.type === 'metadata') {
-                metadata = {
-                  response_time_ms: parsed.response_time_ms,
-                  rag_context: parsed.rag_context,
-                  citations: parsed.citations,
-                  smart_search: parsed.smart_search,
-                  web_search_citations: parsed.web_search_citations,
-                  web_search_used: parsed.web_search_used,
-                  stop_reason: parsed.stop_reason,
-                };
+                  metadata = {
+                    response_time_ms: parsed.response_time_ms,
+                    rag_context: parsed.rag_context,
+                    citations: parsed.citations,
+                    smart_search: parsed.smart_search,
+                    web_search_citations: parsed.perplexity_citations || parsed.web_search_citations,
+                    web_search_used: parsed.web_search_used,
+                    stop_reason: parsed.stop_reason,
+                  };
               }
             } catch {
               // Ignore

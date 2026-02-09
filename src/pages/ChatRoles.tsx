@@ -115,6 +115,16 @@ const providerModels: Record<string, { value: string; label: string }[]> = {
     { value: 'openai/gpt-5-mini', label: 'GPT-5 Mini' },
     { value: 'openai/gpt-5.2', label: 'GPT-5.2 (новейший)' },
   ],
+  gemini: [
+    { value: 'gemini-2.5-flash', label: 'Gemini 2.5 Flash' },
+    { value: 'gemini-2.5-flash-lite', label: 'Gemini 2.5 Flash Lite' },
+    { value: 'gemini-2.5-pro', label: 'Gemini 2.5 Pro' },
+  ],
+  gigachat: [
+    { value: 'GigaChat-Max', label: 'GigaChat Max' },
+    { value: 'GigaChat-Pro', label: 'GigaChat Pro' },
+    { value: 'GigaChat-Plus', label: 'GigaChat Plus' },
+  ],
 };
 
 export default function ChatRoles() {
