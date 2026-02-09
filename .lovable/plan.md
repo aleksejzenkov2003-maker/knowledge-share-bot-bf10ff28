@@ -1,69 +1,70 @@
 
-# Исправление трех проблем: Поисковик, Юрист, создание ролей Gemini/Claude
+# Поддержка XLS файлов через Gemini-конвертацию
 
-## Обнаруженные проблемы
+## Проблема
 
-### 1. Поисковик (Perplexity) не выдает веб-ссылки
+Сейчас XLS (бинарный формат Excel) обрабатывается простым извлечением читаемых строк из бинарных данных через regex:
+```
+const textParts = rawText.match(/[A-Za-zА-Яа-яЁё0-9\s.,;:!?()-]{5,}/g) || [];
+```
+Это дает мусорный текст без структуры таблицы. XLSX работает лучше (парсится как ZIP с XML), но тоже может терять структуру для сложных таблиц.
 
-**Причина**: Персональный чат (`useOptimizedChat.ts`) при получении метаданных из стрима сохраняет только `web_search_citations`, но НЕ сохраняет `perplexity_citations`. При этом edge-функция `chat-stream` для Perplexity отправляет цитаты именно в поле `perplexity_citations`.
+## Решение
 
-В итоге ссылки от Perplexity API приходят, но теряются при обработке в клиенте.
+Использовать Gemini API для интеллектуального извлечения данных из XLS/XLSX файлов -- аналогично тому, как уже работает OCR для сканированных PDF.
 
-**Решение**: В `useOptimizedChat.ts` добавить чтение `perplexity_citations` из метаданных и объединить с `web_search_citations`:
+## Изменения
 
-```typescript
-// В обработке metadata:
-web_search_citations: parsed.perplexity_citations || parsed.web_search_citations,
+### 1. Новая функция `tryGeminiExcelExtraction` в `process-document/index.ts`
+
+Отправляет бинарный файл в Gemini с промптом для извлечения табличных данных в структурированный текст:
+- Принимает `Uint8Array` и MIME-тип файла
+- Отправляет в Gemini 2.5 Flash как `inlineData`
+- Промпт просит представить каждую строку в формате "Заголовок: Значение" -- оптимально для RAG-чанков
+- Таймаут 45 секунд
+- Возвращает извлеченный текст или `null` при ошибке
+
+### 2. Обновление блока обработки XLS в основном `serve`
+
+Текущая логика (строки 2018-2088):
+
+```text
+Было:
+  XLS -> regex на бинарных данных (мусор)
+  XLSX -> парсинг XML (работает, но иногда теряет данные)
+
+Станет:
+  XLSX -> сначала парсинг XML (быстро, бесплатно)
+       -> если результат < 200 символов, fallback на Gemini
+  XLS  -> сразу Gemini (бинарный формат нельзя распарсить без библиотеки)
+       -> если Gemini недоступен, старый regex-fallback
 ```
 
-Также нужно обновить `DBMessage` в `src/types/chat.ts` чтобы `perplexity_citations` сохранялись при записи в БД.
+### 3. Оптимизация чанкинга для табличных данных
 
-### 2. Юрист не ищет в RAG-документах
-
-**Причина**: Роль "Юрист" настроена с `strict_rag_mode: true` и имеет 21 папку в `folder_ids`. Из них большинство **пустые** (нет документов со статусом `ready`). Документы есть только в нескольких папках.
-
-Однако FTS-поиск работает корректно (по логам видно "RAG: Final context has 10 chunks"). Проблема в том, что русский текст через `websearch_to_tsquery('russian', ...)` может не находить результатов для определенных запросов, и тогда система переключается на keyword fallback, который работает медленнее.
-
-Фактически RAG РАБОТАЕТ для роли Юрист (по логам видно 10 чанков). Если у пользователя не работает - нужно проверить конкретный запрос. Но дополнительно стоит убедиться, что model `claude-sonnet-4-5-20250929` корректно обрабатывается.
-
-**Дополнительная проблема**: Модель `claude-sonnet-4-5-20250929` используется для Юриста, но она **НЕ входит в список валидных моделей** Anthropic в edge-функции (строка 1122-1127). Система автоматически заменяет ее на `claude-sonnet-4-20250514`, что может вызывать путаницу.
-
-**Решение**: Добавить `claude-sonnet-4-5-20250929` в список валидных моделей:
-
-```typescript
-const validAnthropicModels = [
-  'claude-sonnet-4-20250514',
-  'claude-sonnet-4-5-20250929',  // Добавить!
-  'claude-3-5-sonnet-20241022',
-  'claude-3-5-haiku-20241022',
-  'claude-3-opus-20240229',
-];
-```
-
-### 3. Ошибки при создании ролей для Gemini и Claude
-
-**Причина**: В `ChatRoles.tsx` список `providerModels` содержит модели для типов `perplexity`, `openai`, `anthropic`, `lovable`, но **НЕТ типа `gemini`**. Когда администратор выбирает провайдер типа `gemini` (например "Gemini 2.5 Flash", "Gemini 2.5 Pro"), функция `getAvailableModels()` возвращает пустой массив, и список моделей не отображается.
-
-Также модель `claude-sonnet-4-5-20250929` указана в списке UI, но edge-функция ее отбрасывает как невалидную.
-
-**Решение**: Добавить `gemini` и `gigachat` в `providerModels`:
-
-```typescript
-gemini: [
-  { value: 'gemini-2.5-flash', label: 'Gemini 2.5 Flash' },
-  { value: 'gemini-2.5-flash-lite', label: 'Gemini 2.5 Flash Lite' },
-  { value: 'gemini-2.5-pro', label: 'Gemini 2.5 Pro' },
-],
-gigachat: [
-  { value: 'GigaChat-Max', label: 'GigaChat Max' },
-  { value: 'GigaChat-Pro', label: 'GigaChat Pro' },
-  { value: 'GigaChat-Plus', label: 'GigaChat Plus' },
-],
-```
+Текущий `chunkTextSimple` разбивает по 2000 символов с учетом абзацев. Для таблиц это нормально, но нужно увеличить размер чанка для Excel до ~3000 символов, чтобы строки таблицы не разрывались на полуслове. Это будет реализовано через передачу параметра в существующую функцию.
 
 ## Файлы для изменения
 
-1. **`src/hooks/useOptimizedChat.ts`** -- добавить `perplexity_citations` в обработку метаданных
-2. **`src/types/chat.ts`** -- добавить `perplexity_citations` в `DBMessage.metadata`
-3. **`src/pages/ChatRoles.tsx`** -- добавить `gemini` и `gigachat` в `providerModels`
-4. **`supabase/functions/chat-stream/index.ts`** -- добавить `claude-sonnet-4-5-20250929` в список валидных моделей Anthropic
+1. **`supabase/functions/process-document/index.ts`**:
+   - Добавить функцию `tryGeminiExcelExtraction(data, mimeType, fileName)` (~40 строк)
+   - Обновить блок обработки XLS/XLSX (строки 2025-2088): добавить вызов Gemini для XLS и fallback для XLSX
+   - Для XLS: Gemini первым -> regex fallback
+   - Для XLSX: XML-парсинг первым -> Gemini fallback при плохом результате
+
+## Технические детали
+
+Gemini 2.5 Flash поддерживает MIME-типы:
+- `application/vnd.openxmlformats-officedocument.spreadsheetml.sheet` (XLSX)
+- `application/vnd.ms-excel` (XLS)
+
+Промпт для Gemini будет на русском, просить представить данные в формате:
+```
+[Таблица: имя_файла]
+Столбцы: A, B, C, ...
+
+Строка 1: A: значение; B: значение; C: значение
+Строка 2: ...
+```
+
+Это совместимо с существующим чанкингом и FTS-поиском.
