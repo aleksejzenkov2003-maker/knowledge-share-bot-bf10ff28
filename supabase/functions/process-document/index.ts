@@ -2134,6 +2134,16 @@ serve(async (req) => {
             }
             
             text = allSheetTexts.join('\n\n---\n\n');
+            
+            // Cap text size to prevent memory limit exceeded during chunking
+            const EXCEL_MAX_CHARS = 500000; // ~500K chars max
+            if (text.length > EXCEL_MAX_CHARS) {
+              console.log(`XLSX text too large (${text.length} chars), truncating to ${EXCEL_MAX_CHARS}`);
+              // Find a clean line break near the limit
+              const cutPoint = text.lastIndexOf('\n', EXCEL_MAX_CHARS);
+              text = text.slice(0, cutPoint > EXCEL_MAX_CHARS * 0.8 ? cutPoint : EXCEL_MAX_CHARS);
+              text += `\n\n[... Документ обрезан: показано ${text.length} из ${allSheetTexts.join('').length} символов]`;
+            }
             console.log(`Parsed XLSX via XML, total text length: ${text.length}`);
             
             // Fallback to Gemini if XML parsing gave poor results
