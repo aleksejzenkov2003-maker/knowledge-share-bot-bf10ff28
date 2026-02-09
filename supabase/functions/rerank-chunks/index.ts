@@ -46,10 +46,10 @@ serve(async (req) => {
     }
 
     // Prepare chunks for Claude evaluation
-    const chunksForEval = chunks.slice(0, 50).map((chunk, index) => ({
+    const chunksForEval = chunks.slice(0, 80).map((chunk, index) => ({
       index,
       id: chunk.id,
-      content: chunk.content.substring(0, 1500), // Limit content length
+      content: chunk.content.substring(0, 2500), // Limit content length
       document_name: chunk.document_name,
       section_title: chunk.section_title,
       article_number: chunk.article_number,
@@ -99,7 +99,7 @@ ${chunksForEval.map(c => `
       },
       body: JSON.stringify({
         model: 'claude-sonnet-4-20250514',
-        max_tokens: 4096,
+        max_tokens: 8192,
         messages: [
           { role: 'user', content: userPrompt }
         ],
