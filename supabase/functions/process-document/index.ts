@@ -431,6 +431,75 @@ async function tryGeminiOcrChunked(pdfData: Uint8Array, numPages: number): Promi
   }
 }
 
+// ============= GEMINI EXCEL EXTRACTION =============
+// Sends XLS/XLSX binary to Gemini for intelligent table extraction
+async function tryGeminiExcelExtraction(
+  data: Uint8Array, mimeType: string, fileName: string
+): Promise<string | null> {
+  const GEMINI_API_KEY = Deno.env.get('GEMINI_API_KEY');
+  if (!GEMINI_API_KEY) {
+    console.log('GEMINI_API_KEY not configured, skipping Gemini Excel extraction');
+    return null;
+  }
+
+  const base64Data = btoa(String.fromCharCode(...data));
+  const prompt = `Извлеки все данные из этого файла Excel "${fileName}".
+
+Правила:
+- Для каждого листа укажи его название в заголовке: [Лист: название]
+- Определи заголовки столбцов из первой строки
+- Каждую строку данных представь в формате: "Заголовок1: значение; Заголовок2: значение; ..."
+- Если ячейка пустая, пропусти её
+- Числа и даты сохраняй как есть
+- Не добавляй комментарии, только данные
+- Если листов несколько, раздели их пустой строкой`;
+
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), 45000);
+
+  try {
+    console.log(`Gemini Excel extraction: sending ${(data.length / 1024).toFixed(0)}KB file...`);
+    const response = await fetch(
+      `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${GEMINI_API_KEY}`,
+      {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          contents: [{
+            parts: [
+              { inlineData: { mimeType, data: base64Data } },
+              { text: prompt }
+            ]
+          }],
+          generationConfig: { temperature: 0, maxOutputTokens: 65536 }
+        }),
+        signal: controller.signal,
+      }
+    );
+
+    clearTimeout(timeout);
+
+    if (!response.ok) {
+      const errText = await response.text();
+      console.error(`Gemini Excel extraction failed: ${response.status}`, errText);
+      return null;
+    }
+
+    const result = await response.json();
+    const extractedText = result?.candidates?.[0]?.content?.parts?.[0]?.text;
+    if (extractedText && extractedText.length > 50) {
+      console.log(`Gemini Excel extraction success: ${extractedText.length} chars`);
+      return `[Таблица: ${fileName}]\n\n${extractedText}`;
+    }
+    console.log('Gemini Excel extraction returned insufficient text');
+    return null;
+  } catch (error) {
+    clearTimeout(timeout);
+    console.error('Gemini Excel extraction error:', error);
+    return null;
+  }
+}
+
 // ============= ANTHROPIC CLAUDE OCR (FALLBACK) =============
 async function tryAnthropicOcr(pdfData: Uint8Array): Promise<OcrResult> {
   const ANTHROPIC_API_KEY = Deno.env.get('ANTHROPIC_API_KEY');
@@ -2030,7 +2099,7 @@ serve(async (req) => {
           const bytes = new Uint8Array(arrayBuffer);
           
           if (fileName.endsWith('.xlsx')) {
-            // XLSX is a ZIP archive with XML inside
+            // XLSX: try XML parsing first (free & fast), fallback to Gemini
             const JSZip = (await import("https://esm.sh/jszip@3.10.1")).default;
             const zip = await JSZip.loadAsync(bytes);
             
@@ -2038,7 +2107,6 @@ serve(async (req) => {
             const sharedStringsXml = await zip.file("xl/sharedStrings.xml")?.async("string");
             const sharedStrings: string[] = [];
             if (sharedStringsXml) {
-              // More robust shared string parsing - handle multiple <t> tags in <si>
               const siMatches = sharedStringsXml.match(/<si>[\s\S]*?<\/si>/g) || [];
               for (const si of siMatches) {
                 const textMatches = si.match(/<t[^>]*>([^<]*)<\/t>/g) || [];
@@ -2050,7 +2118,6 @@ serve(async (req) => {
             }
             console.log(`Parsed ${sharedStrings.length} shared strings from XLSX`);
             
-            // Get all worksheets, not just sheet1
             const sheetFiles = Object.keys(zip.files).filter(f => f.startsWith('xl/worksheets/sheet') && f.endsWith('.xml'));
             console.log(`Found ${sheetFiles.length} worksheets:`, sheetFiles);
             
@@ -2067,16 +2134,35 @@ serve(async (req) => {
             }
             
             text = allSheetTexts.join('\n\n---\n\n');
-            console.log(`Parsed XLSX, total text length: ${text.length}`);
-          } else {
-            // XLS (binary format) - limited support
-            console.log('XLS binary format - attempting basic extraction...');
-            const decoder = new TextDecoder('utf-8', { fatal: false });
-            const rawText = decoder.decode(bytes);
+            console.log(`Parsed XLSX via XML, total text length: ${text.length}`);
             
-            // Extract readable text from binary
-            const textParts = rawText.match(/[A-Za-zА-Яа-яЁё0-9\s.,;:!?()-]{5,}/g) || [];
-            text = `[Excel Document: ${doc.file_name}]\n\n` + textParts.join(' ');
+            // Fallback to Gemini if XML parsing gave poor results
+            if (text.length < 200) {
+              console.log('XLSX XML parsing gave insufficient text, trying Gemini extraction...');
+              const geminiText = await tryGeminiExcelExtraction(
+                bytes, 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet', doc.file_name || 'data.xlsx'
+              );
+              if (geminiText) {
+                text = geminiText;
+              }
+            }
+          } else {
+            // XLS (binary format) - use Gemini as primary, regex as fallback
+            console.log('XLS binary format - trying Gemini extraction...');
+            const geminiText = await tryGeminiExcelExtraction(
+              bytes, 'application/vnd.ms-excel', doc.file_name || 'data.xls'
+            );
+            
+            if (geminiText) {
+              text = geminiText;
+            } else {
+              // Fallback: regex on binary (poor quality but better than nothing)
+              console.log('Gemini unavailable, falling back to regex extraction...');
+              const decoder = new TextDecoder('utf-8', { fatal: false });
+              const rawText = decoder.decode(bytes);
+              const textParts = rawText.match(/[A-Za-zА-Яа-яЁё0-9\s.,;:!?()-]{5,}/g) || [];
+              text = `[Excel Document: ${doc.file_name}]\n\n` + textParts.join(' ');
+            }
           }
         } catch (xlsError) {
           console.error('Excel extraction failed:', xlsError);
@@ -2336,8 +2422,18 @@ serve(async (req) => {
 
       // Process document with hierarchical chunking (use manual document_type if specified)
       const manualType = doc.document_type || 'auto';
-      const structuredChunks = processDocumentText(text, doc.file_name || 'unknown', manualType);
-      console.log(`Created ${structuredChunks.length} structured chunks (manual type: ${manualType})`);
+      const docFileName = doc.file_name || 'unknown';
+      const isExcelFile = docFileName.endsWith('.xls') || docFileName.endsWith('.xlsx');
+      
+      // For Excel files, use 'general' type with larger chunks to keep table rows together
+      const effectiveType = isExcelFile ? 'general' : manualType;
+      const structuredChunks = processDocumentText(text, docFileName, effectiveType);
+      
+      // If Excel, re-chunk with larger size for better table coherence
+      const finalChunks = isExcelFile && structuredChunks.length > 0
+        ? chunkTextSimple(text, 3000)
+        : structuredChunks;
+      console.log(`Created ${finalChunks.length} structured chunks (type: ${effectiveType}${isExcelFile ? ', excel 3000 chars' : ''})`);
 
       // Mark that this document has been processed for PII
       if (doc.contains_pii) {
@@ -2353,16 +2449,14 @@ serve(async (req) => {
         .eq('document_id', document_id);
 
       // Insert chunks in batches with metadata
-      if (structuredChunks.length > 0) {
+      if (finalChunks.length > 0) {
         const BATCH_SIZE = 100;
         let totalInserted = 0;
         
-        for (let i = 0; i < structuredChunks.length; i += BATCH_SIZE) {
-          const batch = structuredChunks.slice(i, i + BATCH_SIZE);
+        for (let i = 0; i < finalChunks.length; i += BATCH_SIZE) {
+          const batch = finalChunks.slice(i, i + BATCH_SIZE);
           const chunkRecords = batch.map((chunk, index) => {
-            // Determine page numbers from PDF page tracking (if available)
             const pageInfo = getPageForChunk(chunk.content);
-            
             return {
               document_id,
               content: chunk.content,
@@ -2370,9 +2464,9 @@ serve(async (req) => {
               section_title: chunk.section_title,
               article_number: chunk.article_number,
               chunk_type: chunk.chunk_type,
-              page_start: chunk.page_start || pageInfo.page_start, // From chunk or calculated
+              page_start: chunk.page_start || pageInfo.page_start,
               page_end: chunk.page_end || pageInfo.page_end,
-              has_masked_pii: documentHasMaskedPii, // Track PII masking at chunk level
+              has_masked_pii: documentHasMaskedPii,
               embedding: `[${createSimpleEmbedding(chunk.content).join(',')}]`,
               metadata: {
                 file_name: doc.file_name,
@@ -2401,18 +2495,18 @@ serve(async (req) => {
         .from('documents')
         .update({ 
           status: 'ready',
-          chunk_count: structuredChunks.length,
+          chunk_count: finalChunks.length,
         })
         .eq('id', document_id);
 
       // Calculate statistics for response
       const stats = {
-        total_chunks: structuredChunks.length,
-        article_chunks: structuredChunks.filter(c => c.chunk_type === 'article').length,
-        header_chunks: structuredChunks.filter(c => c.chunk_type === 'header').length,
-        point_chunks: structuredChunks.filter(c => c.chunk_type === 'point').length,
-        paragraph_chunks: structuredChunks.filter(c => c.chunk_type === 'paragraph').length,
-        unique_articles: [...new Set(structuredChunks.map(c => c.article_number).filter(Boolean))].length,
+        total_chunks: finalChunks.length,
+        article_chunks: finalChunks.filter(c => c.chunk_type === 'article').length,
+        header_chunks: finalChunks.filter(c => c.chunk_type === 'header').length,
+        point_chunks: finalChunks.filter(c => c.chunk_type === 'point').length,
+        paragraph_chunks: finalChunks.filter(c => c.chunk_type === 'paragraph').length,
+        unique_articles: [...new Set(finalChunks.map(c => c.article_number).filter(Boolean))].length,
       };
 
       console.log(`Document processed successfully:`, stats);
@@ -2420,7 +2514,7 @@ serve(async (req) => {
       return new Response(
         JSON.stringify({ 
           success: true, 
-          chunks_count: structuredChunks.length,
+          chunks_count: finalChunks.length,
           text_length: text.length,
           document_type: detectDocumentType(text),
           stats,
