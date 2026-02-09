@@ -1,64 +1,63 @@
 
-# Исправление 4 проблем: RAG для Юриста, веб-поиск, регенерация, DOCX-экспорт
+# Fix: Large Scanned PDFs Crash During OCR Processing
 
-## Обнаруженные проблемы
+## Root Cause
 
-### 1. Юрист (Gemini/Sonnet) - веб-поиск не работает
+The edge function crashes with `CPU Time exceeded` when processing scanned PDFs like "Рук по экспертизе.pdf" (5.6MB, 221 pages) and "Руков по регистрации ТЗ.pdf" (7.5MB). Here is why:
 
-**Причина:** В `chat-stream/index.ts` (строка 716) веб-поиск через Perplexity срабатывает ТОЛЬКО для провайдера `anthropic`:
+1. These files are under the 10MB split threshold, so they upload as **single files**
+2. The edge function detects 0 extractable text (scanned PDF) and enters OCR mode
+3. OCR loads the **entire** 5-7MB PDF into memory with pdf-lib, then creates sub-PDFs for each 4-page chunk
+4. After processing ~4 chunks, the edge function exceeds CPU time limits and crashes
+
+The `mktu_13_26_2lang.xlsx` (922KB) was actually successfully processed earlier (164 chunks, status: ready). If the user is uploading a new copy, it should work fine.
+
+## Solution
+
+**Lower the PDF split threshold from 10MB to 4MB** so that scanned PDFs get split client-side before upload. Client-side splitting uses `pdf-lib` in the browser (no edge function limits), then each small part (~50 pages, typically 1-3MB) is uploaded and processed independently.
+
+Additionally, **reduce the OCR page cap** for single-file processing from 80 to 30 pages to ensure even unsplit PDFs that slip through can complete within CPU limits.
+
+## Changes
+
+### 1. `src/pages/Documents.tsx` (2 lines)
+
+Lower the split threshold so PDFs over 4MB are automatically split client-side:
+
 ```
-providerConfig.provider_type === 'anthropic'
+Before: const SPLIT_THRESHOLD = 10 * 1024 * 1024; // 10 MB
+After:  const SPLIT_THRESHOLD = 4 * 1024 * 1024;  // 4 MB
+
+Before: const SPLIT_THRESHOLD_MB = 10;
+After:  const SPLIT_THRESHOLD_MB = 4;
 ```
-Юрист настроен на провайдер `gemini` (Gemini 2.5 Pro), поэтому веб-поиск никогда не вызывается, даже если `allow_web_search: true`.
 
-**Решение:** Убрать ограничение на тип провайдера -- веб-поиск должен работать для всех провайдеров (anthropic, gemini, gigachat, openai), если роль позволяет.
+### 2. `supabase/functions/process-document/index.ts` (1 line)
 
-### 2. Юрист (Sonnet 3.5) - не работает
+Reduce the OCR page cap for safety (in case single unsplit PDFs still come through):
 
-**Причина:** Роль "Юрист" в БД настроена с `model_config: {model: gemini-2.5-pro, provider_id: ...}`. Если пользователь пытается переключить на Sonnet 3.5 через UI -- модель `claude-3-5-sonnet-20241022` уже в списке валидных моделей. Но если в `model_config` указана не та модель -- система использует Gemini вместо Claude. Это вопрос конфигурации роли, но стоит проверить, что `claude-3-5-sonnet-20241022` корректно обрабатывается (он уже в whitelist, строка 1125).
-
-**Действие:** Убедиться, что при регенерации с другой ролью (Claude) корректно передается provider_id.
-
-### 3. Регенерация ответа через другую роль -- игнорируется
-
-**Причина:** В `useOptimizedChat.ts` (строка 618-627) при регенерации:
-```typescript
-if (newRoleId && newRoleId !== selectedRoleId) {
-  setSelectedRoleId(newRoleId);  // React setState -- асинхронно!
-}
-sendMessage(userMessage.content, ...);  // Использует selectedRoleId из замыкания
 ```
-`setSelectedRoleId` -- это React setState, обновление происходит асинхронно. Вызов `sendMessage` сразу после использует СТАРЫЙ `selectedRoleId`. Результат: регенерация всегда использует текущего агента, а не выбранного.
+Before: const MAX_OCR_PAGES = 80;
+After:  const MAX_OCR_PAGES = 30;
+```
 
-**Решение:** Передавать `roleIdToUse` напрямую в `sendMessage`, добавив опциональный параметр `overrideRoleId` в функцию отправки. Или сделать `sendMessage` принимающим roleId явно.
+### 3. `src/pages/Documents.tsx` - Remove reprocess block for files > threshold
 
-### 4. Скачивание в DOCX -- звездочки и сломанные таблицы
+Since the threshold is now 4MB, reprocessing documents that were already split should work. But for scanned PDFs that were uploaded as single files before this fix, the user will need to delete and re-upload them. The reprocess size check should use a higher threshold (10MB) since the edge function can handle non-scanned PDFs up to 10MB fine.
 
-**Причина:** В `DownloadDropdown.tsx` (строки 130-151) парсер Markdown для DOCX:
-- Обрабатывает `**bold**` и `*italic*` через regex split, но regex `(\*\*[^*]+\*\*|\*[^*]+\*|...)` ломается на вложенных паттернах и оставляет непарсенные `*` в тексте
-- Таблицы Markdown (`| col1 | col2 |`) **вообще не обрабатываются** -- они идут как обычный текст, разбиваясь на строки с `|` символами
-- Ссылки вида `[text](url)` не обрабатываются
+```
+Before: doc.file_size > SPLIT_THRESHOLD
+After:  doc.file_size > 10 * 1024 * 1024  // Hard limit for edge function
+```
 
-**Решение:** Добавить обработку Markdown-таблиц через `docx` Table/TableRow/TableCell. Улучшить парсинг inline-форматирования (bold/italic) с поддержкой вложенных паттернов. Очищать оставшиеся `*` после парсинга.
+## How It Fixes the Problem
 
-## Файлы для изменения
+After the change, uploading "Рук по экспертизе.pdf" (5.6MB, 221 pages):
+1. Client detects 5.6MB > 4MB threshold -- triggers split
+2. PDF is split into 5 parts of ~50 pages each (~1-1.5MB per part)
+3. Each part is uploaded and processed independently
+4. Edge function OCRs 50 pages max per invocation (well within limits)
 
-### 1. `supabase/functions/chat-stream/index.ts`
-- **Строка 716:** Убрать условие `providerConfig.provider_type === 'anthropic'` из проверки веб-поиска. Заменить на проверку наличия PERPLEXITY_API_KEY (которая уже есть на строке 717).
+## User Action Required
 
-### 2. `src/hooks/useOptimizedChat.ts`
-- **Функция `sendMessage`** (~строка 200): Добавить опциональный параметр `overrideRoleId?: string`, который при наличии будет использоваться вместо `selectedRoleId` для запроса к chat-stream.
-- **Функция `regenerateResponse`** (строка 627): Передавать `roleIdToUse` в `sendMessage` через новый параметр вместо надежды на async setState.
-
-### 3. `src/components/chat/DownloadDropdown.tsx`
-- **Функция `handleDownloadDOCX`** (строки 84-152): 
-  - Добавить обработку Markdown-таблиц (строки `| ... |`): парсить заголовки и строки, создавать `Table`, `TableRow`, `TableCell` из библиотеки `docx`
-  - Улучшить inline-парсинг: обрабатывать `[text](url)`, очищать оставшиеся `*` после парсинга bold/italic
-  - Добавить импорт `Table`, `TableRow`, `TableCell`, `WidthType`, `BorderStyle` из `docx`
-
-## Порядок реализации
-
-1. Исправить веб-поиск в chat-stream (быстро, 1 строка)
-2. Исправить регенерацию в useOptimizedChat (5-10 строк)
-3. Переделать DOCX-экспорт с поддержкой таблиц (40-60 строк)
-4. Передеплоить chat-stream
+The existing failed documents ("Рук по экспертизе" and "Руков по регистрации ТЗ") must be **deleted and re-uploaded** after the fix, since they were uploaded as single files and cannot be retroactively split on the server.
