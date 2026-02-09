@@ -88,6 +88,9 @@ export interface DBMessage {
     attachments?: { file_path: string; file_name: string; file_type: string; file_size: number }[];
     has_masked_pii?: boolean;
     pii_tokens_count?: number;
+    perplexity_citations?: string[];
+    web_search_citations?: string[];
+    web_search_used?: boolean;
   } | null;
   created_at: string;
 }

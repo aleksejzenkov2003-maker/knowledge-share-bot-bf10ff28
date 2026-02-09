@@ -1121,6 +1121,7 @@ ${goldenExamples.join('\n\n---\n\n')}
     // Validate model identifiers for each provider
     const validAnthropicModels = [
       'claude-sonnet-4-20250514',
+      'claude-sonnet-4-5-20250929',
       'claude-3-5-sonnet-20241022',
       'claude-3-5-haiku-20241022',
       'claude-3-opus-20240229',
