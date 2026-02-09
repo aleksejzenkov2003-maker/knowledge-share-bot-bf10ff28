@@ -285,8 +285,8 @@ serve(async (req) => {
     let ragContext: string[] = [];
     let rankedChunks: RankedChunk[] = [];
     let usedSmartSearch = false;
-    const FTS_CANDIDATES = 50; // Get more candidates for re-ranking
-    const TOP_K_FINAL = 10;    // Final chunks after re-ranking
+    const FTS_CANDIDATES = 100; // Get more candidates for re-ranking
+    const TOP_K_FINAL = 20;    // Final chunks after re-ranking
     
     // Collect trademark images from relevant documents
     interface TrademarkImage {
@@ -298,7 +298,7 @@ serve(async (req) => {
     const trademarkImages: TrademarkImage[] = [];
 
     // Minimum relevance score to include in citations
-    const MIN_RELEVANCE_SCORE = 6;
+    const MIN_RELEVANCE_SCORE = 5;
     
     // Stop words to filter out from keyword search (Russian)
     const STOP_WORDS = new Set([
@@ -828,6 +828,13 @@ ${goldenExamples.join('\n\n---\n\n')}
         instructions = `
 ИНСТРУКЦИИ (СТРОГИЙ РЕЖИМ - ТОЛЬКО БАЗА ЗНАНИЙ):
 
+ПРАВИЛА РАБОТЫ С БАЗОЙ ЗНАНИЙ:
+1. Проанализируй ВСЕ предоставленные фрагменты документов, не ограничивайся первыми
+2. Сопоставь информацию из РАЗНЫХ документов для полноты ответа
+3. Если вопрос затрагивает несколько нормативных актов — процитируй КАЖДЫЙ релевантный
+4. Судебная практика: укажи ВСЕ найденные дела, даже если они частично релевантны
+5. Не ограничивайся пересказом — проведи АНАЛИЗ и сделай ВЫВОДЫ на основе найденного
+
 ПРАВИЛА ЦИТИРОВАНИЯ (КРИТИЧЕСКИ ВАЖНО):
 1. Каждое ОТДЕЛЬНОЕ утверждение должно иметь СВОЮ ссылку [N]
 2. НЕ повторяй одну ссылку [1] для разных фактов — это делает проверку невозможной
@@ -843,6 +850,13 @@ ${goldenExamples.join('\n\n---\n\n')}
       } else {
         instructions = `
 ИНСТРУКЦИИ:
+
+ПРАВИЛА РАБОТЫ С БАЗОЙ ЗНАНИЙ:
+1. Проанализируй ВСЕ предоставленные фрагменты документов, не ограничивайся первыми
+2. Сопоставь информацию из РАЗНЫХ документов для полноты ответа
+3. Если вопрос затрагивает несколько нормативных актов — процитируй КАЖДЫЙ релевантный
+4. Судебная практика: укажи ВСЕ найденные дела, даже если они частично релевантны
+5. Не ограничивайся пересказом — проведи АНАЛИЗ и сделай ВЫВОДЫ на основе найденного
 
 ПРАВИЛА ЦИТИРОВАНИЯ (КРИТИЧЕСКИ ВАЖНО):
 1. Каждое ОТДЕЛЬНОЕ утверждение должно иметь СВОЮ ссылку [N]
