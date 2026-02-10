@@ -54,6 +54,7 @@ import {
 import { toast } from "sonner";
 import { Plus, Upload, FileText, Trash2, Eye, Loader2, RefreshCw, ImageIcon, X, Split, AlertTriangle, LayoutList, LayoutGrid, Shield } from "lucide-react";
 import { splitPdf, getPdfPageCount, generatePartFileName, SplitProgress, estimatePdfParts } from "@/components/documents/pdfSplitter";
+import { splitExcel, needsExcelSplit, estimateExcelParts, generateExcelPartFileName, ExcelSplitProgress } from "@/components/documents/excelSplitter";
 import { DocumentTree, Document as TreeDocument, DocumentFolder as TreeFolder, MissingPartsInfo, DocumentGroup } from "@/components/documents/DocumentTree";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { PiiPreviewDialog } from "@/components/documents/PiiPreviewDialog";
@@ -396,7 +397,8 @@ export default function Documents() {
     docName: string,
     parentId?: string,
     partNumber?: number,
-    totalParts?: number
+    totalParts?: number,
+    fileType?: string
   ): Promise<string | null> => {
     try {
       const sanitizedName = sanitizeFileName(fileName);
@@ -429,7 +431,7 @@ export default function Documents() {
         .insert({
           name: docName,
           file_name: fileName,
-          file_type: 'application/pdf',
+          file_type: fileType || file.type || 'application/pdf',
           file_size: file instanceof File ? file.size : (file as Blob).size,
           storage_path: storagePath,
           folder_id: formData.folder_id || null,
@@ -501,10 +503,18 @@ export default function Documents() {
       return;
     }
 
-    // Check if file needs splitting
+    // Check if PDF needs splitting
     if (file.size > SPLIT_THRESHOLD && file.type === 'application/pdf') {
-      // Estimate parts and show warning
       const estimated = estimatePdfParts(file.size, PAGES_PER_PART);
+      setEstimatedParts(estimated);
+      setPendingFile(file);
+      setSplitWarningOpen(true);
+      return;
+    }
+
+    // Check if Excel needs splitting
+    if (needsExcelSplit(file)) {
+      const estimated = estimateExcelParts(file.size);
       setEstimatedParts(estimated);
       setPendingFile(file);
       setSplitWarningOpen(true);
@@ -521,88 +531,12 @@ export default function Documents() {
     setPendingFile(null);
 
     try {
+      const isExcel = needsExcelSplit(file);
+      
       if (needsSplit && file.type === 'application/pdf') {
-        // Split upload flow
-        setUploadProgress({ stage: 'analyzing', message: 'Анализ PDF...', percent: 5 });
-        
-        const pageCount = await getPdfPageCount(file);
-        const actualParts = Math.ceil(pageCount / PAGES_PER_PART);
-        
-        setUploadProgress({ 
-          stage: 'splitting', 
-          message: `Разбиение на ${actualParts} частей...`, 
-          percent: 10 
-        });
-        
-        // Split the PDF
-        const parts = await splitPdf(file, PAGES_PER_PART, (progress: SplitProgress) => {
-          const percent = 10 + (progress.currentPart / progress.totalParts) * 30;
-          setUploadProgress({
-            stage: 'splitting',
-            currentPart: progress.currentPart,
-            totalParts: progress.totalParts,
-            message: `Разбиение: часть ${progress.currentPart} из ${progress.totalParts}`,
-            percent,
-          });
-        });
-
-        // Upload parts sequentially - first part becomes parent for all others
-        const docIds: string[] = [];
-        let parentDocId: string | undefined = undefined;
-        
-        for (let i = 0; i < parts.length; i++) {
-          const part = parts[i];
-          const partFileName = generatePartFileName(file.name, part.partNumber, part.totalParts);
-          const partDocName = `${formData.name} (часть ${part.partNumber}/${part.totalParts}, стр. ${part.pageStart}-${part.pageEnd})`;
-          
-          setUploadProgress({
-            stage: 'uploading',
-            currentPart: i + 1,
-            totalParts: parts.length,
-            message: `Загрузка части ${i + 1} из ${parts.length}...`,
-            percent: 40 + ((i + 1) / parts.length) * 30,
-          });
-
-          const docId = await uploadSingleFile(
-            part.blob,
-            partFileName,
-            partDocName,
-            i === 0 ? undefined : parentDocId, // First part has no parent, others link to it
-            part.partNumber,
-            part.totalParts
-          );
-          
-          if (docId) {
-            docIds.push(docId);
-            // First part becomes the parent for subsequent parts
-            if (i === 0) {
-              parentDocId = docId;
-            }
-          }
-        }
-
-        // Process parts sequentially
-        let successCount = 0;
-        for (let i = 0; i < docIds.length; i++) {
-          setUploadProgress({
-            stage: 'processing',
-            currentPart: i + 1,
-            totalParts: docIds.length,
-            message: `Обработка части ${i + 1} из ${docIds.length}...`,
-            percent: 70 + ((i + 1) / docIds.length) * 25,
-          });
-          
-          const success = await processDocument(docIds[i]);
-          if (success) successCount++;
-        }
-
-        setUploadProgress({ stage: 'complete', message: 'Готово!', percent: 100 });
-        
-        if (successCount === docIds.length) {
-          toast.success(`Документ разбит на ${parts.length} частей и успешно обработан`);
-        } else {
-          toast.warning(`Документ разбит на ${parts.length} частей. Успешно обработано: ${successCount}`);
-        }
+        await performPdfSplitUpload(file);
+      } else if (needsSplit && isExcel) {
+        await performExcelSplitUpload(file);
       } else {
         // Regular single file upload
         setUploadProgress({ stage: 'uploading', message: 'Загрузка...', percent: 30 });
@@ -639,6 +573,129 @@ export default function Documents() {
       setTimeout(() => {
         setUploadProgress({ stage: 'idle', message: '', percent: 0 });
       }, 2000);
+    }
+  };
+
+  const performPdfSplitUpload = async (file: File) => {
+    setUploadProgress({ stage: 'analyzing', message: 'Анализ PDF...', percent: 5 });
+    
+    const pageCount = await getPdfPageCount(file);
+    const actualParts = Math.ceil(pageCount / PAGES_PER_PART);
+    
+    setUploadProgress({ 
+      stage: 'splitting', 
+      message: `Разбиение на ${actualParts} частей...`, 
+      percent: 10 
+    });
+    
+    const parts = await splitPdf(file, PAGES_PER_PART, (progress: SplitProgress) => {
+      const percent = 10 + (progress.currentPart / progress.totalParts) * 30;
+      setUploadProgress({
+        stage: 'splitting',
+        currentPart: progress.currentPart,
+        totalParts: progress.totalParts,
+        message: `Разбиение: часть ${progress.currentPart} из ${progress.totalParts}`,
+        percent,
+      });
+    });
+
+    await uploadAndProcessParts(
+      parts.map(p => ({
+        blob: p.blob,
+        fileName: generatePartFileName(file.name, p.partNumber, p.totalParts),
+        docName: `${formData.name} (часть ${p.partNumber}/${p.totalParts}, стр. ${p.pageStart}-${p.pageEnd})`,
+        partNumber: p.partNumber,
+        totalParts: p.totalParts,
+      }))
+    );
+  };
+
+  const performExcelSplitUpload = async (file: File) => {
+    setUploadProgress({ stage: 'analyzing', message: 'Анализ Excel...', percent: 5 });
+    
+    const parts = await splitExcel(file, 5000, (progress: ExcelSplitProgress) => {
+      if (progress.stage === 'splitting') {
+        const percent = 10 + (progress.currentPart / progress.totalParts) * 30;
+        setUploadProgress({
+          stage: 'splitting',
+          currentPart: progress.currentPart,
+          totalParts: progress.totalParts,
+          message: `Разбиение Excel: часть ${progress.currentPart} из ${progress.totalParts}`,
+          percent,
+        });
+      }
+    });
+
+    await uploadAndProcessParts(
+      parts.map(p => ({
+        blob: p.blob,
+        fileName: generateExcelPartFileName(file.name, p.partNumber, p.totalParts),
+        docName: `${formData.name} (часть ${p.partNumber}/${p.totalParts}, строки ${p.rowStart}-${p.rowEnd})`,
+        partNumber: p.partNumber,
+        totalParts: p.totalParts,
+        fileType: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+      }))
+    );
+  };
+
+  const uploadAndProcessParts = async (parts: Array<{
+    blob: Blob;
+    fileName: string;
+    docName: string;
+    partNumber: number;
+    totalParts: number;
+    fileType?: string;
+  }>) => {
+    const docIds: string[] = [];
+    let parentDocId: string | undefined = undefined;
+
+    for (let i = 0; i < parts.length; i++) {
+      const part = parts[i];
+      
+      setUploadProgress({
+        stage: 'uploading',
+        currentPart: i + 1,
+        totalParts: parts.length,
+        message: `Загрузка части ${i + 1} из ${parts.length}...`,
+        percent: 40 + ((i + 1) / parts.length) * 30,
+      });
+
+      const docId = await uploadSingleFile(
+        part.blob,
+        part.fileName,
+        part.docName,
+        i === 0 ? undefined : parentDocId,
+        part.partNumber,
+        part.totalParts,
+        part.fileType
+      );
+      
+      if (docId) {
+        docIds.push(docId);
+        if (i === 0) parentDocId = docId;
+      }
+    }
+
+    let successCount = 0;
+    for (let i = 0; i < docIds.length; i++) {
+      setUploadProgress({
+        stage: 'processing',
+        currentPart: i + 1,
+        totalParts: docIds.length,
+        message: `Обработка части ${i + 1} из ${docIds.length}...`,
+        percent: 70 + ((i + 1) / docIds.length) * 25,
+      });
+      
+      const success = await processDocument(docIds[i]);
+      if (success) successCount++;
+    }
+
+    setUploadProgress({ stage: 'complete', message: 'Готово!', percent: 100 });
+    
+    if (successCount === docIds.length) {
+      toast.success(`Документ разбит на ${parts.length} частей и успешно обработан`);
+    } else {
+      toast.warning(`Документ разбит на ${parts.length} частей. Успешно обработано: ${successCount}`);
     }
   };
 
