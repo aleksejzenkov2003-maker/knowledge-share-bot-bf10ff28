@@ -2461,9 +2461,9 @@ serve(async (req) => {
         .eq('document_id', document_id);
 
       // Insert chunks in batches with metadata
+      let totalInserted = 0;
       if (finalChunks.length > 0) {
         const BATCH_SIZE = 100;
-        let totalInserted = 0;
         
         for (let i = 0; i < finalChunks.length; i += BATCH_SIZE) {
           const batch = finalChunks.slice(i, i + BATCH_SIZE);
