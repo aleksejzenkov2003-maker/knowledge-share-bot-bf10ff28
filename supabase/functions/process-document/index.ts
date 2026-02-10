@@ -2488,6 +2488,21 @@ serve(async (req) => {
             };
           });
 
+          // Verify document still exists before inserting chunks
+          const { data: docCheck } = await supabase
+            .from('documents')
+            .select('id')
+            .eq('id', document_id)
+            .maybeSingle();
+
+          if (!docCheck) {
+            console.error(`Document ${document_id} no longer exists, skipping chunk insert`);
+            return new Response(
+              JSON.stringify({ success: false, error: 'Document was deleted during processing' }),
+              { headers: { ...corsHeaders, 'Content-Type': 'application/json' }, status: 404 }
+            );
+          }
+
           const { error: insertError } = await supabase
             .from('document_chunks')
             .insert(chunkRecords);
@@ -2502,12 +2517,29 @@ serve(async (req) => {
         console.log(`Inserted ${totalInserted} chunks with hierarchical metadata`);
       }
 
+      // Update document status based on insertion results
+      if (totalInserted === 0 && finalChunks.length > 0) {
+        console.error(`All chunk insertions failed! Setting document to error status.`);
+        await supabase
+          .from('documents')
+          .update({ 
+            status: 'error',
+            chunk_count: 0,
+          })
+          .eq('id', document_id);
+
+        return new Response(
+          JSON.stringify({ success: false, error: 'Failed to insert chunks into database' }),
+          { headers: { ...corsHeaders, 'Content-Type': 'application/json' }, status: 500 }
+        );
+      }
+
       // Update document status to ready
       await supabase
         .from('documents')
         .update({ 
           status: 'ready',
-          chunk_count: finalChunks.length,
+          chunk_count: totalInserted,
         })
         .eq('id', document_id);
 
