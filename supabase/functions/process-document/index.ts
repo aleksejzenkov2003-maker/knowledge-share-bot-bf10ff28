@@ -1459,7 +1459,6 @@ function parseXLSXSheetToText(sheetXml: string, sharedStrings: string[], fileNam
     const cellMatches = rowXml.match(/<c[^>]*>[\s\S]*?<\/c>/g) || [];
     
     for (const cellXml of cellMatches) {
-      // Get cell reference (e.g., "A1", "B2")
       const refMatch = cellXml.match(/r="([A-Z]+)(\d+)"/);
       if (!refMatch) continue;
       
@@ -1468,11 +1467,9 @@ function parseXLSXSheetToText(sheetXml: string, sharedStrings: string[], fileNam
         return acc + (char.charCodeAt(0) - 64) * Math.pow(26, arr.length - 1 - i);
       }, 0) - 1;
       
-      // Get cell value
       const valueMatch = cellXml.match(/<v>([^<]*)<\/v>/);
       let value = valueMatch ? valueMatch[1] : '';
       
-      // Check if it's a shared string reference
       const isSharedString = cellXml.includes('t="s"');
       if (isSharedString && sharedStrings.length > 0) {
         const ssIndex = parseInt(value, 10);
@@ -1495,29 +1492,92 @@ function parseXLSXSheetToText(sheetXml: string, sharedStrings: string[], fileNam
   if (rows.length === 0) return '';
   
   // Assume first row is headers
-  const headers = rows[0];
+  const rawHeaders = rows[0];
   const dataRows = rows.slice(1);
   
-  // Format as structured text
-  const textParts: string[] = [`[Excel Document: ${fileName}]`, `Столбцы: ${headers.filter(h => h).join(', ')}`, ''];
+  // Shorten headers: remove duplicate explanations in parentheses/slashes
+  // e.g. "Класс/Class" -> "Класс", "Базовый номер/ Basic Number" -> "No"
+  const headers = rawHeaders.map(h => {
+    if (!h) return '';
+    // Remove "/ English text" pattern
+    let short = h.replace(/\s*\/\s*[A-Za-z\s]+$/, '').trim();
+    // Shorten known long headers
+    if (/базовый\s*номер/i.test(short)) short = 'No';
+    if (/изменен/i.test(short)) short = 'Изм';
+    return short;
+  });
+  
+  // Format each data row as a separate block with --- delimiter
+  const textParts: string[] = [`[Excel: ${fileName}]`];
   
   for (let i = 0; i < dataRows.length; i++) {
     const row = dataRows[i];
-    const rowText = headers.map((header, idx) => {
-      const value = row[idx] || '';
+    const pairs = headers.map((header, idx) => {
+      const value = (row[idx] || '').trim();
       return value && header ? `${header}: ${value}` : null;
-    }).filter(Boolean).join('; ');
+    }).filter(Boolean);
     
-    if (rowText) {
-      textParts.push(`Строка ${i + 1}: ${rowText}`);
-    }
-    
-    if ((i + 1) % 20 === 0 && i < dataRows.length - 1) {
-      textParts.push('');
+    if (pairs.length > 0) {
+      textParts.push('---');
+      textParts.push(pairs.join(' | '));
     }
   }
   
   return textParts.join('\n');
+}
+
+// ============= EXCEL-SPECIFIC CHUNKER =============
+// Splits Excel text by record delimiters (---) to keep rows intact
+
+function chunkExcelText(text: string, chunkSize: number = 3000): StructuredChunk[] {
+  const chunks: StructuredChunk[] = [];
+  
+  // Extract header line (first line like [Excel: ...])
+  const lines = text.split('\n');
+  let header = '';
+  let bodyStart = 0;
+  if (lines[0]?.startsWith('[Excel:')) {
+    header = lines[0];
+    bodyStart = 1;
+  }
+  
+  const body = lines.slice(bodyStart).join('\n');
+  
+  // Split by record delimiter
+  const records = body.split(/\n---\n/).filter(r => r.trim());
+  
+  let currentChunk = header ? header + '\n' : '';
+  
+  for (const record of records) {
+    const candidate = currentChunk + '---\n' + record + '\n';
+    
+    if (candidate.length > chunkSize && currentChunk.length > header.length + 10) {
+      // Flush current chunk
+      chunks.push({
+        content: currentChunk.trim(),
+        section_title: null,
+        article_number: null,
+        chunk_type: 'table',
+        parent_context: header || 'Excel',
+      });
+      currentChunk = (header ? header + '\n' : '') + '---\n' + record + '\n';
+    } else {
+      currentChunk = candidate;
+    }
+  }
+  
+  // Flush remaining
+  if (currentChunk.trim() && currentChunk.trim() !== header) {
+    chunks.push({
+      content: currentChunk.trim(),
+      section_title: null,
+      article_number: null,
+      chunk_type: 'table',
+      parent_context: header || 'Excel',
+    });
+  }
+  
+  return chunks;
 }
 
 // ============= SIMPLE CHUNKING FALLBACK =============
@@ -2441,11 +2501,11 @@ serve(async (req) => {
       const effectiveType = isExcelFile ? 'general' : manualType;
       const structuredChunks = processDocumentText(text, docFileName, effectiveType);
       
-      // If Excel, re-chunk with larger size for better table coherence
-      const finalChunks = isExcelFile && structuredChunks.length > 0
-        ? chunkTextSimple(text, 3000)
+      // If Excel, use specialized chunker that splits by record boundaries
+      const finalChunks = isExcelFile
+        ? chunkExcelText(text, 3000)
         : structuredChunks;
-      console.log(`Created ${finalChunks.length} structured chunks (type: ${effectiveType}${isExcelFile ? ', excel 3000 chars' : ''})`);
+      console.log(`Created ${finalChunks.length} structured chunks (type: ${effectiveType}${isExcelFile ? ', excel record-aware' : ''})`);
 
       // Mark that this document has been processed for PII
       if (doc.contains_pii) {
