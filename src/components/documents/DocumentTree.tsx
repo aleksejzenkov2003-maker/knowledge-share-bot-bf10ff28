@@ -1,5 +1,5 @@
 import { useState, forwardRef } from "react";
-import { ChevronRight, ChevronDown, FileText, Folder, MoreVertical, RefreshCw, Eye, Trash2, AlertCircle, CheckCircle, Loader2, Upload } from "lucide-react";
+import { ChevronRight, ChevronDown, FileText, Folder, MoreVertical, RefreshCw, Eye, Trash2, AlertCircle, CheckCircle, Loader2, Upload, FolderInput, Copy } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import {
@@ -63,6 +63,10 @@ interface DocumentTreeProps {
   onDelete: (doc: Document) => void;
   onDeleteGroup?: (group: DocumentGroup) => void;
   onUploadMissingParts?: (info: MissingPartsInfo) => void;
+  onMove?: (doc: Document) => void;
+  onCopy?: (doc: Document) => void;
+  onMoveGroup?: (group: DocumentGroup) => void;
+  onCopyGroup?: (group: DocumentGroup) => void;
   formatFileSize: (bytes: number | null) => string;
 }
 
@@ -98,6 +102,8 @@ function DocumentItem({
   onReprocess, 
   onViewChunks, 
   onDelete,
+  onMove,
+  onCopy,
   formatFileSize,
   folders,
 }: {
@@ -106,6 +112,8 @@ function DocumentItem({
   onReprocess: (doc: Document) => void;
   onViewChunks: (doc: Document) => void;
   onDelete: (doc: Document) => void;
+  onMove?: (doc: Document) => void;
+  onCopy?: (doc: Document) => void;
   formatFileSize: (bytes: number | null) => string;
   folders: DocumentFolder[];
 }) {
@@ -157,6 +165,18 @@ function DocumentItem({
             <Eye className="h-4 w-4 mr-2" />
             Просмотреть чанки
           </DropdownMenuItem>
+          {onMove && (
+            <DropdownMenuItem onClick={() => onMove(doc)}>
+              <FolderInput className="h-4 w-4 mr-2" />
+              Перенести в папку...
+            </DropdownMenuItem>
+          )}
+          {onCopy && (
+            <DropdownMenuItem onClick={() => onCopy(doc)}>
+              <Copy className="h-4 w-4 mr-2" />
+              Копировать в папку...
+            </DropdownMenuItem>
+          )}
           <DropdownMenuItem 
             onClick={() => onDelete(doc)}
             className="text-destructive focus:text-destructive"
@@ -177,6 +197,10 @@ function DocumentGroupItem({
   onDelete,
   onDeleteGroup,
   onUploadMissingParts,
+  onMove,
+  onCopy,
+  onMoveGroup,
+  onCopyGroup,
   formatFileSize,
   folders,
 }: {
@@ -186,6 +210,10 @@ function DocumentGroupItem({
   onDelete: (doc: Document) => void;
   onDeleteGroup?: (group: DocumentGroup) => void;
   onUploadMissingParts?: (info: MissingPartsInfo) => void;
+  onMove?: (doc: Document) => void;
+  onCopy?: (doc: Document) => void;
+  onMoveGroup?: (group: DocumentGroup) => void;
+  onCopyGroup?: (group: DocumentGroup) => void;
   formatFileSize: (bytes: number | null) => string;
   folders: DocumentFolder[];
 }) {
@@ -197,17 +225,19 @@ function DocumentGroupItem({
     // If it's a single doc with total_parts = 1 or null, render normally
     if (!doc.total_parts || doc.total_parts === 1) {
       return (
-        <DocumentItem
-          doc={doc}
-          onReprocess={onReprocess}
-          onViewChunks={onViewChunks}
-          onDelete={onDelete}
-          formatFileSize={formatFileSize}
-          folders={folders}
-        />
-      );
+         <DocumentItem
+            doc={doc}
+            onReprocess={onReprocess}
+            onViewChunks={onViewChunks}
+            onDelete={onDelete}
+            onMove={onMove}
+            onCopy={onCopy}
+            formatFileSize={formatFileSize}
+            folders={folders}
+          />
+        );
+      }
     }
-  }
   
   // Multi-part document group
   const totalChunks = group.documents.reduce((sum, d) => sum + (d.chunk_count || 0), 0);
@@ -308,7 +338,7 @@ function DocumentGroupItem({
               Дозагрузить
             </Button>
           )}
-          {onDeleteGroup && group.isMultiPart && (
+          {group.isMultiPart && (
             <DropdownMenu>
               <DropdownMenuTrigger asChild onClick={(e) => e.stopPropagation()}>
                 <Button variant="ghost" size="icon" className="h-8 w-8 ml-1">
@@ -316,13 +346,27 @@ function DocumentGroupItem({
                 </Button>
               </DropdownMenuTrigger>
               <DropdownMenuContent align="end">
-                <DropdownMenuItem 
-                  onClick={handleDeleteGroup}
-                  className="text-destructive focus:text-destructive"
-                >
-                  <Trash2 className="h-4 w-4 mr-2" />
-                  Удалить все части ({group.documents.length})
-                </DropdownMenuItem>
+                {onMoveGroup && (
+                  <DropdownMenuItem onClick={(e) => { e.stopPropagation(); onMoveGroup(group); }}>
+                    <FolderInput className="h-4 w-4 mr-2" />
+                    Перенести все части...
+                  </DropdownMenuItem>
+                )}
+                {onCopyGroup && (
+                  <DropdownMenuItem onClick={(e) => { e.stopPropagation(); onCopyGroup(group); }}>
+                    <Copy className="h-4 w-4 mr-2" />
+                    Копировать все части...
+                  </DropdownMenuItem>
+                )}
+                {onDeleteGroup && (
+                  <DropdownMenuItem 
+                    onClick={handleDeleteGroup}
+                    className="text-destructive focus:text-destructive"
+                  >
+                    <Trash2 className="h-4 w-4 mr-2" />
+                    Удалить все части ({group.documents.length})
+                  </DropdownMenuItem>
+                )}
               </DropdownMenuContent>
             </DropdownMenu>
           )}
@@ -345,6 +389,8 @@ function DocumentGroupItem({
                 onReprocess={onReprocess}
                 onViewChunks={onViewChunks}
                 onDelete={onDelete}
+                onMove={onMove}
+                onCopy={onCopy}
                 formatFileSize={formatFileSize}
                 folders={folders}
               />
@@ -369,6 +415,10 @@ export function DocumentTree({
   onDelete,
   onDeleteGroup,
   onUploadMissingParts,
+  onMove,
+  onCopy,
+  onMoveGroup,
+  onCopyGroup,
   formatFileSize,
 }: DocumentTreeProps) {
   // Group documents by parent_document_id
@@ -486,6 +536,10 @@ export function DocumentTree({
           onDelete={onDelete}
           onDeleteGroup={onDeleteGroup}
           onUploadMissingParts={onUploadMissingParts}
+          onMove={onMove}
+          onCopy={onCopy}
+          onMoveGroup={onMoveGroup}
+          onCopyGroup={onCopyGroup}
           formatFileSize={formatFileSize}
           folders={folders}
         />

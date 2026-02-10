@@ -53,6 +53,7 @@ import {
 } from "@/components/ui/alert-dialog";
 import { toast } from "sonner";
 import { Plus, Upload, FileText, Trash2, Eye, Loader2, RefreshCw, ImageIcon, X, Split, AlertTriangle, LayoutList, LayoutGrid, Shield } from "lucide-react";
+import { MoveDocumentDialog } from "@/components/documents/MoveDocumentDialog";
 import { splitPdf, getPdfPageCount, generatePartFileName, SplitProgress, estimatePdfParts } from "@/components/documents/pdfSplitter";
 import { splitExcel, needsExcelSplit, estimateExcelParts, generateExcelPartFileName, ExcelSplitProgress } from "@/components/documents/excelSplitter";
 import { DocumentTree, Document as TreeDocument, DocumentFolder as TreeFolder, MissingPartsInfo, DocumentGroup } from "@/components/documents/DocumentTree";
@@ -159,6 +160,13 @@ export default function Documents() {
   // PII Preview state
   const [piiPreviewOpen, setPiiPreviewOpen] = useState(false);
   const [piiPreviewText, setPiiPreviewText] = useState("");
+
+  // Move/Copy state
+  const [moveDialogOpen, setMoveDialogOpen] = useState(false);
+  const [moveDialogMode, setMoveDialogMode] = useState<"move" | "copy">("move");
+  const [moveTargetDoc, setMoveTargetDoc] = useState<Document | null>(null);
+  const [moveTargetGroup, setMoveTargetGroup] = useState<DocumentGroup | null>(null);
+  const [movingDoc, setMovingDoc] = useState(false);
 
   const [formData, setFormData] = useState({
     name: "",
@@ -1006,6 +1014,135 @@ export default function Documents() {
     }
   };
 
+  // Move/Copy handlers
+  const openMoveDialog = (doc: Document, mode: "move" | "copy") => {
+    setMoveTargetDoc(doc);
+    setMoveTargetGroup(null);
+    setMoveDialogMode(mode);
+    setMoveDialogOpen(true);
+  };
+
+  const openMoveGroupDialog = (group: DocumentGroup, mode: "move" | "copy") => {
+    setMoveTargetDoc(null);
+    setMoveTargetGroup(group);
+    setMoveDialogMode(mode);
+    setMoveDialogOpen(true);
+  };
+
+  const handleMoveOrCopyConfirm = async (targetFolderId: string) => {
+    setMovingDoc(true);
+    try {
+      if (moveDialogMode === "move") {
+        if (moveTargetGroup) {
+          // Move all parts in group
+          const ids = moveTargetGroup.documents.map((d) => d.id);
+          if (moveTargetGroup.parentDocument) ids.push(moveTargetGroup.parentDocument.id);
+          const { error } = await supabase
+            .from("documents")
+            .update({ folder_id: targetFolderId })
+            .in("id", ids);
+          if (error) throw error;
+          toast.success(`Перенесено ${ids.length} документов`);
+        } else if (moveTargetDoc) {
+          // Move single doc + its children
+          const idsToMove = [moveTargetDoc.id];
+          // Find children (parts that reference this doc as parent)
+          const children = documents.filter((d) => d.parent_document_id === moveTargetDoc.id);
+          children.forEach((c) => idsToMove.push(c.id));
+          const { error } = await supabase
+            .from("documents")
+            .update({ folder_id: targetFolderId })
+            .in("id", idsToMove);
+          if (error) throw error;
+          toast.success("Документ перенесён");
+        }
+      } else {
+        // Copy
+        const docsToCopy = moveTargetGroup
+          ? moveTargetGroup.documents
+          : moveTargetDoc
+          ? [moveTargetDoc]
+          : [];
+
+        for (const srcDoc of docsToCopy) {
+          await copyDocumentToFolder(srcDoc, targetFolderId);
+        }
+        toast.success(`Скопировано ${docsToCopy.length} документ(ов)`);
+      }
+
+      setMoveDialogOpen(false);
+      fetchData();
+    } catch (error: any) {
+      console.error("Move/copy error:", error);
+      toast.error(error.message || "Ошибка операции");
+    } finally {
+      setMovingDoc(false);
+    }
+  };
+
+  const copyDocumentToFolder = async (srcDoc: Document, targetFolderId: string) => {
+    // 1. Create new document record
+    const { data: newDoc, error: docErr } = await supabase
+      .from("documents")
+      .insert({
+        name: srcDoc.name,
+        file_name: srcDoc.file_name,
+        file_type: srcDoc.file_type,
+        file_size: srcDoc.file_size,
+        storage_path: srcDoc.storage_path,
+        folder_id: targetFolderId,
+        document_type: srcDoc.document_type,
+        status: srcDoc.status,
+        chunk_count: srcDoc.chunk_count,
+        has_trademark: srcDoc.has_trademark,
+        trademark_image_path: srcDoc.trademark_image_path,
+        parent_document_id: srcDoc.parent_document_id,
+        part_number: srcDoc.part_number,
+        total_parts: srcDoc.total_parts,
+      })
+      .select()
+      .single();
+
+    if (docErr) throw docErr;
+
+    // 2. Copy chunks in batches
+    let offset = 0;
+    const batchSize = 500;
+    while (true) {
+      const { data: chunks, error: chunkErr } = await supabase
+        .from("document_chunks")
+        .select("content, chunk_index, embedding, metadata, section_title, article_number, chunk_type, page_start, page_end, has_masked_pii, content_tsv")
+        .eq("document_id", srcDoc.id)
+        .range(offset, offset + batchSize - 1)
+        .order("chunk_index");
+
+      if (chunkErr) throw chunkErr;
+      if (!chunks || chunks.length === 0) break;
+
+      const newChunks = chunks.map((c) => ({
+        document_id: newDoc.id,
+        content: c.content,
+        chunk_index: c.chunk_index,
+        embedding: c.embedding,
+        metadata: c.metadata,
+        section_title: c.section_title,
+        article_number: c.article_number,
+        chunk_type: c.chunk_type,
+        page_start: c.page_start,
+        page_end: c.page_end,
+        has_masked_pii: c.has_masked_pii,
+      }));
+
+      const { error: insertErr } = await supabase
+        .from("document_chunks")
+        .insert(newChunks);
+      if (insertErr) throw insertErr;
+
+      if (chunks.length < batchSize) break;
+      offset += batchSize;
+    }
+  };
+
   if (loading) {
     return (
       <div className="flex items-center justify-center h-64">
@@ -1319,6 +1456,10 @@ export default function Documents() {
               onDelete={handleDelete}
               onDeleteGroup={handleDeleteGroup}
               onUploadMissingParts={handleUploadMissingParts}
+              onMove={(doc) => openMoveDialog(doc, "move")}
+              onCopy={(doc) => openMoveDialog(doc, "copy")}
+              onMoveGroup={(group) => openMoveGroupDialog(group, "move")}
+              onCopyGroup={(group) => openMoveGroupDialog(group, "copy")}
               formatFileSize={formatFileSize}
             />
           ) : documents.length === 0 ? (
@@ -1590,6 +1731,26 @@ export default function Documents() {
         onOpenChange={setPiiPreviewOpen}
         text={piiPreviewText}
         fileName={formData.name || fileInputRef.current?.files?.[0]?.name || "документ"}
+      />
+
+      {/* Move/Copy Document Dialog */}
+      <MoveDocumentDialog
+        open={moveDialogOpen}
+        onOpenChange={setMoveDialogOpen}
+        mode={moveDialogMode}
+        folders={folders}
+        currentFolderId={
+          moveTargetGroup
+            ? (moveTargetGroup.parentDocument || moveTargetGroup.documents[0])?.folder_id || null
+            : moveTargetDoc?.folder_id || null
+        }
+        documentName={
+          moveTargetGroup
+            ? (moveTargetGroup.parentDocument || moveTargetGroup.documents[0])?.name || ""
+            : moveTargetDoc?.name || ""
+        }
+        loading={movingDoc}
+        onConfirm={handleMoveOrCopyConfirm}
       />
     </div>
   );
