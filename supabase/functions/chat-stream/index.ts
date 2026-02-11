@@ -1232,10 +1232,11 @@ ${goldenExamples.join('\n\n---\n\n')}
       }
 
       case 'perplexity':
-      default:
-        // Note: sonar-deep-research may take longer and work differently
+      default: {
+        // Models that don't support streaming or need special handling
         const isDeepResearch = finalModel.includes('deep-research');
-        console.log(`Perplexity request: model=${finalModel}, isDeepResearch=${isDeepResearch}`);
+        const isReasoningModel = finalModel.includes('reasoning');
+        console.log(`Perplexity request: model=${finalModel}, isDeepResearch=${isDeepResearch}, isReasoning=${isReasoningModel}`);
         
         streamResponse = await fetch('https://api.perplexity.ai/chat/completions', {
           method: 'POST',
@@ -1246,13 +1247,15 @@ ${goldenExamples.join('\n\n---\n\n')}
           body: JSON.stringify({
             model: finalModel,
             messages: [{ role: 'system', content: enhancedSystemPrompt }, ...simpleMessages],
-            max_tokens: 12000, // Perplexity sonar supports up to 12k output tokens
-            stream: !isDeepResearch, // Deep research doesn't support streaming well
+            max_tokens: 12000,
+            // Deep research doesn't support streaming; reasoning models work better non-streaming too
+            stream: !(isDeepResearch || isReasoningModel),
           }),
         });
         
         console.log(`Perplexity response status: ${streamResponse.status}`);
         break;
+      }
     }
 
     // Handle provider errors with fallback
@@ -1337,16 +1340,36 @@ ${goldenExamples.join('\n\n---\n\n')}
     const decoder = new TextDecoder();
     let fullContent = '';
 
-    // Check if this is a non-streaming response (e.g., Perplexity deep-research)
+    // Helper: strip <think>...</think> blocks from reasoning model responses
+    function stripThinkTags(text: string): string {
+      // Remove <think>...</think> blocks (including multiline)
+      return text.replace(/<think>[\s\S]*?<\/think>\s*/gi, '').trim();
+    }
+
+    // Check if this is a non-streaming response (e.g., Perplexity deep-research, reasoning models)
     const contentType = streamResponse.headers.get('content-type') || '';
-    const isNonStreaming = contentType.includes('application/json') || 
-      (providerConfig.provider_type === 'perplexity' && finalModel.includes('deep-research'));
+    const isPerplexityNonStreaming = providerConfig.provider_type === 'perplexity' && 
+      (finalModel.includes('deep-research') || finalModel.includes('reasoning'));
+    const isNonStreaming = contentType.includes('application/json') || isPerplexityNonStreaming;
     
     if (isNonStreaming) {
       // Handle non-streaming JSON response
-      console.log('Handling non-streaming response');
+      console.log(`Handling non-streaming response for model: ${finalModel}`);
       const jsonResponse = await streamResponse.json();
-      fullContent = jsonResponse.choices?.[0]?.message?.content || '';
+      let rawContent = jsonResponse.choices?.[0]?.message?.content || '';
+      
+      // Strip <think> blocks from reasoning/deep-research models
+      fullContent = stripThinkTags(rawContent);
+      if (rawContent !== fullContent) {
+        console.log(`Stripped <think> block from response (${rawContent.length} -> ${fullContent.length} chars)`);
+      }
+      
+      // Capture Perplexity citations from non-streaming response
+      if (jsonResponse.citations && Array.isArray(jsonResponse.citations)) {
+        webSearchCitations = [...webSearchCitations, ...jsonResponse.citations];
+        webSearchUsed = true;
+        console.log(`Captured ${jsonResponse.citations.length} Perplexity citations from non-streaming response`);
+      }
       
       // PII UNMASKING for non-streaming response
       if (piiMasked && PII_KEY) {

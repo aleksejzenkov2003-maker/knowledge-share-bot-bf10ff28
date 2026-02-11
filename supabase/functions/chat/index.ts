@@ -593,7 +593,8 @@ serve(async (req) => {
         );
         break;
       case 'perplexity':
-      default:
+      default: {
+        const isReasoningOrDeep = finalModel.includes('reasoning') || finalModel.includes('deep-research');
         response = await callPerplexity(
           providerConfig.api_key || PERPLEXITY_API_KEY || '',
           finalModel,
@@ -601,7 +602,12 @@ serve(async (req) => {
           finalPrompt,
           finalMessageHistory
         );
+        // Strip <think> blocks from reasoning/deep-research models
+        if (isReasoningOrDeep && response.content) {
+          response.content = response.content.replace(/<think>[\s\S]*?<\/think>\s*/gi, '').trim();
+        }
         break;
+      }
     }
 
     const responseTimeMs = Date.now() - startTime;
