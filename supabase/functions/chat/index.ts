@@ -87,6 +87,13 @@ async function callAnthropic(
     messages = [{ role: 'user', content: userMessage }];
   }
 
+  // Map Anthropic models to their correct max_tokens limits
+  function getAnthropicMaxTokens(m: string): number {
+    if (m.includes('claude-3-opus')) return 4096;
+    if (m.includes('claude-3-5-sonnet') || m.includes('claude-3-5-haiku')) return 8192;
+    return 16384;
+  }
+
   const response = await fetch('https://api.anthropic.com/v1/messages', {
     method: 'POST',
     headers: {
@@ -96,7 +103,7 @@ async function callAnthropic(
     },
     body: JSON.stringify({
       model,
-      max_tokens: 16384,
+      max_tokens: getAnthropicMaxTokens(model),
       system: systemPrompt,
       messages,
     }),

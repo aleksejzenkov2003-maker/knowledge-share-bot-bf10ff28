@@ -198,6 +198,9 @@ export function useOptimizedChat(userId: string | undefined, departmentId: strin
     }
   }, []);
 
+  // Ref-based mutex to prevent double sends (race condition between Enter and onClick)
+  const sendingRef = useRef(false);
+
   const sendMessage = useCallback(async (
     inputValue: string,
     isProjectMode: boolean,
@@ -208,6 +211,8 @@ export function useOptimizedChat(userId: string | undefined, departmentId: strin
     
     if (!trimmedInput && !hasAttachments) return;
     if (isLoading) return;
+    if (sendingRef.current) return;
+    sendingRef.current = true;
 
     let conversationId = activeConversationId;
     
@@ -498,6 +503,7 @@ export function useOptimizedChat(userId: string | undefined, departmentId: strin
     } finally {
       setIsLoading(false);
       abortControllerRef.current = null;
+      sendingRef.current = false;
     }
   }, [
     activeConversationId,
