@@ -100,6 +100,7 @@ export default function BitrixPersonalChat() {
   // New: Stop generation state
   const abortControllerRef = useRef<AbortController | null>(null);
   const streamingContentRef = useRef<string>("");
+  const sendingRef = useRef(false);
 
   // Attachments state
   const [attachments, setAttachments] = useState<Attachment[]>([]);
@@ -357,7 +358,8 @@ export default function BitrixPersonalChat() {
     };
 
     authenticate();
-  }, [portal, bitrixUserId, userName, userEmail, apiBaseUrl, authStorageKey, selectedRoleId]);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [portal, bitrixUserId, userName, userEmail, apiBaseUrl, authStorageKey]);
 
   // Fetch conversations
   const fetchConversations = useCallback(async () => {
@@ -550,6 +552,8 @@ export default function BitrixPersonalChat() {
   // Handle send message
   const handleSend = useCallback(async () => {
     if (!token || (!inputValue.trim() && attachments.length === 0) || isLoading) return;
+    if (sendingRef.current) return;
+    sendingRef.current = true;
 
     let conversationId = activeConversationId;
 
@@ -743,6 +747,13 @@ export default function BitrixPersonalChat() {
         }
       }
 
+      // FINALIZATION: If stream ended without [DONE], finalize the message
+      setMessages(prev => prev.map(m => 
+        m.id === assistantMessage.id && m.isStreaming
+          ? { ...m, content: fullContent || m.content, isStreaming: false, ...metadata }
+          : m
+      ));
+
       // Refresh conversations to update title
       await fetchConversations();
     } catch (error) {
@@ -771,10 +782,11 @@ export default function BitrixPersonalChat() {
       }
     } finally {
       setIsLoading(false);
+      sendingRef.current = false;
       abortControllerRef.current = null;
       streamingContentRef.current = "";
     }
-  }, [token, inputValue, isLoading, activeConversationId, selectedRoleId, apiBaseUrl, fetchConversations, toast]);
+  }, [token, inputValue, isLoading, activeConversationId, selectedRoleId, apiBaseUrl, fetchConversations, toast, attachments]);
 
   // Handle key press
   const handleKeyDown = (e: React.KeyboardEvent) => {

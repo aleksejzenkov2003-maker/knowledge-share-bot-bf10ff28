@@ -123,6 +123,7 @@ export default function BitrixDepartmentChat() {
   const [streamingMessage, setStreamingMessage] = useState<Message | null>(null);
   const abortControllerRef = useRef<AbortController | null>(null);
   const streamingContentRef = useRef<string>("");
+  const sendingRef = useRef(false);
 
   // Attachments state
   const [attachments, setAttachments] = useState<Attachment[]>([]);
@@ -539,6 +540,8 @@ export default function BitrixDepartmentChat() {
   // Handle send message
   const handleSend = useCallback(async () => {
     if (!token || (!inputValue.trim() && attachments.length === 0) || isLoading) return;
+    if (sendingRef.current) return;
+    sendingRef.current = true;
 
     // Convert attachments to base64 for API
     const attachmentsForApi: Array<{
@@ -706,6 +709,23 @@ export default function BitrixDepartmentChat() {
           } catch {}
         }
       }
+      // FINALIZATION: If stream ended without [DONE], finalize the message
+      if (fullContent && streamingMessage) {
+        const assistantMessage: DepartmentMessage = {
+          id: streamingId,
+          message_role: 'assistant',
+          content: fullContent,
+          metadata: Object.keys(metadata).length > 0 ? metadata : null,
+          created_at: new Date().toISOString(),
+          role_id: null,
+        };
+        setMessages(prev => {
+          // Only add if not already added by [DONE]
+          if (prev.some(m => m.id === streamingId)) return prev;
+          return [...prev, assistantMessage];
+        });
+        setStreamingMessage(null);
+      }
     } catch (error) {
       if ((error as Error).name === 'AbortError') {
         console.log('Request aborted');
@@ -737,10 +757,11 @@ export default function BitrixDepartmentChat() {
       }
     } finally {
       setIsLoading(false);
+      sendingRef.current = false;
       abortControllerRef.current = null;
       streamingContentRef.current = "";
     }
-  }, [token, inputValue, isLoading, user?.full_name, bitrixUserId, apiBaseUrl, toast]);
+  }, [token, inputValue, isLoading, user?.full_name, bitrixUserId, apiBaseUrl, toast, attachments, streamingMessage]);
 
   // Handle key press
   const handleKeyDown = (e: React.KeyboardEvent) => {

@@ -348,6 +348,7 @@ const BitrixChatSecure = () => {
 
   const handleSend = async () => {
     if (!input.trim() && attachments.length === 0) return;
+    if (isGenerating) return;
 
     const headers = getHeaders();
     if (!headers) {
@@ -406,19 +407,22 @@ const BitrixChatSecure = () => {
       const reader = response.body.getReader();
       const decoder = new TextDecoder();
       let fullContent = '';
+      let sseBuffer = '';
 
       while (true) {
         const { done, value } = await reader.read();
         if (done) break;
 
-        const chunk = decoder.decode(value);
-        const lines = chunk.split('\n');
+        sseBuffer += decoder.decode(value, { stream: true });
+        const lines = sseBuffer.split('\n');
+        sseBuffer = lines.pop() || '';
 
         for (const line of lines) {
+          if (!line.trim() || line.startsWith(':')) continue;
+          
           if (line.startsWith('data: ')) {
             const data = line.substring(6);
             if (data === '[DONE]') {
-              // Add assistant message
               const assistantMessage: Message = {
                 id: crypto.randomUUID(),
                 message_role: 'assistant',
@@ -435,11 +439,23 @@ const BitrixChatSecure = () => {
                   setStreamingContent(fullContent);
                 }
               } catch {
-                // Ignore parse errors
+                // Fragmented JSON, will be processed in next chunk
               }
             }
           }
         }
+      }
+      
+      // FINALIZATION: If stream ended without [DONE], save content
+      if (fullContent && streamingContent) {
+        const assistantMessage: Message = {
+          id: crypto.randomUUID(),
+          message_role: 'assistant',
+          content: fullContent,
+          created_at: new Date().toISOString()
+        };
+        setMessages(prev => [...prev, assistantMessage]);
+        setStreamingContent('');
       }
     } catch (error: any) {
       if (error.name !== 'AbortError') {
