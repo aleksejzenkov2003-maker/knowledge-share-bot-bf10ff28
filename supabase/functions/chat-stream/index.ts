@@ -286,7 +286,9 @@ serve(async (req) => {
     let rankedChunks: RankedChunk[] = [];
     let usedSmartSearch = false;
     const FTS_CANDIDATES = 100; // Get more candidates for re-ranking
-    const TOP_K_FINAL = 20;    // Final chunks after re-ranking
+    // Reduce RAG context for fast/cheap models to speed up generation
+    const isFastModel = /haiku|flash/i.test(finalModel);
+    const TOP_K_FINAL = isFastModel ? 10 : 20;
     
     // Collect trademark images from relevant documents
     interface TrademarkImage {
@@ -1145,13 +1147,26 @@ ${goldenExamples.join('\n\n---\n\n')}
       finalModel = 'claude-sonnet-4-20250514';
     }
 
-    // Create streaming response based on provider
+    // Map Anthropic models to their correct max_tokens limits
+    function getAnthropicMaxTokens(model: string): number {
+      if (model.includes('claude-3-opus')) return 4096;
+      if (model.includes('claude-3-5-sonnet') || model.includes('claude-3-5-haiku')) return 8192;
+      return 16384; // claude-sonnet-4-*, claude-sonnet-4-5-*
+    }
+
+    // Create streaming response based on provider with timeout
+    const isDeepResearchModel = finalModel.includes('deep-research');
+    const apiTimeoutMs = isDeepResearchModel ? 300000 : 120000; // 300s for deep-research, 120s for others
+    const apiAbortController = new AbortController();
+    const apiTimeout = setTimeout(() => apiAbortController.abort(), apiTimeoutMs);
+    
     let streamResponse: Response;
     
     switch (providerConfig.provider_type) {
       case 'anthropic':
         streamResponse = await fetch('https://api.anthropic.com/v1/messages', {
           method: 'POST',
+          signal: apiAbortController.signal,
           headers: {
             'x-api-key': providerConfig.api_key || ANTHROPIC_API_KEY || '',
             'anthropic-version': '2023-06-01',
@@ -1160,7 +1175,7 @@ ${goldenExamples.join('\n\n---\n\n')}
           },
           body: JSON.stringify({
             model: finalModel,
-            max_tokens: 16384,
+            max_tokens: getAnthropicMaxTokens(finalModel),
             system: enhancedSystemPrompt,
             messages: anthropicMessages.map(m => ({ role: m.role === 'assistant' ? 'assistant' : 'user', content: m.content })),
             stream: true,
@@ -1171,6 +1186,7 @@ ${goldenExamples.join('\n\n---\n\n')}
       case 'openai':
         streamResponse = await fetch(`${providerConfig.base_url || 'https://api.openai.com/v1'}/chat/completions`, {
           method: 'POST',
+          signal: apiAbortController.signal,
           headers: {
             'Authorization': `Bearer ${providerConfig.api_key}`,
             'Content-Type': 'application/json',
@@ -1198,6 +1214,7 @@ ${goldenExamples.join('\n\n---\n\n')}
           `https://generativelanguage.googleapis.com/v1beta/models/${geminiModel}:streamGenerateContent?alt=sse&key=${geminiApiKey}`,
           {
             method: 'POST',
+            signal: apiAbortController.signal,
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
               contents: geminiContents,
@@ -1217,6 +1234,7 @@ ${goldenExamples.join('\n\n---\n\n')}
         
         streamResponse = await fetch('https://gigachat.devices.sberbank.ru/api/v1/chat/completions', {
           method: 'POST',
+          signal: apiAbortController.signal,
           headers: {
             'Authorization': `Bearer ${gigachatAccessToken}`,
             'Content-Type': 'application/json',
@@ -1240,6 +1258,7 @@ ${goldenExamples.join('\n\n---\n\n')}
         
         streamResponse = await fetch('https://api.perplexity.ai/chat/completions', {
           method: 'POST',
+          signal: apiAbortController.signal,
           headers: {
             'Authorization': `Bearer ${providerConfig.api_key || PERPLEXITY_API_KEY || ''}`,
             'Content-Type': 'application/json',
@@ -1257,15 +1276,18 @@ ${goldenExamples.join('\n\n---\n\n')}
         break;
       }
     }
+    
+    clearTimeout(apiTimeout);
 
     // Handle provider errors with fallback
     if (!streamResponse.ok) {
       const errorText = await streamResponse.text();
       console.error('Provider stream error:', streamResponse.status, errorText);
       
-      // If Perplexity fails with 401 (invalid API key), try fallback to other providers
-      if (streamResponse.status === 401 && providerConfig.provider_type === 'perplexity') {
-        console.log('Perplexity 401 error, attempting fallback...');
+      // If provider fails with any error, try fallback to other providers
+      const canFallback = providerConfig.provider_type !== 'gemini'; // Don't fallback from gemini (it's already the fallback)
+      if (canFallback) {
+        console.log(`Provider ${providerConfig.provider_type} error ${streamResponse.status}, attempting fallback...`);
         
         // Try Gemini first, then Anthropic
         const fallbackProviders = [
@@ -1332,7 +1354,7 @@ ${goldenExamples.join('\n\n---\n\n')}
           throw new Error(`Provider error: ${streamResponse.status} - All fallbacks failed`);
         }
       } else {
-        throw new Error(`Provider error: ${streamResponse.status}`);
+        throw new Error(`Provider error: ${streamResponse.status} (${providerConfig.provider_type})`);
       }
     }
 

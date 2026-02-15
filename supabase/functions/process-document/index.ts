@@ -652,7 +652,7 @@ const COURT_PATTERNS = {
 };
 
 // Типы чанков для метаданных
-type ChunkType = 'header' | 'article' | 'paragraph' | 'point' | 'section' | 'general' | 'registration';
+type ChunkType = 'header' | 'article' | 'paragraph' | 'point' | 'section' | 'general' | 'registration' | 'table';
 
 // Типы документов (включая ручные)
 type DocumentType = 'legal' | 'contract' | 'business' | 'court' | 'article' | 'general' | 'registration_decision' | 'auto';
@@ -1532,19 +1532,21 @@ function parseXLSXSheetToText(sheetXml: string, sharedStrings: string[], fileNam
 function chunkExcelText(text: string, chunkSize: number = 3000): StructuredChunk[] {
   const chunks: StructuredChunk[] = [];
   
-  // Extract header line (first line like [Excel: ...])
+  // Extract header line (first line like [Excel: ...] or [Таблица: ...])
   const lines = text.split('\n');
   let header = '';
   let bodyStart = 0;
-  if (lines[0]?.startsWith('[Excel:')) {
+  if (lines[0]?.startsWith('[Excel:') || lines[0]?.startsWith('[Таблица:') || lines[0]?.startsWith('[Лист:')) {
     header = lines[0];
     bodyStart = 1;
   }
   
   const body = lines.slice(bodyStart).join('\n');
   
-  // Split by record delimiter
+  // Split by record delimiter (--- or sheet markers)
   const records = body.split(/\n---\n/).filter(r => r.trim());
+  
+  console.log(`chunkExcelText: ${records.length} records, body length=${body.length}, header="${header.substring(0, 60)}"`);
   
   let currentChunk = header ? header + '\n' : '';
   
@@ -1557,7 +1559,7 @@ function chunkExcelText(text: string, chunkSize: number = 3000): StructuredChunk
         content: currentChunk.trim(),
         section_title: null,
         article_number: null,
-        chunk_type: 'table',
+        chunk_type: 'table' as ChunkType,
         parent_context: header || 'Excel',
       });
       currentChunk = (header ? header + '\n' : '') + '---\n' + record + '\n';
@@ -1572,9 +1574,43 @@ function chunkExcelText(text: string, chunkSize: number = 3000): StructuredChunk
       content: currentChunk.trim(),
       section_title: null,
       article_number: null,
-      chunk_type: 'table',
+      chunk_type: 'table' as ChunkType,
       parent_context: header || 'Excel',
     });
+  }
+  
+  // If no records found by --- delimiter, fall back to simple chunking
+  if (chunks.length === 0 && text.trim().length > 50) {
+    console.log('chunkExcelText: No --- delimiters found, falling back to line-based chunking');
+    const allLines = text.split('\n').filter(l => l.trim());
+    let current = header ? header + '\n' : '';
+    for (const line of allLines.slice(bodyStart)) {
+      if ((current + '\n' + line).length > chunkSize && current.length > 50) {
+        chunks.push({
+          content: current.trim(),
+          section_title: null,
+          article_number: null,
+          chunk_type: 'table' as ChunkType,
+          parent_context: header || 'Excel',
+        });
+        current = header ? header + '\n' : '';
+      }
+      current += line + '\n';
+    }
+    if (current.trim().length > 50) {
+      chunks.push({
+        content: current.trim(),
+        section_title: null,
+        article_number: null,
+        chunk_type: 'table' as ChunkType,
+        parent_context: header || 'Excel',
+      });
+    }
+  }
+
+  // Log chunk sizes for diagnostics
+  for (let i = 0; i < chunks.length; i++) {
+    console.log(`Excel chunk ${i + 1}/${chunks.length}: ${chunks[i].content.length} chars`);
   }
   
   return chunks;
