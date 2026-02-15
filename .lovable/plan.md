@@ -1,86 +1,92 @@
 
 
-# Перенос, копирование и дублирование документов между папками
+# Исправление 4 проблем: модели Anthropic, двойная генерация, производительность, Excel в RAG
 
-## Что будет реализовано
+## Проблема 1: Claude 3.5 Sonnet, Claude 3.5 Haiku, Claude 3 Opus -- HTTP 500
 
-Три операции для управления документами в RAG-системе:
+**Причина**: `max_tokens: 16384` в запросе к Anthropic API. Claude 3 Opus поддерживает максимум **4096 output tokens**, а Claude 3.5 Sonnet/Haiku -- **8192**. Отправка 16384 вызывает `400 invalid_request_error`, которая в нашем коде превращается в 500.
 
-1. **Перенести в другую папку** -- изменяет `folder_id` у документа (и всех его частей, если многочастный). Чанки остаются нетронутыми, файлы в хранилище не перемещаются.
-
-2. **Копировать в другую папку** -- создаёт новые записи в таблице `documents` с новым `folder_id`, но ссылающиеся на тот же `storage_path` в хранилище. Чанки дублируются (INSERT новые записи в `document_chunks` с тем же `content` и `embedding`). Это позволяет одному физическому файлу быть частью RAG-поиска нескольких папок.
-
-3. **Дублировать** -- копия в ту же папку (для последующего редактирования/перемещения).
-
-## Технические изменения
-
-### 1. Новый компонент: `src/components/documents/MoveDocumentDialog.tsx`
-
-Диалог выбора целевой папки со списком всех доступных папок. Используется для обеих операций -- перенос и копирование.
-
-- Принимает `mode: 'move' | 'copy'`
-- Показывает дерево папок для выбора
-- Фильтрует текущую папку документа (нельзя перенести в ту же)
-- Кнопка подтверждения с индикацией прогресса
-
-### 2. Изменения в `src/components/documents/DocumentTree.tsx`
-
-Добавить в выпадающее меню документа (`DropdownMenu`) новые пункты:
-
-- "Перенести в папку..." -- открывает `MoveDocumentDialog` в режиме `move`
-- "Копировать в папку..." -- открывает `MoveDocumentDialog` в режиме `copy`
-
-Для групп многочастных документов -- аналогичные операции в групповом меню, которые применяются ко всем частям.
-
-### 3. Изменения в `src/pages/Documents.tsx`
-
-Добавить обработчики:
-
-**Перенос (`handleMoveDocument`):**
-```text
-1. UPDATE documents SET folder_id = newFolderId WHERE id = docId
-2. Если многочастный: обновить folder_id у всех частей
-3. Обновить список документов
-```
-
-**Копирование (`handleCopyDocument`):**
-```text
-1. Прочитать исходный документ
-2. INSERT новый документ с новым folder_id, тем же storage_path
-3. SELECT чанки исходного документа
-4. INSERT копии чанков с новым document_id
-5. Если многочастный: повторить для каждой части
-```
-
-### 4. Обновление интерфейса `DocumentTreeProps`
-
-Добавить колбэки:
-- `onMove?: (doc: Document) => void`
-- `onCopy?: (doc: Document) => void`
-- `onMoveGroup?: (group: DocumentGroup) => void`
-- `onCopyGroup?: (group: DocumentGroup) => void`
-
-## Логика копирования чанков
-
-При копировании документа в другую папку нужно дублировать записи `document_chunks`, потому что RAG-поиск (`match_document_chunks`) фильтрует по `folder_id` через JOIN с `documents`. Без дублирования чанков скопированный документ не будет участвовать в поиске новой папки.
+**Решение**: Добавить маппинг `max_tokens` по модели в `chat-stream/index.ts` и `chat/index.ts`:
 
 ```text
-Исходный документ (folder A):
-  documents.id = X, folder_id = A
-  document_chunks: chunk1, chunk2, chunk3 (document_id = X)
-
-После копирования в folder B:
-  documents.id = Y, folder_id = B, storage_path = (тот же)
-  document_chunks: chunk1', chunk2', chunk3' (document_id = Y, те же content + embedding)
+claude-sonnet-4-20250514     -> 16384 (OK)
+claude-sonnet-4-5-20250929   -> 16384 (OK)
+claude-3-5-sonnet-20241022   -> 8192
+claude-3-5-haiku-20241022    -> 8192
+claude-3-opus-20240229       -> 4096
 ```
 
-Embedding копируется как есть -- не нужно повторно генерировать векторы.
+**Файлы**:
+- `supabase/functions/chat-stream/index.ts` -- строки 1152-1168 (Anthropic request), добавить функцию `getAnthropicMaxTokens(model)` и использовать вместо хардкода `16384`
+- `supabase/functions/chat/index.ts` -- аналогичное изменение в `callAnthropic()`
 
-## Ожидаемый результат
+---
 
-- В меню каждого документа появятся пункты "Перенести" и "Копировать"
-- Для многочастных документов операции применяются ко всей группе
-- Перенос -- мгновенный (только UPDATE одного поля)
-- Копирование -- может занять несколько секунд для больших документов с сотнями чанков
-- Файлы в хранилище не дублируются (экономия места)
+## Проблема 2: Двойная генерация
 
+**Причина**: В `ChatInputEnhanced.tsx` кнопка "Отправить" и обработчик Enter обе вызывают `onSend()`. Если пользователь нажимает Enter и одновременно срабатывает `onClick`, может произойти двойной вызов. Хотя в `useOptimizedChat.ts` есть проверка `if (isLoading) return`, между двумя вызовами может быть гонка (state ещё не обновился).
+
+**Решение**:
+- В `useOptimizedChat.ts` добавить `useRef` для блокировки параллельных вызовов `sendMessage` (мьютекс через ref, не зависящий от рендера):
+  ```text
+  const sendingRef = useRef(false);
+  // В начале sendMessage:
+  if (sendingRef.current) return;
+  sendingRef.current = true;
+  // В finally:
+  sendingRef.current = false;
+  ```
+
+**Файлы**:
+- `src/hooks/useOptimizedChat.ts` -- добавить ref-мьютекс в `sendMessage`
+
+---
+
+## Проблема 3: Быстродействие и стабильность
+
+**Улучшения в `chat-stream/index.ts`**:
+
+1. **Таймаут для API-вызовов**: Обернуть `fetch` к провайдерам в `AbortController` с таймаутом 120 сек (300 сек для deep-research). Сейчас зависший запрос к провайдеру блокирует Edge Function до её таймаута.
+
+2. **Быстрый fallback**: Если Anthropic/Perplexity возвращает ошибку (не только 401), пробовать fallback на другого провайдера. Сейчас fallback работает только при 401 от Perplexity.
+
+3. **Уменьшить размер RAG контекста для быстрых моделей**: Для моделей с `haiku` или `flash` в названии ограничить RAG до 10 чанков вместо 20, чтобы ускорить генерацию.
+
+**Файлы**:
+- `supabase/functions/chat-stream/index.ts` -- добавить таймаут, расширить fallback, оптимизировать RAG
+
+---
+
+## Проблема 4: Excel файлы не воспринимаются в RAG
+
+**Возможные причины** (нужно проверить по логам):
+
+1. **Статус документа**: Excel мог застрять в статусе `pending` или `error` и не попадать в RAG-поиск (фильтр `status = 'ready'`).
+
+2. **FTS не работает с табличными данными**: Формат `Заголовок: Значение` плохо индексируется через `content_tsv` (tsvector). Ключевые слова разбиваются точками/двоеточиями.
+
+3. **Chunking issues**: Функция `chunkExcelText` может создавать чанки со слишком коротким/пустым `content`, которые не матчатся при поиске.
+
+**Решение**:
+- В `process-document/index.ts` -- убедиться что после чанкинга Excel обновляется `content_tsv` для full-text search
+- Добавить логирование длины каждого Excel чанка
+- Проверить что `chunkExcelText` корректно обрабатывает файлы с разделителем `---`
+
+**Файлы**:
+- `supabase/functions/process-document/index.ts` -- проверить и исправить обработку Excel чанков, добавить диагностику
+
+---
+
+## Порядок реализации
+
+1. Маппинг `max_tokens` для Anthropic (критический баг)
+2. Ref-мьютекс для двойной генерации
+3. Таймауты и fallback для стабильности
+4. Диагностика и исправление Excel в RAG
+
+## Затронутые файлы
+
+- `supabase/functions/chat-stream/index.ts`
+- `supabase/functions/chat/index.ts`
+- `src/hooks/useOptimizedChat.ts`
+- `supabase/functions/process-document/index.ts`
