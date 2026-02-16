@@ -22,6 +22,7 @@ interface MessageActionsProps {
   isStreaming?: boolean;
   onEditMessage?: (messageId: string, newContent: string) => void;
   onRegenerateResponse?: (messageId: string, roleId?: string) => void;
+  onRetryMessage?: (messageId: string) => void;
   onSaveAsGolden?: (messageId: string) => void;
   availableRoles?: ChatRole[];
   currentRoleId?: string;
@@ -37,6 +38,7 @@ export function MessageActions({
   isStreaming,
   onEditMessage,
   onRegenerateResponse,
+  onRetryMessage,
   onSaveAsGolden,
   availableRoles = [],
   currentRoleId,
@@ -127,7 +129,10 @@ export function MessageActions({
   return (
     <div
       className={cn(
-        "flex items-center gap-1 mt-2 opacity-0 group-hover:opacity-100 transition-opacity",
+        "flex items-center gap-1 mt-2 transition-opacity",
+        role === "assistant" && content.length > 500
+          ? "opacity-100"
+          : "opacity-0 group-hover:opacity-100",
         role === "user" ? "justify-end" : "justify-start"
       )}
     >
@@ -175,6 +180,18 @@ export function MessageActions({
         >
           <Pencil className="h-3 w-3 mr-1" />
           Изменить
+        </Button>
+      )}
+
+      {role === "user" && onRetryMessage && (
+        <Button
+          variant="ghost"
+          size="sm"
+          className="h-7 px-2 text-xs"
+          onClick={() => onRetryMessage(messageId)}
+        >
+          <RefreshCw className="h-3 w-3 mr-1" />
+          Повторить
         </Button>
       )}
 

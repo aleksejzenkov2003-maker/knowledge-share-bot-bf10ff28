@@ -605,6 +605,22 @@ export function useOptimizedChat(userId: string | undefined, departmentId: strin
     sendMessage(newContent, selectedRoleId ? roles.find(r => r.id === selectedRoleId)?.is_project_mode || false : false, undefined);
   }, [messages, sendMessage, selectedRoleId, roles]);
 
+  // Повтор сообщения пользователя (удаляет все после него и повторно отправляет)
+  const retryMessage = useCallback(async (messageId: string) => {
+    const messageIndex = messages.findIndex(m => m.id === messageId);
+    if (messageIndex === -1) return;
+    
+    const userMessage = messages[messageIndex];
+    if (userMessage.role !== 'user') return;
+    
+    // Удаляем все сообщения после user message
+    const messagesToKeep = messages.slice(0, messageIndex);
+    setLocalMessages(messagesToKeep);
+    
+    const isProjectMode = selectedRoleId ? roles.find(r => r.id === selectedRoleId)?.is_project_mode || false : false;
+    sendMessage(userMessage.content, isProjectMode, selectedRoleId || undefined);
+  }, [messages, sendMessage, selectedRoleId, roles]);
+
   // Регенерация ответа ассистента (повторяет последний вопрос, опционально с другой ролью)
   const regenerateResponse = useCallback(async (messageId: string, newRoleId?: string) => {
     const messageIndex = messages.findIndex(m => m.id === messageId);
@@ -663,6 +679,7 @@ export function useOptimizedChat(userId: string | undefined, departmentId: strin
     stopGeneration,
     editMessage,
     regenerateResponse,
+    retryMessage,
     attachments,
     addAttachments,
     removeAttachment,

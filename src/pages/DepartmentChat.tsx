@@ -61,6 +61,7 @@ const DepartmentChat: React.FC = () => {
     toggleAttachmentPii,
     toggleAttachmentKnowledgeBase,
     regenerateResponse,
+    retryMessage,
     departmentChats,
     activeChatId,
     chatAgentsMap,
@@ -352,6 +353,7 @@ const DepartmentChat: React.FC = () => {
                   currentUserId={user?.id}
                   availableAgents={availableAgents}
                   onRegenerateResponse={regenerateResponse}
+                  onRetryMessage={retryMessage}
                   onReply={handleReply}
                   replyToMessage={replyTo}
                 />

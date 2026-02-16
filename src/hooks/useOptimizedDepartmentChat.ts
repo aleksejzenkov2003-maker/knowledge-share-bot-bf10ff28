@@ -35,6 +35,8 @@ export function useOptimizedDepartmentChat(userId: string | undefined, departmen
   const streamingContentRef = useRef<string>("");
   const updateIntervalRef = useRef<number | null>(null);
   const abortControllerRef = useRef<AbortController | null>(null);
+  // Ref-based mutex to prevent double sends
+  const sendingRef = useRef(false);
 
   // React Query hooks
   const { data: departmentChats = [], isLoading: isLoadingChats } = useDepartmentChatsQuery(departmentId);
@@ -264,15 +266,13 @@ export function useOptimizedDepartmentChat(userId: string | undefined, departmen
     const hasAttachments = messageAttachments && messageAttachments.length > 0;
     const hasKnowledgeDocs = knowledgeDocs && knowledgeDocs.length > 0;
     if (!text.trim() && !hasAttachments && !hasKnowledgeDocs) return;
+    if (isGenerating) return;
+    if (sendingRef.current) return;
+    sendingRef.current = true;
 
     const { agentId, cleanText } = parseMention(text);
 
-    if (!agentId) {
-      toast.error('Укажите агента через @упоминание, например: @юрист ваш вопрос');
-      return;
-    }
-
-    const agent = availableAgents.find(a => a.id === agentId);
+    const agent = agentId ? availableAgents.find(a => a.id === agentId) : null;
     const userName = await getUserName(userId);
 
     // Combine new attachments + knowledge base docs
@@ -367,6 +367,22 @@ export function useOptimizedDepartmentChat(userId: string | undefined, departmen
       .from('department_chats')
       .update({ updated_at: new Date().toISOString() })
       .eq('id', activeChatId);
+
+    // If no agent mentioned, just save the user message (no AI call)
+    if (!agentId) {
+      // Update title if first message
+      if (localMessages.length === 0) {
+        const title = text.slice(0, 50) + (text.length > 50 ? '...' : '');
+        await supabase
+          .from('department_chats')
+          .update({ title })
+          .eq('id', activeChatId);
+      }
+      queryClient.invalidateQueries({ queryKey: departmentChatQueryKeys.messages(activeChatId) });
+      queryClient.invalidateQueries({ queryKey: departmentChatQueryKeys.chats(departmentId!) });
+      sendingRef.current = false;
+      return;
+    }
 
     const assistantMessageId = crypto.randomUUID();
     const assistantMessage: DepartmentChatMessage = {
@@ -575,6 +591,7 @@ export function useOptimizedDepartmentChat(userId: string | undefined, departmen
     } finally {
       setIsGenerating(false);
       abortControllerRef.current = null;
+      sendingRef.current = false;
     }
   }, [activeChatId, userId, parseMention, availableAgents, localMessages, getUserName, clearAttachments, queryClient, departmentId]);
 
@@ -672,6 +689,22 @@ export function useOptimizedDepartmentChat(userId: string | undefined, departmen
     }
   }, [localMessages, availableAgents, sendMessage]);
 
+  // Retry user message (delete everything after it and resend)
+  const retryMessage = useCallback(async (messageId: string) => {
+    const messageIndex = localMessages.findIndex(m => m.id === messageId);
+    if (messageIndex === -1) return;
+    
+    const userMessage = localMessages[messageIndex];
+    if (userMessage.message_role !== 'user') return;
+    
+    // Keep only messages before this one
+    const messagesToKeep = localMessages.slice(0, messageIndex);
+    setLocalMessages(messagesToKeep);
+    
+    // Resend the same message
+    await sendMessage(userMessage.content);
+  }, [localMessages, sendMessage]);
+
   const isLoading = isLoadingChats || isLoadingMessages;
 
   // Build messagesWithReplies map for efficient lookup
@@ -694,6 +727,7 @@ export function useOptimizedDepartmentChat(userId: string | undefined, departmen
     sendMessage,
     stopGeneration,
     regenerateResponse,
+    retryMessage,
     
     // Attachment operations
     attachments,

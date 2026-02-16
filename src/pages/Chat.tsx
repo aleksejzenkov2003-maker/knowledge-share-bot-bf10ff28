@@ -59,6 +59,7 @@ export default function Chat() {
     stopGeneration,
     editMessage,
     regenerateResponse,
+    retryMessage,
     attachments,
     addAttachments,
     removeAttachment,
@@ -229,6 +230,7 @@ export default function Chat() {
                 message={message}
                 onEditMessage={editMessage}
                 onRegenerateResponse={regenerateResponse}
+                onRetryMessage={retryMessage}
                 onSaveAsGolden={handleSaveAsGolden}
                 availableRoles={roles}
                 currentRoleId={selectedRoleId}
