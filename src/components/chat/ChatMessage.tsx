@@ -31,12 +31,13 @@ interface ChatMessageProps {
   message: Message;
   onEditMessage?: (messageId: string, newContent: string) => void;
   onRegenerateResponse?: (messageId: string, roleId?: string) => void;
+  onRetryMessage?: (messageId: string) => void;
   onSaveAsGolden?: (messageId: string) => void;
   availableRoles?: ChatRole[];
   currentRoleId?: string;
 }
 
-function ChatMessageComponent({ message, onEditMessage, onRegenerateResponse, onSaveAsGolden, availableRoles, currentRoleId }: ChatMessageProps) {
+function ChatMessageComponent({ message, onEditMessage, onRegenerateResponse, onRetryMessage, onSaveAsGolden, availableRoles, currentRoleId }: ChatMessageProps) {
   // Get the role name for the agent
   const roleName = availableRoles?.find(r => r.id === currentRoleId)?.name || 'Ассистент';
   const { role } = useAuth();
@@ -222,6 +223,7 @@ function ChatMessageComponent({ message, onEditMessage, onRegenerateResponse, on
             isStreaming={message.isStreaming}
             onEditMessage={onEditMessage}
             onRegenerateResponse={onRegenerateResponse}
+            onRetryMessage={onRetryMessage}
             onSaveAsGolden={onSaveAsGolden}
             availableRoles={availableRoles}
             currentRoleId={currentRoleId}
@@ -264,6 +266,17 @@ function ChatMessageComponent({ message, onEditMessage, onRegenerateResponse, on
               )}
               <p className="whitespace-pre-wrap">{message.content}</p>
             </div>
+            {/* User message actions: edit + retry */}
+            {!message.isStreaming && (
+              <MessageActions
+                messageId={message.id}
+                role={message.role}
+                content={message.content}
+                isStreaming={message.isStreaming}
+                onEditMessage={onEditMessage}
+                onRetryMessage={onRetryMessage}
+              />
+            )}
           </Card>
           <div className="flex-shrink-0 h-8 w-8 rounded-full bg-secondary flex items-center justify-center">
             <User className="h-4 w-4" />
@@ -279,7 +292,6 @@ export const ChatMessage = React.memo(ChatMessageComponent, (prevProps, nextProp
   const prev = prevProps.message;
   const next = nextProps.message;
   
-  // Only re-render if meaningful properties changed
   return (
     prev.id === next.id &&
     prev.content === next.content &&
@@ -292,6 +304,7 @@ export const ChatMessage = React.memo(ChatMessageComponent, (prevProps, nextProp
     prev.piiTokensCount === next.piiTokensCount &&
     prevProps.onEditMessage === nextProps.onEditMessage &&
     prevProps.onRegenerateResponse === nextProps.onRegenerateResponse &&
+    prevProps.onRetryMessage === nextProps.onRetryMessage &&
     prevProps.onSaveAsGolden === nextProps.onSaveAsGolden &&
     prevProps.availableRoles?.length === nextProps.availableRoles?.length &&
     prevProps.currentRoleId === nextProps.currentRoleId

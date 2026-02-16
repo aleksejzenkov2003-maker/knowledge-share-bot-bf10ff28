@@ -43,6 +43,7 @@ interface DepartmentChatMessageProps {
   currentUserId?: string;
   availableAgents?: AgentInfo[];
   onRegenerateResponse?: (messageId: string, roleId?: string) => void;
+  onRetryMessage?: (messageId: string) => void;
   onReply?: (message: MessageType) => void;
   replyToMessage?: MessageType | null;
 }
@@ -52,6 +53,7 @@ function DepartmentChatMessageComponent({
   currentUserId,
   availableAgents = [],
   onRegenerateResponse,
+  onRetryMessage,
   onReply,
   replyToMessage
 }: DepartmentChatMessageProps) {
@@ -483,18 +485,31 @@ function DepartmentChatMessageComponent({
               </div>
             )}
             
-            {/* Reply action for user messages */}
-            {onReply && !isGenerating && (
-              <div className="mt-2 opacity-0 group-hover:opacity-100 transition-opacity">
-                <Button
-                  variant="ghost"
-                  size="sm"
-                  className="h-6 px-2 text-xs text-primary-foreground/80 hover:text-primary-foreground hover:bg-primary-foreground/10"
-                  onClick={() => onReply(message)}
-                >
-                  <Reply className="h-3 w-3 mr-1" />
-                  Ответить
-                </Button>
+            {/* Reply + Retry actions for user messages */}
+            {!isGenerating && (
+              <div className="mt-2 opacity-0 group-hover:opacity-100 transition-opacity flex items-center gap-1">
+                {onReply && (
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    className="h-6 px-2 text-xs text-primary-foreground/80 hover:text-primary-foreground hover:bg-primary-foreground/10"
+                    onClick={() => onReply(message)}
+                  >
+                    <Reply className="h-3 w-3 mr-1" />
+                    Ответить
+                  </Button>
+                )}
+                {onRetryMessage && (
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    className="h-6 px-2 text-xs text-primary-foreground/80 hover:text-primary-foreground hover:bg-primary-foreground/10"
+                    onClick={() => onRetryMessage(message.id)}
+                  >
+                    <RefreshCw className="h-3 w-3 mr-1" />
+                    Повторить
+                  </Button>
+                )}
               </div>
             )}
           </div>
@@ -521,6 +536,7 @@ export const DepartmentChatMessage = React.memo(DepartmentChatMessageComponent, 
     prevProps.currentUserId === nextProps.currentUserId &&
     prevProps.availableAgents?.length === nextProps.availableAgents?.length &&
     prevProps.onRegenerateResponse === nextProps.onRegenerateResponse &&
+    prevProps.onRetryMessage === nextProps.onRetryMessage &&
     prevProps.onReply === nextProps.onReply &&
     prevProps.replyToMessage?.id === nextProps.replyToMessage?.id
   );

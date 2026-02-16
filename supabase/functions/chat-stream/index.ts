@@ -1205,10 +1205,35 @@ ${goldenExamples.join('\n\n---\n\n')}
         const geminiModel = finalModel;
         
         // Build Gemini contents from simpleMessages
-        const geminiContents = simpleMessages.map(m => ({
-          role: m.role === 'assistant' ? 'model' : 'user',
-          parts: [{ text: m.content }],
-        }));
+        const geminiContents = simpleMessages.map((m, idx) => {
+          const parts: any[] = [{ text: m.content }];
+          
+          // Add attachments to the last user message
+          if (m.role === 'user' && idx === simpleMessages.length - 1 && hasAttachments && attachmentParts.length > 0) {
+            for (const att of attachmentParts) {
+              if (att.type === 'image') {
+                parts.unshift({
+                  inline_data: {
+                    mime_type: att.media_type,
+                    data: att.data,
+                  }
+                });
+              } else if (att.type === 'document' && att.media_type === 'application/pdf') {
+                parts.unshift({
+                  inline_data: {
+                    mime_type: 'application/pdf',
+                    data: att.data,
+                  }
+                });
+              }
+            }
+          }
+          
+          return {
+            role: m.role === 'assistant' ? 'model' : 'user',
+            parts,
+          };
+        });
         
         streamResponse = await fetch(
           `https://generativelanguage.googleapis.com/v1beta/models/${geminiModel}:streamGenerateContent?alt=sse&key=${geminiApiKey}`,
