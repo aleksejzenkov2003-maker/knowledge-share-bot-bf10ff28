@@ -1,90 +1,81 @@
 
+# Улучшение RAG-поиска для Excel-данных (МКТУ)
 
-# 5 задач: двойная генерация, повтор, шаблоны документов, сообщения без агента, вложения Gemini
+## Диагностика проблемы
 
-## 1. Убрать двойную генерацию при запуске
+Проверка базы данных показала корневую причину:
 
-**Проблема**: В `useOptimizedChat.ts` мьютекс `sendingRef` уже добавлен, но в `useOptimizedDepartmentChat.ts` его нет. Также в department chat нет проверки `isGenerating` перед отправкой.
+1. **FTS работает в режиме AND** -- запрос "подбери товары и услуги МКТУ для Ателье" превращается в `'подбер' & 'товар' & 'услуг' & 'мкту' & 'ател'`. Все 5 слов должны присутствовать в одном чанке. Слово "МКТУ" **нет** в Excel-чанках (там написано "Класс: 25"), а "ателье" тоже отсутствует. Результат: **0 найдено**.
 
-**Решение**:
-- `src/hooks/useOptimizedDepartmentChat.ts` -- добавить `sendingRef = useRef(false)` и проверку в начале `sendMessage`, сброс в `finally`
-- Убедиться, что `ChatInputEnhanced.tsx` дизейблит кнопку отправки при `isLoading/isGenerating`
+2. **Keyword fallback тоже не помогает** -- ищет "мкту" и "ателье" через ILIKE, но этих слов нет в чанках Excel. Чанки содержат: `Класс: 25 | No: 250011 | Изм: боа [горжетки]`.
 
----
+3. **Дубликаты** -- один и тот же Excel файл загружен дважды (925 чанков x 2 = 1850 чанков), что загрязняет результаты.
 
-## 2. Кнопка повтора под сообщением пользователя
+4. **При прямом запросе "класс 25 одежда"** -- FTS находит чанки с рангом 0.53. Значит данные есть, но поиск их не достаёт из-за несовпадения терминов.
 
-**Проблема**: Если ответ "подвис" или не пришёл, пользователь не может повторить свой вопрос. Кнопка "Обновить" есть только у ответа ассистента.
+## Решение
 
-**Решение**:
-- `src/components/chat/ChatMessage.tsx` -- добавить кнопку "Повторить" (RefreshCw) под сообщениями пользователя. При клике вызывает `onRegenerateResponse` с ID следующего сообщения-ассистента (или если его нет -- повторно отправляет текст)
-- `src/components/chat/MessageActions.tsx` -- добавить кнопку "Повторить" для `role === "user"` 
-- `src/components/chat/DepartmentChatMessage.tsx` -- аналогичная кнопка для пользовательских сообщений
-- Новый колбэк `onRetryMessage?: (messageId: string) => void` в пропсах
+### 1. Гибридный FTS: AND + OR fallback
 
-В хуках:
-- `src/hooks/useOptimizedChat.ts` -- добавить `retryMessage(messageId)`: находит сообщение пользователя, удаляет все сообщения после него, и повторно отправляет текст
-- `src/hooks/useOptimizedDepartmentChat.ts` -- аналогичный `retryMessage`
+Изменить функцию `smart_fts_search` в SQL: если AND-запрос вернул мало результатов (< 10), автоматически делать OR-запрос через `plainto_tsquery` с заменой `&` на `|`:
 
----
+```text
+-- Сначала пробуем AND (точное совпадение)
+-- Если мало результатов, добавляем OR (любое слово)
+-- OR-результаты получают пониженный ранг (x0.5) чтобы точные совпадения были выше
+```
 
-## 3. Подготовка документов по шаблонам (Word/PDF)
+**Файл**: Новая SQL миграция -- обновление функции `smart_fts_search`
 
-**Текущее состояние**: `DownloadDropdown` уже скачивает ответ как DOCX/PDF/MD. Но нет механизма "шаблонных документов" -- когда пользователь просит подготовить конкретный тип документа (договор, акт, письмо).
+### 2. Синонимы и расширение запроса в chat-stream
 
-**Решение** (фаза 1 -- минимальная):
-- Добавить в системный промпт инструкцию для агента: если пользователь просит подготовить документ, форматировать ответ в Markdown с чёткой структурой (заголовки, списки, таблицы)
-- Существующий `DownloadDropdown` уже конвертирует Markdown в DOCX/PDF, поэтому технически пользователь может скачать результат
-- Добавить в `MessageActions` кнопку "Скачать как документ" (отдельно от общего скачивания), которая будет более заметной для ассистентских ответов с длинным контентом (более 500 символов)
+Перед отправкой в FTS, расширять запрос синонимами для специфичных доменных терминов:
 
-Файлы:
-- `src/components/chat/MessageActions.tsx` -- сделать кнопку скачивания более видимой (не только в hover)
-- `src/components/chat/DepartmentChatMessage.tsx` -- аналогично
+```text
+"МКТУ" -> добавить "класс" в поисковые ключевые слова
+"ателье" -> добавить "одежда пошив"
+```
 
----
+Более общий подход: использовать LLM для извлечения ключевых поисковых терминов из пользовательского запроса перед RAG-поиском.
 
-## 4. Сообщения без вызова агента в чате отдела
+**Файл**: `supabase/functions/chat-stream/index.ts` -- добавить шаг "query expansion" перед FTS
 
-**Проблема**: В `useOptimizedDepartmentChat.ts` строки 268-273 -- если `parseMention` не находит агента, показывается ошибка и сообщение не отправляется. Пользователи не могут общаться между собой.
+### 3. Дедупликация чанков
 
-**Решение**:
-- `src/hooks/useOptimizedDepartmentChat.ts` -- если `!agentId`, сохранять сообщение как обычное текстовое (без вызова AI). Убрать `toast.error` и `return`. Сообщение сохраняется в `department_chat_messages` с `role_id: null`, `message_role: 'user'`, без создания assistant message и стриминга.
-- `src/components/chat/DepartmentChatMessage.tsx` -- никаких изменений не нужно, уже отображает user-сообщения
+При наличии двух копий одного документа, чанки дублируются. Добавить дедупликацию по содержимому (`content`) после FTS, оставляя только уникальные чанки:
 
----
+```text
+// После получения FTS результатов:
+const seenContent = new Set();
+const uniqueResults = ftsResults.filter(chunk => {
+  const key = chunk.content.substring(0, 200);
+  if (seenContent.has(key)) return false;
+  seenContent.add(key);
+  return true;
+});
+```
 
-## 5. Вложения не видны для Gemini (роль "Поговорить")
+**Файл**: `supabase/functions/chat-stream/index.ts`
 
-**Проблема**: В `chat-stream/index.ts` (строки 1203-1228) при вызове Gemini вложения **не передаются**. Multimodal content строится только для `anthropicMessages`, а `geminiContents` формируется из `simpleMessages` (только текст). Gemini поддерживает inline_data для изображений и PDF, но код этого не использует.
+### 4. Улучшение keyword_search для табличных данных
 
-**Решение**:
-- `supabase/functions/chat-stream/index.ts` -- при формировании `geminiContents` добавить вложения в `parts` последнего user-сообщения:
-  ```text
-  Для каждого attachment:
-  - image/* -> { inline_data: { mime_type, data: base64 } }
-  - application/pdf -> { inline_data: { mime_type: "application/pdf", data: base64 } }
-  ```
-- Аналогично для OpenAI: добавить image_url parts в сообщения
+Для Excel-чанков, keyword_search использует ILIKE, но ищет точные слова. Добавить нормализацию: при поиске по числу класса искать паттерн `Класс: {число}`:
 
-Файлы:
-- `supabase/functions/chat-stream/index.ts` -- модифицировать секцию `case 'gemini'` для включения attachmentParts в Gemini-формате
+```text
+-- В keyword_search: если keyword выглядит как число,
+-- искать также "Класс: {число}" и "Class: {число}"
+```
 
----
+**Файл**: Новая SQL миграция -- обновление функции `keyword_search`
 
 ## Порядок реализации
 
-1. Сообщения без агента в чате отдела (критично для UX)
-2. Мьютекс в department chat (предотвращение двойной генерации)
-3. Кнопка повтора под сообщением пользователя
-4. Вложения для Gemini (исправление бага)
-5. Улучшение видимости кнопки скачивания
+1. SQL миграция: OR-fallback в `smart_fts_search` + улучшение `keyword_search`
+2. Query expansion в `chat-stream` (расширение поискового запроса ключевыми словами)
+3. Дедупликация чанков в `chat-stream`
+4. Деплой edge function
 
 ## Затронутые файлы
 
-- `src/hooks/useOptimizedDepartmentChat.ts`
-- `src/hooks/useOptimizedChat.ts`
-- `src/components/chat/ChatMessage.tsx`
-- `src/components/chat/MessageActions.tsx`
-- `src/components/chat/DepartmentChatMessage.tsx`
-- `supabase/functions/chat-stream/index.ts`
-
+- Новая SQL миграция (обновление `smart_fts_search` и `keyword_search`)
+- `supabase/functions/chat-stream/index.ts` -- query expansion + дедупликация
