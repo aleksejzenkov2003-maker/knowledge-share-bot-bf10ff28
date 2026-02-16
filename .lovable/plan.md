@@ -1,92 +1,90 @@
 
 
-# Исправление 4 проблем: модели Anthropic, двойная генерация, производительность, Excel в RAG
+# 5 задач: двойная генерация, повтор, шаблоны документов, сообщения без агента, вложения Gemini
 
-## Проблема 1: Claude 3.5 Sonnet, Claude 3.5 Haiku, Claude 3 Opus -- HTTP 500
+## 1. Убрать двойную генерацию при запуске
 
-**Причина**: `max_tokens: 16384` в запросе к Anthropic API. Claude 3 Opus поддерживает максимум **4096 output tokens**, а Claude 3.5 Sonnet/Haiku -- **8192**. Отправка 16384 вызывает `400 invalid_request_error`, которая в нашем коде превращается в 500.
+**Проблема**: В `useOptimizedChat.ts` мьютекс `sendingRef` уже добавлен, но в `useOptimizedDepartmentChat.ts` его нет. Также в department chat нет проверки `isGenerating` перед отправкой.
 
-**Решение**: Добавить маппинг `max_tokens` по модели в `chat-stream/index.ts` и `chat/index.ts`:
-
-```text
-claude-sonnet-4-20250514     -> 16384 (OK)
-claude-sonnet-4-5-20250929   -> 16384 (OK)
-claude-3-5-sonnet-20241022   -> 8192
-claude-3-5-haiku-20241022    -> 8192
-claude-3-opus-20240229       -> 4096
-```
-
-**Файлы**:
-- `supabase/functions/chat-stream/index.ts` -- строки 1152-1168 (Anthropic request), добавить функцию `getAnthropicMaxTokens(model)` и использовать вместо хардкода `16384`
-- `supabase/functions/chat/index.ts` -- аналогичное изменение в `callAnthropic()`
+**Решение**:
+- `src/hooks/useOptimizedDepartmentChat.ts` -- добавить `sendingRef = useRef(false)` и проверку в начале `sendMessage`, сброс в `finally`
+- Убедиться, что `ChatInputEnhanced.tsx` дизейблит кнопку отправки при `isLoading/isGenerating`
 
 ---
 
-## Проблема 2: Двойная генерация
+## 2. Кнопка повтора под сообщением пользователя
 
-**Причина**: В `ChatInputEnhanced.tsx` кнопка "Отправить" и обработчик Enter обе вызывают `onSend()`. Если пользователь нажимает Enter и одновременно срабатывает `onClick`, может произойти двойной вызов. Хотя в `useOptimizedChat.ts` есть проверка `if (isLoading) return`, между двумя вызовами может быть гонка (state ещё не обновился).
+**Проблема**: Если ответ "подвис" или не пришёл, пользователь не может повторить свой вопрос. Кнопка "Обновить" есть только у ответа ассистента.
 
 **Решение**:
-- В `useOptimizedChat.ts` добавить `useRef` для блокировки параллельных вызовов `sendMessage` (мьютекс через ref, не зависящий от рендера):
+- `src/components/chat/ChatMessage.tsx` -- добавить кнопку "Повторить" (RefreshCw) под сообщениями пользователя. При клике вызывает `onRegenerateResponse` с ID следующего сообщения-ассистента (или если его нет -- повторно отправляет текст)
+- `src/components/chat/MessageActions.tsx` -- добавить кнопку "Повторить" для `role === "user"` 
+- `src/components/chat/DepartmentChatMessage.tsx` -- аналогичная кнопка для пользовательских сообщений
+- Новый колбэк `onRetryMessage?: (messageId: string) => void` в пропсах
+
+В хуках:
+- `src/hooks/useOptimizedChat.ts` -- добавить `retryMessage(messageId)`: находит сообщение пользователя, удаляет все сообщения после него, и повторно отправляет текст
+- `src/hooks/useOptimizedDepartmentChat.ts` -- аналогичный `retryMessage`
+
+---
+
+## 3. Подготовка документов по шаблонам (Word/PDF)
+
+**Текущее состояние**: `DownloadDropdown` уже скачивает ответ как DOCX/PDF/MD. Но нет механизма "шаблонных документов" -- когда пользователь просит подготовить конкретный тип документа (договор, акт, письмо).
+
+**Решение** (фаза 1 -- минимальная):
+- Добавить в системный промпт инструкцию для агента: если пользователь просит подготовить документ, форматировать ответ в Markdown с чёткой структурой (заголовки, списки, таблицы)
+- Существующий `DownloadDropdown` уже конвертирует Markdown в DOCX/PDF, поэтому технически пользователь может скачать результат
+- Добавить в `MessageActions` кнопку "Скачать как документ" (отдельно от общего скачивания), которая будет более заметной для ассистентских ответов с длинным контентом (более 500 символов)
+
+Файлы:
+- `src/components/chat/MessageActions.tsx` -- сделать кнопку скачивания более видимой (не только в hover)
+- `src/components/chat/DepartmentChatMessage.tsx` -- аналогично
+
+---
+
+## 4. Сообщения без вызова агента в чате отдела
+
+**Проблема**: В `useOptimizedDepartmentChat.ts` строки 268-273 -- если `parseMention` не находит агента, показывается ошибка и сообщение не отправляется. Пользователи не могут общаться между собой.
+
+**Решение**:
+- `src/hooks/useOptimizedDepartmentChat.ts` -- если `!agentId`, сохранять сообщение как обычное текстовое (без вызова AI). Убрать `toast.error` и `return`. Сообщение сохраняется в `department_chat_messages` с `role_id: null`, `message_role: 'user'`, без создания assistant message и стриминга.
+- `src/components/chat/DepartmentChatMessage.tsx` -- никаких изменений не нужно, уже отображает user-сообщения
+
+---
+
+## 5. Вложения не видны для Gemini (роль "Поговорить")
+
+**Проблема**: В `chat-stream/index.ts` (строки 1203-1228) при вызове Gemini вложения **не передаются**. Multimodal content строится только для `anthropicMessages`, а `geminiContents` формируется из `simpleMessages` (только текст). Gemini поддерживает inline_data для изображений и PDF, но код этого не использует.
+
+**Решение**:
+- `supabase/functions/chat-stream/index.ts` -- при формировании `geminiContents` добавить вложения в `parts` последнего user-сообщения:
   ```text
-  const sendingRef = useRef(false);
-  // В начале sendMessage:
-  if (sendingRef.current) return;
-  sendingRef.current = true;
-  // В finally:
-  sendingRef.current = false;
+  Для каждого attachment:
+  - image/* -> { inline_data: { mime_type, data: base64 } }
+  - application/pdf -> { inline_data: { mime_type: "application/pdf", data: base64 } }
   ```
+- Аналогично для OpenAI: добавить image_url parts в сообщения
 
-**Файлы**:
-- `src/hooks/useOptimizedChat.ts` -- добавить ref-мьютекс в `sendMessage`
-
----
-
-## Проблема 3: Быстродействие и стабильность
-
-**Улучшения в `chat-stream/index.ts`**:
-
-1. **Таймаут для API-вызовов**: Обернуть `fetch` к провайдерам в `AbortController` с таймаутом 120 сек (300 сек для deep-research). Сейчас зависший запрос к провайдеру блокирует Edge Function до её таймаута.
-
-2. **Быстрый fallback**: Если Anthropic/Perplexity возвращает ошибку (не только 401), пробовать fallback на другого провайдера. Сейчас fallback работает только при 401 от Perplexity.
-
-3. **Уменьшить размер RAG контекста для быстрых моделей**: Для моделей с `haiku` или `flash` в названии ограничить RAG до 10 чанков вместо 20, чтобы ускорить генерацию.
-
-**Файлы**:
-- `supabase/functions/chat-stream/index.ts` -- добавить таймаут, расширить fallback, оптимизировать RAG
-
----
-
-## Проблема 4: Excel файлы не воспринимаются в RAG
-
-**Возможные причины** (нужно проверить по логам):
-
-1. **Статус документа**: Excel мог застрять в статусе `pending` или `error` и не попадать в RAG-поиск (фильтр `status = 'ready'`).
-
-2. **FTS не работает с табличными данными**: Формат `Заголовок: Значение` плохо индексируется через `content_tsv` (tsvector). Ключевые слова разбиваются точками/двоеточиями.
-
-3. **Chunking issues**: Функция `chunkExcelText` может создавать чанки со слишком коротким/пустым `content`, которые не матчатся при поиске.
-
-**Решение**:
-- В `process-document/index.ts` -- убедиться что после чанкинга Excel обновляется `content_tsv` для full-text search
-- Добавить логирование длины каждого Excel чанка
-- Проверить что `chunkExcelText` корректно обрабатывает файлы с разделителем `---`
-
-**Файлы**:
-- `supabase/functions/process-document/index.ts` -- проверить и исправить обработку Excel чанков, добавить диагностику
+Файлы:
+- `supabase/functions/chat-stream/index.ts` -- модифицировать секцию `case 'gemini'` для включения attachmentParts в Gemini-формате
 
 ---
 
 ## Порядок реализации
 
-1. Маппинг `max_tokens` для Anthropic (критический баг)
-2. Ref-мьютекс для двойной генерации
-3. Таймауты и fallback для стабильности
-4. Диагностика и исправление Excel в RAG
+1. Сообщения без агента в чате отдела (критично для UX)
+2. Мьютекс в department chat (предотвращение двойной генерации)
+3. Кнопка повтора под сообщением пользователя
+4. Вложения для Gemini (исправление бага)
+5. Улучшение видимости кнопки скачивания
 
 ## Затронутые файлы
 
-- `supabase/functions/chat-stream/index.ts`
-- `supabase/functions/chat/index.ts`
+- `src/hooks/useOptimizedDepartmentChat.ts`
 - `src/hooks/useOptimizedChat.ts`
-- `supabase/functions/process-document/index.ts`
+- `src/components/chat/ChatMessage.tsx`
+- `src/components/chat/MessageActions.tsx`
+- `src/components/chat/DepartmentChatMessage.tsx`
+- `supabase/functions/chat-stream/index.ts`
+
