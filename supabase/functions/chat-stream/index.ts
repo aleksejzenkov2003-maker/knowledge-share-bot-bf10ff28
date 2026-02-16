@@ -376,10 +376,47 @@ serve(async (req) => {
     if (folderIds.length > 0) {
       console.log(`RAG: Starting Smart Librarian search for folders: ${folderIds.join(', ')}`);
       
+      // STEP 0: Query Expansion - expand domain-specific terms with synonyms
+      const SYNONYM_MAP: Record<string, string[]> = {
+        'мкту': ['класс', 'классификация', 'товары', 'услуги'],
+        'ателье': ['одежда', 'пошив', 'швейный'],
+        'ресторан': ['питание', 'еда', 'кафе', 'общепит'],
+        'салон': ['красота', 'парикмахерская', 'косметология'],
+        'магазин': ['торговля', 'продажа', 'розница'],
+        'аптека': ['лекарства', 'фармацевтика', 'медикаменты'],
+        'автосервис': ['ремонт', 'автомобиль', 'техобслуживание'],
+        'клиника': ['медицина', 'здоровье', 'лечение'],
+        'фитнес': ['спорт', 'тренажер', 'зал'],
+        'отель': ['гостиница', 'проживание', 'размещение'],
+      };
+      
+      // Build expanded query for FTS
+      const messageLower = message.toLowerCase();
+      const expansionTerms: string[] = [];
+      for (const [term, synonyms] of Object.entries(SYNONYM_MAP)) {
+        if (messageLower.includes(term)) {
+          expansionTerms.push(...synonyms);
+        }
+      }
+      
+      // Extract class numbers from query (e.g., "класс 25", "МКТУ 25", "25 класс")
+      const classNumberMatch = message.match(/(?:класс|мкту|mktu)\s*(\d{1,2})/i) || message.match(/(\d{1,2})\s*(?:класс|мкту)/i);
+      if (classNumberMatch) {
+        expansionTerms.push(`класс ${classNumberMatch[1]}`, `Класс: ${classNumberMatch[1]}`);
+      }
+      
+      const expandedQuery = expansionTerms.length > 0 
+        ? `${message} ${expansionTerms.join(' ')}` 
+        : message;
+      
+      if (expansionTerms.length > 0) {
+        console.log(`RAG: Query expanded with terms: ${expansionTerms.join(', ')}`);
+      }
+      
       // STEP 1: Full-Text Search (PostgreSQL) - Get candidates
       try {
         const { data: ftsResults, error: ftsError } = await supabase.rpc('smart_fts_search', {
-          query_text: message,
+          query_text: expandedQuery,
           p_folder_ids: folderIds,
           match_count: FTS_CANDIDATES,
         });
@@ -488,13 +525,16 @@ serve(async (req) => {
       if (rankedChunks.length === 0) {
         console.log('RAG: FTS returned no results, trying keyword fallback');
         
-        // Improved keyword extraction with stop words filtering
-        const keywords = message
+        // Improved keyword extraction with stop words filtering + expansion terms
+        const baseKeywords = message
           .toLowerCase()
-          .replace(/[^\wа-яё\s]/gi, ' ') // Remove punctuation
+          .replace(/[^\wа-яё\s]/gi, ' ')
           .split(/\s+/)
-          .filter(w => w.length > 3 && !STOP_WORDS.has(w))
-          .slice(0, 10); // Limit to 10 keywords
+          .filter(w => w.length > 3 && !STOP_WORDS.has(w));
+        
+        // Add expansion terms as additional keywords
+        const keywords = [...new Set([...baseKeywords, ...expansionTerms.map(t => t.toLowerCase())])]
+          .slice(0, 15);
         
         console.log(`RAG: Extracted keywords: ${keywords.join(', ')}`);
         
@@ -590,6 +630,25 @@ serve(async (req) => {
               }
             }
           }
+        }
+      }
+
+      // STEP: Deduplicate chunks by content (handles duplicate document uploads)
+      {
+        const seenContent = new Set<string>();
+        const beforeDedup = rankedChunks.length;
+        const uniqueChunks: RankedChunk[] = [];
+        for (const chunk of rankedChunks) {
+          const key = chunk.content.substring(0, 200).trim();
+          if (!seenContent.has(key)) {
+            seenContent.add(key);
+            uniqueChunks.push(chunk);
+          }
+        }
+        rankedChunks.length = 0;
+        rankedChunks.push(...uniqueChunks);
+        if (beforeDedup !== rankedChunks.length) {
+          console.log(`RAG: Deduplicated ${beforeDedup} -> ${rankedChunks.length} chunks`);
         }
       }
 
