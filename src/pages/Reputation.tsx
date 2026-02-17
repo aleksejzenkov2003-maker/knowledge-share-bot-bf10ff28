@@ -344,8 +344,8 @@ const CompanyDetailCard = ({ company, entityType, selectedSections, onSave, onCo
                 {c.Kpp && <span>КПП: {c.Kpp}</span>}
               </div>
               {c.Status && (
-                <Badge variant={c.Status === 'Active' ? 'default' : 'destructive'} className="mt-1">
-                  {c.Status === 'Active' ? 'Действующая' : c.Status}
+                <Badge variant={c.Status?.StatusText === 'Действующая' || c.Status === 'Active' ? 'default' : 'destructive'} className="mt-1">
+                  {typeof c.Status === 'object' ? (c.Status?.StatusText || c.Status?.ReasonText || 'Неизвестно') : (c.Status === 'Active' ? 'Действующая' : c.Status)}
                 </Badge>
               )}
             </div>
@@ -380,7 +380,7 @@ const CompanyDetailCard = ({ company, entityType, selectedSections, onSave, onCo
                 { label: 'ОКТМО', value: c.Oktmo },
                 { label: 'ОКАТО', value: c.Okato },
                 { label: 'Дата регистрации', value: formatDate(c.RegistrationDate) },
-                { label: 'Статус', value: c.Status === 'Active' ? 'Действующая' : c.Status },
+                { label: 'Статус', value: typeof c.Status === 'object' ? (c.Status?.StatusText || c.Status?.ReasonText || 'Неизвестно') : (c.Status === 'Active' ? 'Действующая' : c.Status) },
                 { label: 'Тип', value: c.Type === 'Company' ? 'Компания' : c.Type === 'Entrepreneur' ? 'ИП' : c.Type },
                 { label: 'Категория МСП', value: c.RsmpCategory },
                 { label: 'ПФР', value: c.Pfr },
@@ -510,12 +510,23 @@ const CompanyDetailCard = ({ company, entityType, selectedSections, onSave, onCo
   );
 };
 
+const safeString = (v: unknown): string => {
+  if (v == null) return '';
+  if (typeof v === 'string' || typeof v === 'number' || typeof v === 'boolean') return String(v);
+  if (Array.isArray(v)) return v.map(safeString).filter(Boolean).join(', ');
+  if (typeof v === 'object') {
+    const obj = v as Record<string, unknown>;
+    return String(obj.Name || obj.StatusText || obj.Value || obj.Description || JSON.stringify(v));
+  }
+  return String(v);
+};
+
 const DataGrid = ({ data }: { data: { label: string; value: unknown }[] }) => (
   <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
     {data.filter(d => d.value != null && d.value !== '' && d.value !== 'null').map((d, i) => (
       <div key={i}>
         <div className="text-xs text-muted-foreground">{d.label}</div>
-        <div className="text-sm font-medium">{String(d.value)}</div>
+        <div className="text-sm font-medium">{safeString(d.value)}</div>
       </div>
     ))}
   </div>
