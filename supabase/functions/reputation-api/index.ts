@@ -66,7 +66,9 @@ serve(async (req) => {
       }
 
       const searchData = await searchRes.json();
-      return new Response(JSON.stringify(searchData), {
+      // Normalize: extract Items array from response
+      const items = Array.isArray(searchData) ? searchData : (searchData.Items || searchData.Results || searchData.items || []);
+      return new Response(JSON.stringify(items), {
         headers: { ...corsHeaders, 'Content-Type': 'application/json' },
       });
     }
@@ -123,7 +125,7 @@ serve(async (req) => {
       }
 
       const searchData = await searchRes.json();
-      const results: SearchResult[] = Array.isArray(searchData) ? searchData : (searchData.Results || searchData.items || []);
+      const results: SearchResult[] = Array.isArray(searchData) ? searchData : (searchData.Items || searchData.Results || searchData.items || []);
 
       if (!results || results.length === 0) {
         return new Response(
