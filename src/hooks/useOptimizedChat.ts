@@ -330,6 +330,7 @@ export function useOptimizedChat(userId: string | undefined, departmentId: strin
         web_search_citations?: string[];
         web_search_used?: boolean;
         stop_reason?: string;
+        reputation_results?: any[];
       } = {};
 
       if (reader) {
@@ -371,6 +372,7 @@ export function useOptimizedChat(userId: string | undefined, departmentId: strin
                     web_search_citations: parsed.perplexity_citations || parsed.web_search_citations,
                     web_search_used: parsed.web_search_used,
                     stop_reason: parsed.stop_reason,
+                    reputation_results: parsed.reputation_results,
                   };
                 }
               } catch {
@@ -397,6 +399,7 @@ export function useOptimizedChat(userId: string | undefined, departmentId: strin
                     web_search_citations: parsed.perplexity_citations || parsed.web_search_citations,
                     web_search_used: parsed.web_search_used,
                     stop_reason: parsed.stop_reason,
+                    reputation_results: parsed.reputation_results,
                   };
               }
             } catch {
@@ -428,6 +431,7 @@ export function useOptimizedChat(userId: string | undefined, departmentId: strin
               webSearchCitations: metadata.web_search_citations,
               webSearchUsed: metadata.web_search_used,
               stopReason: metadata.stop_reason,
+              reputationResults: metadata.reputation_results,
             }
           : m
       ));

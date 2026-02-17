@@ -25,7 +25,7 @@ import { GoldenResponseDialog } from "@/components/chat/GoldenResponseDialog";
 import { PiiPreviewDialog } from "@/components/documents/PiiPreviewDialog";
 import { useConversationRolesQuery } from "@/hooks/queries/useChatQueries";
 import { useAttachmentTextExtractor } from "@/hooks/useAttachmentTextExtractor";
-import { Attachment } from "@/types/chat";
+import { Attachment, ReputationSearchResult } from "@/types/chat";
 import { toast } from "sonner";
 
 export default function Chat() {
@@ -170,6 +170,13 @@ export default function Chat() {
     setPiiPreviewOpen(true);
   }, [extractText]);
 
+  // Handle reputation company selection from carousel
+  const handleSelectReputationCompany = useCallback((result: ReputationSearchResult) => {
+    const entityType = (result.Type || 'Company').toLowerCase() === 'entrepreneur' ? 'entrepreneur' : 'company';
+    const selectMessage = `[REPUTATION_SELECT:${result.Id}:${entityType}] Покажи полное досье на компанию "${result.Name}"`;
+    sendMessage(selectMessage, isProjectMode);
+  }, [sendMessage, isProjectMode]);
+
   if (authLoading || (user && rolesLoading)) {
     return (
       <div className="flex items-center justify-center h-[calc(100vh-120px)]">
@@ -232,6 +239,7 @@ export default function Chat() {
                 onRegenerateResponse={regenerateResponse}
                 onRetryMessage={retryMessage}
                 onSaveAsGolden={handleSaveAsGolden}
+                onSelectReputationCompany={handleSelectReputationCompany}
                 availableRoles={roles}
                 currentRoleId={selectedRoleId}
               />

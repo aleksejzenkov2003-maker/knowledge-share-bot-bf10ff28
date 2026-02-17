@@ -761,56 +761,95 @@ serve(async (req) => {
     // REPUTATION API - External company data for "Бренд Поиск" roles
     // =====================================================
     let reputationContext = '';
+    let reputationSearchResults: any[] = [];
     if (externalApis?.reputation?.enabled && message) {
       console.log('Reputation API: Enabled for this role, fetching company data...');
+      
+      // Check if user selected a specific company: [REPUTATION_SELECT:id:type]
+      const selectMatch = message.match(/\[REPUTATION_SELECT:([^:]+):([^\]]+)\]/);
+      
       try {
-        const reputationResponse = await fetch(`${supabaseUrl}/functions/v1/reputation-api`, {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-            'Authorization': `Bearer ${supabaseKey}`,
-          },
-          body: JSON.stringify({
-            query: message,
-            action: 'full_report',
-          }),
-        });
-
-        if (reputationResponse.ok) {
-          const repData = await reputationResponse.json();
+        if (selectMatch) {
+          // User selected a specific company — fetch its card
+          const entityId = selectMatch[1];
+          const entityType = selectMatch[2];
+          console.log(`Reputation API: Fetching card for selected entity ${entityId} (${entityType})`);
           
-          if (repData.company || (repData.search_results && repData.search_results.length > 0)) {
+          const cardResponse = await fetch(`${supabaseUrl}/functions/v1/reputation-api`, {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+              'Authorization': `Bearer ${supabaseKey}`,
+            },
+            body: JSON.stringify({
+              entity_id: entityId,
+              action: entityType,
+            }),
+          });
+          
+          if (cardResponse.ok) {
+            const cardData = await cardResponse.json();
             const parts: string[] = ['=== ДАННЫЕ REPUTATION API (проверка контрагента) ==='];
-            
-            // Search results summary
-            if (repData.search_results && repData.search_results.length > 0) {
-              parts.push(`\nНайдено совпадений: ${repData.search_results.length}`);
-              for (const r of repData.search_results.slice(0, 3)) {
-                parts.push(`- ${r.Name || 'Без имени'} | ИНН: ${r.Inn || '—'} | ОГРН: ${r.Ogrn || '—'} | Тип: ${r.Type || '—'}`);
-              }
-            }
-            
-            // Full company card
-            if (repData.company) {
-              parts.push('\n--- КАРТОЧКА КОМПАНИИ ---');
-              parts.push(JSON.stringify(repData.company, null, 2));
-            }
-            
-            // Additional data
-            if (repData.additional && Object.keys(repData.additional).length > 0) {
-              parts.push('\n--- ДОПОЛНИТЕЛЬНЫЕ ДАННЫЕ ---');
-              parts.push(JSON.stringify(repData.additional, null, 2));
-            }
-            
+            parts.push('\n--- КАРТОЧКА КОМПАНИИ ---');
+            parts.push(JSON.stringify(cardData, null, 2));
             parts.push('=== КОНЕЦ ДАННЫХ REPUTATION API ===');
             reputationContext = parts.join('\n');
-            console.log(`Reputation API: Got company data (${reputationContext.length} chars)`);
-          } else {
-            console.log('Reputation API: No results found for query');
+            console.log(`Reputation API: Got company card (${reputationContext.length} chars)`);
           }
+          
+          // Clean message for LLM (remove the select marker)
+          message = message.replace(/\[REPUTATION_SELECT:[^\]]+\]\s*/g, '').trim() || 'Покажи досье на выбранную компанию';
         } else {
-          const errText = await reputationResponse.text();
-          console.error('Reputation API call failed:', reputationResponse.status, errText);
+          // Normal search
+          const reputationResponse = await fetch(`${supabaseUrl}/functions/v1/reputation-api`, {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+              'Authorization': `Bearer ${supabaseKey}`,
+            },
+            body: JSON.stringify({
+              query: message,
+              action: 'full_report',
+            }),
+          });
+
+          if (reputationResponse.ok) {
+            const repData = await reputationResponse.json();
+            
+            if (repData.search_results && repData.search_results.length > 1 && !repData.company) {
+              // Multiple results, no auto-pick — send to frontend for selection
+              reputationSearchResults = repData.search_results.slice(0, 10);
+              console.log(`Reputation API: Multiple results (${reputationSearchResults.length}), sending for user selection`);
+            } else if (repData.company || (repData.search_results && repData.search_results.length > 0)) {
+              const parts: string[] = ['=== ДАННЫЕ REPUTATION API (проверка контрагента) ==='];
+              
+              if (repData.search_results && repData.search_results.length > 0) {
+                parts.push(`\nНайдено совпадений: ${repData.search_results.length}`);
+                for (const r of repData.search_results.slice(0, 3)) {
+                  parts.push(`- ${r.Name || 'Без имени'} | ИНН: ${r.Inn || '—'} | ОГРН: ${r.Ogrn || '—'} | Тип: ${r.Type || '—'}`);
+                }
+              }
+              
+              if (repData.company) {
+                parts.push('\n--- КАРТОЧКА КОМПАНИИ ---');
+                parts.push(JSON.stringify(repData.company, null, 2));
+              }
+              
+              if (repData.additional && Object.keys(repData.additional).length > 0) {
+                parts.push('\n--- ДОПОЛНИТЕЛЬНЫЕ ДАННЫЕ ---');
+                parts.push(JSON.stringify(repData.additional, null, 2));
+              }
+              
+              parts.push('=== КОНЕЦ ДАННЫХ REPUTATION API ===');
+              reputationContext = parts.join('\n');
+              console.log(`Reputation API: Got company data (${reputationContext.length} chars)`);
+            } else {
+              console.log('Reputation API: No results found for query');
+            }
+          } else {
+            const errText = await reputationResponse.text();
+            console.error('Reputation API call failed:', reputationResponse.status, errText);
+          }
         }
       } catch (repErr) {
         console.error('Reputation API error:', repErr);
@@ -1617,6 +1656,7 @@ ${goldenExamples.join('\n\n---\n\n')}
             web_search_citations: webSearchCitations.length > 0 ? webSearchCitations : undefined,
             web_search_used: webSearchUsed,
             smart_search: usedSmartSearch,
+            reputation_results: reputationSearchResults.length > 0 ? reputationSearchResults : undefined,
           })}\n\n`));
           controller.enqueue(encoder.encode('data: [DONE]\n\n'));
           controller.close();
@@ -1917,6 +1957,7 @@ ${goldenExamples.join('\n\n---\n\n')}
             web_search_used: webSearchUsed,
             smart_search: usedSmartSearch,
             stop_reason: stopReason,
+            reputation_results: reputationSearchResults.length > 0 ? reputationSearchResults : undefined,
           })}\n\n`));
 
           controller.enqueue(encoder.encode('data: [DONE]\n\n'));
