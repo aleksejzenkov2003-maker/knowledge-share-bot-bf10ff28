@@ -22,6 +22,7 @@ import { SourcesPanel } from "./SourcesPanel";
 import { MarkdownWithCitations } from "./MarkdownWithCitations";
 import { PiiIndicator } from "./PiiIndicator";
 import { PiiUnmaskDialog } from "./PiiUnmaskDialog";
+import { ReputationCarousel } from "./ReputationCarousel";
 import { useAuth } from "@/contexts/AuthContext";
 import { toast } from "sonner";
 
@@ -33,11 +34,12 @@ interface ChatMessageProps {
   onRegenerateResponse?: (messageId: string, roleId?: string) => void;
   onRetryMessage?: (messageId: string) => void;
   onSaveAsGolden?: (messageId: string) => void;
+  onSelectReputationCompany?: (result: import("@/types/chat").ReputationSearchResult) => void;
   availableRoles?: ChatRole[];
   currentRoleId?: string;
 }
 
-function ChatMessageComponent({ message, onEditMessage, onRegenerateResponse, onRetryMessage, onSaveAsGolden, availableRoles, currentRoleId }: ChatMessageProps) {
+function ChatMessageComponent({ message, onEditMessage, onRegenerateResponse, onRetryMessage, onSaveAsGolden, onSelectReputationCompany, availableRoles, currentRoleId }: ChatMessageProps) {
   // Get the role name for the agent
   const roleName = availableRoles?.find(r => r.id === currentRoleId)?.name || 'Ассистент';
   const { role } = useAuth();
@@ -94,6 +96,14 @@ function ChatMessageComponent({ message, onEditMessage, onRegenerateResponse, on
               <span className="inline-block w-2 h-4 bg-primary animate-pulse ml-1" />
             )}
           </div>
+
+          {/* Reputation company selection carousel */}
+          {message.reputationResults && message.reputationResults.length > 0 && onSelectReputationCompany && (
+            <ReputationCarousel
+              results={message.reputationResults}
+              onSelect={onSelectReputationCompany}
+            />
+          )}
           
           {/* Metadata footer */}
           {!message.isStreaming && (
@@ -302,10 +312,12 @@ export const ChatMessage = React.memo(ChatMessageComponent, (prevProps, nextProp
     prev.stopReason === next.stopReason &&
     prev.hasMaskedPii === next.hasMaskedPii &&
     prev.piiTokensCount === next.piiTokensCount &&
+    prev.reputationResults?.length === next.reputationResults?.length &&
     prevProps.onEditMessage === nextProps.onEditMessage &&
     prevProps.onRegenerateResponse === nextProps.onRegenerateResponse &&
     prevProps.onRetryMessage === nextProps.onRetryMessage &&
     prevProps.onSaveAsGolden === nextProps.onSaveAsGolden &&
+    prevProps.onSelectReputationCompany === nextProps.onSelectReputationCompany &&
     prevProps.availableRoles?.length === nextProps.availableRoles?.length &&
     prevProps.currentRoleId === nextProps.currentRoleId
   );

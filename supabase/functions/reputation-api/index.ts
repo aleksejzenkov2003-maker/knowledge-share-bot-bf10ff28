@@ -132,7 +132,20 @@ serve(async (req) => {
         );
       }
 
-      console.log(`Reputation: Found ${results.length} entities, fetching card for first result`);
+      // If multiple results found, return them for user selection (don't auto-pick)
+      if (results.length > 1) {
+        console.log(`Reputation: Found ${results.length} entities, returning for user selection`);
+        return new Response(JSON.stringify({
+          search_results: results.slice(0, 10),
+          company: null,
+          entity_type: null,
+          additional: {},
+        }), {
+          headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+        });
+      }
+
+      console.log(`Reputation: Found 1 entity, fetching card`);
 
       // Step 2: Get card for first result
       const firstResult = results[0];

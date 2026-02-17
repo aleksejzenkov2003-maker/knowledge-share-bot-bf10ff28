@@ -79,6 +79,17 @@ export interface Message {
   interrupted?: boolean; // True if response was interrupted due to error/disconnect
   hasMaskedPii?: boolean; // True if message contains masked PII tokens
   piiTokensCount?: number; // Number of PII tokens in the message
+  reputationResults?: ReputationSearchResult[]; // Multiple company results for user selection
+}
+
+export interface ReputationSearchResult {
+  Id: string;
+  Type: string;
+  Inn?: string;
+  Ogrn?: string;
+  Name?: string;
+  Address?: string;
+  Status?: string;
 }
 
 export interface DBMessage {
