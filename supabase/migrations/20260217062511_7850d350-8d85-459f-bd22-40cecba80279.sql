@@ -1,0 +1,1 @@
+ALTER TABLE public.chat_roles ADD COLUMN external_apis JSONB DEFAULT '{}'::jsonb;

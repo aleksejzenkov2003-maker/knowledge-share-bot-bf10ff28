@@ -9,6 +9,12 @@ export interface ChatRole {
   folder_ids?: string[];
   allow_web_search?: boolean;
   strict_rag_mode?: boolean;
+  external_apis?: {
+    reputation?: {
+      enabled?: boolean;
+      auto_search?: boolean;
+    };
+  };
 }
 
 export interface Conversation {
