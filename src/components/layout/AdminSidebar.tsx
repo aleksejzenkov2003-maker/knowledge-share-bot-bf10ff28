@@ -32,6 +32,7 @@ import {
   Star,
    Shield,
   FolderKanban,
+  Search,
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 
@@ -45,6 +46,7 @@ const mainMenuItems = [
 const managementItems = [
   { title: 'Роли чатов', url: '/chat-roles', icon: UserCircle, roles: ['admin'], tourId: 'sidebar-chat-roles' },
   { title: 'Эталоны', url: '/golden-responses', icon: Star, roles: ['admin'], tourId: 'sidebar-golden' },
+  { title: 'Reputation', url: '/reputation', icon: Search, roles: ['admin'], tourId: 'sidebar-reputation' },
   { title: 'Папки', url: '/folders', icon: FolderTree, roles: ['admin'], tourId: 'sidebar-folders' },
   { title: 'Документы', url: '/documents', icon: FileText, roles: ['admin'], tourId: 'sidebar-documents' },
   { title: 'Промпты', url: '/prompts', icon: MessageSquare, roles: ['admin'], tourId: 'sidebar-prompts' },

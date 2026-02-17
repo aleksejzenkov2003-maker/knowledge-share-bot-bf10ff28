@@ -33,6 +33,7 @@ import GoldenResponses from "./pages/GoldenResponses";
  import PiiAudit from "./pages/PiiAudit";
 import Projects from "./pages/Projects";
 import ProjectChat from "./pages/ProjectChat";
+import Reputation from "./pages/Reputation";
 import NotFound from "./pages/NotFound";
 
 const queryClient = new QueryClient();
@@ -152,6 +153,11 @@ const App = () => (
             <Route path="/projects/:id" element={
               <ProtectedRoute>
                 <AdminLayout><ProjectChat /></AdminLayout>
+              </ProtectedRoute>
+            } />
+            <Route path="/reputation" element={
+              <ProtectedRoute allowedRoles={['admin']}>
+                <AdminLayout><Reputation /></AdminLayout>
               </ProtectedRoute>
             } />
             <Route path="*" element={<NotFound />} />

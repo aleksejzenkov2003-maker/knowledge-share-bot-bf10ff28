@@ -1456,6 +1456,48 @@ export type Database = {
           },
         ]
       }
+      reputation_reports: {
+        Row: {
+          created_at: string
+          entity_id: string
+          entity_type: string
+          id: string
+          inn: string | null
+          name: string | null
+          ogrn: string | null
+          query: string | null
+          report_data: Json
+          selected_sections: string[] | null
+          user_id: string
+        }
+        Insert: {
+          created_at?: string
+          entity_id: string
+          entity_type?: string
+          id?: string
+          inn?: string | null
+          name?: string | null
+          ogrn?: string | null
+          query?: string | null
+          report_data?: Json
+          selected_sections?: string[] | null
+          user_id: string
+        }
+        Update: {
+          created_at?: string
+          entity_id?: string
+          entity_type?: string
+          id?: string
+          inn?: string | null
+          name?: string | null
+          ogrn?: string | null
+          query?: string | null
+          report_data?: Json
+          selected_sections?: string[] | null
+          user_id?: string
+        }
+        Relationships: []
+      }
       system_prompts: {
         Row: {
           created_at: string
