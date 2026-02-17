@@ -73,6 +73,70 @@ serve(async (req) => {
       });
     }
 
+    // ACTION: trademarks — search FIPS trademarks by company INN or name
+    if (action === 'trademarks') {
+      const inn = entity_id || query;
+      if (!inn) {
+        return new Response(
+          JSON.stringify({ error: 'query or entity_id required for trademarks search' }),
+          { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+        );
+      }
+
+      console.log(`Reputation trademarks: searching for "${inn}"`);
+
+      // Try registered trademarks first
+      const results: Record<string, unknown>[] = [];
+
+      // Search patents/trademarks
+      try {
+        const patentsRes = await fetch(`${API_BASE}/fips/patents`, {
+          method: 'POST',
+          headers,
+          body: JSON.stringify({ QueryText: inn }),
+        });
+        if (patentsRes.ok) {
+          const patentsData = await patentsRes.json();
+          const items = Array.isArray(patentsData) ? patentsData : (patentsData.Items || patentsData.Results || patentsData.items || []);
+          results.push(...items.map((item: any) => ({ ...item, _source: 'patents' })));
+        } else {
+          const errText = await patentsRes.text();
+          console.error('FIPS patents error:', patentsRes.status, errText);
+        }
+      } catch (e) {
+        console.error('FIPS patents fetch error:', e);
+      }
+
+      // Search applications
+      try {
+        const appsRes = await fetch(`${API_BASE}/fips/applications`, {
+          method: 'POST',
+          headers,
+          body: JSON.stringify({ QueryText: inn }),
+        });
+        if (appsRes.ok) {
+          const appsData = await appsRes.json();
+          const items = Array.isArray(appsData) ? appsData : (appsData.Items || appsData.Results || appsData.items || []);
+          results.push(...items.map((item: any) => ({ ...item, _source: 'applications' })));
+        } else {
+          const errText = await appsRes.text();
+          console.error('FIPS applications error:', appsRes.status, errText);
+        }
+      } catch (e) {
+        console.error('FIPS applications fetch error:', e);
+      }
+
+      console.log(`Reputation trademarks: found ${results.length} items`);
+
+      return new Response(JSON.stringify({
+        trademarks: results,
+        count: results.length,
+        query: inn,
+      }), {
+        headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+      });
+    }
+
     // ACTION: company/entrepreneur/person — get entity card by ID
     if (action === 'company' || action === 'entrepreneur' || action === 'person') {
       if (!entity_id) {

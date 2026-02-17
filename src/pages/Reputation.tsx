@@ -327,6 +327,8 @@ const formatArray = (v: unknown): string | null => {
 const CompanyDetailCard = ({ company, entityType, selectedSections, onSave, onCopy }: CompanyDetailCardProps) => {
   const c = company as any;
   const otherNames = c.OtherNames && Array.isArray(c.OtherNames) ? c.OtherNames[0] : null;
+  const [fipsTrademarks, setFipsTrademarks] = useState<any[]>([]);
+  const [fipsLoading, setFipsLoading] = useState(false);
 
   return (
     <Card>
@@ -467,16 +469,55 @@ const CompanyDetailCard = ({ company, entityType, selectedSections, onSave, onCo
 
           {selectedSections.includes('trademarks') && (
             <TabsContent value="trademarks">
-              {c.Trademarks && Array.isArray(c.Trademarks) && c.Trademarks.length > 0 ? (
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-                  {c.Trademarks.map((tm: any, i: number) => (
-                    <Card key={i} className="p-3">
-                      <div className="text-sm font-medium">{tm.Name || tm.Description || `ТЗ №${tm.Number || i + 1}`}</div>
-                      {tm.Number && <div className="text-xs text-muted-foreground">№ {tm.Number}</div>}
-                    </Card>
-                  ))}
-                </div>
-              ) : <p className="text-sm text-muted-foreground">Нет данных о товарных знаках в базовом поиске. Для расширенного поиска ТЗ используйте FIPS.</p>}
+              {(() => {
+                const allTM = [...(c.Trademarks && Array.isArray(c.Trademarks) ? c.Trademarks : []), ...fipsTrademarks];
+                return allTM.length > 0 ? (
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                    {allTM.map((tm: any, i: number) => (
+                      <Card key={i} className="p-3">
+                        <div className="text-sm font-medium">{tm.Name || tm.Description || tm.Title || `ТЗ №${tm.Number || tm.RegistrationNumber || i + 1}`}</div>
+                        {(tm.Number || tm.RegistrationNumber) && <div className="text-xs text-muted-foreground">№ {tm.Number || tm.RegistrationNumber}</div>}
+                        {tm.ApplicationDate && <div className="text-xs text-muted-foreground">Заявка: {formatDate(tm.ApplicationDate)}</div>}
+                        {tm._source && <Badge variant="outline" className="mt-1 text-xs">{tm._source === 'patents' ? 'Патент' : 'Заявка'}</Badge>}
+                      </Card>
+                    ))}
+                  </div>
+                ) : (
+                  <div className="space-y-3">
+                    <p className="text-sm text-muted-foreground">Нет данных о товарных знаках.</p>
+                  </div>
+                );
+              })()}
+              <Button
+                variant="outline"
+                size="sm"
+                className="mt-3"
+                disabled={fipsLoading}
+                onClick={async () => {
+                  const inn = c.Inn || c.Name;
+                  if (!inn) return;
+                  setFipsLoading(true);
+                  try {
+                    const { data, error } = await supabase.functions.invoke('reputation-api', {
+                      body: { query: inn, action: 'trademarks', entity_id: c.Inn },
+                    });
+                    if (error) throw error;
+                    if (data?.trademarks?.length > 0) {
+                      setFipsTrademarks(data.trademarks);
+                      toast({ title: `Найдено ${data.count} товарных знаков (FIPS)` });
+                    } else {
+                      toast({ title: 'Товарные знаки не найдены в FIPS' });
+                    }
+                  } catch (err: any) {
+                    toast({ title: 'Ошибка FIPS', description: err.message, variant: 'destructive' });
+                  } finally {
+                    setFipsLoading(false);
+                  }
+                }}
+              >
+                {fipsLoading ? <Loader2 className="h-4 w-4 animate-spin mr-1" /> : <Search className="h-4 w-4 mr-1" />}
+                Поиск в FIPS
+              </Button>
             </TabsContent>
           )}
 
