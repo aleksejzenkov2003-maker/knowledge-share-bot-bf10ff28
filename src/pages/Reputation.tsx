@@ -475,10 +475,14 @@ const CompanyDetailCard = ({ company, entityType, selectedSections, onSave, onCo
                   <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
                     {allTM.map((tm: any, i: number) => (
                       <Card key={i} className="p-3">
-                        <div className="text-sm font-medium">{tm.Name || tm.Description || tm.Title || `ТЗ №${tm.Number || tm.RegistrationNumber || i + 1}`}</div>
-                        {(tm.Number || tm.RegistrationNumber) && <div className="text-xs text-muted-foreground">№ {tm.Number || tm.RegistrationNumber}</div>}
-                        {tm.ApplicationDate && <div className="text-xs text-muted-foreground">Заявка: {formatDate(tm.ApplicationDate)}</div>}
-                        {tm._source && <Badge variant="outline" className="mt-1 text-xs">{tm._source === 'patents' ? 'Патент' : 'Заявка'}</Badge>}
+                        <div className="text-sm font-medium">
+                          {tm.Topic || tm.Name || tm.Description || `ТЗ №${tm.Number || i + 1}`}
+                        </div>
+                        {tm.Number && <div className="text-xs text-muted-foreground">Свидетельство № {tm.Number}</div>}
+                        {tm.ApplicationNumber && <div className="text-xs text-muted-foreground">Заявка № {tm.ApplicationNumber}</div>}
+                        {tm.RegistrationDate && <div className="text-xs text-muted-foreground">Регистрация: {formatDate(tm.RegistrationDate)}</div>}
+                        {tm.Status && <Badge variant={tm.Status === 'Действующий' ? 'default' : 'secondary'} className="mt-1 text-xs">{typeof tm.Status === 'object' ? tm.Status.StatusText : tm.Status}</Badge>}
+                        {tm._source && <Badge variant="outline" className="mt-1 ml-1 text-xs">{tm._source === 'patents' ? 'Реестр' : 'Заявка'}</Badge>}
                       </Card>
                     ))}
                   </div>
@@ -499,7 +503,7 @@ const CompanyDetailCard = ({ company, entityType, selectedSections, onSave, onCo
                   setFipsLoading(true);
                   try {
                     const { data, error } = await supabase.functions.invoke('reputation-api', {
-                      body: { query: inn, action: 'trademarks', entity_id: c.Inn },
+                      body: { action: 'trademarks', entity_id: c.Id || c.Inn, entity_type: c.Type || 'Company' },
                     });
                     if (error) throw error;
                     if (data?.trademarks?.length > 0) {

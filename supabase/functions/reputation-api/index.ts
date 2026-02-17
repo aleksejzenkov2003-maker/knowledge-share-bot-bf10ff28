@@ -30,7 +30,7 @@ serve(async (req) => {
       );
     }
 
-    const { query, action = 'full_report', entity_id } = await req.json();
+    const { query, action = 'full_report', entity_id, entity_type: req_entity_type } = await req.json();
 
     if (!query && !entity_id) {
       return new Response(
@@ -73,65 +73,46 @@ serve(async (req) => {
       });
     }
 
-    // ACTION: trademarks — search FIPS trademarks by company INN or name
+    // ACTION: trademarks — search FIPS trademarks by entity ID
     if (action === 'trademarks') {
-      const inn = entity_id || query;
-      if (!inn) {
+      if (!entity_id) {
         return new Response(
-          JSON.stringify({ error: 'query or entity_id required for trademarks search' }),
+          JSON.stringify({ error: 'entity_id required for trademarks search' }),
           { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
         );
       }
 
-      console.log(`Reputation trademarks: searching for "${inn}"`);
+      const entType = req_entity_type || 'Company';
+      console.log(`Reputation trademarks: entityId=${entity_id}, entityType=${entType}`);
 
-      // Try registered trademarks first
       const results: Record<string, unknown>[] = [];
 
-      // Search patents/trademarks
-      try {
-        const patentsRes = await fetch(`${API_BASE}/fips/patents`, {
-          method: 'POST',
-          headers,
-          body: JSON.stringify({ QueryText: inn }),
-        });
-        if (patentsRes.ok) {
-          const patentsData = await patentsRes.json();
-          const items = Array.isArray(patentsData) ? patentsData : (patentsData.Items || patentsData.Results || patentsData.items || []);
-          results.push(...items.map((item: any) => ({ ...item, _source: 'patents' })));
-        } else {
-          const errText = await patentsRes.text();
-          console.error('FIPS patents error:', patentsRes.status, errText);
+      for (const endpoint of ['patents', 'applications']) {
+        try {
+          const res = await fetch(
+            `${API_BASE}/fips/${endpoint}?entityId=${encodeURIComponent(entity_id)}&entityType=${encodeURIComponent(entType)}`,
+            { method: 'GET', headers }
+          );
+          if (res.ok) {
+            const data = await res.json();
+            const items = Array.isArray(data) ? data : (data.Items || data.Results || data.items || []);
+            results.push(...items.map((item: any) => ({ ...item, _source: endpoint })));
+            console.log(`FIPS ${endpoint}: ${items.length} items`);
+          } else {
+            const errText = await res.text();
+            console.error(`FIPS ${endpoint} error:`, res.status, errText);
+          }
+        } catch (e) {
+          console.error(`FIPS ${endpoint} fetch error:`, e);
         }
-      } catch (e) {
-        console.error('FIPS patents fetch error:', e);
       }
 
-      // Search applications
-      try {
-        const appsRes = await fetch(`${API_BASE}/fips/applications`, {
-          method: 'POST',
-          headers,
-          body: JSON.stringify({ QueryText: inn }),
-        });
-        if (appsRes.ok) {
-          const appsData = await appsRes.json();
-          const items = Array.isArray(appsData) ? appsData : (appsData.Items || appsData.Results || appsData.items || []);
-          results.push(...items.map((item: any) => ({ ...item, _source: 'applications' })));
-        } else {
-          const errText = await appsRes.text();
-          console.error('FIPS applications error:', appsRes.status, errText);
-        }
-      } catch (e) {
-        console.error('FIPS applications fetch error:', e);
-      }
-
-      console.log(`Reputation trademarks: found ${results.length} items`);
+      console.log(`Reputation trademarks: found ${results.length} items total`);
 
       return new Response(JSON.stringify({
         trademarks: results,
         count: results.length,
-        query: inn,
+        query: entity_id,
       }), {
         headers: { ...corsHeaders, 'Content-Type': 'application/json' },
       });
