@@ -23,3 +23,6 @@ verify_jwt = false
 
 [functions.pii-unmask]
 verify_jwt = false
+
+[functions.reputation-api]
+verify_jwt = false

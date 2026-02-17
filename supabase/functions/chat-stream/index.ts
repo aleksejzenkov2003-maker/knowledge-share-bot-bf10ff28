@@ -159,6 +159,7 @@ serve(async (req) => {
     // Get role config if role_id provided
     let allowWebSearch = true;
     let strictRagMode = false;
+    let externalApis: { reputation?: { enabled?: boolean; auto_search?: boolean } } = {};
     
     if (role_id) {
       const { data: role } = await supabase
@@ -174,6 +175,8 @@ serve(async (req) => {
         // New: role-based web search controls
         allowWebSearch = role.allow_web_search !== false; // Default true if not set
         strictRagMode = role.strict_rag_mode === true;
+        // External APIs configuration
+        externalApis = (role as Record<string, unknown>).external_apis as typeof externalApis || {};
         
         if (role.system_prompt?.prompt_text) {
           systemPrompt = role.system_prompt.prompt_text;
@@ -754,6 +757,66 @@ serve(async (req) => {
 
     console.log(`RAG: Final context has ${ragContext.length} chunks, smart search: ${usedSmartSearch}`);
 
+    // =====================================================
+    // REPUTATION API - External company data for "Бренд Поиск" roles
+    // =====================================================
+    let reputationContext = '';
+    if (externalApis?.reputation?.enabled && message) {
+      console.log('Reputation API: Enabled for this role, fetching company data...');
+      try {
+        const reputationResponse = await fetch(`${supabaseUrl}/functions/v1/reputation-api`, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'Authorization': `Bearer ${supabaseKey}`,
+          },
+          body: JSON.stringify({
+            query: message,
+            action: 'full_report',
+          }),
+        });
+
+        if (reputationResponse.ok) {
+          const repData = await reputationResponse.json();
+          
+          if (repData.company || (repData.search_results && repData.search_results.length > 0)) {
+            const parts: string[] = ['=== ДАННЫЕ REPUTATION API (проверка контрагента) ==='];
+            
+            // Search results summary
+            if (repData.search_results && repData.search_results.length > 0) {
+              parts.push(`\nНайдено совпадений: ${repData.search_results.length}`);
+              for (const r of repData.search_results.slice(0, 3)) {
+                parts.push(`- ${r.Name || 'Без имени'} | ИНН: ${r.Inn || '—'} | ОГРН: ${r.Ogrn || '—'} | Тип: ${r.Type || '—'}`);
+              }
+            }
+            
+            // Full company card
+            if (repData.company) {
+              parts.push('\n--- КАРТОЧКА КОМПАНИИ ---');
+              parts.push(JSON.stringify(repData.company, null, 2));
+            }
+            
+            // Additional data
+            if (repData.additional && Object.keys(repData.additional).length > 0) {
+              parts.push('\n--- ДОПОЛНИТЕЛЬНЫЕ ДАННЫЕ ---');
+              parts.push(JSON.stringify(repData.additional, null, 2));
+            }
+            
+            parts.push('=== КОНЕЦ ДАННЫХ REPUTATION API ===');
+            reputationContext = parts.join('\n');
+            console.log(`Reputation API: Got company data (${reputationContext.length} chars)`);
+          } else {
+            console.log('Reputation API: No results found for query');
+          }
+        } else {
+          const errText = await reputationResponse.text();
+          console.error('Reputation API call failed:', reputationResponse.status, errText);
+        }
+      } catch (repErr) {
+        console.error('Reputation API error:', repErr);
+      }
+    }
+
     // HYBRID WEB SEARCH: If RAG results are insufficient and provider is Anthropic, 
     // perform a web search via Perplexity to supplement the context
     let webSearchContext: string[] = [];
@@ -859,8 +922,13 @@ serve(async (req) => {
       replyContext = `\n\n--- КОНТЕКСТ ОТВЕТА ---\nПользователь отвечает на сообщение от "${authorLabel}":\n"${reply_to.content.slice(0, 2000)}${reply_to.content.length > 2000 ? '...' : ''}"\n--- КОНЕЦ КОНТЕКСТА ОТВЕТА ---\n`;
     }
     
-    if (ragContext.length > 0 || webSearchContext.length > 0 || goldenExamples.length > 0) {
+    if (ragContext.length > 0 || webSearchContext.length > 0 || goldenExamples.length > 0 || reputationContext) {
       let contextParts: string[] = [];
+      
+      // Add reputation API data first (highest priority external data)
+      if (reputationContext) {
+        contextParts.push(reputationContext);
+      }
       
       // Add golden examples first (they set the tone/style)
       if (goldenExamples.length > 0) {

@@ -243,6 +243,7 @@ export type Database = {
           created_at: string
           department_ids: string[] | null
           description: string | null
+          external_apis: Json | null
           folder_ids: string[] | null
           id: string
           is_active: boolean
@@ -260,6 +261,7 @@ export type Database = {
           created_at?: string
           department_ids?: string[] | null
           description?: string | null
+          external_apis?: Json | null
           folder_ids?: string[] | null
           id?: string
           is_active?: boolean
@@ -277,6 +279,7 @@ export type Database = {
           created_at?: string
           department_ids?: string[] | null
           description?: string | null
+          external_apis?: Json | null
           folder_ids?: string[] | null
           id?: string
           is_active?: boolean
