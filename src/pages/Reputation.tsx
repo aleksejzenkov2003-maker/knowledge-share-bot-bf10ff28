@@ -97,13 +97,21 @@ const Reputation = () => {
 
       const result = data as ReportData;
       setSearchResults(result.search_results || []);
-      setSelectedCompany(result.company);
-      setEntityType(result.entity_type);
       setAdditionalData(result.additional || {});
 
-      if (!result.company && result.search_results?.length > 1) {
+      if (result.company) {
+        setSelectedCompany(result.company);
+        setEntityType(result.entity_type);
+      } else if (result.search_results?.length > 1) {
+        // Multiple results — show carousel, but also allow using search result data directly
+        setSelectedCompany(null);
+        setEntityType(null);
         toast({ title: `Найдено ${result.search_results.length} совпадений`, description: 'Выберите компанию из списка' });
-      } else if (!result.company && (!result.search_results || result.search_results.length === 0)) {
+      } else if (result.search_results?.length === 1) {
+        // Single search result — use it directly as company data
+        setSelectedCompany(result.search_results[0] as any);
+        setEntityType((result.search_results[0].Type || 'Company').toLowerCase());
+      } else {
         toast({ title: 'Ничего не найдено', variant: 'destructive' });
       }
     } catch (err: any) {
@@ -113,21 +121,10 @@ const Reputation = () => {
     }
   };
 
-  const handleSelectResult = async (result: SearchResult) => {
-    setLoading(true);
-    try {
-      const cardType = (result.Type || 'Company').toLowerCase() === 'entrepreneur' ? 'entrepreneur' : 'company';
-      const { data, error } = await supabase.functions.invoke('reputation-api', {
-        body: { action: cardType, entity_id: result.Id },
-      });
-      if (error) throw error;
-      setSelectedCompany(data);
-      setEntityType(cardType);
-    } catch (err: any) {
-      toast({ title: 'Ошибка загрузки карточки', description: err.message, variant: 'destructive' });
-    } finally {
-      setLoading(false);
-    }
+  const handleSelectResult = (result: SearchResult) => {
+    // Search results already contain full data — use directly
+    setSelectedCompany(result as any);
+    setEntityType((result.Type || 'Company').toLowerCase());
   };
 
   const handleSaveReport = async () => {
@@ -316,8 +313,20 @@ interface CompanyDetailCardProps {
   onCopy: () => void;
 }
 
+const formatDate = (d: string | null | undefined) => {
+  if (!d) return null;
+  try { return new Date(d).toLocaleDateString('ru-RU'); } catch { return d; }
+};
+
+const formatArray = (v: unknown): string | null => {
+  if (!v) return null;
+  if (Array.isArray(v)) return v.length > 0 ? v.join(', ') : null;
+  return String(v);
+};
+
 const CompanyDetailCard = ({ company, entityType, selectedSections, onSave, onCopy }: CompanyDetailCardProps) => {
   const c = company as any;
+  const otherNames = c.OtherNames && Array.isArray(c.OtherNames) ? c.OtherNames[0] : null;
 
   return (
     <Card>
@@ -328,11 +337,17 @@ const CompanyDetailCard = ({ company, entityType, selectedSections, onSave, onCo
               <Building2 className="h-5 w-5 text-primary" />
             </div>
             <div>
-              <CardTitle className="text-lg">{c.Name || c.ShortName || c.FullName || 'Компания'}</CardTitle>
-              <div className="flex gap-3 mt-1 text-sm text-muted-foreground">
+              <CardTitle className="text-lg">{c.Name || 'Компания'}</CardTitle>
+              <div className="flex flex-wrap gap-3 mt-1 text-sm text-muted-foreground">
                 {c.Inn && <span>ИНН: {c.Inn}</span>}
                 {c.Ogrn && <span>ОГРН: {c.Ogrn}</span>}
+                {c.Kpp && <span>КПП: {c.Kpp}</span>}
               </div>
+              {c.Status && (
+                <Badge variant={c.Status === 'Active' ? 'default' : 'destructive'} className="mt-1">
+                  {c.Status === 'Active' ? 'Действующая' : c.Status}
+                </Badge>
+              )}
             </div>
           </div>
           <div className="flex gap-2">
@@ -346,7 +361,7 @@ const CompanyDetailCard = ({ company, entityType, selectedSections, onSave, onCo
         </div>
       </CardHeader>
       <CardContent>
-        <Tabs defaultValue="requisites">
+        <Tabs defaultValue={selectedSections[0] || 'requisites'}>
           <TabsList className="flex-wrap h-auto">
             {DATA_SECTIONS.filter(s => selectedSections.includes(s.key)).map(s => (
               <TabsTrigger key={s.key} value={s.key} className="text-xs">{s.label}</TabsTrigger>
@@ -356,38 +371,48 @@ const CompanyDetailCard = ({ company, entityType, selectedSections, onSave, onCo
           {selectedSections.includes('requisites') && (
             <TabsContent value="requisites">
               <DataGrid data={[
-                { label: 'Полное название', value: c.FullName || c.Name },
-                { label: 'Краткое название', value: c.ShortName },
+                { label: 'Полное название', value: otherNames || c.Name },
+                { label: 'Краткое название', value: c.Name },
                 { label: 'ИНН', value: c.Inn },
                 { label: 'ОГРН', value: c.Ogrn },
                 { label: 'КПП', value: c.Kpp },
-                { label: 'Дата регистрации', value: c.RegistrationDate },
-                { label: 'Статус', value: c.Status || c.State },
-                { label: 'Тип', value: entityType },
+                { label: 'ОКПО', value: c.Okpo },
+                { label: 'ОКТМО', value: c.Oktmo },
+                { label: 'ОКАТО', value: c.Okato },
+                { label: 'Дата регистрации', value: formatDate(c.RegistrationDate) },
+                { label: 'Статус', value: c.Status === 'Active' ? 'Действующая' : c.Status },
+                { label: 'Тип', value: c.Type === 'Company' ? 'Компания' : c.Type === 'Entrepreneur' ? 'ИП' : c.Type },
+                { label: 'Категория МСП', value: c.RsmpCategory },
+                { label: 'ПФР', value: c.Pfr },
+                { label: 'ФСС', value: c.Fss },
               ]} />
             </TabsContent>
           )}
 
           {selectedSections.includes('management') && (
             <TabsContent value="management">
-              {c.Director ? (
-                <DataGrid data={[
-                  { label: 'Руководитель', value: typeof c.Director === 'string' ? c.Director : c.Director?.Name || c.Director?.Fio },
-                  { label: 'Должность', value: c.Director?.Position },
-                ]} />
-              ) : c.Heads ? (
-                <div className="space-y-2">
-                  {(Array.isArray(c.Heads) ? c.Heads : []).map((h: any, i: number) => (
-                    <div key={i} className="text-sm"><span className="text-muted-foreground">{h.Position}: </span>{h.Name || h.Fio}</div>
-                  ))}
-                </div>
-              ) : <p className="text-sm text-muted-foreground">Нет данных</p>}
-              {c.Founders && Array.isArray(c.Founders) && c.Founders.length > 0 && (
+              <DataGrid data={[
+                { label: 'Руководитель', value: c.ManagerName },
+              ]} />
+              {c.Founders && (
                 <div className="mt-4">
                   <h4 className="text-sm font-medium mb-2">Учредители</h4>
-                  {c.Founders.map((f: any, i: number) => (
-                    <div key={i} className="text-sm">{f.Name || f.Fio} {f.Share ? `(${f.Share}%)` : ''}</div>
-                  ))}
+                  <div className="text-sm text-muted-foreground">
+                    {typeof c.Founders === 'string'
+                      ? c.Founders.split(';').filter(Boolean).map((f: string, i: number) => (
+                          <div key={i}>{f.trim()}</div>
+                        ))
+                      : Array.isArray(c.Founders) && c.Founders.map((f: any, i: number) => (
+                          <div key={i}>{f.Name || f}</div>
+                        ))
+                    }
+                  </div>
+                </div>
+              )}
+              {c.EmployeesCount != null && (
+                <div className="mt-3">
+                  <div className="text-xs text-muted-foreground">Сотрудников</div>
+                  <div className="text-sm font-medium">{c.EmployeesCount}</div>
                 </div>
               )}
             </TabsContent>
@@ -396,44 +421,47 @@ const CompanyDetailCard = ({ company, entityType, selectedSections, onSave, onCo
           {selectedSections.includes('address') && (
             <TabsContent value="address">
               <DataGrid data={[
-                { label: 'Юридический адрес', value: c.LegalAddress || c.Address },
-                { label: 'Фактический адрес', value: c.ActualAddress },
+                { label: 'Юридический адрес', value: c.Address },
               ]} />
+              {c.OtherAddresses && Array.isArray(c.OtherAddresses) && c.OtherAddresses.length > 0 && (
+                <div className="mt-4">
+                  <h4 className="text-sm font-medium mb-2">Другие адреса</h4>
+                  {c.OtherAddresses.map((a: string, i: number) => (
+                    <div key={i} className="text-xs text-muted-foreground mb-1">{a}</div>
+                  ))}
+                </div>
+              )}
             </TabsContent>
           )}
 
           {selectedSections.includes('activities') && (
             <TabsContent value="activities">
-              {c.MainOkved ? (
+              {c.MainActivityType ? (
                 <div className="text-sm mb-3">
                   <span className="font-medium">Основной: </span>
-                  {typeof c.MainOkved === 'string' ? c.MainOkved : `${c.MainOkved.Code} — ${c.MainOkved.Name}`}
+                  {`${c.MainActivityType.Code} — ${c.MainActivityType.Name}`}
                 </div>
               ) : null}
-              {c.AdditionalOkveds && Array.isArray(c.AdditionalOkveds) && (
+              {c.ActivityTypes && Array.isArray(c.ActivityTypes) && c.ActivityTypes.length > 0 && (
                 <div className="space-y-1">
-                  <h4 className="text-sm font-medium">Дополнительные:</h4>
-                  {c.AdditionalOkveds.slice(0, 10).map((o: any, i: number) => (
-                    <div key={i} className="text-xs text-muted-foreground">
-                      {typeof o === 'string' ? o : `${o.Code} — ${o.Name}`}
-                    </div>
+                  <h4 className="text-sm font-medium">Дополнительные коды:</h4>
+                  {c.ActivityTypes.map((code: string, i: number) => (
+                    <Badge key={i} variant="outline" className="mr-1 mb-1 text-xs">{code}</Badge>
                   ))}
-                  {c.AdditionalOkveds.length > 10 && (
-                    <div className="text-xs text-muted-foreground">...ещё {c.AdditionalOkveds.length - 10}</div>
-                  )}
                 </div>
               )}
-              {!c.MainOkved && !c.AdditionalOkveds && <p className="text-sm text-muted-foreground">Нет данных</p>}
+              {!c.MainActivityType && (!c.ActivityTypes || c.ActivityTypes.length === 0) && (
+                <p className="text-sm text-muted-foreground">Нет данных</p>
+              )}
             </TabsContent>
           )}
 
           {selectedSections.includes('finances') && (
             <TabsContent value="finances">
               <DataGrid data={[
-                { label: 'Уставный капитал', value: c.AuthorizedCapital || c.Capital },
-                { label: 'Выручка', value: c.Revenue },
-                { label: 'Прибыль', value: c.Profit },
+                { label: 'Уставный капитал', value: c.Capital != null ? `${Number(c.Capital).toLocaleString('ru-RU')} ₽` : null },
               ]} />
+              {!c.Capital && <p className="text-sm text-muted-foreground">Нет финансовых данных</p>}
             </TabsContent>
           )}
 
@@ -445,12 +473,10 @@ const CompanyDetailCard = ({ company, entityType, selectedSections, onSave, onCo
                     <Card key={i} className="p-3">
                       <div className="text-sm font-medium">{tm.Name || tm.Description || `ТЗ №${tm.Number || i + 1}`}</div>
                       {tm.Number && <div className="text-xs text-muted-foreground">№ {tm.Number}</div>}
-                      {tm.RegistrationDate && <div className="text-xs text-muted-foreground">Регистрация: {tm.RegistrationDate}</div>}
-                      {tm.Classes && <div className="text-xs text-muted-foreground">Классы МКТУ: {Array.isArray(tm.Classes) ? tm.Classes.join(', ') : tm.Classes}</div>}
                     </Card>
                   ))}
                 </div>
-              ) : <p className="text-sm text-muted-foreground">Нет данных о товарных знаках</p>}
+              ) : <p className="text-sm text-muted-foreground">Нет данных о товарных знаках в базовом поиске. Для расширенного поиска ТЗ используйте FIPS.</p>}
             </TabsContent>
           )}
 
@@ -458,21 +484,24 @@ const CompanyDetailCard = ({ company, entityType, selectedSections, onSave, onCo
             <TabsContent value="arbitration">
               {c.Arbitration ? (
                 <DataGrid data={[
-                  { label: 'Истец (кол-во дел)', value: c.Arbitration.PlaintiffCount || c.Arbitration.AsPlaintiff },
-                  { label: 'Ответчик (кол-во дел)', value: c.Arbitration.DefendantCount || c.Arbitration.AsDefendant },
-                  { label: 'Общая сумма', value: c.Arbitration.TotalSum || c.Arbitration.TotalAmount },
+                  { label: 'Истец (кол-во)', value: c.Arbitration.PlaintiffCount },
+                  { label: 'Ответчик (кол-во)', value: c.Arbitration.DefendantCount },
+                  { label: 'Общая сумма', value: c.Arbitration.TotalSum },
                 ]} />
-              ) : <p className="text-sm text-muted-foreground">Нет данных</p>}
+              ) : <p className="text-sm text-muted-foreground">Нет данных об арбитраже в базовом поиске</p>}
             </TabsContent>
           )}
 
           {selectedSections.includes('contacts') && (
             <TabsContent value="contacts">
               <DataGrid data={[
-                { label: 'Телефон', value: c.Phone || c.Phones },
-                { label: 'Email', value: c.Email || c.Emails },
-                { label: 'Сайт', value: c.Website || c.Sites },
+                { label: 'Телефоны', value: formatArray(c.Phones) },
+                { label: 'Email', value: formatArray(c.Emails) },
+                { label: 'Сайты', value: formatArray(c.Sites) },
               ]} />
+              {(!c.Phones?.length && !c.Emails?.length && !c.Sites?.length) && (
+                <p className="text-sm text-muted-foreground">Нет контактных данных</p>
+              )}
             </TabsContent>
           )}
         </Tabs>
@@ -483,7 +512,7 @@ const CompanyDetailCard = ({ company, entityType, selectedSections, onSave, onCo
 
 const DataGrid = ({ data }: { data: { label: string; value: unknown }[] }) => (
   <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-    {data.filter(d => d.value != null && d.value !== '').map((d, i) => (
+    {data.filter(d => d.value != null && d.value !== '' && d.value !== 'null').map((d, i) => (
       <div key={i}>
         <div className="text-xs text-muted-foreground">{d.label}</div>
         <div className="text-sm font-medium">{String(d.value)}</div>
@@ -495,18 +524,20 @@ const DataGrid = ({ data }: { data: { label: string; value: unknown }[] }) => (
 function formatCompanyText(company: Record<string, unknown>, sections: string[]): string {
   const c = company as any;
   const lines: string[] = [];
-  lines.push(`📋 ${c.Name || c.ShortName || c.FullName || 'Компания'}`);
+  lines.push(`📋 ${c.Name || 'Компания'}`);
   if (sections.includes('requisites')) {
     if (c.Inn) lines.push(`ИНН: ${c.Inn}`);
     if (c.Ogrn) lines.push(`ОГРН: ${c.Ogrn}`);
     if (c.Kpp) lines.push(`КПП: ${c.Kpp}`);
   }
-  if (sections.includes('address') && (c.LegalAddress || c.Address)) {
-    lines.push(`Адрес: ${c.LegalAddress || c.Address}`);
+  if (sections.includes('address') && c.Address) {
+    lines.push(`Адрес: ${c.Address}`);
   }
-  if (sections.includes('management') && c.Director) {
-    const dir = typeof c.Director === 'string' ? c.Director : c.Director?.Name || c.Director?.Fio;
-    if (dir) lines.push(`Руководитель: ${dir}`);
+  if (sections.includes('management') && c.ManagerName) {
+    lines.push(`Руководитель: ${c.ManagerName}`);
+  }
+  if (sections.includes('contacts')) {
+    if (c.Sites?.length) lines.push(`Сайт: ${c.Sites.join(', ')}`);
   }
   return lines.join('\n');
 }
