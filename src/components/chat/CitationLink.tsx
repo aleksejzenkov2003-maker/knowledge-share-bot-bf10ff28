@@ -52,6 +52,7 @@ function extractSearchTextFromContent(
 interface CitationLinkProps {
   index: number;
   citation?: Citation;
+  perplexityCitations?: string[];
   // Bitrix context props
   isBitrixContext?: boolean;
   bitrixApiBaseUrl?: string;
@@ -78,6 +79,7 @@ interface DocumentViewerState {
 export function CitationLink({ 
   index, 
   citation,
+  perplexityCitations,
   isBitrixContext,
   bitrixApiBaseUrl,
   bitrixToken,
@@ -169,6 +171,11 @@ export function CitationLink({
     e.stopPropagation();
 
     if (!citation) {
+      // Check for Perplexity/web search URL at this index
+      if (perplexityCitations && perplexityCitations[index - 1]) {
+        window.open(perplexityCitations[index - 1], '_blank', 'noopener,noreferrer');
+        return;
+      }
       toast({
         title: "Источник не найден",
         description: `Цитата [${index}] не имеет связанного документа`,

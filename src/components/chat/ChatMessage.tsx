@@ -90,6 +90,7 @@ function ChatMessageComponent({ message, onEditMessage, onRegenerateResponse, on
               <MarkdownWithCitations 
                 content={message.content}
                 citations={message.citations}
+                perplexityCitations={message.webSearchCitations}
               />
             )}
             {message.isStreaming && message.content && (

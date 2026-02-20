@@ -134,6 +134,7 @@ function BitrixChatMessageComponent({
               <MarkdownWithCitations 
                 content={normalizeMarkdownTables(message.content)}
                 citations={message.citations}
+                perplexityCitations={message.webSearchCitations}
                 isBitrixContext={isBitrixContext}
                 bitrixApiBaseUrl={bitrixApiBaseUrl}
                 bitrixToken={bitrixToken}

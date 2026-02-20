@@ -7,6 +7,7 @@ import { CitationLink } from './CitationLink';
 interface MarkdownWithCitationsProps {
   content: string;
   citations?: Citation[];
+  perplexityCitations?: string[];
   // Bitrix context props
   isBitrixContext?: boolean;
   bitrixApiBaseUrl?: string;
@@ -17,6 +18,7 @@ interface MarkdownWithCitationsProps {
 function renderTextWithCitations(
   text: string, 
   citations?: Citation[],
+  perplexityCitations?: string[],
   isBitrixContext?: boolean,
   bitrixApiBaseUrl?: string,
   bitrixToken?: string,
@@ -41,6 +43,7 @@ function renderTextWithCitations(
         key={`citation-${key++}`}
         index={citationIndex}
         citation={citation}
+        perplexityCitations={perplexityCitations}
         isBitrixContext={isBitrixContext}
         bitrixApiBaseUrl={bitrixApiBaseUrl}
         bitrixToken={bitrixToken}
@@ -61,6 +64,7 @@ function renderTextWithCitations(
 export function MarkdownWithCitations({
   content,
   citations,
+  perplexityCitations,
   isBitrixContext,
   bitrixApiBaseUrl,
   bitrixToken,
@@ -68,7 +72,7 @@ export function MarkdownWithCitations({
   // Custom text renderer that injects citation links
   const textRenderer = ({ children }: { children?: React.ReactNode }) => {
     if (typeof children === 'string') {
-      return <>{renderTextWithCitations(children, citations, isBitrixContext, bitrixApiBaseUrl, bitrixToken)}</>;
+      return <>{renderTextWithCitations(children, citations, perplexityCitations, isBitrixContext, bitrixApiBaseUrl, bitrixToken)}</>;
     }
     return <>{children}</>;
   };
@@ -81,7 +85,7 @@ export function MarkdownWithCitations({
           <p className="mb-3 leading-relaxed last:mb-0">
             {React.Children.map(children, child => {
               if (typeof child === 'string') {
-                return <>{renderTextWithCitations(child, citations, isBitrixContext, bitrixApiBaseUrl, bitrixToken)}</>;
+                return <>{renderTextWithCitations(child, citations, perplexityCitations, isBitrixContext, bitrixApiBaseUrl, bitrixToken)}</>;
               }
               return child;
             })}
@@ -91,7 +95,7 @@ export function MarkdownWithCitations({
           <li className="mb-1 leading-relaxed">
             {React.Children.map(children, child => {
               if (typeof child === 'string') {
-                return <>{renderTextWithCitations(child, citations, isBitrixContext, bitrixApiBaseUrl, bitrixToken)}</>;
+                return <>{renderTextWithCitations(child, citations, perplexityCitations, isBitrixContext, bitrixApiBaseUrl, bitrixToken)}</>;
               }
               return child;
             })}
@@ -154,7 +158,7 @@ export function MarkdownWithCitations({
           <td className="px-3 py-2 border-b border-border/50">
             {React.Children.map(children, child => {
               if (typeof child === 'string') {
-                return <>{renderTextWithCitations(child, citations, isBitrixContext, bitrixApiBaseUrl, bitrixToken)}</>;
+                return <>{renderTextWithCitations(child, citations, perplexityCitations, isBitrixContext, bitrixApiBaseUrl, bitrixToken)}</>;
               }
               return child;
             })}
