@@ -184,6 +184,7 @@ function DepartmentChatMessageComponent({
             <MarkdownWithCitations
               content={message.content || '...'}
               citations={message.metadata?.citations}
+              perplexityCitations={message.metadata?.perplexity_citations || message.metadata?.web_search_citations}
             />
           </div>
 

@@ -368,16 +368,18 @@ export function useOptimizedDepartmentChat(userId: string | undefined, departmen
       .update({ updated_at: new Date().toISOString() })
       .eq('id', activeChatId);
 
+    // Auto-title on first message (for ALL messages, regardless of agent mention)
+    if (localMessages.length === 0) {
+      const titleText = cleanText || text;
+      const title = titleText.slice(0, 50) + (titleText.length > 50 ? '...' : '');
+      await supabase
+        .from('department_chats')
+        .update({ title })
+        .eq('id', activeChatId);
+    }
+
     // If no agent mentioned, just save the user message (no AI call)
     if (!agentId) {
-      // Update title if first message
-      if (localMessages.length === 0) {
-        const title = text.slice(0, 50) + (text.length > 50 ? '...' : '');
-        await supabase
-          .from('department_chats')
-          .update({ title })
-          .eq('id', activeChatId);
-      }
       queryClient.invalidateQueries({ queryKey: departmentChatQueryKeys.messages(activeChatId) });
       queryClient.invalidateQueries({ queryKey: departmentChatQueryKeys.chats(departmentId!) });
       sendingRef.current = false;

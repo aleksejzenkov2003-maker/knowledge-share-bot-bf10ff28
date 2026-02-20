@@ -133,11 +133,12 @@ import { Citation } from '@/types/chat';
            {isUser ? (
              <p className="whitespace-pre-wrap text-sm">{message.content}</p>
            ) : (
-             <div className="prose prose-sm dark:prose-invert max-w-none">
-               <MarkdownWithCitations
-                 content={message.content}
-                citations={message.metadata?.citations as Citation[] | undefined}
-               />
+              <div className="prose prose-sm dark:prose-invert max-w-none">
+                <MarkdownWithCitations
+                  content={message.content}
+                 citations={message.metadata?.citations as Citation[] | undefined}
+                 perplexityCitations={(message.metadata as any)?.perplexity_citations || (message.metadata as any)?.web_search_citations}
+                />
              </div>
            )}
  
