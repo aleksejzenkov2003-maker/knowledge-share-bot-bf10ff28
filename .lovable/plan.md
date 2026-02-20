@@ -1,102 +1,58 @@
 
 
-# Панель управления Reputation API
+# Two Fixes: Perplexity Citation Links + Department Chat Auto-Titles
 
-## Обзор
+## Issue 1: Broken citation links in "Poisk brendov" agent (sonar-pro)
 
-Создание отдельной страницы `/reputation` в админ-панели — полнофункциональный инструмент для поиска компаний и товарных знаков через Reputation.ru API с настройкой отображаемых данных и возможностью отправки результатов в чаты.
+**Root cause**: When Perplexity (sonar-pro) returns a response with `[1]`, `[2]`, etc., these reference web URLs stored in `perplexity_citations` (an array of strings/URLs). However, the `MarkdownWithCitations` component only passes `message.metadata?.citations` (internal document citations) to `CitationLink`. Since there are no matching document citations, clicking `[4]` shows "Источник не найден".
 
-## Структура страницы
+**Fix**:
+- Pass `perplexity_citations` (and `web_search_citations`) into `MarkdownWithCitations` as a new prop.
+- In `CitationLink`, when no document citation matches, check if there is a Perplexity/web URL at that index (index - 1, since citations are 1-based). If found, open the URL in a new tab instead of showing an error.
+- Apply this change in `DepartmentChatMessage.tsx` and all other chat message components that use `MarkdownWithCitations`.
 
-Страница разделена на 3 зоны:
+**Files to modify**:
+- `src/components/chat/MarkdownWithCitations.tsx` -- add `perplexityCitations` prop, pass to `CitationLink`
+- `src/components/chat/CitationLink.tsx` -- accept `perplexityCitations`, open URL when no document citation found
+- `src/components/chat/DepartmentChatMessage.tsx` -- pass `perplexity_citations` / `web_search_citations` to `MarkdownWithCitations`
+- `src/components/chat/ChatMessage.tsx` -- same
+- `src/components/chat/BitrixChatMessage.tsx` -- same
+- `src/components/chat/ProjectChatMessage.tsx` -- same (if applicable)
 
-1. **Поисковая панель** — поле ввода (ИНН/ОГРН/название), кнопка поиска, фильтры типа (Компания/ИП/Товарный знак)
-2. **Настройки данных** — чекбоксы для выбора категорий данных: реквизиты, руководство, адрес, ОКВЭД, финансы, арбитраж, товарные знаки (FIPS)
-3. **Результаты** — карточки компаний с выбранными полями, кнопка "Отправить в чат"
+## Issue 2: All department chats show "Новый чат" instead of meaningful titles
 
-## Что будет создано
+**Root cause**: In `useOptimizedDepartmentChat.ts`, when a new chat is created it gets title "Новый чат" (line 92). The auto-title logic (lines 372-385) only runs when the message does NOT have an @agent mention. When an agent IS mentioned (the common case), the title stays "Новый чат" forever.
 
-### 1. Новая страница `src/pages/Reputation.tsx`
-- Строка поиска с автодетектом формата (ИНН 10/12 цифр, ОГРН 13/15, иначе название)
-- Сетка чекбоксов для категорий данных (сохраняются в localStorage)
-- Карусель/список результатов поиска при множественных совпадениях
-- Детальная карточка компании с секциями: основные реквизиты, руководство, юридический адрес, виды деятельности (ОКВЭД), товарные знаки
-- Кнопка "Использовать в чате" — копирует структурированное досье в буфер или сохраняет в БД для вставки
+**Fix**:
+- Move the auto-title logic to run for ALL first messages, regardless of whether an agent is mentioned.
+- Extract the title from the user's message text (excluding the @agent mention prefix) -- use `cleanText` (the message without the @mention).
+- Truncate to 50 characters.
 
-### 2. Обновление Edge Function `reputation-api`
-- Новый action `trademarks` — запрос к FIPS-эндпоинтам (`/api/v1/fips/patents`, `/api/v1/fips/applications`)
-- Новый action `configurable_report` — возвращает только выбранные секции данных
-- Расширенная нормализация ответов для карточного отображения
+**File to modify**:
+- `src/hooks/useOptimizedDepartmentChat.ts` -- move title update logic before the agent check, using `cleanText` for title generation.
 
-### 3. Таблица `reputation_reports` в БД
-- Сохранение результатов поиска для повторного использования в чатах
-- Поля: `id`, `user_id`, `entity_id`, `entity_type`, `query`, `data` (JSONB), `created_at`
-- RLS: пользователь видит свои отчёты, админ — все
+## Technical Details
 
-### 4. Интеграция с чатами
-- Компонент `ReputationReportCard` для отображения сохранённого отчёта в сообщении
-- В ChatInput добавляется кнопка/меню "Прикрепить отчёт Reputation"
-- При отправке — данные из `reputation_reports` инжектируются в контекст сообщения
-
-### 5. Навигация
-- Новый пункт в сайдбаре: "Reputation" с иконкой `Search` в секции "Управление"
-- Роут `/reputation` в `App.tsx` (доступ: admin)
-
-## Технические детали
-
-### Категории данных (чекбоксы)
-
-| Категория | Ключ | Описание |
-|-----------|------|----------|
-| Реквизиты | `requisites` | ИНН, ОГРН, КПП, дата регистрации |
-| Руководство | `management` | ФИО директора, учредители |
-| Адрес | `address` | Юр. адрес, фактический адрес |
-| ОКВЭД | `activities` | Основной и дополнительные виды деятельности |
-| Финансы | `finances` | Уставный капитал, выручка |
-| Товарные знаки | `trademarks` | Зарегистрированные ТЗ через FIPS |
-| Арбитраж | `arbitration` | Судебные дела |
-| Контакты | `contacts` | Телефон, email, сайт |
-
-### Структура карточки результата
-
-```text
-+----------------------------------------------+
-|  [Logo]  ООО "Компания"           [Избранное] |
-|  ИНН: 1234567890  ОГРН: 1234567890123        |
-|----------------------------------------------|
-|  [Tab: Реквизиты] [Tab: Руководство] [Tab:TЗ]|
-|                                               |
-|  Содержимое выбранной вкладки                 |
-|                                               |
-|  [Отправить в чат ▼]  [Скопировать]  [PDF]   |
-+----------------------------------------------+
+### CitationLink changes (pseudocode):
+```
+// New prop: perplexityCitations?: string[]
+// In handleClick:
+if (!citation && perplexityCitations) {
+  const url = perplexityCitations[index - 1];
+  if (url) {
+    window.open(url, '_blank');
+    return;
+  }
+}
 ```
 
-### Миграция БД
-
-```text
-CREATE TABLE reputation_reports (
-  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-  user_id UUID REFERENCES auth.users(id),
-  entity_id TEXT NOT NULL,
-  entity_type TEXT NOT NULL,
-  query TEXT,
-  name TEXT,
-  inn TEXT,
-  ogrn TEXT,
-  report_data JSONB NOT NULL DEFAULT '{}',
-  selected_sections TEXT[] DEFAULT '{}',
-  created_at TIMESTAMPTZ DEFAULT now()
-);
--- RLS: owner + admin access
+### Auto-title logic move:
 ```
-
-### Порядок реализации
-
-1. Миграция БД — таблица `reputation_reports`
-2. Обновление `reputation-api` edge function — новые actions
-3. Страница `Reputation.tsx` — поиск, настройки, карточки
-4. Компоненты: `ReputationReportCard`, `ReputationFieldSelector`
-5. Роут и навигация в `App.tsx` и `AdminSidebar.tsx`
-6. Интеграция "Отправить в чат" — сохранение + вставка в контекст
+// Before the "if (!agentId)" check, update title on first message:
+if (localMessages.length === 0) {
+  const titleText = cleanText || text;
+  const title = titleText.slice(0, 50) + (titleText.length > 50 ? '...' : '');
+  await supabase.from('department_chats').update({ title }).eq('id', activeChatId);
+}
+```
 
