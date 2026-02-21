@@ -6,51 +6,48 @@ const corsHeaders = {
 };
 
 const VOK_BASE = 'https://api.saby.ru/vok';
-const AUTH_URL = 'https://online.sbis.ru/auth/service/';
+const AUTH_URL = 'https://api.saby.ru/oauth/service/';
 
-// In-memory session cache (edge functions are short-lived, but helps within a single invocation)
-let cachedSid: string | null = null;
-let sidExpiresAt = 0;
+// In-memory token cache
+let cachedToken: string | null = null;
+let tokenExpiresAt = 0;
 
 async function authenticate(): Promise<string> {
-  // Reuse cached SID if still valid (within 25 min window)
-  if (cachedSid && Date.now() < sidExpiresAt) {
-    return cachedSid;
+  if (cachedToken && Date.now() < tokenExpiresAt) {
+    return cachedToken;
   }
 
-  const login = Deno.env.get('SBIS_LOGIN');
-  const password = Deno.env.get('SBIS_PASSWORD');
+  const appClientId = Deno.env.get('SBIS_APP_CLIENT_ID');
+  const appSecret = Deno.env.get('SBIS_APP_SECRET');
+  const secretKey = Deno.env.get('SBIS_SECRET_KEY');
 
-  if (!login || !password) {
-    throw new Error('SBIS_LOGIN or SBIS_PASSWORD not configured');
+  if (!appClientId || !appSecret || !secretKey) {
+    throw new Error('SBIS_APP_CLIENT_ID, SBIS_APP_SECRET or SBIS_SECRET_KEY not configured');
   }
 
-  console.log('SBIS: Authenticating...');
-  const body = JSON.stringify({
-    jsonrpc: '2.0',
-    method: 'САП.Аутентифицировать',
-    params: { login, password },
-    id: 1,
-  });
+  console.log('SBIS: Authenticating via OAuth...');
   const res = await fetch(AUTH_URL, {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json; charset=utf-8' },
-    body,
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      app_client_id: appClientId,
+      app_secret: appSecret,
+      secret_key: secretKey,
+    }),
   });
 
   const data = await res.json();
-  if (data.error) {
-    throw new Error(`SBIS auth error: ${data.error.message || JSON.stringify(data.error)}`);
+  if (!res.ok || data.error) {
+    throw new Error(`SBIS auth error [${res.status}]: ${JSON.stringify(data)}`);
   }
 
-
-  cachedSid = data.result;
-  sidExpiresAt = Date.now() + 25 * 60 * 1000; // 25 minutes
+  cachedToken = data.token;
+  tokenExpiresAt = Date.now() + 25 * 60 * 1000;
   console.log('SBIS: Authenticated successfully');
-  return cachedSid!;
+  return cachedToken!;
 }
 
-async function vokRequest(endpoint: string, params: Record<string, string>, sid: string): Promise<unknown> {
+async function vokRequest(endpoint: string, params: Record<string, string>, token: string): Promise<unknown> {
   const url = new URL(`${VOK_BASE}/${endpoint}`);
   for (const [k, v] of Object.entries(params)) {
     url.searchParams.append(k, v);
@@ -59,7 +56,7 @@ async function vokRequest(endpoint: string, params: Record<string, string>, sid:
   const res = await fetch(url.toString(), {
     method: 'GET',
     headers: {
-      'X-SBISSessionID': sid,
+      'X-SBISAccessToken': token,
       'Accept': 'application/json',
     },
   });
