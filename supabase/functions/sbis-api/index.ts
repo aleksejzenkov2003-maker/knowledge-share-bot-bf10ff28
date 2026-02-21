@@ -5,8 +5,8 @@ const corsHeaders = {
   'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
 };
 
-const VOK_BASE = 'https://api.sbis.ru/vok';
-const AUTH_URL = 'https://api.sbis.ru/auth/service/';
+const VOK_BASE = 'https://api.saby.ru/vok';
+const AUTH_URL = 'https://online.sbis.ru/auth/service/';
 
 // In-memory session cache (edge functions are short-lived, but helps within a single invocation)
 let cachedSid: string | null = null;
@@ -26,27 +26,23 @@ async function authenticate(): Promise<string> {
   }
 
   console.log('SBIS: Authenticating...');
+  const body = JSON.stringify({
+    jsonrpc: '2.0',
+    method: 'САП.Аутентифицировать',
+    params: { login, password },
+    id: 1,
+  });
   const res = await fetch(AUTH_URL, {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({
-      jsonrpc: '2.0',
-      method: 'САП.Аутентифицировать',
-      protocol: 3,
-      params: { login, password },
-      id: 1,
-    }),
+    headers: { 'Content-Type': 'application/json; charset=utf-8' },
+    body,
   });
-
-  if (!res.ok) {
-    const text = await res.text();
-    throw new Error(`SBIS auth failed [${res.status}]: ${text}`);
-  }
 
   const data = await res.json();
   if (data.error) {
-    throw new Error(`SBIS auth error: ${JSON.stringify(data.error)}`);
+    throw new Error(`SBIS auth error: ${data.error.message || JSON.stringify(data.error)}`);
   }
+
 
   cachedSid = data.result;
   sidExpiresAt = Date.now() + 25 * 60 * 1000; // 25 minutes
