@@ -34,6 +34,7 @@ import GoldenResponses from "./pages/GoldenResponses";
 import Projects from "./pages/Projects";
 import ProjectChat from "./pages/ProjectChat";
 import Reputation from "./pages/Reputation";
+import SbisReport from "./pages/SbisReport";
 import NotFound from "./pages/NotFound";
 
 const queryClient = new QueryClient();
@@ -158,6 +159,11 @@ const App = () => (
             <Route path="/reputation" element={
               <ProtectedRoute allowedRoles={['admin']}>
                 <AdminLayout><Reputation /></AdminLayout>
+              </ProtectedRoute>
+            } />
+            <Route path="/sbis" element={
+              <ProtectedRoute allowedRoles={['admin']}>
+                <AdminLayout><SbisReport /></AdminLayout>
               </ProtectedRoute>
             } />
             <Route path="*" element={<NotFound />} />
