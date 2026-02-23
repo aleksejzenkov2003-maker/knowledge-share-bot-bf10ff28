@@ -74,6 +74,13 @@ async function vokRequest(endpoint: string, params: Record<string, string>, sid:
   return await res.json();
 }
 
+// VOK API does not accept both inn and ogrn simultaneously — pick one
+function pickIdentifier(inn?: string, ogrn?: string): Record<string, string> {
+  if (inn) return { inn };
+  if (ogrn) return { ogrn };
+  return {};
+}
+
 serve(async (req) => {
   if (req.method === 'OPTIONS') {
     return new Response(null, { headers: corsHeaders });
@@ -116,9 +123,7 @@ serve(async (req) => {
           { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
         );
       }
-      const params: Record<string, string> = {};
-      if (inn) params.inn = inn;
-      if (ogrn) params.ogrn = ogrn;
+      const params = pickIdentifier(inn, ogrn);
 
       const data = await vokRequest('req', params, sid);
       return new Response(JSON.stringify(data), {
@@ -126,109 +131,22 @@ serve(async (req) => {
       });
     }
 
-    // ACTION: finance — financial data
-    if (action === 'finance') {
-      const params: Record<string, string> = {};
-      if (inn) params.inn = inn;
-      if (ogrn) params.ogrn = ogrn;
+    // Map action → VOK endpoint for simple proxy actions
+    const actionEndpointMap: Record<string, string> = {
+      finance: 'finance',
+      owners: 'owners',
+      affiliate: 'affiliate',
+      tenders: 'tenders',
+      'tenders-info': 'tenders-info',
+      trademarks: 'trademarks',
+      courts: 'statistic-courts',
+      reliability: 'reliability',
+      contacts: 'contacts-official',
+    };
 
-      const data = await vokRequest('finance', params, sid);
-      return new Response(JSON.stringify(data), {
-        headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-      });
-    }
-
-    // ACTION: owners — affiliated persons
-    if (action === 'owners') {
-      const params: Record<string, string> = {};
-      if (inn) params.inn = inn;
-      if (ogrn) params.ogrn = ogrn;
-
-      const data = await vokRequest('owners', params, sid);
-      return new Response(JSON.stringify(data), {
-        headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-      });
-    }
-
-    // ACTION: affiliate — affiliated companies
-    if (action === 'affiliate') {
-      const params: Record<string, string> = {};
-      if (inn) params.inn = inn;
-      if (ogrn) params.ogrn = ogrn;
-
-      const data = await vokRequest('affiliate', params, sid);
-      return new Response(JSON.stringify(data), {
-        headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-      });
-    }
-
-    // ACTION: tenders — government contracts
-    if (action === 'tenders') {
-      const params: Record<string, string> = {};
-      if (inn) params.inn = inn;
-      if (ogrn) params.ogrn = ogrn;
-
-      const data = await vokRequest('tenders', params, sid);
-      return new Response(JSON.stringify(data), {
-        headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-      });
-    }
-
-    // ACTION: tenders-info — detailed tender info
-    if (action === 'tenders-info') {
-      const params: Record<string, string> = {};
-      if (inn) params.inn = inn;
-      if (ogrn) params.ogrn = ogrn;
-
-      const data = await vokRequest('tenders-info', params, sid);
-      return new Response(JSON.stringify(data), {
-        headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-      });
-    }
-
-    // ACTION: trademarks — trademarks
-    if (action === 'trademarks') {
-      const params: Record<string, string> = {};
-      if (inn) params.inn = inn;
-      if (ogrn) params.ogrn = ogrn;
-
-      const data = await vokRequest('trademarks', params, sid);
-      return new Response(JSON.stringify(data), {
-        headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-      });
-    }
-
-    // ACTION: statistic-courts — court statistics
-    if (action === 'courts') {
-      const params: Record<string, string> = {};
-      if (inn) params.inn = inn;
-      if (ogrn) params.ogrn = ogrn;
-
-      const data = await vokRequest('statistic-courts', params, sid);
-      return new Response(JSON.stringify(data), {
-        headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-      });
-    }
-
-    // ACTION: reliability — reliability score
-    if (action === 'reliability') {
-      const params: Record<string, string> = {};
-      if (inn) params.inn = inn;
-      if (ogrn) params.ogrn = ogrn;
-
-      const data = await vokRequest('reliability', params, sid);
-      return new Response(JSON.stringify(data), {
-        headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-      });
-    }
-
-    // ACTION: contacts-official — official contacts
-    if (action === 'contacts') {
-      const params: Record<string, string> = {};
-      if (inn) params.inn = inn;
-      if (ogrn) params.ogrn = ogrn;
-
-      const data = await vokRequest('contacts-official', params, sid);
+    if (actionEndpointMap[action]) {
+      const params = pickIdentifier(inn, ogrn);
+      const data = await vokRequest(actionEndpointMap[action], params, sid);
       return new Response(JSON.stringify(data), {
         headers: { ...corsHeaders, 'Content-Type': 'application/json' },
       });
@@ -286,9 +204,7 @@ serve(async (req) => {
         );
       }
 
-      const params: Record<string, string> = {};
-      if (targetInn) params.inn = targetInn;
-      if (targetOgrn) params.ogrn = targetOgrn;
+      const params = pickIdentifier(targetInn, targetOgrn);
 
       // Fetch req data (main requisites)
       let reqData: any = null;
