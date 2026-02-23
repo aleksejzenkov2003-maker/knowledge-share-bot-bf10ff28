@@ -191,8 +191,13 @@ serve(async (req) => {
             // Single result — extract INN
             targetInn = rawItems[0]?.inn || rawItems[0]?.INN;
             targetOgrn = rawItems[0]?.ogrn || rawItems[0]?.OGRN;
-          } catch (e) {
+          } catch (e: any) {
             console.error('SBIS search error:', e);
+            // Don't swallow the error — return it so the user sees the real problem
+            return new Response(
+              JSON.stringify({ error: e?.message || 'Search failed', search_results: [] }),
+              { status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+            );
           }
         }
       }
