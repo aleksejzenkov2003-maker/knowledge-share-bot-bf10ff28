@@ -6,7 +6,7 @@ const corsHeaders = {
 };
 
 const VOK_BASE = 'https://api.saby.ru/vok';
-const AUTH_URL = 'https://online.sbis.ru/auth/service/';
+const AUTH_URL = 'https://api.saby.ru/auth/service/';
 
 // In-memory session cache
 let cachedSid: string | null = null;
@@ -57,6 +57,7 @@ async function vokRequest(endpoint: string, params: Record<string, string>, sid:
     method: 'GET',
     headers: {
       'X-SBISSessionID': sid,
+      'Cookie': `sid=${sid}`,
       'Accept': 'application/json',
     },
   });
@@ -99,7 +100,7 @@ serve(async (req) => {
         );
       }
 
-      const data = await vokRequest('search', { query: searchQuery }, sid);
+      const data = await vokRequest('search', { requisites: searchQuery }, sid);
       return new Response(JSON.stringify(data), {
         headers: { ...corsHeaders, 'Content-Type': 'application/json' },
       });
@@ -248,7 +249,7 @@ serve(async (req) => {
         } else {
           // Text search
           try {
-            const searchData = await vokRequest('search', { query: searchQuery }, sid) as any;
+            const searchData = await vokRequest('search', { requisites: searchQuery }, sid) as any;
             const items = searchData?.items || (Array.isArray(searchData) ? searchData : []);
             searchResults = items;
 
