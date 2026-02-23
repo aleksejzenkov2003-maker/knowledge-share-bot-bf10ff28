@@ -268,7 +268,7 @@ const SbisReport = () => {
                           <div className="flex items-start gap-2">
                             <Building2 className="h-5 w-5 text-muted-foreground shrink-0 mt-0.5" />
                             <div className="min-w-0">
-                              <div className="font-medium text-sm truncate">{r.name || r.full_name || r.Name}</div>
+                              <div className="font-medium text-sm truncate">{r.company_name || r.name || r.full_name || r.Name}</div>
                               {(r.inn || r.INN) && <div className="text-xs text-muted-foreground">ИНН: {r.inn || r.INN}</div>}
                               {(r.ogrn || r.OGRN) && <div className="text-xs text-muted-foreground">ОГРН: {r.ogrn || r.OGRN}</div>}
                             </div>

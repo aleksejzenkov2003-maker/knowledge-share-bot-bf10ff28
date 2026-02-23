@@ -100,7 +100,9 @@ serve(async (req) => {
         );
       }
 
-      const data = await vokRequest('search', { requisites: searchQuery }, sid);
+      const rawData = await vokRequest('search', { requisites: searchQuery }, sid) as any;
+      // Unwrap nested array [[{...}]] → [{...}]
+      const data = Array.isArray(rawData) && Array.isArray(rawData[0]) ? rawData[0] : rawData;
       return new Response(JSON.stringify(data), {
         headers: { ...corsHeaders, 'Content-Type': 'application/json' },
       });
@@ -250,24 +252,27 @@ serve(async (req) => {
           // Text search
           try {
             const searchData = await vokRequest('search', { requisites: searchQuery }, sid) as any;
-            const items = searchData?.items || (Array.isArray(searchData) ? searchData : []);
-            searchResults = items;
+            // VOK search returns [[{...}, {...}]] — nested array
+            const rawItems = Array.isArray(searchData) && Array.isArray(searchData[0]) 
+              ? searchData[0] 
+              : searchData?.items || (Array.isArray(searchData) ? searchData : []);
+            searchResults = rawItems;
 
-            if (items.length === 0) {
+            if (rawItems.length === 0) {
               return new Response(JSON.stringify({ search_results: [], company: null }), {
                 headers: { ...corsHeaders, 'Content-Type': 'application/json' },
               });
             }
 
-            if (items.length > 1) {
-              return new Response(JSON.stringify({ search_results: items.slice(0, 10), company: null }), {
+            if (rawItems.length > 1) {
+              return new Response(JSON.stringify({ search_results: rawItems.slice(0, 10), company: null }), {
                 headers: { ...corsHeaders, 'Content-Type': 'application/json' },
               });
             }
 
             // Single result — extract INN
-            targetInn = items[0]?.inn || items[0]?.INN;
-            targetOgrn = items[0]?.ogrn || items[0]?.OGRN;
+            targetInn = rawItems[0]?.inn || rawItems[0]?.INN;
+            targetOgrn = rawItems[0]?.ogrn || rawItems[0]?.OGRN;
           } catch (e) {
             console.error('SBIS search error:', e);
           }
