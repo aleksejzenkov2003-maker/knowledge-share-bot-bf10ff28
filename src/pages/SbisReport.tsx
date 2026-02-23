@@ -10,6 +10,7 @@ import { Badge } from '@/components/ui/badge';
 import { Separator } from '@/components/ui/separator';
 import { toast } from '@/hooks/use-toast';
 import { Search, Building2, Copy, Bookmark, Loader2, ChevronLeft, ChevronRight, TrendingUp, Users, Gavel, FileCheck, Phone, ShieldCheck } from 'lucide-react';
+import { renderSectionData } from '@/components/sbis/SbisDataRenderers';
 
 const DATA_SECTIONS = [
   { key: 'requisites', label: 'Реквизиты', description: 'ИНН, ОГРН, КПП, адрес, статус', icon: Building2 },
@@ -380,82 +381,17 @@ const SbisCompanyCard = ({ company, extraData, selectedSections, sectionLoading,
             </TabsContent>
           )}
 
-          {selectedSections.includes('finance') && (
-            <TabsContent value="finance">
+          {['finance', 'owners', 'tenders', 'trademarks', 'courts', 'reliability', 'contacts'].filter(k => selectedSections.includes(k)).map(key => (
+            <TabsContent key={key} value={key}>
               <LazySection
-                data={extraData.finance}
-                loading={sectionLoading === 'finance'}
-                onLoad={() => onLoadSection('finance')}
-                label="финансовые данные"
+                sectionKey={key}
+                data={extraData[key]}
+                loading={sectionLoading === key}
+                onLoad={() => onLoadSection(key)}
+                label={DATA_SECTIONS.find(s => s.key === key)?.description || key}
               />
             </TabsContent>
-          )}
-
-          {selectedSections.includes('owners') && (
-            <TabsContent value="owners">
-              <LazySection
-                data={extraData.owners}
-                loading={sectionLoading === 'owners'}
-                onLoad={() => onLoadSection('owners')}
-                label="данные о связях"
-              />
-            </TabsContent>
-          )}
-
-          {selectedSections.includes('tenders') && (
-            <TabsContent value="tenders">
-              <LazySection
-                data={extraData.tenders}
-                loading={sectionLoading === 'tenders'}
-                onLoad={() => onLoadSection('tenders')}
-                label="данные о госзакупках"
-              />
-            </TabsContent>
-          )}
-
-          {selectedSections.includes('trademarks') && (
-            <TabsContent value="trademarks">
-              <LazySection
-                data={extraData.trademarks}
-                loading={sectionLoading === 'trademarks'}
-                onLoad={() => onLoadSection('trademarks')}
-                label="товарные знаки"
-              />
-            </TabsContent>
-          )}
-
-          {selectedSections.includes('courts') && (
-            <TabsContent value="courts">
-              <LazySection
-                data={extraData.courts}
-                loading={sectionLoading === 'courts'}
-                onLoad={() => onLoadSection('courts')}
-                label="судебную статистику"
-              />
-            </TabsContent>
-          )}
-
-          {selectedSections.includes('reliability') && (
-            <TabsContent value="reliability">
-              <LazySection
-                data={extraData.reliability}
-                loading={sectionLoading === 'reliability'}
-                onLoad={() => onLoadSection('reliability')}
-                label="данные о надёжности"
-              />
-            </TabsContent>
-          )}
-
-          {selectedSections.includes('contacts') && (
-            <TabsContent value="contacts">
-              <LazySection
-                data={extraData.contacts}
-                loading={sectionLoading === 'contacts'}
-                onLoad={() => onLoadSection('contacts')}
-                label="контактные данные"
-              />
-            </TabsContent>
-          )}
+          ))}
         </Tabs>
       </CardContent>
     </Card>
@@ -464,7 +400,7 @@ const SbisCompanyCard = ({ company, extraData, selectedSections, sectionLoading,
 
 // ─── Lazy Section Loader ─────────────────────────────────────────
 
-const LazySection = ({ data, loading, onLoad, label }: { data: any; loading: boolean; onLoad: () => void; label: string }) => {
+const LazySection = ({ sectionKey, data, loading, onLoad, label }: { sectionKey?: string; data: any; loading: boolean; onLoad: () => void; label: string }) => {
   if (loading) {
     return (
       <div className="flex items-center justify-center py-8">
@@ -485,9 +421,12 @@ const LazySection = ({ data, loading, onLoad, label }: { data: any; loading: boo
     );
   }
 
-  // Render loaded data
+  if (sectionKey) {
+    return renderSectionData(sectionKey, data);
+  }
+
+  // Fallback to generic grid
   if (typeof data === 'object' && !Array.isArray(data)) {
-    // Check if it has items array
     if (data.items && Array.isArray(data.items)) {
       return (
         <div className="space-y-3">
