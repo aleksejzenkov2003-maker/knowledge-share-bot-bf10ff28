@@ -152,11 +152,8 @@ const Reputation = () => {
       const rest = cleaned.replace(/"[^"]+"/g, '');
       // Extract city
       const cityMatch = rest.match(/(?:г\.|город\s+|,\s*)(Москв[аы]|Санкт-Петербург[аеу]?|Новосибирск[аеу]?|Екатеринбург[аеу]?|Казан[ьи]|Нижн[иего]+ Новгород[аеу]?|Челябинск[аеу]?|Самар[аеыу]|Омск[аеу]?|Ростов[аеу]?(?:-на-Дону)?|Уф[аеыу]|Красноярск[аеу]?|Пермь|Перми|Воронеж[аеу]?|Волгоград[аеу]?)/i);
-      // Extract street name (after ул./улица/пер./пр-кт etc.)
-      const streetMatch = rest.match(/(?:ул\.?\s*|улица\s+|пер\.?\s*|пр-кт\.?\s*|проспект\s+|наб\.?\s*|набережная\s+|бульвар\s+|б-р\.?\s*|шоссе\s+|ш\.?\s*)([А-Яа-яЁё\s-]+?)(?:\s*,|\s*д\.|\s*дом|\s*$)/i);
       let result = companyName;
       if (cityMatch) result += ` ${cityMatch[1]}`;
-      if (streetMatch) result += ` ${streetMatch[1].trim()}`;
       return result;
     }
     
