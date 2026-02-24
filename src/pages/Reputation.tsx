@@ -357,7 +357,7 @@ const Reputation = () => {
         </div>
         <div>
           <h1 className="text-2xl font-bold tracking-tight">Проверка контрагентов</h1>
-          <p className="text-sm text-muted-foreground">Поиск компаний, ИП и проверка деловой репутации</p>
+          <p className="text-sm text-muted-foreground">Поиск компаний, ИП, физлиц и проверка деловой репутации</p>
         </div>
       </div>
 
@@ -369,8 +369,8 @@ const Reputation = () => {
               <div className="absolute left-3 top-1/2 -translate-y-1/2 flex h-6 w-6 items-center justify-center rounded-md bg-muted">
                 <QueryIcon className="h-3.5 w-3.5 text-muted-foreground" />
               </div>
-              <Input
-                placeholder="ИНН, ОГРН или название компании (+ город)"
+                <Input
+                placeholder="ИНН, ОГРН, название компании или ФИО физлица"
                 value={query}
                 onChange={e => setQuery(e.target.value)}
                 onKeyDown={e => e.key === 'Enter' && handleSearch()}
@@ -446,7 +446,7 @@ const Reputation = () => {
                     className="group flex items-start gap-2 text-sm p-2.5 rounded-lg bg-muted/30 cursor-pointer hover:bg-muted hover:shadow-sm transition-all"
                     onClick={() => loadSavedReport(r.id)}
                   >
-                    <Building2 className="h-4 w-4 text-muted-foreground shrink-0 mt-0.5" />
+                    {r.entity_type === 'person' ? <User className="h-4 w-4 text-muted-foreground shrink-0 mt-0.5" /> : <Building2 className="h-4 w-4 text-muted-foreground shrink-0 mt-0.5" />}
                     <div className="min-w-0 flex-1">
                       <div className="font-medium truncate leading-tight">{r.name || 'Без названия'}</div>
                       <div className="flex items-center gap-2 mt-0.5">
@@ -534,7 +534,7 @@ const Reputation = () => {
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                   {filteredResults.slice(0, visibleCount).map((r) => {
                     const isActive = r.Status === 'Active';
-                    const TypeIcon = r.Type === 'Entrepreneur' ? User : Building2;
+                    const TypeIcon = r.Type === 'Person' ? User : r.Type === 'Entrepreneur' ? User : Building2;
                     return (
                       <Card
                         key={r.Id}
@@ -561,7 +561,7 @@ const Reputation = () => {
                               <div className="flex flex-wrap gap-1.5 pt-0.5">
                                 <Badge variant="outline" className="text-[10px] gap-1">
                                   <TypeIcon className="h-2.5 w-2.5" />
-                                  {r.Type === 'Company' ? 'Юр. лицо' : r.Type === 'Entrepreneur' ? 'ИП' : r.Type}
+                                  {r.Type === 'Company' ? 'Юр. лицо' : r.Type === 'Entrepreneur' ? 'ИП' : r.Type === 'Person' ? 'Физ. лицо' : r.Type}
                                 </Badge>
                                 {r.Status && (
                                   <Badge

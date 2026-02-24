@@ -52,7 +52,7 @@ serve(async (req) => {
         headers,
         body: JSON.stringify({
           QueryText: query,
-          Filter: { EntityTypes: ['Company', 'Entrepreneur'] },
+          Filter: { EntityTypes: ['Company', 'Entrepreneur', 'Person'] },
         }),
       });
 
@@ -200,7 +200,7 @@ serve(async (req) => {
         headers,
         body: JSON.stringify({
           QueryText: query,
-          Filter: { EntityTypes: ['Company', 'Entrepreneur'] },
+          Filter: { EntityTypes: ['Company', 'Entrepreneur', 'Person'] },
         }),
       });
 
