@@ -40,7 +40,7 @@ const DATA_SECTIONS = [
   { key: 'address', label: 'Адрес', description: 'Юридический и фактический адрес' },
   { key: 'activities', label: 'ОКВЭД', description: 'Виды деятельности' },
   { key: 'finances', label: 'Финансы', description: 'Уставный капитал, выручка' },
-  { key: 'trademarks', label: 'Товарные знаки', description: 'FIPS данные' },
+  { key: 'trademarks', label: 'Интеллектуальная собственность', description: 'Товарные знаки, патенты, ПО' },
   { key: 'arbitration', label: 'Арбитраж', description: 'Судебные дела' },
   { key: 'contacts', label: 'Контакты', description: 'Телефон, email, сайт' },
 ] as const;
@@ -51,10 +51,25 @@ const SECTION_ICONS: Record<string, LucideIcon> = {
   address: MapPin,
   activities: Briefcase,
   finances: Banknote,
-  trademarks: Hash,
+  trademarks: Lightbulb,
   arbitration: Scale,
   contacts: Phone,
 };
+
+const REGISTRY_MAP: Record<string, { label: string; db: string; short: string }> = {
+  RUTM:   { label: 'Товарный знак', db: 'RUTM', short: 'ТЗ' },
+  RUTMAP: { label: 'Заявка на ТЗ', db: 'RUTMAP', short: 'Заявка ТЗ' },
+  RUPM:   { label: 'Полезная модель', db: 'RUPM', short: 'ПМ' },
+  RUPMAP: { label: 'Заявка на ПМ', db: 'RUPMAP', short: 'Заявка ПМ' },
+  RUDE:   { label: 'Пром. образец', db: 'RUDE', short: 'ПО' },
+  RUDEAP: { label: 'Заявка на ПО', db: 'RUDEAP', short: 'Заявка ПО' },
+  EVM:    { label: 'Программа ЭВМ', db: 'RSPODB', short: 'ЭВМ' },
+};
+
+function getRegistryInfo(registry?: string) {
+  if (registry && REGISTRY_MAP[registry]) return REGISTRY_MAP[registry];
+  return { label: 'Товарный знак', db: 'RUTM', short: 'ТЗ' };
+}
 
 const STORAGE_KEY = 'reputation-selected-sections';
 
@@ -1030,8 +1045,9 @@ const CompanyDetailCard = ({ company, entityType, selectedSections, onSave, onCo
                     {allTM.map((tm: any, i: number) => {
                       const regNum = tm.Number || tm.RegistrationNumber || tm.reg_number;
                       const appNum = tm.ApplicationNumber || tm.app_number;
-                      const fipsUrl = regNum ? `https://fips.ru/registers-doc-view/fips_servlet?DB=RUTM&DocNumber=${regNum}&TypeFile=html` : null;
-                      const title = tm.Topic || tm.Name || tm.Description || `ТЗ №${regNum || appNum || i + 1}`;
+                      const regInfo = getRegistryInfo(tm.Registry);
+                      const fipsUrl = regNum ? `https://fips.ru/registers-doc-view/fips_servlet?DB=${regInfo.db}&DocNumber=${regNum}&TypeFile=html` : null;
+                      const title = tm.Topic || tm.Name || tm.Description || `${regInfo.short} №${regNum || appNum || i + 1}`;
                       const regDate = tm.RegistrationDate || tm.patent_date_begin;
                       const expDate = tm.ExpirationDate || tm.patent_date_end;
                       const statusText = tm.Status
@@ -1051,7 +1067,7 @@ const CompanyDetailCard = ({ company, entityType, selectedSections, onSave, onCo
                                 ) : (
                                   <div className="flex flex-col items-center justify-center h-full text-muted-foreground">
                                     <Hash className="h-5 w-5" />
-                                    <span className="text-[10px] mt-0.5">ТЗ</span>
+                                    <span className="text-[10px] mt-0.5">{regInfo.short}</span>
                                   </div>
                                 )}
                               </div>
@@ -1070,7 +1086,10 @@ const CompanyDetailCard = ({ company, entityType, selectedSections, onSave, onCo
                                   {regDate && <span>Рег: {formatDate(regDate)}</span>}
                                   {expDate && <span>До: {formatDate(expDate)}</span>}
                                 </div>
-                                {tm._source && <Badge variant="outline" className="text-[10px]">{tm._source === 'patents' ? 'Реестр' : 'Заявка'}</Badge>}
+                                <div className="flex gap-1 flex-wrap">
+                                  <Badge variant="outline" className="text-[10px]">{regInfo.label}</Badge>
+                                  {tm._source && <Badge variant="outline" className="text-[10px]">{tm._source === 'patents' ? 'Реестр' : 'Заявка'}</Badge>}
+                                </div>
                                 {fipsUrl && (
                                   <a href={fipsUrl} target="_blank" rel="noopener noreferrer"
                                     className="inline-flex items-center gap-1 text-xs text-primary hover:underline">
@@ -1086,7 +1105,7 @@ const CompanyDetailCard = ({ company, entityType, selectedSections, onSave, onCo
                   </div>
                 ) : (
                   <div className="space-y-3">
-                    <p className="text-sm text-muted-foreground">Нет данных о товарных знаках.</p>
+                    <p className="text-sm text-muted-foreground">Нет данных об интеллектуальной собственности.</p>
                   </div>
                 );
               })()}
@@ -1106,9 +1125,9 @@ const CompanyDetailCard = ({ company, entityType, selectedSections, onSave, onCo
                     if (error) throw error;
                     if (data?.trademarks?.length > 0) {
                       setFipsTrademarks(data.trademarks);
-                      toast({ title: `Найдено ${data.count} товарных знаков (FIPS)` });
+                      toast({ title: `Найдено ${data.count} объектов ИС (FIPS)` });
                     } else {
-                      toast({ title: 'Товарные знаки не найдены в FIPS' });
+                      toast({ title: 'Объекты ИС не найдены в FIPS' });
                     }
                   } catch (err: any) {
                     toast({ title: 'Ошибка FIPS', description: err.message, variant: 'destructive' });
