@@ -130,25 +130,43 @@ serve(async (req) => {
       console.log(`Reputation trademarks: entityId=${entity_id}, entityType=${entType}`);
 
       const results: Record<string, unknown>[] = [];
+      const seenIds = new Set<string>();
 
-      for (const endpoint of ['patents', 'applications']) {
-        try {
-          const res = await fetch(
-            `${API_BASE}/fips/${endpoint}?entityId=${encodeURIComponent(entity_id)}&entityType=${encodeURIComponent(entType)}`,
-            { method: 'GET', headers }
-          );
-          if (res.ok) {
-            const data = await res.json();
-            const items = Array.isArray(data) ? data : (data.Items || data.Results || data.items || []);
-            results.push(...items.map((item: any) => ({ ...item, _source: endpoint })));
-            console.log(`FIPS ${endpoint}: ${items.length} items`);
-          } else {
-            const errText = await res.text();
-            console.error(`FIPS ${endpoint} error:`, res.status, errText);
+      // For Person/Entrepreneur, try both types since trademarks may be registered under either
+      const typesToTry = (entType === 'Person' || entType === 'person')
+        ? ['Person', 'Entrepreneur']
+        : (entType === 'Entrepreneur' || entType === 'entrepreneur')
+          ? ['Entrepreneur', 'Person']
+          : [entType];
+
+      for (const tryType of typesToTry) {
+        for (const endpoint of ['patents', 'applications']) {
+          try {
+            const res = await fetch(
+              `${API_BASE}/fips/${endpoint}?entityId=${encodeURIComponent(entity_id)}&entityType=${encodeURIComponent(tryType)}`,
+              { method: 'GET', headers }
+            );
+            if (res.ok) {
+              const data = await res.json();
+              const items = Array.isArray(data) ? data : (data.Items || data.Results || data.items || []);
+              for (const item of items) {
+                const itemId = item.Id || item.id || JSON.stringify(item);
+                if (!seenIds.has(itemId)) {
+                  seenIds.add(itemId);
+                  results.push({ ...item, _source: endpoint });
+                }
+              }
+              console.log(`FIPS ${endpoint} (${tryType}): ${items.length} items`);
+            } else {
+              const errText = await res.text();
+              console.error(`FIPS ${endpoint} (${tryType}) error:`, res.status, errText);
+            }
+          } catch (e) {
+            console.error(`FIPS ${endpoint} (${tryType}) fetch error:`, e);
           }
-        } catch (e) {
-          console.error(`FIPS ${endpoint} fetch error:`, e);
         }
+        // If found results with first type, skip other types
+        if (results.length > 0) break;
       }
 
       console.log(`Reputation trademarks: found ${results.length} items total`);
