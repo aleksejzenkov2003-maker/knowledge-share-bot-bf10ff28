@@ -46,9 +46,6 @@ const STORAGE_KEY = 'reputation-selected-sections';
 const Reputation = () => {
   const { user } = useAuth();
   const [query, setQuery] = useState('');
-  const [searchMode, setSearchMode] = useState<'company' | 'trademark'>('company');
-  const [trademarkSearchResults, setTrademarkSearchResults] = useState<any[]>([]);
-  const [trademarkSearchLoading, setTrademarkSearchLoading] = useState(false);
   const [loading, setLoading] = useState(false);
   const [loadingDetail, setLoadingDetail] = useState(false);
   const [searchResults, setSearchResults] = useState<SearchResult[]>([]);
@@ -235,30 +232,6 @@ const Reputation = () => {
     }
   };
 
-  const handleTrademarkSearch = async () => {
-    if (!query.trim()) return;
-    setTrademarkSearchLoading(true);
-    setTrademarkSearchResults([]);
-
-    try {
-      const { data, error } = await supabase.functions.invoke('reputation-api', {
-        body: { query: query.trim(), action: 'trademark_search' },
-      });
-
-      if (error) throw error;
-
-      if (data?.trademarks?.length > 0) {
-        setTrademarkSearchResults(data.trademarks);
-        toast({ title: `Найдено ${data.count} товарных знаков` });
-      } else {
-        toast({ title: 'Ничего не найдено', description: 'Попробуйте другой номер', variant: 'destructive' });
-      }
-    } catch (err: any) {
-      toast({ title: 'Ошибка поиска ТЗ', description: err.message, variant: 'destructive' });
-    } finally {
-      setTrademarkSearchLoading(false);
-    }
-  };
 
   const handleSelectResult = async (result: SearchResult) => {
     const entType = (result.Type || 'Company').toLowerCase();
@@ -351,38 +324,27 @@ const Reputation = () => {
       {/* Search */}
       <Card>
         <CardContent className="pt-6">
-          <Tabs value={searchMode} onValueChange={(v) => { setSearchMode(v as 'company' | 'trademark'); setQuery(''); setTrademarkSearchResults([]); setSearchResults([]); setSelectedCompany(null); }}>
-            <TabsList className="mb-4">
-              <TabsTrigger value="company"><Building2 className="h-4 w-4 mr-1.5" />Компании</TabsTrigger>
-              <TabsTrigger value="trademark"><FileText className="h-4 w-4 mr-1.5" />Товарные знаки</TabsTrigger>
-            </TabsList>
-          </Tabs>
           <div className="flex gap-3">
             <div className="relative flex-1">
               <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
               <Input
-                placeholder={searchMode === 'company' ? 'ИНН, ОГРН или название компании (+ город)' : 'Номер заявки или номер регистрации'}
+                placeholder="ИНН, ОГРН или название компании (+ город)"
                 value={query}
                 onChange={e => setQuery(e.target.value)}
-                onKeyDown={e => e.key === 'Enter' && (searchMode === 'company' ? handleSearch() : handleTrademarkSearch())}
+                onKeyDown={e => e.key === 'Enter' && handleSearch()}
                 className="pl-10"
               />
             </div>
-            <Button onClick={searchMode === 'company' ? handleSearch : handleTrademarkSearch} disabled={(searchMode === 'company' ? loading : trademarkSearchLoading) || !query.trim()}>
-              {(searchMode === 'company' ? loading : trademarkSearchLoading) ? <Loader2 className="h-4 w-4 animate-spin" /> : 'Найти'}
+            <Button onClick={handleSearch} disabled={loading || !query.trim()}>
+              {loading ? <Loader2 className="h-4 w-4 animate-spin" /> : 'Найти'}
             </Button>
           </div>
-          {searchMode === 'company' && !query && (
+          {!query && (
             <p className="mt-2 text-xs text-muted-foreground">
               💡 Совет: для точного поиска используйте ИНН или ОГРН. К названию можно добавить город, например: «Скат Санкт-Петербург»
             </p>
           )}
-          {searchMode === 'trademark' && !query && (
-            <p className="mt-2 text-xs text-muted-foreground">
-              💡 Введите номер заявки или номер регистрации товарного знака для поиска в реестре ФИПС
-            </p>
-          )}
-          {searchMode === 'company' && query && (
+          {query && (
             <div className="mt-2">
               <Badge variant="secondary">{detectQueryType(query)}</Badge>
             </div>
@@ -432,84 +394,6 @@ const Reputation = () => {
 
         {/* Results */}
         <div className="lg:col-span-3 space-y-4">
-          {/* Trademark search results */}
-          {searchMode === 'trademark' && trademarkSearchResults.length > 0 && (
-            <Card>
-              <CardHeader className="pb-3">
-                <div className="flex items-center justify-between">
-                  <CardTitle className="text-sm">Найдено {trademarkSearchResults.length} товарных знаков</CardTitle>
-                  <Button variant="ghost" size="sm" onClick={() => { setTrademarkSearchResults([]); setQuery(''); }}>
-                    <ChevronLeft className="h-4 w-4 mr-1" /> Назад
-                  </Button>
-                </div>
-              </CardHeader>
-              <CardContent>
-                <div className="space-y-3">
-                  {trademarkSearchResults.map((tm: any, idx: number) => (
-                    <Card key={idx} className="overflow-hidden">
-                      <CardContent className="p-4">
-                        <div className="flex gap-4">
-                          {tm.ImageUrl && (
-                            <img src={tm.ImageUrl} alt="ТЗ" className="h-20 w-20 object-contain rounded border bg-muted shrink-0" />
-                          )}
-                          <div className="space-y-1.5 min-w-0 flex-1">
-                            <div className="font-medium text-sm">{tm.Name || tm.Description || tm.WordMark || 'Без описания'}</div>
-                            <div className="flex flex-wrap gap-x-4 gap-y-1 text-xs text-muted-foreground">
-                              {(tm.RegistrationNumber || tm.RegNumber) && (
-                                <span>Рег. №: <span className="font-medium text-foreground">{tm.RegistrationNumber || tm.RegNumber}</span></span>
-                              )}
-                              {(tm.ApplicationNumber || tm.AppNumber) && (
-                                <span>Заявка №: <span className="font-medium text-foreground">{tm.ApplicationNumber || tm.AppNumber}</span></span>
-                              )}
-                              {(tm.RegistrationDate || tm.RegDate) && (
-                                <span>Дата рег.: {tm.RegistrationDate || tm.RegDate}</span>
-                              )}
-                              {(tm.ApplicationDate || tm.AppDate || tm.FilingDate) && (
-                                <span>Дата подачи: {tm.ApplicationDate || tm.AppDate || tm.FilingDate}</span>
-                              )}
-                            </div>
-                            {(tm.Owner || tm.Holder || tm.Applicant) && (
-                              <div className="text-xs text-muted-foreground">
-                                Правообладатель: <span className="text-foreground">{tm.Owner || tm.Holder || tm.Applicant}</span>
-                              </div>
-                            )}
-                            <div className="flex flex-wrap gap-1.5 pt-1">
-                              {tm.Status && (
-                                <Badge variant={tm.Status === 'Active' || tm.Status === 'Действует' ? 'default' : 'secondary'} className="text-[10px]">
-                                  {tm.Status}
-                                </Badge>
-                              )}
-                              {tm._source && (
-                                <Badge variant="outline" className="text-[10px]">
-                                  {tm._source === 'patents' ? 'Зарегистрирован' : 'Заявка'}
-                                </Badge>
-                              )}
-                              {(tm.NiceClasses || tm.Classes) && (
-                                <Badge variant="outline" className="text-[10px]">
-                                  МКТУ: {Array.isArray(tm.NiceClasses || tm.Classes) ? (tm.NiceClasses || tm.Classes).join(', ') : (tm.NiceClasses || tm.Classes)}
-                                </Badge>
-                              )}
-                            </div>
-                            {(tm.RegistrationNumber || tm.RegNumber) && (
-                              <a
-                                href={`https://fips.ru/registers-doc-view/fips_servlet?DB=RUTM&DocNumber=${tm.RegistrationNumber || tm.RegNumber}&TypeFile=html`}
-                                target="_blank"
-                                rel="noopener noreferrer"
-                                className="inline-flex items-center gap-1 text-xs text-primary hover:underline mt-1"
-                              >
-                                <ExternalLink className="h-3 w-3" /> Открыть в ФИПС
-                              </a>
-                            )}
-                          </div>
-                        </div>
-                      </CardContent>
-                    </Card>
-                  ))}
-                </div>
-              </CardContent>
-            </Card>
-          )}
-
           {/* Multiple results grid */}
           {searchResults.length > 1 && !selectedCompany && (
             <Card>
