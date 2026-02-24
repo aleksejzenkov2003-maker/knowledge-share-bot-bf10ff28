@@ -377,7 +377,7 @@ const SbisCompanyCard = ({ company, extraData, selectedSections, sectionLoading,
 
           {selectedSections.includes('requisites') && (
             <TabsContent value="requisites">
-              <SbisDataGrid data={flattenForDisplay(c)} />
+              {renderSectionData('requisites', c)}
             </TabsContent>
           )}
 
