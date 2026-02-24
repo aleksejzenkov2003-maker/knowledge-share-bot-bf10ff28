@@ -1,81 +1,120 @@
 
 
-# Добавить поиск товарных знаков по номеру заявки/регистрации
+# Апгрейд страницы Reputation -- красивый дизайн и рабочая история
 
 ## Что будет сделано
 
-На странице Reputation появится отдельная секция для поиска товарных знаков напрямую по номеру заявки или номеру регистрации, без привязки к конкретной компании.
+Полная переработка визуала страницы `/reputation` с красивыми иконками, выделениями, аккуратными кнопками, и рабочей историей поиска (сохраненные отчёты загружаются по клику).
 
-## Изменения на фронтенде
+## 1. Поисковая секция -- новый дизайн
 
-### Файл: `src/pages/Reputation.tsx`
+- Градиентный заголовок с иконкой `Shield` и подзаголовком
+- Поле поиска с увеличенным размером, мягкой тенью, иконкой типа запроса (Hash для ИНН/ОГРН, Building2 для названия)
+- Кнопка "Найти" -- primary с иконкой `Search`, анимация при загрузке
+- Подсказка под полем -- стилизованная с иконкой `Lightbulb`
 
-**1. Добавить переключатель режима поиска:**
-- Две вкладки над полем поиска: "Компании" и "Товарные знаки"
-- При выборе "Товарные знаки" меняется placeholder и логика поиска
+## 2. История поиска -- полностью рабочая
 
-**2. Новый state и логика:**
-- `searchMode`: `'company'` | `'trademark'` — режим поиска
-- `trademarkSearchResults`: массив результатов поиска ТЗ по номеру
-- `handleTrademarkSearch()` — вызывает edge function с `action: 'trademark_search'`
+Сейчас клик по сохраненным отчётам ничего не делает (`{/* TODO: load saved report */}`). Исправления:
 
-**3. Отображение результатов ТЗ:**
-- Карточки с данными: номер регистрации, номер заявки, дата, название/описание, правообладатель, изображение (если есть), статус, классы МКТУ
+- **Загрузка отчёта по клику**: читаем `report_data` из таблицы `reputation_reports`, подставляем в `selectedCompany`, `selectedSections`, восстанавливаем `query`
+- **Удаление отчётов**: иконка корзины с подтверждением
+- **Дата и время**: показываем когда был сохранён отчёт в формате "2 дня назад" / дата
+- **Визуал карточек истории**: иконка `Clock`, бейдж ИНН, hover-эффект
 
-## Изменения в edge function
+## 3. Панель настроек -- визуальный апгрейд
 
-### Файл: `supabase/functions/reputation-api/index.ts`
+- Иконки для каждой секции данных (FileText для Реквизиты, Users для Руководство, MapPin для Адрес, Briefcase для ОКВЭД, Banknote для Финансы, Stamp для ТЗ, Scale для Арбитраж, Phone для Контакты)
+- Переключение чекбоксов с анимацией
+- Разделители между группами
 
-**Новый action `trademark_search`:**
-- Попытка поиска по эндпоинту `/fips/patents?number=...` или `/fips/applications?number=...`
-- Если Reputation.ru API не поддерживает прямой поиск по номеру — используем альтернативный подход: поиск компании-правообладателя, затем фильтрация её ТЗ по номеру
-- Возвращаем найденные данные клиенту
+## 4. Список результатов поиска -- улучшения
+
+- Карточки с hover-анимацией (scale + shadow)
+- Цветовая индикация статуса: зелёный кружок для "Действующая", красный для "Ликвидирована"
+- Иконка типа (Building2 для юрлиц, User для ИП)
+- Улучшенные фильтры с иконками
+
+## 5. Карточка компании (CompanyDetailCard) -- апгрейд
+
+- Шапка с gradient-border, крупная иконка с цветным фоном по статусу
+- Кнопки "Копировать" и "Сохранить" -- outline с hover-эффектами, иконки
+- Табы -- стилизованные с иконками для каждой секции
+- DataGrid -- с иконками-лейблами, чередование строк (zebra), hover
+- Таблицы руководителей/сотрудников -- rounded borders, чередование, аватарки-заглушки
+
+## 6. Пустое состояние
+
+- Красивая заглушка при отсутствии результатов: большая иконка `SearchX`, текст-подсказка
 
 ## Технические детали
 
-### Edge Function — новый action:
+### Файл: `src/pages/Reputation.tsx`
 
+Основные изменения в одном файле:
+
+**Новые иконки (импорт)**:
+`Shield, Clock, Trash2, Users, Phone, Banknote, Scale, Briefcase, Lightbulb, SearchX, CircleDot, User`
+
+**Функция `loadSavedReport(id)`**:
 ```typescript
-if (action === 'trademark_search') {
-  const number = query?.trim();
-  if (!number) {
-    return error 400;
+const loadSavedReport = async (id: string) => {
+  const { data } = await supabase
+    .from('reputation_reports')
+    .select('*')
+    .eq('id', id)
+    .single();
+  if (data) {
+    setSelectedCompany(data.report_data);
+    setEntityType(data.entity_type);
+    setQuery(data.query || data.name || '');
+    setSelectedSections(data.selected_sections || DATA_SECTIONS.map(s => s.key));
+    setSearchResults([]);
   }
-
-  const results = [];
-
-  // Try both patents (registered) and applications endpoints with number filter
-  for (const endpoint of ['patents', 'applications']) {
-    const res = await fetch(
-      `${API_BASE}/fips/${endpoint}?number=${encodeURIComponent(number)}`,
-      { method: 'GET', headers }
-    );
-    if (res.ok) {
-      const data = await res.json();
-      const items = Array.isArray(data) ? data : (data.Items || data.Results || []);
-      results.push(...items.map(item => ({ ...item, _source: endpoint })));
-    }
-  }
-
-  return { trademarks: results, count: results.length, query: number };
-}
+};
 ```
 
-### Фронтенд — переключатель режима:
+**Функция `deleteSavedReport(id)`**:
+```typescript
+const deleteSavedReport = async (id: string) => {
+  await supabase.from('reputation_reports').delete().eq('id', id);
+  loadSavedReports();
+  toast({ title: 'Отчёт удалён' });
+};
+```
 
-Над строкой поиска добавляются Tabs: "Компании" / "Товарные знаки". При переключении:
-- Меняется placeholder: `Номер заявки или номер регистрации`
-- Вызывается другой action в edge function
-- Результаты отображаются в таблице/карточках с полями ТЗ
+**Иконки для секций**:
+```typescript
+const SECTION_ICONS: Record<string, LucideIcon> = {
+  requisites: FileText,
+  management: Users,
+  address: MapPin,
+  activities: Briefcase,
+  finances: Banknote,
+  trademarks: Hash,
+  arbitration: Scale,
+  contacts: Phone,
+};
+```
 
-### Отображение результатов ТЗ:
+**Форматирование даты для истории**:
+```typescript
+const formatRelativeDate = (dateStr: string) => {
+  const date = new Date(dateStr);
+  const now = new Date();
+  const diffMs = now.getTime() - date.getTime();
+  const diffDays = Math.floor(diffMs / 86400000);
+  if (diffDays === 0) return 'Сегодня';
+  if (diffDays === 1) return 'Вчера';
+  if (diffDays < 7) return `${diffDays} дн. назад`;
+  return date.toLocaleDateString('ru-RU');
+};
+```
 
-Таблица с колонками:
-- Номер регистрации
-- Номер заявки
-- Дата регистрации / подачи
-- Описание / словесное обозначение
-- Правообладатель
-- Статус
-- Классы МКТУ
+**Визуальные улучшения** -- обновление className для:
+- Поисковой карточки: gradient border-top, увеличенный padding
+- Карточек результатов: `hover:scale-[1.02] hover:shadow-lg transition-all`
+- DataGrid: zebra-striping, иконки у лейблов
+- Кнопок: аккуратные размеры, gap между иконкой и текстом
+- Истории: hover-эффекты, кнопка удаления, бейджи
 
