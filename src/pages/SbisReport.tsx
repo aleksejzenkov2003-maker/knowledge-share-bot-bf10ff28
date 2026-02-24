@@ -254,39 +254,51 @@ const SbisReport = () => {
 
         {/* Results */}
         <div className="lg:col-span-3 space-y-4">
-          {/* Multiple results carousel */}
+          {/* Multiple results */}
           {searchResults.length > 1 && !company && (
             <Card>
               <CardHeader className="pb-3">
-                <CardTitle className="text-sm">Найдено {searchResults.length} совпадений</CardTitle>
+                <div className="flex items-center justify-between">
+                  <CardTitle className="text-sm">Найдено {searchResults.length} совпадений</CardTitle>
+                  <Button variant="ghost" size="sm" onClick={() => { setSearchResults([]); setQuery(''); }}>
+                    <ChevronLeft className="h-4 w-4 mr-1" /> Назад
+                  </Button>
+                </div>
               </CardHeader>
               <CardContent>
-                <div className="flex items-center gap-3">
-                  <Button variant="outline" size="icon" disabled={currentResultIndex === 0} onClick={() => setCurrentResultIndex(i => i - 1)}>
-                    <ChevronLeft className="h-4 w-4" />
-                  </Button>
-                  <div className="flex-1 grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-3">
-                    {searchResults.slice(currentResultIndex, currentResultIndex + 3).map((r, idx) => (
-                      <Card key={idx} className="cursor-pointer hover:border-primary transition-colors" onClick={() => handleSelectResult(r)}>
-                        <CardContent className="p-4">
-                          <div className="flex items-start gap-2">
-                            <Building2 className="h-5 w-5 text-muted-foreground shrink-0 mt-0.5" />
-                            <div className="min-w-0">
-                              <div className="font-medium text-sm truncate">{r.company_name || r.name || r.full_name || r.Name}</div>
-                              {(r.inn || r.INN) && <div className="text-xs text-muted-foreground">ИНН: {r.inn || r.INN}</div>}
-                              {(r.ogrn || r.OGRN) && <div className="text-xs text-muted-foreground">ОГРН: {r.ogrn || r.OGRN}</div>}
-                              {(r.state_name || r.status_name) && (
-                                <Badge variant="outline" className="text-[10px] mt-1">{r.state_name || r.status_name}</Badge>
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                  {searchResults.map((r, idx) => (
+                    <Card key={idx} className="cursor-pointer hover:border-primary transition-colors" onClick={() => handleSelectResult(r)}>
+                      <CardContent className="p-5">
+                        <div className="flex items-start gap-3">
+                          <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-primary/10 shrink-0">
+                            <Building2 className="h-5 w-5 text-primary" />
+                          </div>
+                          <div className="min-w-0 space-y-1">
+                            <div className="font-medium text-sm leading-tight">{r.company_name || r.name || r.full_name || r.Name}</div>
+                            <div className="flex flex-wrap gap-x-3 gap-y-0.5 text-xs text-muted-foreground">
+                              {(r.inn || r.INN) && <span>ИНН: {r.inn || r.INN}</span>}
+                              {(r.ogrn || r.OGRN) && <span>ОГРН: {r.ogrn || r.OGRN}</span>}
+                            </div>
+                            {(r.address || r.address_legal || r.address_actual || r.region) && (
+                              <div className="flex items-start gap-1 text-xs text-muted-foreground">
+                                <MapPin className="h-3 w-3 shrink-0 mt-0.5" />
+                                <span className="line-clamp-2">{r.address_legal || r.address_actual || r.address || r.region}</span>
+                              </div>
+                            )}
+                            <div className="flex flex-wrap gap-1.5 pt-0.5">
+                              {(r.state_name || r.status_name || r.condition_name) && (
+                                <Badge variant="outline" className="text-[10px]">{r.condition_name || r.state_name || r.status_name}</Badge>
+                              )}
+                              {r.region && (r.address_legal || r.address_actual || r.address) && (
+                                <Badge variant="secondary" className="text-[10px]">{r.region}</Badge>
                               )}
                             </div>
                           </div>
-                        </CardContent>
-                      </Card>
-                    ))}
-                  </div>
-                  <Button variant="outline" size="icon" disabled={currentResultIndex + 3 >= searchResults.length} onClick={() => setCurrentResultIndex(i => i + 1)}>
-                    <ChevronRight className="h-4 w-4" />
-                  </Button>
+                        </div>
+                      </CardContent>
+                    </Card>
+                  ))}
                 </div>
               </CardContent>
             </Card>
@@ -294,15 +306,20 @@ const SbisReport = () => {
 
           {/* Company detail */}
           {company && (
-            <SbisCompanyCard
-              company={company}
-              extraData={extraData}
-              selectedSections={selectedSections}
-              sectionLoading={sectionLoading}
-              onLoadSection={loadSection}
-              onSave={handleSaveReport}
-              onCopy={handleCopyToClipboard}
-            />
+            <>
+              <Button variant="ghost" size="sm" onClick={() => { setCompany(null); setExtraData({}); setCurrentInn(null); setCurrentOgrn(null); }}>
+                <ChevronLeft className="h-4 w-4 mr-1" /> Назад к поиску
+              </Button>
+              <SbisCompanyCard
+                company={company}
+                extraData={extraData}
+                selectedSections={selectedSections}
+                sectionLoading={sectionLoading}
+                onLoadSection={loadSection}
+                onSave={handleSaveReport}
+                onCopy={handleCopyToClipboard}
+              />
+            </>
           )}
 
           {!loading && !company && searchResults.length === 0 && (
