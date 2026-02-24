@@ -125,7 +125,8 @@ const Reputation = () => {
     return 'Название';
   };
 
-  // Normalize messy queries: extract INN/OGRN if present, or simplify long company names
+  // Normalize messy queries: extract INN/OGRN, or parse structured format:
+  // ОПФ "Название", индекс, Город, ул. Улица, д. X, ... (RU)
   const normalizeSearchQuery = (raw: string): string => {
     const trimmed = raw.trim();
     
@@ -137,34 +138,56 @@ const Reputation = () => {
     const ogrnMatch = trimmed.match(/\b(\d{13}|\d{15})\b/);
     if (ogrnMatch) return ogrnMatch[1];
     
-    // Strip legal form prefixes, postal codes, addresses, country codes
-    let cleaned = trimmed;
-    // Remove (RU), (EN) etc at the end
-    cleaned = cleaned.replace(/\s*\([A-Z]{2}\)\s*$/i, '');
-    // Remove postal codes like 194044
-    cleaned = cleaned.replace(/\b\d{6}\b/g, '');
-    // Remove common legal form prefixes
-    cleaned = cleaned.replace(/^(Общество с ограниченной ответственностью|Акционерное общество|Закрытое акционерное общество|Публичное акционерное общество|Индивидуальный предприниматель)\s*/i, '');
-    // Remove quoted name and extract it
+    // Clean up: remove (RU) suffix, then split by commas
+    let cleaned = trimmed.replace(/\s*\([A-Z]{2}\)\s*$/i, '');
+    
+    // Extract quoted company name
     const quotedMatch = cleaned.match(/"([^"]+)"/);
     if (quotedMatch) {
       const companyName = quotedMatch[1];
-      const rest = cleaned.replace(/"[^"]+"/g, '');
-      // Extract city
-      const cityMatch = rest.match(/(?:г\.|город\s+|,\s*)(Москв[аы]|Санкт-Петербург[аеу]?|Новосибирск[аеу]?|Екатеринбург[аеу]?|Казан[ьи]|Нижн[иего]+ Новгород[аеу]?|Челябинск[аеу]?|Самар[аеыу]|Омск[аеу]?|Ростов[аеу]?(?:-на-Дону)?|Уф[аеыу]|Красноярск[аеу]?|Пермь|Перми|Воронеж[аеу]?|Волгоград[аеу]?)/i);
+      
+      // Split the rest by commas to find city and street
+      const parts = cleaned.replace(/"[^"]+"/g, '').split(',').map(p => p.trim()).filter(Boolean);
+      
+      let city = '';
+      let street = '';
+      
+      for (const part of parts) {
+        // Skip postal codes (6 digits), building numbers (д. X), литера, помещение, корпус, кв, ОПФ prefixes
+        if (/^\d{6}$/.test(part)) continue;
+        if (/^(д\.|дом\s|лит|помещ|корп|кв|стр|оф)/i.test(part)) continue;
+        if (/^(Общество|Акционерное|Закрытое|Публичное|Индивидуальный)/i.test(part)) continue;
+        
+        // Detect street: starts with ул./пер./пр-кт/проспект/наб./шоссе/б-р
+        if (/^(ул\.?|улица|пер\.?|переулок|пр-кт\.?|проспект|наб\.?|набережная|бульвар|б-р\.?|шоссе|ш\.?)\s/i.test(part)) {
+          // Extract just the street name without prefix and trailing numbers
+          const streetName = part
+            .replace(/^(ул\.?\s*|улица\s+|пер\.?\s*|переулок\s+|пр-кт\.?\s*|проспект\s+|наб\.?\s*|набережная\s+|бульвар\s+|б-р\.?\s*|шоссе\s+|ш\.?\s*)/i, '')
+            .replace(/\s*д\..*$/i, '')
+            .trim();
+          if (streetName) street = streetName;
+          continue;
+        }
+        
+        // Detect city: capitalized name that's not a number or abbreviation
+        if (!city && /^[А-ЯЁA-Z]/.test(part) && part.length > 2 && !/^\d/.test(part)) {
+          city = part.replace(/^г\.?\s*/i, '');
+        }
+      }
+      
       let result = companyName;
-      if (cityMatch) result += ` ${cityMatch[1]}`;
+      if (city) result += ` ${city}`;
+      if (street) result += ` ${street}`;
       return result;
     }
     
-    // Fallback: remove address parts after comma (street, building, etc.)
-    // Keep only the first meaningful part
+    // Fallback: remove legal forms, postal codes, keep first meaningful parts
+    cleaned = cleaned.replace(/\b\d{6}\b/g, '');
+    cleaned = cleaned.replace(/^(Общество с ограниченной ответственностью|Акционерное общество|Закрытое акционерное общество|Публичное акционерное общество|Индивидуальный предприниматель)\s*/i, '');
     const parts = cleaned.split(',').map(p => p.trim()).filter(Boolean);
     if (parts.length > 2) {
-      // Likely "Name, City, Street..." — keep first two
       return parts.slice(0, 2).join(' ').replace(/\s+/g, ' ').trim();
     }
-    
     return cleaned.replace(/\s+/g, ' ').trim();
   };
 
