@@ -660,11 +660,19 @@ const formatArray = (v: unknown): string | null => {
 
 function normalizeCompanyData(raw: any): any {
   const c = { ...raw };
-  if (!c.Name && c.Names?.Items?.length > 0) {
-    c.Name = c.Names.Items[0].ShortName || c.Names.Items[0].FullName;
+  if (!c.Name) {
+    if (c.Names?.Items?.length > 0) {
+      c.Name = c.Names.Items[0].ShortName || c.Names.Items[0].FullName;
+    } else if (c.ShortName) {
+      c.Name = c.ShortName;
+    } else if (c.FullName) {
+      c.Name = c.FullName;
+    }
   }
-  if (!c.FullName && c.Names?.Items?.length > 0) {
-    c.FullName = c.Names.Items[0].FullName;
+  if (!c.FullName) {
+    if (c.Names?.Items?.length > 0) {
+      c.FullName = c.Names.Items[0].FullName;
+    }
   }
   if (!c.Address && c.Addresses?.Items?.length > 0) {
     const actual = c.Addresses.Items.find((a: any) => a.IsActual) || c.Addresses.Items[0];
