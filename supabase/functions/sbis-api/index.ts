@@ -215,8 +215,12 @@ serve(async (req) => {
       let reqData: any = null;
       try {
         reqData = await vokRequest('req', params, sid);
-      } catch (e) {
+      } catch (e: any) {
         console.error('SBIS req error:', e);
+        return new Response(
+          JSON.stringify({ error: e?.message || 'Failed to fetch requisites', search_results: searchResults }),
+          { status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+        );
       }
 
       return new Response(JSON.stringify({

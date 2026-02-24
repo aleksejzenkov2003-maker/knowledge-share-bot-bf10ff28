@@ -85,9 +85,11 @@ const SbisReport = () => {
         setSearchResults(data.search_results);
         toast({ title: `Найдено ${data.search_results.length} совпадений`, description: 'Выберите компанию из списка' });
       } else if (data.company) {
-        setCompany(data.company);
-        setCurrentInn(data.inn || data.company?.inn);
-        setCurrentOgrn(data.ogrn || data.company?.ogrn);
+        // VOK req may return array — unwrap
+        const companyData = Array.isArray(data.company) ? data.company[0] : data.company;
+        setCompany(companyData);
+        setCurrentInn(data.inn || companyData?.inn);
+        setCurrentOgrn(data.ogrn || companyData?.ogrn);
       } else {
         toast({ title: 'Ничего не найдено', variant: 'destructive' });
       }
@@ -109,7 +111,8 @@ const SbisReport = () => {
         body: { action: 'req', inn, ogrn },
       });
       if (error) throw error;
-      setCompany(data);
+      const companyData = Array.isArray(data) ? data[0] : data;
+      setCompany(companyData);
       setCurrentInn(inn);
       setCurrentOgrn(ogrn);
     } catch (err: any) {
