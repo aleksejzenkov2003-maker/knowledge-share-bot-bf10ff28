@@ -47,10 +47,12 @@ const Reputation = () => {
   const { user } = useAuth();
   const [query, setQuery] = useState('');
   const [loading, setLoading] = useState(false);
+  const [loadingDetail, setLoadingDetail] = useState(false);
   const [searchResults, setSearchResults] = useState<SearchResult[]>([]);
   const [selectedCompany, setSelectedCompany] = useState<Record<string, unknown> | null>(null);
   const [entityType, setEntityType] = useState<string | null>(null);
   const [additionalData, setAdditionalData] = useState<Record<string, unknown>>({});
+  const [trademarksData, setTrademarksData] = useState<any[]>([]);
   const [selectedSections, setSelectedSections] = useState<string[]>(() => {
     try {
       const saved = localStorage.getItem(STORAGE_KEY);
@@ -122,6 +124,7 @@ const Reputation = () => {
     setSearchResults([]);
     setCurrentResultIndex(0);
     setVisibleCount(20);
+    setTrademarksData([]);
 
     try {
       const { data, error } = await supabase.functions.invoke('reputation-api', {
@@ -156,10 +159,49 @@ const Reputation = () => {
     }
   };
 
-  const handleSelectResult = (result: SearchResult) => {
-    // Search results already contain full data — use directly
+  const handleSelectResult = async (result: SearchResult) => {
+    const entType = (result.Type || 'Company').toLowerCase();
+    const cardAction = entType === 'entrepreneur' ? 'entrepreneur' : entType === 'person' ? 'person' : 'company';
+
+    // Immediately show search data as fallback, then load full card
     setSelectedCompany(result as any);
-    setEntityType((result.Type || 'Company').toLowerCase());
+    setEntityType(entType);
+    setTrademarksData([]);
+    setLoadingDetail(true);
+
+    try {
+      // Fetch full card, trademarks, and entity ID in parallel
+      const [cardRes, tmRes, idRes] = await Promise.allSettled([
+        supabase.functions.invoke('reputation-api', {
+          body: { action: cardAction, entity_id: result.Id, entity_type: result.Type },
+        }),
+        supabase.functions.invoke('reputation-api', {
+          body: { action: 'trademarks', entity_id: result.Id, entity_type: result.Type },
+        }),
+        result.Inn
+          ? supabase.functions.invoke('reputation-api', {
+              body: { action: 'search', query: result.Inn },
+            }).then(res => {
+              if (res.data) setAdditionalData(prev => ({ ...prev, entityIdInfo: res.data }));
+            })
+          : Promise.resolve(),
+      ]);
+
+      // Apply full card if successful
+      if (cardRes.status === 'fulfilled' && cardRes.value.data && !cardRes.value.error) {
+        setSelectedCompany(cardRes.value.data);
+      }
+
+      // Apply trademarks if successful
+      if (tmRes.status === 'fulfilled' && tmRes.value.data?.trademarks?.length > 0) {
+        setTrademarksData(tmRes.value.data.trademarks);
+      }
+    } catch (err: any) {
+      console.error('Error loading company details:', err);
+      // Fallback: keep search result data
+    } finally {
+      setLoadingDetail(false);
+    }
   };
 
   const handleSaveReport = async () => {
@@ -387,6 +429,8 @@ const Reputation = () => {
                 selectedSections={selectedSections}
                 onSave={handleSaveReport}
                 onCopy={handleCopyToClipboard}
+                initialTrademarks={trademarksData}
+                loadingDetail={loadingDetail}
               />
             </>
           )}
@@ -415,6 +459,8 @@ interface CompanyDetailCardProps {
   selectedSections: string[];
   onSave: () => void;
   onCopy: () => void;
+  initialTrademarks?: any[];
+  loadingDetail?: boolean;
 }
 
 const formatDate = (d: string | null | undefined) => {
@@ -428,11 +474,18 @@ const formatArray = (v: unknown): string | null => {
   return String(v);
 };
 
-const CompanyDetailCard = ({ company, entityType, selectedSections, onSave, onCopy }: CompanyDetailCardProps) => {
+const CompanyDetailCard = ({ company, entityType, selectedSections, onSave, onCopy, initialTrademarks = [], loadingDetail }: CompanyDetailCardProps) => {
   const c = company as any;
   const otherNames = c.OtherNames && Array.isArray(c.OtherNames) ? c.OtherNames[0] : null;
-  const [fipsTrademarks, setFipsTrademarks] = useState<any[]>([]);
+  const [fipsTrademarks, setFipsTrademarks] = useState<any[]>(initialTrademarks);
   const [fipsLoading, setFipsLoading] = useState(false);
+
+  // Update fipsTrademarks when initialTrademarks changes (from parent async load)
+  useEffect(() => {
+    if (initialTrademarks.length > 0) {
+      setFipsTrademarks(initialTrademarks);
+    }
+  }, [initialTrademarks]);
 
   return (
     <Card>
@@ -443,7 +496,10 @@ const CompanyDetailCard = ({ company, entityType, selectedSections, onSave, onCo
               <Building2 className="h-5 w-5 text-primary" />
             </div>
             <div>
-              <CardTitle className="text-lg">{c.Name || 'Компания'}</CardTitle>
+              <CardTitle className="text-lg flex items-center gap-2">
+                {c.Name || 'Компания'}
+                {loadingDetail && <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" />}
+              </CardTitle>
               <div className="flex flex-wrap gap-3 mt-1 text-sm text-muted-foreground">
                 {c.Inn && <span>ИНН: {c.Inn}</span>}
                 {c.Ogrn && <span>ОГРН: {c.Ogrn}</span>}
