@@ -9,8 +9,12 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Badge } from '@/components/ui/badge';
 import { Separator } from '@/components/ui/separator';
 import { toast } from '@/hooks/use-toast';
-import { Search, Building2, Copy, Bookmark, Loader2, ChevronLeft, ExternalLink, Hash, MapPin, Filter, FileText } from 'lucide-react';
+import {
+  Search, Building2, Copy, Bookmark, Loader2, ChevronLeft, ExternalLink, Hash, MapPin, Filter, FileText,
+  Shield, Clock, Trash2, Users, Phone, Banknote, Scale, Briefcase, Lightbulb, SearchX, User, CircleDot
+} from 'lucide-react';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
+import type { LucideIcon } from 'lucide-react';
 
 interface SearchResult {
   Id: string;
@@ -41,7 +45,29 @@ const DATA_SECTIONS = [
   { key: 'contacts', label: 'Контакты', description: 'Телефон, email, сайт' },
 ] as const;
 
+const SECTION_ICONS: Record<string, LucideIcon> = {
+  requisites: FileText,
+  management: Users,
+  address: MapPin,
+  activities: Briefcase,
+  finances: Banknote,
+  trademarks: Hash,
+  arbitration: Scale,
+  contacts: Phone,
+};
+
 const STORAGE_KEY = 'reputation-selected-sections';
+
+const formatRelativeDate = (dateStr: string) => {
+  const date = new Date(dateStr);
+  const now = new Date();
+  const diffMs = now.getTime() - date.getTime();
+  const diffDays = Math.floor(diffMs / 86400000);
+  if (diffDays === 0) return 'Сегодня';
+  if (diffDays === 1) return 'Вчера';
+  if (diffDays < 7) return `${diffDays} дн. назад`;
+  return date.toLocaleDateString('ru-RU');
+};
 
 const Reputation = () => {
   const { user } = useAuth();
@@ -60,7 +86,7 @@ const Reputation = () => {
     } catch { return DATA_SECTIONS.map(s => s.key); }
   });
   const [currentResultIndex, setCurrentResultIndex] = useState(0);
-  const [savedReports, setSavedReports] = useState<Array<{ id: string; name: string; inn: string; created_at: string }>>([]);
+  const [savedReports, setSavedReports] = useState<Array<{ id: string; name: string; inn: string; created_at: string; entity_type?: string; query?: string; selected_sections?: string[] }>>([]);
   const [filterStatus, setFilterStatus] = useState<string>('all');
   const [filterCity, setFilterCity] = useState<string>('all');
   const [filterAddress, setFilterAddress] = useState('');
@@ -69,10 +95,8 @@ const Reputation = () => {
   // Extract unique cities from addresses for filter
   const extractCity = (address?: string): string => {
     if (!address) return '';
-    // Try to extract city from address patterns like "Г.МОСКВА" or "ГОРОД КАЗАНЬ"
     const match = address.match(/(?:Г\.|ГОРОД\s+|г\.\s*)([А-ЯЁа-яё\s-]+?)(?:,|\s+УЛ|\s+ПР|\s+Ш\s|\s+ПЕР|\s+НАБ|\s+ВН)/i);
     if (match) return match[1].trim();
-    // Fallback: try region patterns
     const regionMatch = address.match(/(?:ОБЛАСТЬ|КРАЙ|РЕСПУБЛИКА|ОКРУГ)\s+([А-ЯЁа-яё\s-]+?)(?:,)/i);
     if (regionMatch) return regionMatch[1].trim();
     return '';
@@ -109,10 +133,33 @@ const Reputation = () => {
   const loadSavedReports = async () => {
     const { data } = await supabase
       .from('reputation_reports')
-      .select('id, name, inn, created_at')
+      .select('id, name, inn, created_at, entity_type, query, selected_sections')
       .order('created_at', { ascending: false })
       .limit(20);
     if (data) setSavedReports(data as any);
+  };
+
+  const loadSavedReport = async (id: string) => {
+    const { data } = await supabase
+      .from('reputation_reports')
+      .select('*')
+      .eq('id', id)
+      .single();
+    if (data) {
+      setSelectedCompany(data.report_data as Record<string, unknown>);
+      setEntityType(data.entity_type);
+      setQuery(data.query || data.name || '');
+      setSelectedSections((data.selected_sections as string[]) || DATA_SECTIONS.map(s => s.key));
+      setSearchResults([]);
+      setTrademarksData([]);
+    }
+  };
+
+  const deleteSavedReport = async (id: string, e: React.MouseEvent) => {
+    e.stopPropagation();
+    await supabase.from('reputation_reports').delete().eq('id', id);
+    loadSavedReports();
+    toast({ title: 'Отчёт удалён' });
   };
 
   const detectQueryType = (q: string): string => {
@@ -122,42 +169,27 @@ const Reputation = () => {
     return 'Название';
   };
 
-  // Normalize messy queries: extract INN/OGRN, or parse structured format:
-  // ОПФ "Название", индекс, Город, ул. Улица, д. X, ... (RU)
+  const queryType = query ? detectQueryType(query) : null;
+  const QueryIcon = queryType === 'ИНН' || queryType === 'ОГРН' ? Hash : Building2;
+
   const normalizeSearchQuery = (raw: string): string => {
     const trimmed = raw.trim();
-    
-    // Try to extract INN (10 or 12 digits) from within the text
     const innMatch = trimmed.match(/\b(\d{10}|\d{12})\b/);
     if (innMatch) return innMatch[1];
-    
-    // Try to extract OGRN (13 or 15 digits)
     const ogrnMatch = trimmed.match(/\b(\d{13}|\d{15})\b/);
     if (ogrnMatch) return ogrnMatch[1];
-    
-    // Clean up: remove (RU) suffix, then split by commas
     let cleaned = trimmed.replace(/\s*\([A-Z]{2}\)\s*$/i, '');
-    
-    // Extract quoted company name
     const quotedMatch = cleaned.match(/"([^"]+)"/);
     if (quotedMatch) {
       const companyName = quotedMatch[1];
-      
-      // Split the rest by commas to find city and street
       const parts = cleaned.replace(/"[^"]+"/g, '').split(',').map(p => p.trim()).filter(Boolean);
-      
       let city = '';
       let street = '';
-      
       for (const part of parts) {
-        // Skip postal codes (6 digits), building numbers (д. X), литера, помещение, корпус, кв, ОПФ prefixes
         if (/^\d{6}$/.test(part)) continue;
         if (/^(д\.|дом\s|лит|помещ|корп|кв|стр|оф)/i.test(part)) continue;
         if (/^(Общество|Акционерное|Закрытое|Публичное|Индивидуальный)/i.test(part)) continue;
-        
-        // Detect street: starts with ул./пер./пр-кт/проспект/наб./шоссе/б-р
         if (/^(ул\.?|улица|пер\.?|переулок|пр-кт\.?|проспект|наб\.?|набережная|бульвар|б-р\.?|шоссе|ш\.?)\s/i.test(part)) {
-          // Extract just the street name without prefix and trailing numbers
           const streetName = part
             .replace(/^(ул\.?\s*|улица\s+|пер\.?\s*|переулок\s+|пр-кт\.?\s*|проспект\s+|наб\.?\s*|набережная\s+|бульвар\s+|б-р\.?\s*|шоссе\s+|ш\.?\s*)/i, '')
             .replace(/\s*д\..*$/i, '')
@@ -165,20 +197,15 @@ const Reputation = () => {
           if (streetName) street = streetName;
           continue;
         }
-        
-        // Detect city: capitalized name that's not a number or abbreviation
         if (!city && /^[А-ЯЁA-Z]/.test(part) && part.length > 2 && !/^\d/.test(part)) {
           city = part.replace(/^г\.?\s*/i, '');
         }
       }
-      
       let result = companyName;
       if (city) result += ` ${city}`;
       if (street) result += ` ${street}`;
       return result;
     }
-    
-    // Fallback: remove legal forms, postal codes, keep first meaningful parts
     cleaned = cleaned.replace(/\b\d{6}\b/g, '');
     cleaned = cleaned.replace(/^(Общество с ограниченной ответственностью|Акционерное общество|Закрытое акционерное общество|Публичное акционерное общество|Индивидуальный предприниматель)\s*/i, '');
     const parts = cleaned.split(',').map(p => p.trim()).filter(Boolean);
@@ -214,12 +241,10 @@ const Reputation = () => {
         setSelectedCompany(result.company);
         setEntityType(result.entity_type);
       } else if (result.search_results?.length > 1) {
-        // Multiple results — show carousel, but also allow using search result data directly
         setSelectedCompany(null);
         setEntityType(null);
         toast({ title: `Найдено ${result.search_results.length} совпадений`, description: 'Выберите компанию из списка' });
       } else if (result.search_results?.length === 1) {
-        // Single search result — use it directly as company data
         setSelectedCompany(result.search_results[0] as any);
         setEntityType((result.search_results[0].Type || 'Company').toLowerCase());
       } else {
@@ -232,19 +257,15 @@ const Reputation = () => {
     }
   };
 
-
   const handleSelectResult = async (result: SearchResult) => {
     const entType = (result.Type || 'Company').toLowerCase();
     const cardAction = entType === 'entrepreneur' ? 'entrepreneur' : entType === 'person' ? 'person' : 'company';
-
-    // Immediately show search data as fallback, then load full card
     setSelectedCompany(result as any);
     setEntityType(entType);
     setTrademarksData([]);
     setLoadingDetail(true);
 
     try {
-      // Fetch full card, trademarks, and entity ID in parallel
       const [cardRes, tmRes, idRes] = await Promise.allSettled([
         supabase.functions.invoke('reputation-api', {
           body: { action: cardAction, entity_id: result.Id, entity_type: result.Type },
@@ -261,18 +282,15 @@ const Reputation = () => {
           : Promise.resolve(),
       ]);
 
-      // Apply full card if successful
       if (cardRes.status === 'fulfilled' && cardRes.value.data && !cardRes.value.error) {
         setSelectedCompany(cardRes.value.data);
       }
 
-      // Apply trademarks if successful
       if (tmRes.status === 'fulfilled' && tmRes.value.data?.trademarks?.length > 0) {
         setTrademarksData(tmRes.value.data.trademarks);
       }
     } catch (err: any) {
       console.error('Error loading company details:', err);
-      // Fallback: keep search result data
     } finally {
       setLoadingDetail(false);
     }
@@ -316,37 +334,50 @@ const Reputation = () => {
 
   return (
     <div className="space-y-6">
-      <div>
-        <h1 className="text-2xl font-bold">Reputation API</h1>
-        <p className="text-muted-foreground">Поиск компаний, проверка контрагентов, товарные знаки</p>
+      {/* Hero Header */}
+      <div className="flex items-center gap-3">
+        <div className="flex h-12 w-12 items-center justify-center rounded-xl bg-gradient-to-br from-primary to-primary/60 shadow-lg shadow-primary/20">
+          <Shield className="h-6 w-6 text-primary-foreground" />
+        </div>
+        <div>
+          <h1 className="text-2xl font-bold tracking-tight">Проверка контрагентов</h1>
+          <p className="text-sm text-muted-foreground">Поиск компаний, ИП и проверка деловой репутации</p>
+        </div>
       </div>
 
-      {/* Search */}
-      <Card>
-        <CardContent className="pt-6">
+      {/* Search Card */}
+      <Card className="overflow-hidden border-t-4 border-t-primary shadow-md">
+        <CardContent className="pt-6 pb-5">
           <div className="flex gap-3">
             <div className="relative flex-1">
-              <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+              <div className="absolute left-3 top-1/2 -translate-y-1/2 flex h-6 w-6 items-center justify-center rounded-md bg-muted">
+                <QueryIcon className="h-3.5 w-3.5 text-muted-foreground" />
+              </div>
               <Input
                 placeholder="ИНН, ОГРН или название компании (+ город)"
                 value={query}
                 onChange={e => setQuery(e.target.value)}
                 onKeyDown={e => e.key === 'Enter' && handleSearch()}
-                className="pl-10"
+                className="pl-12 h-12 text-base shadow-sm"
               />
             </div>
-            <Button onClick={handleSearch} disabled={loading || !query.trim()}>
-              {loading ? <Loader2 className="h-4 w-4 animate-spin" /> : 'Найти'}
+            <Button onClick={handleSearch} disabled={loading || !query.trim()} size="lg" className="h-12 px-6 gap-2 shadow-sm">
+              {loading ? <Loader2 className="h-4 w-4 animate-spin" /> : <Search className="h-4 w-4" />}
+              Найти
             </Button>
           </div>
           {!query && (
-            <p className="mt-2 text-xs text-muted-foreground">
-              💡 Совет: для точного поиска используйте ИНН или ОГРН. К названию можно добавить город, например: «Скат Санкт-Петербург»
-            </p>
+            <div className="mt-3 flex items-start gap-2 text-xs text-muted-foreground bg-muted/50 rounded-lg p-2.5">
+              <Lightbulb className="h-3.5 w-3.5 shrink-0 mt-0.5 text-amber-500" />
+              <span>Для точного поиска используйте ИНН или ОГРН. К названию можно добавить город: «Скат Санкт-Петербург»</span>
+            </div>
           )}
           {query && (
             <div className="mt-2">
-              <Badge variant="secondary">{detectQueryType(query)}</Badge>
+              <Badge variant="secondary" className="gap-1">
+                <QueryIcon className="h-3 w-3" />
+                {queryType}
+              </Badge>
             </div>
           )}
         </CardContent>
@@ -356,35 +387,65 @@ const Reputation = () => {
         {/* Settings panel */}
         <Card className="lg:col-span-1">
           <CardHeader className="pb-3">
-            <CardTitle className="text-sm">Отображаемые данные</CardTitle>
+            <CardTitle className="text-sm flex items-center gap-2">
+              <Filter className="h-4 w-4 text-muted-foreground" />
+              Отображаемые данные
+            </CardTitle>
           </CardHeader>
-          <CardContent className="space-y-3">
-            {DATA_SECTIONS.map(section => (
-              <label key={section.key} className="flex items-start gap-2 cursor-pointer">
-                <Checkbox
-                  checked={selectedSections.includes(section.key)}
-                  onCheckedChange={() => toggleSection(section.key)}
-                  className="mt-0.5"
-                />
-                <div>
-                  <div className="text-sm font-medium">{section.label}</div>
-                  <div className="text-xs text-muted-foreground">{section.description}</div>
-                </div>
-              </label>
-            ))}
+          <CardContent className="space-y-1">
+            {DATA_SECTIONS.map((section, idx) => {
+              const SectionIcon = SECTION_ICONS[section.key] || FileText;
+              return (
+                <label
+                  key={section.key}
+                  className="flex items-center gap-3 cursor-pointer rounded-lg px-2 py-2 hover:bg-muted/50 transition-colors"
+                >
+                  <Checkbox
+                    checked={selectedSections.includes(section.key)}
+                    onCheckedChange={() => toggleSection(section.key)}
+                  />
+                  <SectionIcon className="h-4 w-4 text-muted-foreground shrink-0" />
+                  <div className="min-w-0">
+                    <div className="text-sm font-medium leading-tight">{section.label}</div>
+                    <div className="text-[11px] text-muted-foreground leading-tight">{section.description}</div>
+                  </div>
+                </label>
+              );
+            })}
           </CardContent>
 
           {savedReports.length > 0 && (
             <>
               <Separator />
-              <CardHeader className="pb-3">
-                <CardTitle className="text-sm">Сохранённые отчёты</CardTitle>
+              <CardHeader className="pb-2">
+                <CardTitle className="text-sm flex items-center gap-2">
+                  <Clock className="h-4 w-4 text-muted-foreground" />
+                  История поиска
+                </CardTitle>
               </CardHeader>
-              <CardContent className="space-y-2">
+              <CardContent className="space-y-1.5 pb-4">
                 {savedReports.map(r => (
-                  <div key={r.id} className="text-sm p-2 rounded bg-muted/50 cursor-pointer hover:bg-muted" onClick={() => {/* TODO: load saved report */}}>
-                    <div className="font-medium truncate">{r.name || 'Без названия'}</div>
-                    <div className="text-xs text-muted-foreground">{r.inn}</div>
+                  <div
+                    key={r.id}
+                    className="group flex items-start gap-2 text-sm p-2.5 rounded-lg bg-muted/30 cursor-pointer hover:bg-muted hover:shadow-sm transition-all"
+                    onClick={() => loadSavedReport(r.id)}
+                  >
+                    <Building2 className="h-4 w-4 text-muted-foreground shrink-0 mt-0.5" />
+                    <div className="min-w-0 flex-1">
+                      <div className="font-medium truncate leading-tight">{r.name || 'Без названия'}</div>
+                      <div className="flex items-center gap-2 mt-0.5">
+                        {r.inn && <Badge variant="outline" className="text-[10px] px-1.5 py-0">{r.inn}</Badge>}
+                        <span className="text-[10px] text-muted-foreground">{formatRelativeDate(r.created_at)}</span>
+                      </div>
+                    </div>
+                    <Button
+                      variant="ghost"
+                      size="icon"
+                      className="h-6 w-6 opacity-0 group-hover:opacity-100 transition-opacity shrink-0"
+                      onClick={(e) => deleteSavedReport(r.id, e)}
+                    >
+                      <Trash2 className="h-3.5 w-3.5 text-destructive" />
+                    </Button>
                   </div>
                 ))}
               </CardContent>
@@ -399,7 +460,10 @@ const Reputation = () => {
             <Card>
               <CardHeader className="pb-3">
                 <div className="flex items-center justify-between">
-                  <CardTitle className="text-sm">Найдено {searchResults.length} совпадений</CardTitle>
+                  <CardTitle className="text-sm flex items-center gap-2">
+                    <Search className="h-4 w-4 text-muted-foreground" />
+                    Найдено {searchResults.length} совпадений
+                  </CardTitle>
                   <Button variant="ghost" size="sm" onClick={() => { setSearchResults([]); setQuery(''); setFilterStatus('all'); setFilterCity('all'); setFilterAddress(''); }}>
                     <ChevronLeft className="h-4 w-4 mr-1" /> Назад
                   </Button>
@@ -452,43 +516,57 @@ const Reputation = () => {
               </CardHeader>
               <CardContent>
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                  {filteredResults.slice(0, visibleCount).map((r) => (
-                    <Card key={r.Id} className="cursor-pointer hover:border-primary transition-colors" onClick={() => handleSelectResult(r)}>
-                      <CardContent className="p-5">
-                        <div className="flex items-start gap-3">
-                          <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-primary/10 shrink-0">
-                            <Building2 className="h-5 w-5 text-primary" />
-                          </div>
-                          <div className="min-w-0 space-y-1">
-                            <div className="font-medium text-sm leading-tight">{r.Name || 'Без названия'}</div>
-                            <div className="flex flex-wrap gap-x-3 gap-y-0.5 text-xs text-muted-foreground">
-                              {r.Inn && <span>ИНН: {r.Inn}</span>}
-                              {r.Ogrn && <span>ОГРН: {r.Ogrn}</span>}
+                  {filteredResults.slice(0, visibleCount).map((r) => {
+                    const isActive = r.Status === 'Active';
+                    const TypeIcon = r.Type === 'Entrepreneur' ? User : Building2;
+                    return (
+                      <Card
+                        key={r.Id}
+                        className="cursor-pointer hover:border-primary hover:shadow-lg hover:scale-[1.02] transition-all duration-200"
+                        onClick={() => handleSelectResult(r)}
+                      >
+                        <CardContent className="p-5">
+                          <div className="flex items-start gap-3">
+                            <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-primary/10 shrink-0">
+                              <TypeIcon className="h-5 w-5 text-primary" />
                             </div>
-                            {r.Address && (
-                              <div className="flex items-start gap-1 text-xs text-muted-foreground">
-                                <MapPin className="h-3 w-3 shrink-0 mt-0.5" />
-                                <span className="line-clamp-2">{r.Address}</span>
+                            <div className="min-w-0 space-y-1">
+                              <div className="font-medium text-sm leading-tight">{r.Name || 'Без названия'}</div>
+                              <div className="flex flex-wrap gap-x-3 gap-y-0.5 text-xs text-muted-foreground">
+                                {r.Inn && <span>ИНН: {r.Inn}</span>}
+                                {r.Ogrn && <span>ОГРН: {r.Ogrn}</span>}
                               </div>
-                            )}
-                            <div className="flex flex-wrap gap-1.5 pt-0.5">
-                              <Badge variant="outline" className="text-[10px]">
-                                {r.Type === 'Company' ? 'Юр. лицо' : r.Type === 'Entrepreneur' ? 'ИП' : r.Type}
-                              </Badge>
-                              {r.Status && (
-                                <Badge variant={r.Status === 'Active' ? 'default' : 'secondary'} className="text-[10px]">
-                                  {r.Status === 'Active' ? 'Действующая' : r.Status === 'Terminated' ? 'Ликвидирована' : r.Status}
-                                </Badge>
+                              {r.Address && (
+                                <div className="flex items-start gap-1 text-xs text-muted-foreground">
+                                  <MapPin className="h-3 w-3 shrink-0 mt-0.5" />
+                                  <span className="line-clamp-2">{r.Address}</span>
+                                </div>
                               )}
+                              <div className="flex flex-wrap gap-1.5 pt-0.5">
+                                <Badge variant="outline" className="text-[10px] gap-1">
+                                  <TypeIcon className="h-2.5 w-2.5" />
+                                  {r.Type === 'Company' ? 'Юр. лицо' : r.Type === 'Entrepreneur' ? 'ИП' : r.Type}
+                                </Badge>
+                                {r.Status && (
+                                  <Badge
+                                    variant={isActive ? 'default' : 'secondary'}
+                                    className="text-[10px] gap-1"
+                                  >
+                                    <CircleDot className={`h-2.5 w-2.5 ${isActive ? 'text-green-300' : 'text-red-300'}`} />
+                                    {isActive ? 'Действующая' : r.Status === 'Terminated' ? 'Ликвидирована' : r.Status}
+                                  </Badge>
+                                )}
+                              </div>
                             </div>
                           </div>
-                        </div>
-                      </CardContent>
-                    </Card>
-                  ))}
+                        </CardContent>
+                      </Card>
+                    );
+                  })}
                   {filteredResults.length === 0 && (
-                    <div className="col-span-full text-center py-8 text-sm text-muted-foreground">
-                      Нет результатов по выбранным фильтрам
+                    <div className="col-span-full flex flex-col items-center justify-center py-12 text-muted-foreground">
+                      <SearchX className="h-10 w-10 mb-2 opacity-40" />
+                      <p className="text-sm">Нет результатов по выбранным фильтрам</p>
                     </div>
                   )}
                 </div>
@@ -506,8 +584,8 @@ const Reputation = () => {
           {/* Company detail card */}
           {selectedCompany && (
             <>
-              <Button variant="ghost" size="sm" onClick={() => { setSelectedCompany(null); }}>
-                <ChevronLeft className="h-4 w-4 mr-1" /> Назад к поиску
+              <Button variant="ghost" size="sm" className="gap-1" onClick={() => { setSelectedCompany(null); }}>
+                <ChevronLeft className="h-4 w-4" /> Назад к поиску
               </Button>
               <CompanyDetailCard
                 company={selectedCompany}
@@ -523,14 +601,17 @@ const Reputation = () => {
           )}
 
           {!loading && !selectedCompany && searchResults.length === 0 && (
-            <div className="flex items-center justify-center h-48 text-muted-foreground">
-              Введите запрос для поиска компании
+            <div className="flex flex-col items-center justify-center h-56 text-muted-foreground">
+              <SearchX className="h-12 w-12 mb-3 opacity-30" />
+              <p className="text-sm font-medium">Введите запрос для поиска</p>
+              <p className="text-xs mt-1">ИНН, ОГРН или название компании</p>
             </div>
           )}
 
           {loading && (
-            <div className="flex items-center justify-center h-48">
-              <Loader2 className="h-8 w-8 animate-spin text-primary" />
+            <div className="flex flex-col items-center justify-center h-56">
+              <Loader2 className="h-10 w-10 animate-spin text-primary mb-3" />
+              <p className="text-sm text-muted-foreground">Поиск компании...</p>
             </div>
           )}
         </div>
@@ -563,23 +644,16 @@ const formatArray = (v: unknown): string | null => {
 
 function normalizeCompanyData(raw: any): any {
   const c = { ...raw };
-
-  // Name
   if (!c.Name && c.Names?.Items?.length > 0) {
     c.Name = c.Names.Items[0].ShortName || c.Names.Items[0].FullName;
   }
-  // FullName for "Полное название"
   if (!c.FullName && c.Names?.Items?.length > 0) {
     c.FullName = c.Names.Items[0].FullName;
   }
-
-  // Address
   if (!c.Address && c.Addresses?.Items?.length > 0) {
     const actual = c.Addresses.Items.find((a: any) => a.IsActual) || c.Addresses.Items[0];
     c.Address = actual.UnsplittedAddress || actual.Address;
   }
-
-  // ManagerName + Managers list
   if (c.Managers?.Items?.length > 0) {
     if (!c.ManagerName) {
       const director = c.Managers.Items.find((m: any) =>
@@ -589,54 +663,38 @@ function normalizeCompanyData(raw: any): any {
     }
     c._managers = c.Managers.Items;
   }
-
-  // Founders
   if (c.Founders?.Items?.length > 0) {
     c._founders = c.Founders.Items;
   }
-
-  // Capital
   if (c.Capital == null && c.AuthorizedCapitals?.Items?.length > 0) {
     const actual = c.AuthorizedCapitals.Items.find((a: any) => a.IsActual) || c.AuthorizedCapitals.Items[0];
     c.Capital = actual.Sum;
     c._capitalType = actual.Type;
   }
-
-  // EmployeesCount + history
   if (c.EmployeesCount == null && c.EmployeesInfo?.Items?.length > 0) {
     const sorted = [...c.EmployeesInfo.Items].sort((a: any, b: any) => (b.Year || 0) - (a.Year || 0));
     c.EmployeesCount = sorted[0]?.Count;
     c._employeesHistory = sorted;
   }
-
-  // ActivityTypes
   if (c.ActivityTypes?.Items) {
     c.MainActivityType = c.ActivityTypes.Items.find((a: any) => a.IsMain);
     c._activityTypes = c.ActivityTypes.Items;
     c.ActivityTypes = c.ActivityTypes.Items.filter((a: any) => !a.IsMain);
   }
-
-  // Taxation
   if (c.Taxation?.Items?.length > 0) {
     const actual = c.Taxation.Items.find((t: any) => t.IsActual) || c.Taxation.Items[0];
     c._taxation = actual.Types || actual;
   }
-
-  // Rsmp
   if (c.Rsmp?.Items?.length > 0) {
     const actual = c.Rsmp.Items.find((r: any) => r.IsActual) || c.Rsmp.Items[0];
     c.RsmpCategory = actual.Category;
   }
-
-  // OtherAddresses
   if (!c.OtherAddresses && c.Addresses?.Items?.length > 1) {
     c.OtherAddresses = c.Addresses.Items
       .filter((a: any) => !a.IsActual)
       .map((a: any) => a.UnsplittedAddress || a.Address)
       .filter(Boolean);
   }
-
-  // Phones/Emails/Sites from ContactInfo
   if (c.ContactInfo?.Items?.length > 0) {
     if (!c.Phones?.length) {
       c.Phones = c.ContactInfo.Items.filter((ci: any) => ci.Type === 'Phone').map((ci: any) => ci.Value).filter(Boolean);
@@ -648,7 +706,6 @@ function normalizeCompanyData(raw: any): any {
       c.Sites = c.ContactInfo.Items.filter((ci: any) => ci.Type === 'Site' || ci.Type === 'Website').map((ci: any) => ci.Value).filter(Boolean);
     }
   }
-
   return c;
 }
 
@@ -658,20 +715,24 @@ const CompanyDetailCard = ({ company, entityType, selectedSections, onSave, onCo
   const [fipsTrademarks, setFipsTrademarks] = useState<any[]>(initialTrademarks);
   const [fipsLoading, setFipsLoading] = useState(false);
 
-  // Update fipsTrademarks when initialTrademarks changes (from parent async load)
   useEffect(() => {
     if (initialTrademarks.length > 0) {
       setFipsTrademarks(initialTrademarks);
     }
   }, [initialTrademarks]);
 
+  const statusIsActive = c.Status?.StatusText === 'Действующая' || c.Status === 'Active';
+  const TypeIcon = c.Type === 'Entrepreneur' ? User : Building2;
+
   return (
-    <Card>
-      <CardHeader>
-        <div className="flex items-start justify-between">
-          <div className="flex items-start gap-3">
-            <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-primary/10">
-              <Building2 className="h-5 w-5 text-primary" />
+    <Card className="overflow-hidden shadow-md">
+      {/* Gradient top border */}
+      <div className={`h-1 w-full ${statusIsActive ? 'bg-gradient-to-r from-green-500 to-emerald-400' : 'bg-gradient-to-r from-red-500 to-orange-400'}`} />
+      <CardHeader className="pb-4">
+        <div className="flex items-start justify-between gap-4">
+          <div className="flex items-start gap-4">
+            <div className={`flex h-12 w-12 items-center justify-center rounded-xl shrink-0 ${statusIsActive ? 'bg-green-100 text-green-700' : 'bg-red-100 text-red-700'}`}>
+              <TypeIcon className="h-6 w-6" />
             </div>
             <div>
               <CardTitle className="text-lg flex items-center gap-2">
@@ -679,9 +740,9 @@ const CompanyDetailCard = ({ company, entityType, selectedSections, onSave, onCo
                 {loadingDetail && <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" />}
               </CardTitle>
               <div className="flex flex-wrap gap-3 mt-1 text-sm text-muted-foreground">
-                {c.Inn && <span>ИНН: {c.Inn}</span>}
-                {c.Ogrn && <span>ОГРН: {c.Ogrn}</span>}
-                {c.Kpp && <span>КПП: {c.Kpp}</span>}
+                {c.Inn && <span className="font-mono">ИНН: {c.Inn}</span>}
+                {c.Ogrn && <span className="font-mono">ОГРН: {c.Ogrn}</span>}
+                {c.Kpp && <span className="font-mono">КПП: {c.Kpp}</span>}
               </div>
               {c.Address && (
                 <div className="flex items-start gap-1.5 mt-1.5 text-xs text-muted-foreground">
@@ -689,36 +750,44 @@ const CompanyDetailCard = ({ company, entityType, selectedSections, onSave, onCo
                   <span>{c.Address}</span>
                 </div>
               )}
-              <div className="flex flex-wrap gap-1.5 mt-1.5">
+              <div className="flex flex-wrap gap-1.5 mt-2">
                 {c.Status && (
-                  <Badge variant={c.Status?.StatusText === 'Действующая' || c.Status === 'Active' ? 'default' : 'destructive'}>
+                  <Badge variant={statusIsActive ? 'default' : 'destructive'} className="gap-1">
+                    <CircleDot className={`h-3 w-3 ${statusIsActive ? 'text-green-300' : 'text-red-300'}`} />
                     {typeof c.Status === 'object' ? (c.Status?.StatusText || c.Status?.ReasonText || 'Неизвестно') : (c.Status === 'Active' ? 'Действующая' : c.Status)}
                   </Badge>
                 )}
                 {c.Type && (
-                  <Badge variant="secondary">
+                  <Badge variant="secondary" className="gap-1">
+                    <TypeIcon className="h-3 w-3" />
                     {c.Type === 'Company' ? 'Юр. лицо' : c.Type === 'Entrepreneur' ? 'ИП' : c.Type}
                   </Badge>
                 )}
               </div>
             </div>
           </div>
-          <div className="flex gap-2">
-            <Button variant="outline" size="sm" onClick={onCopy}>
-              <Copy className="h-4 w-4 mr-1" /> Копировать
+          <div className="flex gap-2 shrink-0">
+            <Button variant="outline" size="sm" onClick={onCopy} className="gap-1.5 shadow-sm hover:shadow-md transition-shadow">
+              <Copy className="h-3.5 w-3.5" /> Копировать
             </Button>
-            <Button variant="outline" size="sm" onClick={onSave}>
-              <Bookmark className="h-4 w-4 mr-1" /> Сохранить
+            <Button variant="outline" size="sm" onClick={onSave} className="gap-1.5 shadow-sm hover:shadow-md transition-shadow">
+              <Bookmark className="h-3.5 w-3.5" /> Сохранить
             </Button>
           </div>
         </div>
       </CardHeader>
       <CardContent>
         <Tabs defaultValue={selectedSections[0] || 'requisites'}>
-          <TabsList className="flex-wrap h-auto">
-            {DATA_SECTIONS.filter(s => selectedSections.includes(s.key)).map(s => (
-              <TabsTrigger key={s.key} value={s.key} className="text-xs">{s.label}</TabsTrigger>
-            ))}
+          <TabsList className="flex-wrap h-auto gap-1 bg-muted/50 p-1">
+            {DATA_SECTIONS.filter(s => selectedSections.includes(s.key)).map(s => {
+              const Icon = SECTION_ICONS[s.key] || FileText;
+              return (
+                <TabsTrigger key={s.key} value={s.key} className="text-xs gap-1.5">
+                  <Icon className="h-3.5 w-3.5" />
+                  {s.label}
+                </TabsTrigger>
+              );
+            })}
           </TabsList>
 
           {selectedSections.includes('requisites') && (
@@ -761,15 +830,18 @@ const CompanyDetailCard = ({ company, entityType, selectedSections, onSave, onCo
               ]} />
               {c._managers && c._managers.length > 0 && (
                 <div className="mt-4">
-                  <h4 className="text-sm font-medium mb-2">Руководители и учредители</h4>
+                  <h4 className="text-sm font-medium mb-2 flex items-center gap-2">
+                    <Users className="h-4 w-4 text-muted-foreground" />
+                    Руководители и учредители
+                  </h4>
                   <div className="overflow-auto rounded-lg border">
                     <table className="w-full text-sm">
                       <thead>
                         <tr className="border-b bg-muted/50">
-                          <th className="text-left p-2 font-medium text-muted-foreground">ФИО / Название</th>
-                          <th className="text-left p-2 font-medium text-muted-foreground">Должность</th>
-                          <th className="text-left p-2 font-medium text-muted-foreground">Дата</th>
-                          <th className="text-left p-2 font-medium text-muted-foreground">Статус</th>
+                          <th className="text-left p-2.5 font-medium text-muted-foreground">ФИО / Название</th>
+                          <th className="text-left p-2.5 font-medium text-muted-foreground">Должность</th>
+                          <th className="text-left p-2.5 font-medium text-muted-foreground">Дата</th>
+                          <th className="text-left p-2.5 font-medium text-muted-foreground">Статус</th>
                         </tr>
                       </thead>
                       <tbody>
@@ -779,11 +851,16 @@ const CompanyDetailCard = ({ company, entityType, selectedSections, onSave, onCo
                           const positionText = positions.map((p: any) => p.PositionName || p.Name).filter(Boolean).join(', ') || '—';
                           const date = m.Date || positions[0]?.Date;
                           return (
-                            <tr key={i} className="border-b last:border-0">
-                              <td className="p-2">{name}</td>
-                              <td className="p-2 text-muted-foreground">{positionText}</td>
-                              <td className="p-2 text-muted-foreground">{formatDate(date) || '—'}</td>
-                              <td className="p-2">
+                            <tr key={i} className={`border-b last:border-0 hover:bg-muted/30 transition-colors ${i % 2 === 1 ? 'bg-muted/20' : ''}`}>
+                              <td className="p-2.5 flex items-center gap-2">
+                                <div className="flex h-7 w-7 items-center justify-center rounded-full bg-muted shrink-0">
+                                  <User className="h-3.5 w-3.5 text-muted-foreground" />
+                                </div>
+                                {name}
+                              </td>
+                              <td className="p-2.5 text-muted-foreground">{positionText}</td>
+                              <td className="p-2.5 text-muted-foreground">{formatDate(date) || '—'}</td>
+                              <td className="p-2.5">
                                 <Badge variant={m.IsActual ? 'default' : 'secondary'} className="text-[10px]">
                                   {m.IsActual ? 'Действующий' : 'Бывший'}
                                 </Badge>
@@ -801,9 +878,12 @@ const CompanyDetailCard = ({ company, entityType, selectedSections, onSave, onCo
                   <h4 className="text-sm font-medium mb-2">Учредители</h4>
                   <div className="space-y-1">
                     {c._founders.map((f: any, i: number) => (
-                      <div key={i} className="text-sm text-muted-foreground">
+                      <div key={i} className="text-sm text-muted-foreground flex items-center gap-2">
+                        <div className="flex h-6 w-6 items-center justify-center rounded-full bg-muted shrink-0">
+                          <User className="h-3 w-3 text-muted-foreground" />
+                        </div>
                         {f.Entity?.Name || f.Name || safeString(f)}
-                        {f.Share?.Percent != null && ` — ${f.Share.Percent}%`}
+                        {f.Share?.Percent != null && <Badge variant="outline" className="text-[10px] ml-1">{f.Share.Percent}%</Badge>}
                       </div>
                     ))}
                   </div>
@@ -827,7 +907,10 @@ const CompanyDetailCard = ({ company, entityType, selectedSections, onSave, onCo
                 <div className="mt-4">
                   <h4 className="text-sm font-medium mb-2">Другие адреса</h4>
                   {c.OtherAddresses.map((a: string, i: number) => (
-                    <div key={i} className="text-xs text-muted-foreground mb-1">{a}</div>
+                    <div key={i} className="text-xs text-muted-foreground mb-1 flex items-start gap-1.5">
+                      <MapPin className="h-3 w-3 shrink-0 mt-0.5" />
+                      {a}
+                    </div>
                   ))}
                 </div>
               )}
@@ -882,15 +965,15 @@ const CompanyDetailCard = ({ company, entityType, selectedSections, onSave, onCo
                     <table className="w-full text-sm">
                       <thead>
                         <tr className="border-b bg-muted/50">
-                          <th className="text-left p-2 font-medium text-muted-foreground">Год</th>
-                          <th className="text-left p-2 font-medium text-muted-foreground">Количество</th>
+                          <th className="text-left p-2.5 font-medium text-muted-foreground">Год</th>
+                          <th className="text-left p-2.5 font-medium text-muted-foreground">Количество</th>
                         </tr>
                       </thead>
                       <tbody>
                         {c._employeesHistory.map((e: any, i: number) => (
-                          <tr key={i} className="border-b last:border-0">
-                            <td className="p-2">{e.Year || '—'}</td>
-                            <td className="p-2">{e.Count != null ? e.Count : '—'}</td>
+                          <tr key={i} className={`border-b last:border-0 hover:bg-muted/30 transition-colors ${i % 2 === 1 ? 'bg-muted/20' : ''}`}>
+                            <td className="p-2.5">{e.Year || '—'}</td>
+                            <td className="p-2.5">{e.Count != null ? e.Count : '—'}</td>
                           </tr>
                         ))}
                       </tbody>
@@ -937,7 +1020,6 @@ const CompanyDetailCard = ({ company, entityType, selectedSections, onSave, onCo
                         <Card key={i} className="overflow-hidden hover:shadow-md transition-shadow">
                           <CardContent className="p-0">
                             <div className="flex gap-3">
-                              {/* Image preview */}
                               <div className="w-24 h-24 shrink-0 bg-muted flex items-center justify-center border-r">
                                 {imageUrl ? (
                                   <img src={imageUrl} alt={title} className="w-full h-full object-contain p-1.5"
@@ -987,7 +1069,7 @@ const CompanyDetailCard = ({ company, entityType, selectedSections, onSave, onCo
               <Button
                 variant="outline"
                 size="sm"
-                className="mt-3"
+                className="mt-3 gap-1.5"
                 disabled={fipsLoading}
                 onClick={async () => {
                   const inn = c.Inn || c.Name;
@@ -1011,7 +1093,7 @@ const CompanyDetailCard = ({ company, entityType, selectedSections, onSave, onCo
                   }
                 }}
               >
-                {fipsLoading ? <Loader2 className="h-4 w-4 animate-spin mr-1" /> : <Search className="h-4 w-4 mr-1" />}
+                {fipsLoading ? <Loader2 className="h-4 w-4 animate-spin" /> : <Search className="h-4 w-4" />}
                 Поиск в FIPS
               </Button>
             </TabsContent>
@@ -1058,16 +1140,24 @@ const safeString = (v: unknown): string => {
   return String(v);
 };
 
-const DataGrid = ({ data }: { data: { label: string; value: unknown }[] }) => (
-  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-    {data.filter(d => d.value != null && d.value !== '' && d.value !== 'null').map((d, i) => (
-      <div key={i}>
-        <div className="text-xs text-muted-foreground">{d.label}</div>
-        <div className="text-sm font-medium">{safeString(d.value)}</div>
-      </div>
-    ))}
-  </div>
-);
+const DataGrid = ({ data }: { data: { label: string; value: unknown }[] }) => {
+  const filtered = data.filter(d => d.value != null && d.value !== '' && d.value !== 'null');
+  return (
+    <div className="grid grid-cols-1 sm:grid-cols-2 gap-0">
+      {filtered.map((d, i) => {
+        const SectionIcon = SECTION_ICONS[d.label.toLowerCase()] || null;
+        return (
+          <div key={i} className={`px-3 py-2.5 ${i % 2 === 0 ? 'bg-transparent' : 'bg-muted/30'} hover:bg-muted/50 transition-colors rounded-sm`}>
+            <div className="text-xs text-muted-foreground flex items-center gap-1.5">
+              {d.label}
+            </div>
+            <div className="text-sm font-medium mt-0.5">{safeString(d.value)}</div>
+          </div>
+        );
+      })}
+    </div>
+  );
+};
 
 function formatCompanyText(company: Record<string, unknown>, sections: string[]): string {
   const c = company as any;
