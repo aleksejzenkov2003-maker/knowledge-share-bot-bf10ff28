@@ -752,7 +752,7 @@ const CompanyDetailCard = ({ company, entityType, selectedSections, onSave, onCo
             </div>
             <div>
               <CardTitle className="text-lg flex items-center gap-2">
-                {c.Name || 'Компания'}
+                {c.Name || (entityType === 'person' ? 'Физическое лицо' : 'Компания')}
                 {loadingDetail && <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" />}
               </CardTitle>
               <div className="flex flex-wrap gap-3 mt-1 text-sm text-muted-foreground">
