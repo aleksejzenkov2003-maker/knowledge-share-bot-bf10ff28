@@ -476,7 +476,7 @@ const CompanyDetailCard = ({ company, entityType, selectedSections, onSave, onCo
                     {allTM.map((tm: any, i: number) => {
                       const regNum = tm.Number || tm.RegistrationNumber || tm.reg_number;
                       const appNum = tm.ApplicationNumber || tm.app_number;
-                      const fipsUrl = regNum ? `https://fips.ru/registers/trademark/${regNum}` : null;
+                      const fipsUrl = regNum ? `https://fips.ru/registers-doc-view/fips_servlet?DB=RUTM&DocNumber=${regNum}&TypeFile=html` : null;
                       const title = tm.Topic || tm.Name || tm.Description || `ТЗ №${regNum || appNum || i + 1}`;
                       const regDate = tm.RegistrationDate || tm.patent_date_begin;
                       const expDate = tm.ExpirationDate || tm.patent_date_end;
