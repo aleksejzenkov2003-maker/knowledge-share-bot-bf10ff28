@@ -5,6 +5,8 @@ const corsHeaders = {
   'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
 };
 
+// Demo endpoint — no auth required, limited INN set
+const VOK_DEMO_BASE = 'https://api.sbis.ru/vok-demo';
 const VOK_BASE = 'https://api.saby.ru/vok';
 const AUTH_URL = 'https://api.saby.ru/auth/service/';
 
@@ -12,7 +14,12 @@ const AUTH_URL = 'https://api.saby.ru/auth/service/';
 let cachedSid: string | null = null;
 let sidExpiresAt = 0;
 
-async function authenticate(): Promise<string> {
+// Check if we should use demo mode (fallback when auth fails or rate limited)
+let useDemoMode = false;
+
+async function authenticate(): Promise<string | null> {
+  if (useDemoMode) return null;
+
   if (cachedSid && Date.now() < sidExpiresAt) {
     return cachedSid;
   }
@@ -21,45 +28,63 @@ async function authenticate(): Promise<string> {
   const password = Deno.env.get('SBIS_PASSWORD');
 
   if (!login || !password) {
-    throw new Error('SBIS_LOGIN or SBIS_PASSWORD not configured');
+    console.log('SBIS: No credentials, switching to demo mode');
+    useDemoMode = true;
+    return null;
   }
 
-  console.log('SBIS: Authenticating via login/password...');
-  const res = await fetch(AUTH_URL, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json; charset=utf-8' },
-    body: JSON.stringify({
-      jsonrpc: '2.0',
-      method: 'САП.Аутентифицировать',
-      params: { login, password },
-      id: 1,
-    }),
-  });
+  try {
+    console.log('SBIS: Authenticating via login/password...');
+    const res = await fetch(AUTH_URL, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json; charset=utf-8' },
+      body: JSON.stringify({
+        jsonrpc: '2.0',
+        method: 'САП.Аутентифицировать',
+        params: { login, password },
+        id: 1,
+      }),
+    });
 
-  const data = await res.json();
-  if (data.error) {
-    throw new Error(`SBIS auth error: ${data.error.message || JSON.stringify(data.error)}`);
+    const data = await res.json();
+    if (data.error) {
+      console.error('SBIS auth failed, switching to demo mode:', data.error);
+      useDemoMode = true;
+      return null;
+    }
+
+    cachedSid = data.result;
+    sidExpiresAt = Date.now() + 25 * 60 * 1000;
+    console.log('SBIS: Authenticated successfully, SID obtained');
+    return cachedSid!;
+  } catch (e) {
+    console.error('SBIS auth exception, switching to demo mode:', e);
+    useDemoMode = true;
+    return null;
   }
-
-  cachedSid = data.result;
-  sidExpiresAt = Date.now() + 25 * 60 * 1000;
-  console.log('SBIS: Authenticated successfully, SID obtained');
-  return cachedSid!;
 }
 
-async function vokRequest(endpoint: string, params: Record<string, string>, sid: string): Promise<unknown> {
-  const url = new URL(`${VOK_BASE}/${endpoint}`);
+async function vokRequest(endpoint: string, params: Record<string, string>, sid: string | null): Promise<unknown> {
+  const base = sid ? VOK_BASE : VOK_DEMO_BASE;
+  const url = new URL(`${base}/${endpoint}`);
   for (const [k, v] of Object.entries(params)) {
     url.searchParams.append(k, v);
   }
 
+  const headers: Record<string, string> = {
+    'Accept': 'application/json',
+  };
+
+  if (sid) {
+    headers['X-SBISSessionID'] = sid;
+    headers['Cookie'] = `sid=${sid}`;
+  }
+
+  console.log(`SBIS: ${sid ? 'PROD' : 'DEMO'} request: ${endpoint}`, params);
+
   const res = await fetch(url.toString(), {
     method: 'GET',
-    headers: {
-      'X-SBISSessionID': sid,
-      'Cookie': `sid=${sid}`,
-      'Accept': 'application/json',
-    },
+    headers,
   });
 
   if (res.status === 403) {
@@ -68,6 +93,14 @@ async function vokRequest(endpoint: string, params: Record<string, string>, sid:
 
   if (!res.ok) {
     const text = await res.text();
+    // If rate limited on prod, try demo
+    if (!sid && text.includes('exceeded')) {
+      throw new Error(`SBIS VOK demo error [${res.status}]: ${text}`);
+    }
+    if (sid && (res.status === 429 || text.includes('exceeded'))) {
+      console.log('SBIS: Rate limited on prod, retrying with demo...');
+      return vokRequest(endpoint, params, null);
+    }
     throw new Error(`SBIS VOK error [${res.status}]: ${text}`);
   }
 
@@ -87,7 +120,7 @@ serve(async (req) => {
   }
 
   try {
-    const { action, inn, ogrn, query: searchQuery } = await req.json();
+    const { action, inn, ogrn, query: searchQuery, demo } = await req.json();
 
     if (!action) {
       return new Response(
@@ -95,6 +128,9 @@ serve(async (req) => {
         { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
       );
     }
+
+    // Allow forcing demo mode from client
+    if (demo) useDemoMode = true;
 
     const sid = await authenticate();
 
@@ -108,7 +144,6 @@ serve(async (req) => {
       }
 
       const rawData = await vokRequest('search', { requisites: searchQuery }, sid) as any;
-      // Unwrap nested array [[{...}]] → [{...}]
       const data = Array.isArray(rawData) && Array.isArray(rawData[0]) ? rawData[0] : rawData;
       return new Response(JSON.stringify(data), {
         headers: { ...corsHeaders, 'Content-Type': 'application/json' },
@@ -124,7 +159,6 @@ serve(async (req) => {
         );
       }
       const params = pickIdentifier(inn, ogrn);
-
       const data = await vokRequest('req', params, sid);
       return new Response(JSON.stringify(data), {
         headers: { ...corsHeaders, 'Content-Type': 'application/json' },
@@ -160,17 +194,14 @@ serve(async (req) => {
 
       // If we have a text query, search first
       if (searchQuery && !targetInn && !targetOgrn) {
-        // Detect if query is INN or OGRN
         const clean = searchQuery.replace(/\s/g, '');
         if (/^\d{10}$/.test(clean) || /^\d{12}$/.test(clean)) {
           targetInn = clean;
         } else if (/^\d{13}$/.test(clean) || /^\d{15}$/.test(clean)) {
           targetOgrn = clean;
         } else {
-          // Text search
           try {
             const searchData = await vokRequest('search', { requisites: searchQuery }, sid) as any;
-            // VOK search returns [[{...}, {...}]] — nested array
             const rawItems = Array.isArray(searchData) && Array.isArray(searchData[0]) 
               ? searchData[0] 
               : searchData?.items || (Array.isArray(searchData) ? searchData : []);
@@ -188,12 +219,10 @@ serve(async (req) => {
               });
             }
 
-            // Single result — extract INN
             targetInn = rawItems[0]?.inn || rawItems[0]?.INN;
             targetOgrn = rawItems[0]?.ogrn || rawItems[0]?.OGRN;
           } catch (e: any) {
             console.error('SBIS search error:', e);
-            // Don't swallow the error — return it so the user sees the real problem
             return new Response(
               JSON.stringify({ error: e?.message || 'Search failed', search_results: [] }),
               { status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
@@ -211,7 +240,6 @@ serve(async (req) => {
 
       const params = pickIdentifier(targetInn, targetOgrn);
 
-      // Fetch req data (main requisites)
       let reqData: any = null;
       try {
         reqData = await vokRequest('req', params, sid);
@@ -228,6 +256,7 @@ serve(async (req) => {
         company: reqData,
         inn: targetInn,
         ogrn: targetOgrn,
+        demo: !sid,
       }), {
         headers: { ...corsHeaders, 'Content-Type': 'application/json' },
       });
