@@ -13,11 +13,19 @@ const LABEL_MAP: Record<string, string> = {
   inn: 'ИНН', ogrn: 'ОГРН', kpp: 'КПП', okpo: 'ОКПО', okved: 'ОКВЭД',
   company_name: 'Название', company_short_name: 'Краткое название',
   company_full_name: 'Полное название', condition_code: 'Код состояния',
+  condition_name: 'Состояние', status_name: 'Статус',
   multi_kpp: 'Доп. КПП', registration_date: 'Дата регистрации',
+  address_legal: 'Юридический адрес', address_actual: 'Фактический адрес',
+  address_postal: 'Почтовый адрес', region: 'Регион',
+  main_okved: 'Основной ОКВЭД', main_okved_name: 'Вид деятельности',
+  legal_form_text: 'Организационно-правовая форма',
+  authorized_capital: 'Уставный капитал',
+  director_surname: 'Руководитель', director_position: 'Должность руководителя',
+  brand_name: 'Бренд', activity_kind: 'Отрасль',
   // Finance
   revenue: 'Выручка', profit: 'Прибыль', net_profit: 'Чистая прибыль',
   balance: 'Баланс', assets: 'Активы', current_assets: 'Оборотные активы',
-  capital: 'Капитал', authorized_capital: 'Уставный капитал',
+  capital: 'Капитал',
   accounts_payable: 'Кредиторская задолженность', buyers_debts: 'Дебиторская задолженность',
   borrowed_funds_long: 'Заёмные средства (долгоср.)', borrowed_funds_short: 'Заёмные средства (краткоср.)',
   before_taxation_profit: 'Прибыль до налогообложения', additional_capital: 'Добавочный капитал',
@@ -45,9 +53,13 @@ const LABEL_MAP: Record<string, string> = {
   phone_numbers: 'Телефоны', emails: 'Email', sites: 'Сайты',
   // Tenders
   publish_date: 'Дата публикации', amount: 'Сумма', lot_name: 'Лот',
-  end_offer_date: 'Срок окончания', region: 'Регион', tp_brief: 'Площадка',
+  end_offer_date: 'Срок окончания', tp_brief: 'Площадка',
   proc_type: 'Тип закупки', currency_brief: 'Валюта', winner_name: 'Победитель',
   company_name_field: 'Компания', tp_type_name: 'Тип', industry: 'Отрасль',
+  // Trademarks
+  app_number: 'Номер заявки', app_date: 'Дата заявки', reg_number: 'Рег. номер',
+  patent_date_begin: 'Начало действия', patent_date_end: 'Окончание действия',
+  patent_type_name: 'Тип', patent_status: 'Действует', pub_date: 'Дата публикации',
 };
 
 function getLabel(key: string): string {
@@ -90,10 +102,19 @@ export const RequisitesRenderer = ({ data }: { data: any }) => {
     { key: 'company_full_name', icon: <Building2 className="h-4 w-4" /> },
     { key: 'company_name', icon: <Building2 className="h-4 w-4" /> },
     { key: 'condition_code', icon: <Info className="h-4 w-4" /> },
+    { key: 'condition_name', icon: <Info className="h-4 w-4" /> },
     { key: 'registration_date', icon: <Calendar className="h-4 w-4" /> },
+    { key: 'address_legal', icon: <MapPin className="h-4 w-4" /> },
+    { key: 'address_actual', icon: <MapPin className="h-4 w-4" /> },
+    { key: 'region', icon: <MapPin className="h-4 w-4" /> },
+    { key: 'main_okved', icon: <Briefcase className="h-4 w-4" /> },
+    { key: 'main_okved_name', icon: <Briefcase className="h-4 w-4" /> },
+    { key: 'legal_form_text', icon: <FileText className="h-4 w-4" /> },
+    { key: 'authorized_capital', icon: <Banknote className="h-4 w-4" /> },
+    { key: 'director_surname', icon: <User className="h-4 w-4" /> },
   ];
 
-  const displayedKeys = new Set(mainFields.map(f => f.key));
+  const displayedKeys = new Set([...mainFields.map(f => f.key), 'director_name', 'director_patronymic', 'director_position', 'director_egrul_inn', 'director_egrul_name', 'director_egrul_patronymic', 'director_egrul_position', 'director_egrul_surname', 'director_inn', 'director_is_mass', 'brand_name', 'parsed_address']);
 
   return (
     <div className="space-y-4">
@@ -102,6 +123,33 @@ export const RequisitesRenderer = ({ data }: { data: any }) => {
         {mainFields.map(({ key, icon }) => {
           const val = obj[key];
           if (val == null || val === '') return null;
+          // Special rendering for director
+          if (key === 'director_surname' && obj.director_surname) {
+            const fullName = [obj.director_surname, obj.director_name, obj.director_patronymic].filter(Boolean).join(' ');
+            const position = obj.director_position;
+            return (
+              <div key={key} className="flex items-start gap-3 p-3 rounded-lg bg-muted/30 sm:col-span-2">
+                <div className="text-muted-foreground mt-0.5">{icon}</div>
+                <div>
+                  <div className="text-xs text-muted-foreground">Руководитель</div>
+                  <div className="text-sm font-semibold">{fullName}</div>
+                  {position && <div className="text-xs text-muted-foreground">{position}</div>}
+                </div>
+              </div>
+            );
+          }
+          // Special rendering for authorized_capital
+          if (key === 'authorized_capital' && val) {
+            return (
+              <div key={key} className="flex items-start gap-3 p-3 rounded-lg bg-muted/30">
+                <div className="text-muted-foreground mt-0.5">{icon}</div>
+                <div>
+                  <div className="text-xs text-muted-foreground">{getLabel(key)}</div>
+                  <div className="text-sm font-semibold">{formatMoney(val)}</div>
+                </div>
+              </div>
+            );
+          }
           return (
             <div key={key} className="flex items-start gap-3 p-3 rounded-lg bg-muted/30">
               <div className="text-muted-foreground mt-0.5">{icon}</div>
@@ -580,21 +628,39 @@ export const TendersRenderer = ({ data }: { data: any }) => {
 // ─── Trademarks ────────────────────────────────────────────────
 
 export const TrademarkCard = ({ item }: { item: any }) => {
-  const imageUrl = item.url || item.image_url;
-  const title = item.title || item.name || 'Товарный знак';
-  const regNumber = item.reg_number || item.registration_number;
+  // Support both direct url and SBIS image_id
+  const directUrl = item.url || item.image_url;
+  const imageId = item.image_id;
+  const sbisImageUrl = imageId && !item.no_image ? `https://api.sbis.ru/vok-demo/trademarks-image?id=${imageId}` : null;
+  const imageUrl = directUrl || sbisImageUrl;
+  
+  const title = item.title || item.name || item.patent_type_name || 'Товарный знак';
+  const regNumber = item.reg_number || item.registration_number || item.app_number;
   const pubDate = item.pub_date || item.publication_date;
   const noImage = item.no_image === true || item.no_image === 'true';
+  const dateBegin = item.patent_date_begin;
+  const dateEnd = item.patent_date_end;
+  const patentStatus = item.patent_status;
+  const appDate = item.app_date;
+  const owners = item.owners;
+
+  // Extract purposes (classes)
+  const purposes = item.purposes;
+  const purposeCount = Array.isArray(purposes) ? purposes.length : 0;
 
   return (
     <Card className="overflow-hidden hover:shadow-md transition-shadow">
       <CardContent className="p-0">
         <div className="flex gap-4">
-          <div className="w-28 h-28 shrink-0 bg-muted flex items-center justify-center border-r">
+          <div className="w-32 h-32 shrink-0 bg-muted flex items-center justify-center border-r">
             {imageUrl && !noImage ? (
               <a href={imageUrl} target="_blank" rel="noopener noreferrer" className="block w-full h-full">
                 <img src={imageUrl} alt={title} className="w-full h-full object-contain p-2"
-                  onError={(e) => { (e.target as HTMLImageElement).style.display = 'none'; }} />
+                  onError={(e) => { 
+                    const el = e.target as HTMLImageElement;
+                    el.style.display = 'none';
+                    el.parentElement!.innerHTML = '<div class="flex flex-col items-center justify-center h-full text-muted-foreground"><span class="text-xs">Не загружено</span></div>';
+                  }} />
               </a>
             ) : (
               <div className="flex flex-col items-center justify-center h-full text-muted-foreground">
@@ -603,15 +669,42 @@ export const TrademarkCard = ({ item }: { item: any }) => {
               </div>
             )}
           </div>
-          <div className="flex-1 py-3 pr-4 space-y-1.5">
-            <h4 className="font-semibold text-sm">{title}</h4>
-            <div className="flex flex-wrap gap-x-4 gap-y-1 text-xs text-muted-foreground">
-              {regNumber && <span className="flex items-center gap-1"><Hash className="h-3 w-3" /> Рег. №{regNumber}</span>}
-              {pubDate && <span className="flex items-center gap-1"><Calendar className="h-3 w-3" /> {pubDate}</span>}
+          <div className="flex-1 py-3 pr-4 space-y-2">
+            <div className="flex items-start justify-between gap-2">
+              <h4 className="font-semibold text-sm">{title}</h4>
+              {patentStatus != null && (
+                <Badge variant={patentStatus ? 'default' : 'secondary'} className="shrink-0 text-[10px]">
+                  {patentStatus ? 'Действует' : 'Недействующий'}
+                </Badge>
+              )}
             </div>
+            <div className="flex flex-wrap gap-x-4 gap-y-1 text-xs text-muted-foreground">
+              {regNumber && <span className="flex items-center gap-1"><Hash className="h-3 w-3" /> №{regNumber}</span>}
+              {appDate && <span className="flex items-center gap-1"><Calendar className="h-3 w-3" /> Заявка: {formatDate(appDate)}</span>}
+              {pubDate && <span className="flex items-center gap-1"><Calendar className="h-3 w-3" /> Публ: {formatDate(pubDate)}</span>}
+            </div>
+            {(dateBegin || dateEnd) && (
+              <div className="text-xs text-muted-foreground">
+                {dateBegin && <span>Действует с {formatDate(dateBegin)}</span>}
+                {dateEnd && <span> по {formatDate(dateEnd)}</span>}
+              </div>
+            )}
+            {/* Owners */}
+            {Array.isArray(owners) && owners.length > 0 && (
+              <div className="text-xs">
+                <span className="text-muted-foreground">Правообладатель: </span>
+                <span className="font-medium">{owners.map((o: any) => o.name || o.face_name).filter(Boolean).join(', ')}</span>
+              </div>
+            )}
+            {/* Classes count */}
+            {purposeCount > 0 && (
+              <div className="text-xs text-muted-foreground">
+                Классов МКТУ: {purposeCount}
+              </div>
+            )}
             {imageUrl && (
               <a href={imageUrl} target="_blank" rel="noopener noreferrer" className="inline-flex items-center gap-1 text-xs text-primary hover:underline">
-                <ExternalLink className="h-3 w-3" /> Открыть
+                <ExternalLink className="h-3 w-3" /> Открыть изображение
               </a>
             )}
           </div>
