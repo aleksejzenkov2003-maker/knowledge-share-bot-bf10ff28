@@ -9,7 +9,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Badge } from '@/components/ui/badge';
 import { Separator } from '@/components/ui/separator';
 import { toast } from '@/hooks/use-toast';
-import { Search, Building2, Copy, Bookmark, Loader2, ChevronLeft, ChevronRight, TrendingUp, Users, Gavel, FileCheck, Phone, ShieldCheck } from 'lucide-react';
+import { Search, Building2, Copy, Bookmark, Loader2, ChevronLeft, ChevronRight, TrendingUp, Users, Gavel, FileCheck, Phone, ShieldCheck, MapPin } from 'lucide-react';
 import { renderSectionData } from '@/components/sbis/SbisDataRenderers';
 
 const DATA_SECTIONS = [
@@ -275,6 +275,9 @@ const SbisReport = () => {
                               <div className="font-medium text-sm truncate">{r.company_name || r.name || r.full_name || r.Name}</div>
                               {(r.inn || r.INN) && <div className="text-xs text-muted-foreground">ИНН: {r.inn || r.INN}</div>}
                               {(r.ogrn || r.OGRN) && <div className="text-xs text-muted-foreground">ОГРН: {r.ogrn || r.OGRN}</div>}
+                              {(r.state_name || r.status_name) && (
+                                <Badge variant="outline" className="text-[10px] mt-1">{r.state_name || r.status_name}</Badge>
+                              )}
                             </div>
                           </div>
                         </CardContent>
@@ -353,11 +356,22 @@ const SbisCompanyCard = ({ company, extraData, selectedSections, sectionLoading,
                 {ogrn && <span>ОГРН: {ogrn}</span>}
                 {kpp && <span>КПП: {kpp}</span>}
               </div>
-              {c?.status && (
-                <Badge variant="default" className="mt-1">
-                  {typeof c.status === 'object' ? c.status.text || c.status.value : c.status}
-                </Badge>
+              {(c?.address_legal || c?.address_actual) && (
+                <div className="flex items-start gap-1.5 mt-1.5 text-xs text-muted-foreground">
+                  <MapPin className="h-3.5 w-3.5 shrink-0 mt-0.5" />
+                  <span>{c.address_legal || c.address_actual}</span>
+                </div>
               )}
+              <div className="flex flex-wrap gap-1.5 mt-1.5">
+                {(c?.condition_name || c?.status_name) && (
+                  <Badge variant="default">
+                    {c.condition_name || c.status_name || (typeof c.status === 'object' ? c.status.text || c.status.value : c.status)}
+                  </Badge>
+                )}
+                {c?.region && (
+                  <Badge variant="secondary">{c.region}</Badge>
+                )}
+              </div>
             </div>
           </div>
           <div className="flex gap-2">
