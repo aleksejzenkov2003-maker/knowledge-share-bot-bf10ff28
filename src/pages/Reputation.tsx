@@ -61,6 +61,7 @@ const Reputation = () => {
   const [savedReports, setSavedReports] = useState<Array<{ id: string; name: string; inn: string; created_at: string }>>([]);
   const [filterStatus, setFilterStatus] = useState<string>('all');
   const [filterCity, setFilterCity] = useState<string>('all');
+  const [visibleCount, setVisibleCount] = useState(20);
 
   // Extract unique cities from addresses for filter
   const extractCity = (address?: string): string => {
@@ -120,6 +121,7 @@ const Reputation = () => {
     setSelectedCompany(null);
     setSearchResults([]);
     setCurrentResultIndex(0);
+    setVisibleCount(20);
 
     try {
       const { data, error } = await supabase.functions.invoke('reputation-api', {
@@ -321,7 +323,7 @@ const Reputation = () => {
               </CardHeader>
               <CardContent>
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                  {filteredResults.map((r) => (
+                  {filteredResults.slice(0, visibleCount).map((r) => (
                     <Card key={r.Id} className="cursor-pointer hover:border-primary transition-colors" onClick={() => handleSelectResult(r)}>
                       <CardContent className="p-5">
                         <div className="flex items-start gap-3">
@@ -361,6 +363,13 @@ const Reputation = () => {
                     </div>
                   )}
                 </div>
+                {visibleCount < filteredResults.length && (
+                  <div className="flex justify-center pt-4">
+                    <Button variant="outline" onClick={() => setVisibleCount(prev => prev + 20)}>
+                      Показать ещё ({filteredResults.length - visibleCount} осталось)
+                    </Button>
+                  </div>
+                )}
               </CardContent>
             </Card>
           )}

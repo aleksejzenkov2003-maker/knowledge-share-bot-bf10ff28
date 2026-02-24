@@ -183,7 +183,7 @@ serve(async (req) => {
       if (results.length > 1) {
         console.log(`Reputation: Found ${results.length} entities, returning for user selection`);
         return new Response(JSON.stringify({
-          search_results: results.slice(0, 10),
+          search_results: results,
           company: null,
           entity_type: null,
           additional: {},
@@ -239,7 +239,7 @@ serve(async (req) => {
       }
 
       return new Response(JSON.stringify({
-        search_results: results.slice(0, 5), // Return top 5 matches
+        search_results: results,
         company: companyCard,
         entity_type: cardType,
         additional: additionalData,
