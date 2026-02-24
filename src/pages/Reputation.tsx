@@ -9,7 +9,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Badge } from '@/components/ui/badge';
 import { Separator } from '@/components/ui/separator';
 import { toast } from '@/hooks/use-toast';
-import { Search, Building2, Copy, Bookmark, Loader2, ChevronLeft, ChevronRight } from 'lucide-react';
+import { Search, Building2, Copy, Bookmark, Loader2, ChevronLeft, ChevronRight, ExternalLink, Hash, Calendar, ImageIcon } from 'lucide-react';
 
 interface SearchResult {
   Id: string;
@@ -473,18 +473,63 @@ const CompanyDetailCard = ({ company, entityType, selectedSections, onSave, onCo
                 const allTM = [...(c.Trademarks && Array.isArray(c.Trademarks) ? c.Trademarks : []), ...fipsTrademarks];
                 return allTM.length > 0 ? (
                   <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-                    {allTM.map((tm: any, i: number) => (
-                      <Card key={i} className="p-3">
-                        <div className="text-sm font-medium">
-                          {tm.Topic || tm.Name || tm.Description || `ТЗ №${tm.Number || i + 1}`}
-                        </div>
-                        {tm.Number && <div className="text-xs text-muted-foreground">Свидетельство № {tm.Number}</div>}
-                        {tm.ApplicationNumber && <div className="text-xs text-muted-foreground">Заявка № {tm.ApplicationNumber}</div>}
-                        {tm.RegistrationDate && <div className="text-xs text-muted-foreground">Регистрация: {formatDate(tm.RegistrationDate)}</div>}
-                        {tm.Status && <Badge variant={tm.Status === 'Действующий' ? 'default' : 'secondary'} className="mt-1 text-xs">{typeof tm.Status === 'object' ? tm.Status.StatusText : tm.Status}</Badge>}
-                        {tm._source && <Badge variant="outline" className="mt-1 ml-1 text-xs">{tm._source === 'patents' ? 'Реестр' : 'Заявка'}</Badge>}
-                      </Card>
-                    ))}
+                    {allTM.map((tm: any, i: number) => {
+                      const regNum = tm.Number || tm.RegistrationNumber || tm.reg_number;
+                      const appNum = tm.ApplicationNumber || tm.app_number;
+                      const fipsUrl = regNum ? `https://fips.ru/registers/trademark/${regNum}` : null;
+                      const title = tm.Topic || tm.Name || tm.Description || `ТЗ №${regNum || appNum || i + 1}`;
+                      const regDate = tm.RegistrationDate || tm.patent_date_begin;
+                      const expDate = tm.ExpirationDate || tm.patent_date_end;
+                      const statusText = tm.Status
+                        ? (typeof tm.Status === 'object' ? tm.Status.StatusText : tm.Status)
+                        : (tm.patent_status != null ? (tm.patent_status ? 'Действующий' : 'Недействующий') : null);
+                      const isActive = statusText === 'Действующий' || statusText === 'Active';
+                      const imageUrl = tm.ImageUrl || tm.image_url;
+
+                      return (
+                        <Card key={i} className="overflow-hidden hover:shadow-md transition-shadow">
+                          <CardContent className="p-0">
+                            <div className="flex gap-3">
+                              {/* Image preview */}
+                              <div className="w-24 h-24 shrink-0 bg-muted flex items-center justify-center border-r">
+                                {imageUrl ? (
+                                  <img src={imageUrl} alt={title} className="w-full h-full object-contain p-1.5"
+                                    onError={(e) => { (e.target as HTMLImageElement).style.display = 'none'; }} />
+                                ) : (
+                                  <div className="flex flex-col items-center justify-center h-full text-muted-foreground">
+                                    <Hash className="h-5 w-5" />
+                                    <span className="text-[10px] mt-0.5">ТЗ</span>
+                                  </div>
+                                )}
+                              </div>
+                              <div className="flex-1 py-2.5 pr-3 space-y-1.5">
+                                <div className="flex items-start justify-between gap-2">
+                                  <h4 className="font-semibold text-sm leading-tight line-clamp-2">{title}</h4>
+                                  {statusText && (
+                                    <Badge variant={isActive ? 'default' : 'secondary'} className="shrink-0 text-[10px]">
+                                      {statusText}
+                                    </Badge>
+                                  )}
+                                </div>
+                                <div className="flex flex-wrap gap-x-3 gap-y-0.5 text-xs text-muted-foreground">
+                                  {regNum && <span>№ {regNum}</span>}
+                                  {appNum && <span>Заявка: {appNum}</span>}
+                                  {regDate && <span>Рег: {formatDate(regDate)}</span>}
+                                  {expDate && <span>До: {formatDate(expDate)}</span>}
+                                </div>
+                                {tm._source && <Badge variant="outline" className="text-[10px]">{tm._source === 'patents' ? 'Реестр' : 'Заявка'}</Badge>}
+                                {fipsUrl && (
+                                  <a href={fipsUrl} target="_blank" rel="noopener noreferrer"
+                                    className="inline-flex items-center gap-1 text-xs text-primary hover:underline">
+                                    <ExternalLink className="h-3 w-3" /> Открыть в ФИПС
+                                  </a>
+                                )}
+                              </div>
+                            </div>
+                          </CardContent>
+                        </Card>
+                      );
+                    })}
                   </div>
                 ) : (
                   <div className="space-y-3">
