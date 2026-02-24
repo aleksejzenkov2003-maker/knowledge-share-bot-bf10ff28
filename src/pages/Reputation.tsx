@@ -9,7 +9,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Badge } from '@/components/ui/badge';
 import { Separator } from '@/components/ui/separator';
 import { toast } from '@/hooks/use-toast';
-import { Search, Building2, Copy, Bookmark, Loader2, ChevronLeft, ChevronRight, ExternalLink, Hash, Calendar, ImageIcon } from 'lucide-react';
+import { Search, Building2, Copy, Bookmark, Loader2, ChevronLeft, ExternalLink, Hash, MapPin } from 'lucide-react';
 
 interface SearchResult {
   Id: string;
@@ -238,38 +238,48 @@ const Reputation = () => {
 
         {/* Results */}
         <div className="lg:col-span-3 space-y-4">
-          {/* Multiple results carousel */}
+          {/* Multiple results grid */}
           {searchResults.length > 1 && !selectedCompany && (
             <Card>
               <CardHeader className="pb-3">
-                <CardTitle className="text-sm">Найдено {searchResults.length} совпадений</CardTitle>
+                <div className="flex items-center justify-between">
+                  <CardTitle className="text-sm">Найдено {searchResults.length} совпадений</CardTitle>
+                  <Button variant="ghost" size="sm" onClick={() => { setSearchResults([]); setQuery(''); }}>
+                    <ChevronLeft className="h-4 w-4 mr-1" /> Назад
+                  </Button>
+                </div>
               </CardHeader>
               <CardContent>
-                <div className="flex items-center gap-3">
-                  <Button variant="outline" size="icon" disabled={currentResultIndex === 0} onClick={() => setCurrentResultIndex(i => i - 1)}>
-                    <ChevronLeft className="h-4 w-4" />
-                  </Button>
-                  <div className="flex-1 grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-3">
-                    {searchResults.slice(currentResultIndex, currentResultIndex + 3).map(r => (
-                      <Card key={r.Id} className="cursor-pointer hover:border-primary transition-colors" onClick={() => handleSelectResult(r)}>
-                        <CardContent className="p-4">
-                          <div className="flex items-start gap-2">
-                            <Building2 className="h-5 w-5 text-muted-foreground shrink-0 mt-0.5" />
-                            <div className="min-w-0">
-                              <div className="font-medium text-sm truncate">{r.Name}</div>
-                              {r.Inn && <div className="text-xs text-muted-foreground">ИНН: {r.Inn}</div>}
-                              {r.Ogrn && <div className="text-xs text-muted-foreground">ОГРН: {r.Ogrn}</div>}
-                              {r.Address && <div className="text-xs text-muted-foreground truncate">{r.Address}</div>}
-                              <Badge variant="outline" className="mt-1 text-xs">{r.Type}</Badge>
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                  {searchResults.map((r) => (
+                    <Card key={r.Id} className="cursor-pointer hover:border-primary transition-colors" onClick={() => handleSelectResult(r)}>
+                      <CardContent className="p-5">
+                        <div className="flex items-start gap-3">
+                          <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-primary/10 shrink-0">
+                            <Building2 className="h-5 w-5 text-primary" />
+                          </div>
+                          <div className="min-w-0 space-y-1">
+                            <div className="font-medium text-sm leading-tight">{r.Name || 'Без названия'}</div>
+                            <div className="flex flex-wrap gap-x-3 gap-y-0.5 text-xs text-muted-foreground">
+                              {r.Inn && <span>ИНН: {r.Inn}</span>}
+                              {r.Ogrn && <span>ОГРН: {r.Ogrn}</span>}
+                            </div>
+                            {r.Address && (
+                              <div className="flex items-start gap-1 text-xs text-muted-foreground">
+                                <MapPin className="h-3 w-3 shrink-0 mt-0.5" />
+                                <span className="line-clamp-2">{r.Address}</span>
+                              </div>
+                            )}
+                            <div className="flex flex-wrap gap-1.5 pt-0.5">
+                              <Badge variant="outline" className="text-[10px]">
+                                {r.Type === 'Company' ? 'Юр. лицо' : r.Type === 'Entrepreneur' ? 'ИП' : r.Type}
+                              </Badge>
                             </div>
                           </div>
-                        </CardContent>
-                      </Card>
-                    ))}
-                  </div>
-                  <Button variant="outline" size="icon" disabled={currentResultIndex + 3 >= searchResults.length} onClick={() => setCurrentResultIndex(i => i + 1)}>
-                    <ChevronRight className="h-4 w-4" />
-                  </Button>
+                        </div>
+                      </CardContent>
+                    </Card>
+                  ))}
                 </div>
               </CardContent>
             </Card>
@@ -277,14 +287,19 @@ const Reputation = () => {
 
           {/* Company detail card */}
           {selectedCompany && (
-            <CompanyDetailCard
-              company={selectedCompany}
-              entityType={entityType}
-              additional={additionalData}
-              selectedSections={selectedSections}
-              onSave={handleSaveReport}
-              onCopy={handleCopyToClipboard}
-            />
+            <>
+              <Button variant="ghost" size="sm" onClick={() => { setSelectedCompany(null); }}>
+                <ChevronLeft className="h-4 w-4 mr-1" /> Назад к поиску
+              </Button>
+              <CompanyDetailCard
+                company={selectedCompany}
+                entityType={entityType}
+                additional={additionalData}
+                selectedSections={selectedSections}
+                onSave={handleSaveReport}
+                onCopy={handleCopyToClipboard}
+              />
+            </>
           )}
 
           {!loading && !selectedCompany && searchResults.length === 0 && (
@@ -345,11 +360,24 @@ const CompanyDetailCard = ({ company, entityType, selectedSections, onSave, onCo
                 {c.Ogrn && <span>ОГРН: {c.Ogrn}</span>}
                 {c.Kpp && <span>КПП: {c.Kpp}</span>}
               </div>
-              {c.Status && (
-                <Badge variant={c.Status?.StatusText === 'Действующая' || c.Status === 'Active' ? 'default' : 'destructive'} className="mt-1">
-                  {typeof c.Status === 'object' ? (c.Status?.StatusText || c.Status?.ReasonText || 'Неизвестно') : (c.Status === 'Active' ? 'Действующая' : c.Status)}
-                </Badge>
+              {c.Address && (
+                <div className="flex items-start gap-1.5 mt-1.5 text-xs text-muted-foreground">
+                  <MapPin className="h-3.5 w-3.5 shrink-0 mt-0.5" />
+                  <span>{c.Address}</span>
+                </div>
               )}
+              <div className="flex flex-wrap gap-1.5 mt-1.5">
+                {c.Status && (
+                  <Badge variant={c.Status?.StatusText === 'Действующая' || c.Status === 'Active' ? 'default' : 'destructive'}>
+                    {typeof c.Status === 'object' ? (c.Status?.StatusText || c.Status?.ReasonText || 'Неизвестно') : (c.Status === 'Active' ? 'Действующая' : c.Status)}
+                  </Badge>
+                )}
+                {c.Type && (
+                  <Badge variant="secondary">
+                    {c.Type === 'Company' ? 'Юр. лицо' : c.Type === 'Entrepreneur' ? 'ИП' : c.Type}
+                  </Badge>
+                )}
+              </div>
             </div>
           </div>
           <div className="flex gap-2">
