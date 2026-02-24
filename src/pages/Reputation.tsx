@@ -9,7 +9,8 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Badge } from '@/components/ui/badge';
 import { Separator } from '@/components/ui/separator';
 import { toast } from '@/hooks/use-toast';
-import { Search, Building2, Copy, Bookmark, Loader2, ChevronLeft, ExternalLink, Hash, MapPin } from 'lucide-react';
+import { Search, Building2, Copy, Bookmark, Loader2, ChevronLeft, ExternalLink, Hash, MapPin, Filter } from 'lucide-react';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 
 interface SearchResult {
   Id: string;
@@ -18,6 +19,8 @@ interface SearchResult {
   Ogrn?: string;
   Name?: string;
   Address?: string;
+  Status?: string;
+  Regions?: string[];
 }
 
 interface ReportData {
@@ -56,6 +59,36 @@ const Reputation = () => {
   });
   const [currentResultIndex, setCurrentResultIndex] = useState(0);
   const [savedReports, setSavedReports] = useState<Array<{ id: string; name: string; inn: string; created_at: string }>>([]);
+  const [filterStatus, setFilterStatus] = useState<string>('all');
+  const [filterCity, setFilterCity] = useState<string>('all');
+
+  // Extract unique cities from addresses for filter
+  const extractCity = (address?: string): string => {
+    if (!address) return '';
+    // Try to extract city from address patterns like "Г.МОСКВА" or "ГОРОД КАЗАНЬ"
+    const match = address.match(/(?:Г\.|ГОРОД\s+|г\.\s*)([А-ЯЁа-яё\s-]+?)(?:,|\s+УЛ|\s+ПР|\s+Ш\s|\s+ПЕР|\s+НАБ|\s+ВН)/i);
+    if (match) return match[1].trim();
+    // Fallback: try region patterns
+    const regionMatch = address.match(/(?:ОБЛАСТЬ|КРАЙ|РЕСПУБЛИКА|ОКРУГ)\s+([А-ЯЁа-яё\s-]+?)(?:,)/i);
+    if (regionMatch) return regionMatch[1].trim();
+    return '';
+  };
+
+  const availableCities = [...new Set(
+    searchResults.map(r => extractCity(r.Address)).filter(Boolean)
+  )].sort();
+
+  const filteredResults = searchResults.filter(r => {
+    if (filterStatus !== 'all') {
+      if (filterStatus === 'active' && r.Status !== 'Active') return false;
+      if (filterStatus === 'terminated' && r.Status !== 'Terminated') return false;
+    }
+    if (filterCity !== 'all') {
+      const city = extractCity(r.Address);
+      if (city !== filterCity) return false;
+    }
+    return true;
+  });
 
   useEffect(() => {
     localStorage.setItem(STORAGE_KEY, JSON.stringify(selectedSections));
@@ -244,14 +277,51 @@ const Reputation = () => {
               <CardHeader className="pb-3">
                 <div className="flex items-center justify-between">
                   <CardTitle className="text-sm">Найдено {searchResults.length} совпадений</CardTitle>
-                  <Button variant="ghost" size="sm" onClick={() => { setSearchResults([]); setQuery(''); }}>
+                  <Button variant="ghost" size="sm" onClick={() => { setSearchResults([]); setQuery(''); setFilterStatus('all'); setFilterCity('all'); }}>
                     <ChevronLeft className="h-4 w-4 mr-1" /> Назад
                   </Button>
                 </div>
+                {/* Filters */}
+                <div className="flex flex-wrap gap-3 mt-3">
+                  <div className="flex items-center gap-2">
+                    <Filter className="h-3.5 w-3.5 text-muted-foreground" />
+                    <Select value={filterStatus} onValueChange={setFilterStatus}>
+                      <SelectTrigger className="h-8 w-[160px] text-xs">
+                        <SelectValue placeholder="Статус" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="all">Все статусы</SelectItem>
+                        <SelectItem value="active">Действующие</SelectItem>
+                        <SelectItem value="terminated">Ликвидированные</SelectItem>
+                      </SelectContent>
+                    </Select>
+                  </div>
+                  {availableCities.length > 1 && (
+                    <Select value={filterCity} onValueChange={setFilterCity}>
+                      <SelectTrigger className="h-8 w-[200px] text-xs">
+                        <SelectValue placeholder="Город" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="all">Все города</SelectItem>
+                        {availableCities.map(city => (
+                          <SelectItem key={city} value={city}>{city}</SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  )}
+                  {(filterStatus !== 'all' || filterCity !== 'all') && (
+                    <Button variant="ghost" size="sm" className="h-8 text-xs" onClick={() => { setFilterStatus('all'); setFilterCity('all'); }}>
+                      Сбросить
+                    </Button>
+                  )}
+                </div>
+                {filteredResults.length !== searchResults.length && (
+                  <p className="text-xs text-muted-foreground mt-2">Показано {filteredResults.length} из {searchResults.length}</p>
+                )}
               </CardHeader>
               <CardContent>
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                  {searchResults.map((r) => (
+                  {filteredResults.map((r) => (
                     <Card key={r.Id} className="cursor-pointer hover:border-primary transition-colors" onClick={() => handleSelectResult(r)}>
                       <CardContent className="p-5">
                         <div className="flex items-start gap-3">
@@ -274,12 +344,22 @@ const Reputation = () => {
                               <Badge variant="outline" className="text-[10px]">
                                 {r.Type === 'Company' ? 'Юр. лицо' : r.Type === 'Entrepreneur' ? 'ИП' : r.Type}
                               </Badge>
+                              {r.Status && (
+                                <Badge variant={r.Status === 'Active' ? 'default' : 'secondary'} className="text-[10px]">
+                                  {r.Status === 'Active' ? 'Действующая' : r.Status === 'Terminated' ? 'Ликвидирована' : r.Status}
+                                </Badge>
+                              )}
                             </div>
                           </div>
                         </div>
                       </CardContent>
                     </Card>
                   ))}
+                  {filteredResults.length === 0 && (
+                    <div className="col-span-full text-center py-8 text-sm text-muted-foreground">
+                      Нет результатов по выбранным фильтрам
+                    </div>
+                  )}
                 </div>
               </CardContent>
             </Card>
