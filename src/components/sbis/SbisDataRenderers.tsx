@@ -702,7 +702,12 @@ export const TrademarkCard = ({ item }: { item: any }) => {
                 Классов МКТУ: {purposeCount}
               </div>
             )}
-            {imageUrl && (
+            {regNumber && (
+              <a href={`https://fips.ru/registers-doc-view/fips_servlet?DB=RUTM&DocNumber=${regNumber}&TypeFile=html`} target="_blank" rel="noopener noreferrer" className="inline-flex items-center gap-1 text-xs text-primary hover:underline">
+                <ExternalLink className="h-3 w-3" /> Открыть в ФИПС
+              </a>
+            )}
+            {imageUrl && !regNumber && (
               <a href={imageUrl} target="_blank" rel="noopener noreferrer" className="inline-flex items-center gap-1 text-xs text-primary hover:underline">
                 <ExternalLink className="h-3 w-3" /> Открыть изображение
               </a>
