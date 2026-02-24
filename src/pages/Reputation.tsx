@@ -474,8 +474,99 @@ const formatArray = (v: unknown): string | null => {
   return String(v);
 };
 
+function normalizeCompanyData(raw: any): any {
+  const c = { ...raw };
+
+  // Name
+  if (!c.Name && c.Names?.Items?.length > 0) {
+    c.Name = c.Names.Items[0].ShortName || c.Names.Items[0].FullName;
+  }
+  // FullName for "Полное название"
+  if (!c.FullName && c.Names?.Items?.length > 0) {
+    c.FullName = c.Names.Items[0].FullName;
+  }
+
+  // Address
+  if (!c.Address && c.Addresses?.Items?.length > 0) {
+    const actual = c.Addresses.Items.find((a: any) => a.IsActual) || c.Addresses.Items[0];
+    c.Address = actual.UnsplittedAddress || actual.Address;
+  }
+
+  // ManagerName + Managers list
+  if (c.Managers?.Items?.length > 0) {
+    if (!c.ManagerName) {
+      const director = c.Managers.Items.find((m: any) =>
+        m.IsActual && m.Position?.some((p: any) => p.PositionType === '02')
+      ) || c.Managers.Items.find((m: any) => m.IsActual) || c.Managers.Items[0];
+      c.ManagerName = director?.Entity?.Name || director?.Name;
+    }
+    c._managers = c.Managers.Items;
+  }
+
+  // Founders
+  if (c.Founders?.Items?.length > 0) {
+    c._founders = c.Founders.Items;
+  }
+
+  // Capital
+  if (c.Capital == null && c.AuthorizedCapitals?.Items?.length > 0) {
+    const actual = c.AuthorizedCapitals.Items.find((a: any) => a.IsActual) || c.AuthorizedCapitals.Items[0];
+    c.Capital = actual.Sum;
+    c._capitalType = actual.Type;
+  }
+
+  // EmployeesCount + history
+  if (c.EmployeesCount == null && c.EmployeesInfo?.Items?.length > 0) {
+    const sorted = [...c.EmployeesInfo.Items].sort((a: any, b: any) => (b.Year || 0) - (a.Year || 0));
+    c.EmployeesCount = sorted[0]?.Count;
+    c._employeesHistory = sorted;
+  }
+
+  // ActivityTypes
+  if (c.ActivityTypes?.Items) {
+    c.MainActivityType = c.ActivityTypes.Items.find((a: any) => a.IsMain);
+    c._activityTypes = c.ActivityTypes.Items;
+    c.ActivityTypes = c.ActivityTypes.Items.filter((a: any) => !a.IsMain);
+  }
+
+  // Taxation
+  if (c.Taxation?.Items?.length > 0) {
+    const actual = c.Taxation.Items.find((t: any) => t.IsActual) || c.Taxation.Items[0];
+    c._taxation = actual.Types || actual;
+  }
+
+  // Rsmp
+  if (c.Rsmp?.Items?.length > 0) {
+    const actual = c.Rsmp.Items.find((r: any) => r.IsActual) || c.Rsmp.Items[0];
+    c.RsmpCategory = actual.Category;
+  }
+
+  // OtherAddresses
+  if (!c.OtherAddresses && c.Addresses?.Items?.length > 1) {
+    c.OtherAddresses = c.Addresses.Items
+      .filter((a: any) => !a.IsActual)
+      .map((a: any) => a.UnsplittedAddress || a.Address)
+      .filter(Boolean);
+  }
+
+  // Phones/Emails/Sites from ContactInfo
+  if (c.ContactInfo?.Items?.length > 0) {
+    if (!c.Phones?.length) {
+      c.Phones = c.ContactInfo.Items.filter((ci: any) => ci.Type === 'Phone').map((ci: any) => ci.Value).filter(Boolean);
+    }
+    if (!c.Emails?.length) {
+      c.Emails = c.ContactInfo.Items.filter((ci: any) => ci.Type === 'Email').map((ci: any) => ci.Value).filter(Boolean);
+    }
+    if (!c.Sites?.length) {
+      c.Sites = c.ContactInfo.Items.filter((ci: any) => ci.Type === 'Site' || ci.Type === 'Website').map((ci: any) => ci.Value).filter(Boolean);
+    }
+  }
+
+  return c;
+}
+
 const CompanyDetailCard = ({ company, entityType, selectedSections, onSave, onCopy, initialTrademarks = [], loadingDetail }: CompanyDetailCardProps) => {
-  const c = company as any;
+  const c = normalizeCompanyData(company);
   const otherNames = c.OtherNames && Array.isArray(c.OtherNames) ? c.OtherNames[0] : null;
   const [fipsTrademarks, setFipsTrademarks] = useState<any[]>(initialTrademarks);
   const [fipsLoading, setFipsLoading] = useState(false);
@@ -546,7 +637,7 @@ const CompanyDetailCard = ({ company, entityType, selectedSections, onSave, onCo
           {selectedSections.includes('requisites') && (
             <TabsContent value="requisites">
               <DataGrid data={[
-                { label: 'Полное название', value: otherNames || c.Name },
+                { label: 'Полное название', value: c.FullName || otherNames || c.Name },
                 { label: 'Краткое название', value: c.Name },
                 { label: 'ИНН', value: c.Inn },
                 { label: 'ОГРН', value: c.Ogrn },
@@ -561,6 +652,18 @@ const CompanyDetailCard = ({ company, entityType, selectedSections, onSave, onCo
                 { label: 'ПФР', value: c.Pfr },
                 { label: 'ФСС', value: c.Fss },
               ]} />
+              {c._taxation && (
+                <div className="mt-4">
+                  <h4 className="text-sm font-medium mb-2">Система налогообложения</h4>
+                  <div className="space-y-1">
+                    {Array.isArray(c._taxation) ? c._taxation.map((t: any, i: number) => (
+                      <div key={i} className="text-sm text-muted-foreground">{t.Name || t.Code || safeString(t)}</div>
+                    )) : (
+                      <div className="text-sm text-muted-foreground">{safeString(c._taxation)}</div>
+                    )}
+                  </div>
+                </div>
+              )}
             </TabsContent>
           )}
 
@@ -569,18 +672,53 @@ const CompanyDetailCard = ({ company, entityType, selectedSections, onSave, onCo
               <DataGrid data={[
                 { label: 'Руководитель', value: c.ManagerName },
               ]} />
-              {c.Founders && (
+              {c._managers && c._managers.length > 0 && (
+                <div className="mt-4">
+                  <h4 className="text-sm font-medium mb-2">Руководители и учредители</h4>
+                  <div className="overflow-auto rounded-lg border">
+                    <table className="w-full text-sm">
+                      <thead>
+                        <tr className="border-b bg-muted/50">
+                          <th className="text-left p-2 font-medium text-muted-foreground">ФИО / Название</th>
+                          <th className="text-left p-2 font-medium text-muted-foreground">Должность</th>
+                          <th className="text-left p-2 font-medium text-muted-foreground">Дата</th>
+                          <th className="text-left p-2 font-medium text-muted-foreground">Статус</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {c._managers.map((m: any, i: number) => {
+                          const name = m.Entity?.Name || m.Name || 'Без имени';
+                          const positions = m.Position || [];
+                          const positionText = positions.map((p: any) => p.PositionName || p.Name).filter(Boolean).join(', ') || '—';
+                          const date = m.Date || positions[0]?.Date;
+                          return (
+                            <tr key={i} className="border-b last:border-0">
+                              <td className="p-2">{name}</td>
+                              <td className="p-2 text-muted-foreground">{positionText}</td>
+                              <td className="p-2 text-muted-foreground">{formatDate(date) || '—'}</td>
+                              <td className="p-2">
+                                <Badge variant={m.IsActual ? 'default' : 'secondary'} className="text-[10px]">
+                                  {m.IsActual ? 'Действующий' : 'Бывший'}
+                                </Badge>
+                              </td>
+                            </tr>
+                          );
+                        })}
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+              )}
+              {c._founders && c._founders.length > 0 && (
                 <div className="mt-4">
                   <h4 className="text-sm font-medium mb-2">Учредители</h4>
-                  <div className="text-sm text-muted-foreground">
-                    {typeof c.Founders === 'string'
-                      ? c.Founders.split(';').filter(Boolean).map((f: string, i: number) => (
-                          <div key={i}>{f.trim()}</div>
-                        ))
-                      : Array.isArray(c.Founders) && c.Founders.map((f: any, i: number) => (
-                          <div key={i}>{f.Name || f}</div>
-                        ))
-                    }
+                  <div className="space-y-1">
+                    {c._founders.map((f: any, i: number) => (
+                      <div key={i} className="text-sm text-muted-foreground">
+                        {f.Entity?.Name || f.Name || safeString(f)}
+                        {f.Share?.Percent != null && ` — ${f.Share.Percent}%`}
+                      </div>
+                    ))}
                   </div>
                 </div>
               )}
@@ -612,20 +750,33 @@ const CompanyDetailCard = ({ company, entityType, selectedSections, onSave, onCo
           {selectedSections.includes('activities') && (
             <TabsContent value="activities">
               {c.MainActivityType ? (
-                <div className="text-sm mb-3">
-                  <span className="font-medium">Основной: </span>
-                  {`${c.MainActivityType.Code} — ${c.MainActivityType.Name}`}
+                <div className="text-sm mb-3 p-3 rounded-lg bg-primary/5 border border-primary/10">
+                  <Badge variant="default" className="text-[10px] mb-1">Основной</Badge>
+                  <div className="font-medium">{c.MainActivityType.Code} — {c.MainActivityType.Name || 'Без названия'}</div>
                 </div>
               ) : null}
-              {c.ActivityTypes && Array.isArray(c.ActivityTypes) && c.ActivityTypes.length > 0 && (
-                <div className="space-y-1">
-                  <h4 className="text-sm font-medium">Дополнительные коды:</h4>
-                  {c.ActivityTypes.map((code: string, i: number) => (
-                    <Badge key={i} variant="outline" className="mr-1 mb-1 text-xs">{code}</Badge>
+              {c._activityTypes && c._activityTypes.filter((a: any) => !a.IsMain).length > 0 ? (
+                <div className="space-y-1.5">
+                  <h4 className="text-sm font-medium">Дополнительные виды деятельности:</h4>
+                  {c._activityTypes.filter((a: any) => !a.IsMain).map((act: any, i: number) => (
+                    <div key={i} className="text-sm text-muted-foreground">
+                      <span className="font-mono text-xs bg-muted px-1 py-0.5 rounded mr-2">{act.Code}</span>
+                      {act.Name || '—'}
+                    </div>
                   ))}
                 </div>
-              )}
-              {!c.MainActivityType && (!c.ActivityTypes || c.ActivityTypes.length === 0) && (
+              ) : c.ActivityTypes && Array.isArray(c.ActivityTypes) && c.ActivityTypes.length > 0 ? (
+                <div className="space-y-1">
+                  <h4 className="text-sm font-medium">Дополнительные коды:</h4>
+                  {c.ActivityTypes.map((act: any, i: number) => (
+                    <div key={i} className="text-sm text-muted-foreground">
+                      <span className="font-mono text-xs bg-muted px-1 py-0.5 rounded mr-2">{act.Code || act}</span>
+                      {act.Name || ''}
+                    </div>
+                  ))}
+                </div>
+              ) : null}
+              {!c.MainActivityType && (!c.ActivityTypes || c.ActivityTypes.length === 0) && (!c._activityTypes || c._activityTypes.length === 0) && (
                 <p className="text-sm text-muted-foreground">Нет данных</p>
               )}
             </TabsContent>
@@ -635,8 +786,44 @@ const CompanyDetailCard = ({ company, entityType, selectedSections, onSave, onCo
             <TabsContent value="finances">
               <DataGrid data={[
                 { label: 'Уставный капитал', value: c.Capital != null ? `${Number(c.Capital).toLocaleString('ru-RU')} ₽` : null },
+                { label: 'Тип капитала', value: c._capitalType },
               ]} />
-              {!c.Capital && <p className="text-sm text-muted-foreground">Нет финансовых данных</p>}
+              {c._employeesHistory && c._employeesHistory.length > 0 && (
+                <div className="mt-4">
+                  <h4 className="text-sm font-medium mb-2">Численность сотрудников по годам</h4>
+                  <div className="overflow-auto rounded-lg border">
+                    <table className="w-full text-sm">
+                      <thead>
+                        <tr className="border-b bg-muted/50">
+                          <th className="text-left p-2 font-medium text-muted-foreground">Год</th>
+                          <th className="text-left p-2 font-medium text-muted-foreground">Количество</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {c._employeesHistory.map((e: any, i: number) => (
+                          <tr key={i} className="border-b last:border-0">
+                            <td className="p-2">{e.Year || '—'}</td>
+                            <td className="p-2">{e.Count != null ? e.Count : '—'}</td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+              )}
+              {c._taxation && (
+                <div className="mt-4">
+                  <h4 className="text-sm font-medium mb-2">Система налогообложения</h4>
+                  <div className="space-y-1">
+                    {Array.isArray(c._taxation) ? c._taxation.map((t: any, i: number) => (
+                      <div key={i} className="text-sm text-muted-foreground">{t.Name || t.Code || safeString(t)}</div>
+                    )) : (
+                      <div className="text-sm text-muted-foreground">{safeString(c._taxation)}</div>
+                    )}
+                  </div>
+                </div>
+              )}
+              {!c.Capital && !c._employeesHistory && !c._taxation && <p className="text-sm text-muted-foreground">Нет финансовых данных</p>}
             </TabsContent>
           )}
 
