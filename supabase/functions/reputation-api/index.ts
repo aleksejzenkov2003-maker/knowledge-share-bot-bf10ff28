@@ -73,6 +73,50 @@ serve(async (req) => {
       });
     }
 
+    // ACTION: trademark_search — search FIPS trademarks by application/registration number
+    if (action === 'trademark_search') {
+      const number = query?.trim();
+      if (!number) {
+        return new Response(
+          JSON.stringify({ error: 'query (number) required for trademark_search' }),
+          { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+        );
+      }
+
+      console.log(`Reputation trademark_search: number=${number}`);
+      const results: Record<string, unknown>[] = [];
+
+      for (const endpoint of ['patents', 'applications']) {
+        try {
+          const res = await fetch(
+            `${API_BASE}/fips/${endpoint}?number=${encodeURIComponent(number)}`,
+            { method: 'GET', headers }
+          );
+          if (res.ok) {
+            const data = await res.json();
+            const items = Array.isArray(data) ? data : (data.Items || data.Results || data.items || []);
+            results.push(...items.map((item: any) => ({ ...item, _source: endpoint })));
+            console.log(`FIPS ${endpoint} by number: ${items.length} items`);
+          } else {
+            const errText = await res.text();
+            console.error(`FIPS ${endpoint} by number error:`, res.status, errText);
+          }
+        } catch (e) {
+          console.error(`FIPS ${endpoint} by number fetch error:`, e);
+        }
+      }
+
+      console.log(`Reputation trademark_search: found ${results.length} items total`);
+
+      return new Response(JSON.stringify({
+        trademarks: results,
+        count: results.length,
+        query: number,
+      }), {
+        headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+      });
+    }
+
     // ACTION: trademarks — search FIPS trademarks by entity ID
     if (action === 'trademarks') {
       if (!entity_id) {
