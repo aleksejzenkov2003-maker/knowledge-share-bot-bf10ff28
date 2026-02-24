@@ -299,15 +299,31 @@ const Reputation = () => {
   const handleSaveReport = async () => {
     if (!selectedCompany || !user) return;
     const companyData = selectedCompany as any;
+    // Extract name from various possible locations in the API response
+    const extractName = (d: any): string => {
+      if (d.Name) return d.Name;
+      if (d.ShortName) return d.ShortName;
+      if (d.FullName) return d.FullName;
+      if (d.Names?.Items?.length > 0) {
+        return d.Names.Items[0].ShortName || d.Names.Items[0].FullName || '';
+      }
+      return '';
+    };
+    const extractField = (d: any, ...keys: string[]): string => {
+      for (const k of keys) {
+        if (d[k]) return String(d[k]);
+      }
+      return '';
+    };
     try {
       const { error } = await supabase.from('reputation_reports').insert({
         user_id: user.id,
-        entity_id: companyData.Id || companyData.id || '',
+        entity_id: extractField(companyData, 'Id', 'id'),
         entity_type: entityType || 'company',
         query: query,
-        name: companyData.Name || companyData.ShortName || '',
-        inn: companyData.Inn || '',
-        ogrn: companyData.Ogrn || '',
+        name: extractName(companyData),
+        inn: extractField(companyData, 'Inn', 'inn', 'INN'),
+        ogrn: extractField(companyData, 'Ogrn', 'ogrn', 'OGRN'),
         report_data: selectedCompany as any,
         selected_sections: selectedSections,
       });
