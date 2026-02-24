@@ -122,6 +122,49 @@ const Reputation = () => {
     return 'Название';
   };
 
+  // Normalize messy queries: extract INN/OGRN if present, or simplify long company names
+  const normalizeSearchQuery = (raw: string): string => {
+    const trimmed = raw.trim();
+    
+    // Try to extract INN (10 or 12 digits) from within the text
+    const innMatch = trimmed.match(/\b(\d{10}|\d{12})\b/);
+    if (innMatch) return innMatch[1];
+    
+    // Try to extract OGRN (13 or 15 digits)
+    const ogrnMatch = trimmed.match(/\b(\d{13}|\d{15})\b/);
+    if (ogrnMatch) return ogrnMatch[1];
+    
+    // Strip legal form prefixes, postal codes, addresses, country codes
+    let cleaned = trimmed;
+    // Remove (RU), (EN) etc at the end
+    cleaned = cleaned.replace(/\s*\([A-Z]{2}\)\s*$/i, '');
+    // Remove postal codes like 194044
+    cleaned = cleaned.replace(/\b\d{6}\b/g, '');
+    // Remove common legal form prefixes
+    cleaned = cleaned.replace(/^(Общество с ограниченной ответственностью|Акционерное общество|Закрытое акционерное общество|Публичное акционерное общество|Индивидуальный предприниматель)\s*/i, '');
+    // Remove quoted name and extract it
+    const quotedMatch = cleaned.match(/"([^"]+)"/);
+    if (quotedMatch) {
+      const companyName = quotedMatch[1];
+      // Try to extract city from the rest
+      const cityMatch = cleaned.match(/(?:г\.|город\s+|,\s*)(Москв[аы]|Санкт-Петербург[аеу]?|Новосибирск[аеу]?|Екатеринбург[аеу]?|Казан[ьи]|Нижн[иего]+ Новгород[аеу]?|Челябинск[аеу]?|Самар[аеыу]|Омск[аеу]?|Ростов[аеу]?(?:-на-Дону)?|Уф[аеыу]|Красноярск[аеу]?|Пермь|Перми|Воронеж[аеу]?|Волгоград[аеу]?)/i);
+      if (cityMatch) {
+        return `${companyName} ${cityMatch[1]}`;
+      }
+      return companyName;
+    }
+    
+    // Fallback: remove address parts after comma (street, building, etc.)
+    // Keep only the first meaningful part
+    const parts = cleaned.split(',').map(p => p.trim()).filter(Boolean);
+    if (parts.length > 2) {
+      // Likely "Name, City, Street..." — keep first two
+      return parts.slice(0, 2).join(' ').replace(/\s+/g, ' ').trim();
+    }
+    
+    return cleaned.replace(/\s+/g, ' ').trim();
+  };
+
   const handleSearch = async () => {
     if (!query.trim()) return;
     setLoading(true);
@@ -132,8 +175,10 @@ const Reputation = () => {
     setTrademarksData([]);
 
     try {
+      const normalizedQuery = normalizeSearchQuery(query);
+      console.log(`Reputation search: "${query.trim()}" → "${normalizedQuery}"`);
       const { data, error } = await supabase.functions.invoke('reputation-api', {
-        body: { query: query.trim(), action: 'full_report' },
+        body: { query: normalizedQuery, action: 'full_report' },
       });
 
       if (error) throw error;
