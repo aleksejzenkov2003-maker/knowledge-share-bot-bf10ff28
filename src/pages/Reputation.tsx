@@ -63,6 +63,7 @@ const Reputation = () => {
   const [savedReports, setSavedReports] = useState<Array<{ id: string; name: string; inn: string; created_at: string }>>([]);
   const [filterStatus, setFilterStatus] = useState<string>('all');
   const [filterCity, setFilterCity] = useState<string>('all');
+  const [filterAddress, setFilterAddress] = useState('');
   const [visibleCount, setVisibleCount] = useState(20);
 
   // Extract unique cities from addresses for filter
@@ -89,6 +90,10 @@ const Reputation = () => {
     if (filterCity !== 'all') {
       const city = extractCity(r.Address);
       if (city !== filterCity) return false;
+    }
+    if (filterAddress.trim()) {
+      const addr = (r.Address || '').toLowerCase();
+      if (!addr.includes(filterAddress.trim().toLowerCase())) return false;
     }
     return true;
   });
@@ -254,7 +259,7 @@ const Reputation = () => {
             <div className="relative flex-1">
               <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
               <Input
-                placeholder="ИНН, ОГРН или название компании..."
+                placeholder="ИНН, ОГРН или название компании (+ город)"
                 value={query}
                 onChange={e => setQuery(e.target.value)}
                 onKeyDown={e => e.key === 'Enter' && handleSearch()}
@@ -265,6 +270,11 @@ const Reputation = () => {
               {loading ? <Loader2 className="h-4 w-4 animate-spin" /> : 'Найти'}
             </Button>
           </div>
+          {!query && (
+            <p className="mt-2 text-xs text-muted-foreground">
+              💡 Совет: для точного поиска используйте ИНН или ОГРН. К названию можно добавить город, например: «Скат Санкт-Петербург»
+            </p>
+          )}
           {query && (
             <div className="mt-2">
               <Badge variant="secondary">{detectQueryType(query)}</Badge>
@@ -321,7 +331,7 @@ const Reputation = () => {
               <CardHeader className="pb-3">
                 <div className="flex items-center justify-between">
                   <CardTitle className="text-sm">Найдено {searchResults.length} совпадений</CardTitle>
-                  <Button variant="ghost" size="sm" onClick={() => { setSearchResults([]); setQuery(''); setFilterStatus('all'); setFilterCity('all'); }}>
+                  <Button variant="ghost" size="sm" onClick={() => { setSearchResults([]); setQuery(''); setFilterStatus('all'); setFilterCity('all'); setFilterAddress(''); }}>
                     <ChevronLeft className="h-4 w-4 mr-1" /> Назад
                   </Button>
                 </div>
@@ -353,8 +363,16 @@ const Reputation = () => {
                       </SelectContent>
                     </Select>
                   )}
-                  {(filterStatus !== 'all' || filterCity !== 'all') && (
-                    <Button variant="ghost" size="sm" className="h-8 text-xs" onClick={() => { setFilterStatus('all'); setFilterCity('all'); }}>
+                  <div className="flex-1 min-w-[180px]">
+                    <Input
+                      placeholder="Фильтр по адресу..."
+                      value={filterAddress}
+                      onChange={e => setFilterAddress(e.target.value)}
+                      className="h-8 text-xs"
+                    />
+                  </div>
+                  {(filterStatus !== 'all' || filterCity !== 'all' || filterAddress) && (
+                    <Button variant="ghost" size="sm" className="h-8 text-xs" onClick={() => { setFilterStatus('all'); setFilterCity('all'); setFilterAddress(''); }}>
                       Сбросить
                     </Button>
                   )}
