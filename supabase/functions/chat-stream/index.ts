@@ -813,6 +813,89 @@ serve(async (req) => {
     // =====================================================
     // REPUTATION API - Direct calls to api.reputation.ru
     // =====================================================
+
+    // Normalize raw API data to flat structure expected by ReputationCompanyCard
+    function normalizeCompanyData(d: any): any {
+      if (!d || typeof d !== 'object') return d;
+      const n: any = { ...d };
+
+      // Status: may be object {Code, Name} or string
+      if (n.Status && typeof n.Status === 'object') {
+        n.StatusText = n.Status.Name || n.Status.StatusName || n.Status.Text || String(n.Status.Code || '');
+        n.Status = n.StatusText;
+      } else if (n.StatusName && !n.StatusText) {
+        n.StatusText = n.StatusName;
+        n.Status = n.StatusName;
+      }
+
+      // Address: prefer LegalAddress
+      if (!n.Address && n.LegalAddress) n.Address = typeof n.LegalAddress === 'object' ? (n.LegalAddress.Address || n.LegalAddress.Value || JSON.stringify(n.LegalAddress)) : n.LegalAddress;
+      if (n.Address && typeof n.Address === 'object') n.Address = n.Address.Address || n.Address.Value || JSON.stringify(n.Address);
+
+      // Head/Director: may be object {Name, Fio, Position}
+      if (n.Head && typeof n.Head === 'object') {
+        n.DirectorName = n.Head.Name || n.Head.Fio || n.Head.FullName || '';
+        n.DirectorTitle = n.Head.Position || 'Руководитель';
+      }
+      if (!n.DirectorName && n.Director && typeof n.Director === 'object') {
+        n.DirectorName = n.Director.Name || n.Director.Fio || '';
+        n.DirectorTitle = n.Director.Position || 'Руководитель';
+        n.Director = n.DirectorName;
+      }
+
+      // Heads → Managers array
+      if (n.Heads && Array.isArray(n.Heads) && !n.Managers) {
+        n.Managers = n.Heads.map((h: any) => ({
+          Name: h.Name || h.Fio || h.FullName || '',
+          Position: h.Position || '',
+        }));
+      }
+      if (n.Managers && Array.isArray(n.Managers)) {
+        n.Managers = n.Managers.map((m: any) => typeof m === 'object' ? { Name: m.Name || m.Fio || '', Position: m.Position || '' } : { Name: String(m), Position: '' });
+      }
+
+      // Capital: may be object {Value, Date}
+      if (n.Capital && typeof n.Capital === 'object') {
+        n.AuthorizedCapital = n.Capital.Value ?? n.Capital.Amount ?? '';
+      }
+
+      // MainOkved → MainActivity
+      if (n.MainOkved && typeof n.MainOkved === 'object') {
+        n.MainActivityCode = n.MainOkved.Code || '';
+        n.MainActivityName = n.MainOkved.Name || '';
+      } else if (n.MainOkved && typeof n.MainOkved === 'string') {
+        n.MainActivityCode = n.MainOkved;
+      }
+      if (n.MainActivity && typeof n.MainActivity === 'object') {
+        if (!n.MainActivityCode) n.MainActivityCode = n.MainActivity.Code || '';
+        if (!n.MainActivityName) n.MainActivityName = n.MainActivity.Name || '';
+      }
+
+      // Activities → ActivityTypes as array
+      if (n.Activities && Array.isArray(n.Activities) && !Array.isArray(n.ActivityTypes)) {
+        n.ActivityTypes = n.Activities.map((a: any) => typeof a === 'object' ? { Code: a.Code || '', Name: a.Name || a.Description || '' } : { Code: '', Name: String(a) });
+      }
+      if (n.ActivityTypes && !Array.isArray(n.ActivityTypes)) {
+        n.ActivityTypes = [];
+      }
+
+      // Founders normalization
+      if (n.Founders && Array.isArray(n.Founders)) {
+        n.Founders = n.Founders.map((f: any) => typeof f === 'object' ? { Name: f.Name || f.Fio || f.FullName || '', Share: f.Share || f.Percent || f.OwnershipShare || undefined } : { Name: String(f) });
+      }
+
+      // RegistrationDate cleanup
+      if (n.RegistrationDate) {
+        const rd = String(n.RegistrationDate);
+        if (rd.includes('T')) n.RegistrationDate = rd.split('T')[0];
+      }
+
+      // Name fallbacks
+      if (!n.Name && (n.ShortName || n.FullName)) n.Name = n.ShortName || n.FullName;
+
+      return n;
+    }
+
     let reputationContext = '';
     let reputationSearchResults: any[] = [];
     let reputationCompanyData: any = null;
@@ -863,7 +946,7 @@ serve(async (req) => {
           ]);
           
           if (cardRes.ok) {
-            reputationCompanyData = await cardRes.json();
+            reputationCompanyData = normalizeCompanyData(await cardRes.json());
             reputationContext = JSON.stringify(reputationCompanyData, null, 2);
             console.log(`Reputation: Got card (${reputationContext.length} chars)`);
           } else {
@@ -926,7 +1009,7 @@ serve(async (req) => {
                 ]);
                 
                 if (cardRes2.ok) {
-                  reputationCompanyData = await cardRes2.json();
+                  reputationCompanyData = normalizeCompanyData(await cardRes2.json());
                   reputationContext = JSON.stringify(reputationCompanyData, null, 2);
                   if (tmData2.length > 0) {
                     reputationCompanyData._trademarks = tmData2.slice(0, 20);
@@ -934,9 +1017,9 @@ serve(async (req) => {
                   }
                 } else {
                   console.error('Reputation card error:', cardRes2.status, await cardRes2.text());
-                  reputationCompanyData = firstResult;
+                  reputationCompanyData = normalizeCompanyData(firstResult);
                 }
-              } catch (e) { console.error('Reputation card+tm error:', e); reputationCompanyData = firstResult; }
+              } catch (e) { console.error('Reputation card+tm error:', e); reputationCompanyData = normalizeCompanyData(firstResult); }
             } else {
               console.log('Reputation: No results found');
             }

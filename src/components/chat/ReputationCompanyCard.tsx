@@ -116,7 +116,7 @@ export function ReputationCompanyCard({ data, compact = false }: ReputationCompa
   const inn = extractField(data, 'Inn');
   const ogrn = extractField(data, 'Ogrn');
   const kpp = extractField(data, 'Kpp');
-  const status = extractField(data, 'StatusText', 'Status');
+  const status = extractField(data, 'StatusText', 'StatusName') || (typeof data.Status === 'string' ? data.Status : undefined);
   const address = extractField(data, 'Address');
   const regDate = extractField(data, 'RegistrationDate');
   const entityType = extractField(data, 'Type');
@@ -248,7 +248,7 @@ export function ReputationCompanyCard({ data, compact = false }: ReputationCompa
                   <span className="text-muted-foreground">{directorTitle}: </span>
                   <span className="font-medium text-foreground">{director}</span>
                 </div>
-                {data.Managers && data.Managers.length > 1 && data.Managers.slice(1, 4).map((m: any, i: number) => (
+                {Array.isArray(data.Managers) && data.Managers.length > 1 && data.Managers.slice(1, 4).map((m: any, i: number) => (
                   <div key={i} className="text-sm">
                     <span className="text-muted-foreground">{m.Position || 'Участник'}: </span>
                     <span className="text-foreground">{m.Name}</span>
