@@ -149,7 +149,8 @@ const DepartmentChat: React.FC = () => {
 
   // Handle reputation company selection from carousel
   const handleSelectReputationCompany = useCallback((result: ReputationSearchResult) => {
-    const entityType = (result.Type || 'Company').toLowerCase() === 'entrepreneur' ? 'entrepreneur' : 'company';
+    const entityType = (result.Type || 'Company').toLowerCase() === 'entrepreneur' ? 'entrepreneur' : 
+                       (result.Type || 'Company').toLowerCase() === 'person' ? 'person' : 'company';
     const selectMessage = `[REPUTATION_SELECT:${result.Id}:${entityType}] Покажи полное досье на компанию "${result.Name}"`;
     // Find a reputation-enabled agent to mention
     const reputationAgent = availableAgents.find(a => 
