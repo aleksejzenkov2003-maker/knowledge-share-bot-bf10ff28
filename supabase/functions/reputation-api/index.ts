@@ -50,6 +50,7 @@ serve(async (req) => {
       const searchRes = await fetch(`${API_BASE}/entities/search`, {
         method: 'POST',
         headers,
+        signal: AbortSignal.timeout(25000),
         body: JSON.stringify({
           QueryText: query,
           Filter: { EntityTypes: ['Company', 'Entrepreneur', 'Person'] },
