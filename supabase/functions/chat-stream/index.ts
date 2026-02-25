@@ -1061,40 +1061,49 @@ serve(async (req) => {
       } else if (reputationCompanyData) {
         // Single company data — format as structured dossier
         const d = reputationCompanyData;
+        const ss = (v: any): string => {
+          if (v === null || v === undefined) return '';
+          if (typeof v === 'string') return v;
+          if (typeof v === 'number' || typeof v === 'boolean') return String(v);
+          if (typeof v === 'object') {
+            if (v.Name) return String(v.Name);
+            if (v.Value) return String(v.Value);
+            if (v.Text) return String(v.Text);
+            try { return JSON.stringify(v); } catch { return ''; }
+          }
+          return String(v);
+        };
         const parts: string[] = [];
-        parts.push(`## 📋 Досье: ${d.Name || d.ShortName || d.FullName || 'Компания'}\n`);
+        parts.push(`## 📋 Досье: ${ss(d.Name || d.ShortName || d.FullName) || 'Компания'}\n`);
         
-        // Basic info
-        const info: string[] = [];
-        if (d.Inn) info.push(`**ИНН:** ${d.Inn}`);
-        if (d.Ogrn) info.push(`**ОГРН:** ${d.Ogrn}`);
-        if (d.Kpp) info.push(`**КПП:** ${d.Kpp}`);
-        if (d.Status || d.StatusName) info.push(`**Статус:** ${d.StatusName || d.Status}`);
-        if (d.RegistrationDate) info.push(`**Дата регистрации:** ${d.RegistrationDate}`);
-        if (d.LegalAddress || d.Address) info.push(`**Адрес:** ${d.LegalAddress || d.Address}`);
-        if (info.length > 0) {
-          parts.push(`### Реквизиты\n${info.join('\n')}`);
+        // Requisites as markdown table
+        const reqRows: string[][] = [];
+        if (d.Inn) reqRows.push(['ИНН', `[${d.Inn}](https://reputation.ru/company/inn-${d.Inn})`]);
+        if (d.Ogrn) reqRows.push(['ОГРН', `[${d.Ogrn}](https://reputation.ru/company/ogrn-${d.Ogrn})`]);
+        if (d.Kpp) reqRows.push(['КПП', ss(d.Kpp)]);
+        if (d.Status || d.StatusText || d.StatusName) reqRows.push(['Статус', ss(d.StatusText || d.StatusName || d.Status)]);
+        if (d.RegistrationDate) reqRows.push(['Дата регистрации', ss(d.RegistrationDate)]);
+        if (d.LiquidationDate) reqRows.push(['Дата ликвидации', ss(d.LiquidationDate)]);
+        if (d.Address || d.LegalAddress) reqRows.push(['Адрес', ss(d.Address || d.LegalAddress)]);
+        if (reqRows.length > 0) {
+          parts.push(`### Реквизиты\n\n| Поле | Значение |\n|------|----------|\n${reqRows.map(r => `| ${r[0]} | ${r[1]} |`).join('\n')}`);
         }
         
         // Capital
-        if (d.Capital || d.AuthorizedCapital) {
-          parts.push(`\n### Уставный капитал\n${d.Capital || d.AuthorizedCapital}`);
+        const cap = d.AuthorizedCapital || (d.Capital && typeof d.Capital === 'object' ? d.Capital.Value : d.Capital);
+        if (cap) {
+          parts.push(`\n### Уставный капитал\n${typeof cap === 'number' ? cap.toLocaleString('ru-RU') + ' ₽' : ss(cap)}`);
         }
         
         // Management
-        if (d.Director || d.Head || d.ManagementCompanies || d.Heads) {
+        if (d.DirectorName || d.Director || d.Head || d.Managers) {
           const mgmt: string[] = [];
-          if (d.Director || d.Head) {
-            const head = d.Director || d.Head;
-            if (typeof head === 'string') {
-              mgmt.push(`**Руководитель:** ${head}`);
-            } else if (head.Name || head.Fio) {
-              mgmt.push(`**Руководитель:** ${head.Name || head.Fio}${head.Position ? ` (${head.Position})` : ''}`);
-            }
-          }
-          if (d.Heads && Array.isArray(d.Heads)) {
-            for (const h of d.Heads.slice(0, 5)) {
-              mgmt.push(`- ${h.Name || h.Fio || '—'}${h.Position ? ` — ${h.Position}` : ''}`);
+          const dirName = ss(d.DirectorName || (d.Head && typeof d.Head === 'object' ? (d.Head.Name || d.Head.Fio) : d.Director));
+          const dirTitle = ss(d.DirectorTitle || (d.Head && typeof d.Head === 'object' ? d.Head.Position : '')) || 'Руководитель';
+          if (dirName) mgmt.push(`**${dirTitle}:** ${dirName}`);
+          if (Array.isArray(d.Managers)) {
+            for (const m of d.Managers.slice(dirName ? 1 : 0, 5)) {
+              mgmt.push(`- ${ss(m.Name || m.Fio) || '—'}${m.Position ? ` — ${ss(m.Position)}` : ''}`);
             }
           }
           if (mgmt.length > 0) {
@@ -1105,57 +1114,68 @@ serve(async (req) => {
         // Founders
         if (d.Founders && Array.isArray(d.Founders) && d.Founders.length > 0) {
           const founders = d.Founders.slice(0, 10).map((f: any) => 
-            `- ${f.Name || f.Fio || '—'}${f.Share ? ` (${f.Share}%)` : ''}`
+            `- ${ss(f.Name || f.Fio) || '—'}${f.Share ? ` (${f.Share}%)` : ''}`
           );
           parts.push(`\n### Учредители\n${founders.join('\n')}`);
         }
         
         // Activities (OKVED)
-        if (d.Activities || d.Okved || d.MainOkved) {
+        const mainCode = ss(d.MainActivityCode || (d.MainOkved && typeof d.MainOkved === 'object' ? d.MainOkved.Code : d.MainOkved) || d.Okved);
+        const mainName = ss(d.MainActivityName || (d.MainOkved && typeof d.MainOkved === 'object' ? d.MainOkved.Name : '') || d.OkvedName);
+        if (mainCode || mainName) {
           const acts: string[] = [];
-          if (d.MainOkved) {
-            acts.push(`**Основной:** ${typeof d.MainOkved === 'string' ? d.MainOkved : `${d.MainOkved.Code} — ${d.MainOkved.Name}`}`);
+          acts.push(`**Основной:** ${mainCode ? mainCode + ' — ' : ''}${mainName}`);
+          const extraActs = Array.isArray(d.ActivityTypes) ? d.ActivityTypes : (Array.isArray(d.Activities) ? d.Activities : []);
+          for (const a of extraActs.slice(0, 5)) {
+            acts.push(`- ${ss(a.Code) || ''} ${ss(a.Name || a.Description) || ''}`);
           }
-          if (d.Activities && Array.isArray(d.Activities)) {
-            for (const a of d.Activities.slice(0, 5)) {
-              acts.push(`- ${a.Code || ''} ${a.Name || a.Description || ''}`);
-            }
-          }
-          if (acts.length > 0) {
-            parts.push(`\n### Деятельность (ОКВЭД)\n${acts.join('\n')}`);
-          }
+          parts.push(`\n### Деятельность (ОКВЭД)\n${acts.join('\n')}`);
         }
         
         // Contacts
-        if (d.Phones || d.Emails || d.Websites || d.Phone || d.Email || d.Website) {
+        const cPhones = Array.isArray(d.Phones) ? d.Phones : (d.Phone ? [d.Phone] : []);
+        const cEmails = Array.isArray(d.Emails) ? d.Emails : (d.Email ? [d.Email] : []);
+        const cWebsites = Array.isArray(d.Websites) ? d.Websites : (d.Website ? [d.Website] : []);
+        if (cPhones.length > 0 || cEmails.length > 0 || cWebsites.length > 0) {
           const contacts: string[] = [];
-          const phones = d.Phones || (d.Phone ? [d.Phone] : []);
-          const emails = d.Emails || (d.Email ? [d.Email] : []);
-          const websites = d.Websites || (d.Website ? [d.Website] : []);
-          if (phones.length > 0) contacts.push(`**Телефон:** ${Array.isArray(phones) ? phones.join(', ') : phones}`);
-          if (emails.length > 0) contacts.push(`**Email:** ${Array.isArray(emails) ? emails.join(', ') : emails}`);
-          if (websites.length > 0) contacts.push(`**Сайт:** ${Array.isArray(websites) ? websites.join(', ') : websites}`);
-          if (contacts.length > 0) {
-            parts.push(`\n### Контакты\n${contacts.join('\n')}`);
-          }
+          if (cPhones.length > 0) contacts.push(`**Телефон:** ${cPhones.map(ss).join(', ')}`);
+          if (cEmails.length > 0) contacts.push(`**Email:** ${cEmails.map(ss).join(', ')}`);
+          if (cWebsites.length > 0) contacts.push(`**Сайт:** ${cWebsites.map(ss).join(', ')}`);
+          parts.push(`\n### Контакты\n${contacts.join('\n')}`);
         }
         
-        // Trademarks
+        // Trademarks with FIPS links
         if (d._trademarks && Array.isArray(d._trademarks) && d._trademarks.length > 0) {
-          const tms = d._trademarks.slice(0, 10).map((tm: any) => 
-            `- ${tm.Name || tm.Title || tm.Number || '—'}${tm.RegistrationNumber ? ` (рег. №${tm.RegistrationNumber})` : ''}${tm.Status ? ` — ${tm.Status}` : ''}`
-          );
+          const fipsBuildUrl = (tm: any): string => {
+            const regNum = tm.RegistrationNumber || tm.Number || tm.RegNumber;
+            if (!regNum) return '';
+            const registry = tm.Registry || '';
+            const dbMap: Record<string, string> = { RUTM: 'RUTM', RUPM: 'RUPM', RUDE: 'RUDE', RSPODB: 'RSPODB' };
+            const db = dbMap[registry] || 'RUTM';
+            return `https://fips.ru/registers-doc-view/fips_servlet?DB=${db}&DocNumber=${encodeURIComponent(regNum)}&TypeFile=html`;
+          };
+          const tms = d._trademarks.slice(0, 15).map((tm: any) => {
+            const regNum = tm.RegistrationNumber || tm.Number || tm.RegNumber;
+            const tmName = ss(tm.Name || tm.Title);
+            const tmStatus = ss(tm.Status || tm.StatusText);
+            const fipsUrl = fipsBuildUrl(tm);
+            const source = tm._source === 'patents' ? '🔬' : tm._source === 'applications' ? '📄' : '';
+            const numPart = regNum ? (fipsUrl ? `[№${regNum}](${fipsUrl})` : `№${regNum}`) : '';
+            const namePart = tmName ? ` — ${tmName}` : '';
+            const statusPart = tmStatus ? ` — *${tmStatus}*` : '';
+            return `- ${source} ${numPart}${namePart}${statusPart}`;
+          });
           parts.push(`\n### Интеллектуальная собственность (${d._trademarks.length} объектов)\n${tms.join('\n')}`);
         }
         
         // Risks / Scoring
         if (d.RiskIndicators || d.Score || d.Scoring) {
           const risks: string[] = [];
-          if (d.Score !== undefined) risks.push(`**Скоринг:** ${d.Score}`);
-          if (d.Scoring) risks.push(`**Рейтинг:** ${JSON.stringify(d.Scoring)}`);
+          if (d.Score !== undefined) risks.push(`**Скоринг:** ${ss(d.Score)}`);
+          if (d.Scoring) risks.push(`**Рейтинг:** ${ss(d.Scoring)}`);
           if (d.RiskIndicators && Array.isArray(d.RiskIndicators)) {
             for (const r of d.RiskIndicators.slice(0, 5)) {
-              risks.push(`- ⚠️ ${r.Name || r.Description || JSON.stringify(r)}`);
+              risks.push(`- ⚠️ ${ss(r.Name || r.Description || r)}`);
             }
           }
           if (risks.length > 0) {

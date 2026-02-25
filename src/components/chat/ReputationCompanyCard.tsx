@@ -6,13 +6,28 @@ import { Separator } from "@/components/ui/separator";
 import {
   Building2, MapPin, Phone, Mail, Globe, Calendar, Users, Shield,
   AlertTriangle, CheckCircle, XCircle, ChevronDown, ChevronUp, Copy,
-  Briefcase, Hash, FileText, Scale
+  Briefcase, Hash, FileText, Scale, Award, ExternalLink
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { toast } from "sonner";
 
+// Safe string converter — handles objects, arrays, primitives
+function safeString(val: any): string {
+  if (val === null || val === undefined) return '';
+  if (typeof val === 'string') return val;
+  if (typeof val === 'number' || typeof val === 'boolean') return String(val);
+  if (typeof val === 'object') {
+    if (val.Name) return String(val.Name);
+    if (val.Value) return String(val.Value);
+    if (val.Text) return String(val.Text);
+    if (val.Description) return String(val.Description);
+    if (Array.isArray(val)) return val.map(safeString).join(', ');
+    try { return JSON.stringify(val); } catch { return '[object]'; }
+  }
+  return String(val);
+}
+
 interface ReputationCompanyData {
-  // Basic info
   Name?: string;
   ShortName?: string;
   FullName?: string;
@@ -25,41 +40,30 @@ interface ReputationCompanyData {
   RegistrationDate?: string;
   LiquidationDate?: string;
   Address?: string;
-  
-  // Capital
   AuthorizedCapital?: number | string;
   Capital?: { Value?: number; Date?: string } | any;
-  
-  // Activity
   MainActivityCode?: string;
   MainActivityName?: string;
   MainActivity?: { Code?: string; Name?: string } | any;
   ActivityTypes?: any[];
   Okved?: string;
   OkvedName?: string;
-  
-  // People
   Director?: string;
   DirectorName?: string;
   DirectorTitle?: string;
   Managers?: any[];
   Head?: { Name?: string; Position?: string } | any;
   Founders?: any[];
-  
-  // Contacts
   Phones?: string[];
   Phone?: string;
   Emails?: string[];
   Email?: string;
   Website?: string;
   Websites?: string[];
-  
-  // Scores / risks
   ReliabilityScore?: number;
   RiskLevel?: string;
   Score?: number;
-  
-  // Raw data for copying
+  _trademarks?: any[];
   [key: string]: any;
 }
 
@@ -88,12 +92,46 @@ function extractField(data: any, ...keys: string[]): string | undefined {
   for (const key of keys) {
     const val = data[key];
     if (val !== undefined && val !== null && val !== '') {
-      if (typeof val === 'object' && val.Name) return val.Name;
-      if (typeof val === 'object' && val.Value) return String(val.Value);
-      return String(val);
+      return safeString(val);
     }
   }
   return undefined;
+}
+
+// Build FIPS URL for intellectual property
+function buildFipsUrl(item: any): string {
+  const regNum = item.RegistrationNumber || item.Number || item.RegNumber;
+  if (!regNum) return '';
+  const registry = item.Registry || '';
+  const dbMap: Record<string, string> = {
+    RUTM: 'RUTM', RUPM: 'RUPM', RUDE: 'RUDE', RSPODB: 'RSPODB',
+  };
+  const db = dbMap[registry] || (item._source === 'patents' ? 'RUTM' : 'RUTM');
+  return `https://fips.ru/registers-doc-view/fips_servlet?DB=${db}&DocNumber=${encodeURIComponent(regNum)}&TypeFile=html`;
+}
+
+function LinkableValue({ label, value, href, mono, icon: Icon }: { label: string; value: string; href?: string; mono?: boolean; icon?: any }) {
+  return (
+    <div className="flex items-start gap-2 text-sm">
+      {Icon && <Icon className="h-4 w-4 text-muted-foreground mt-0.5 shrink-0" />}
+      <div className="min-w-0">
+        <span className="text-muted-foreground">{label}: </span>
+        {href ? (
+          <a
+            href={href}
+            target="_blank"
+            rel="noopener noreferrer"
+            className={cn("text-primary hover:underline inline-flex items-center gap-1", mono && "font-mono text-xs")}
+          >
+            {value}
+            <ExternalLink className="h-3 w-3 shrink-0" />
+          </a>
+        ) : (
+          <span className={cn("text-foreground", mono && "font-mono text-xs")}>{value}</span>
+        )}
+      </div>
+    </div>
+  );
 }
 
 function InfoRow({ icon: Icon, label, value, mono }: { icon?: any; label: string; value?: string | null; mono?: boolean }) {
@@ -103,7 +141,7 @@ function InfoRow({ icon: Icon, label, value, mono }: { icon?: any; label: string
       {Icon && <Icon className="h-4 w-4 text-muted-foreground mt-0.5 shrink-0" />}
       <div className="min-w-0">
         <span className="text-muted-foreground">{label}: </span>
-        <span className={cn("text-foreground", mono && "font-mono text-xs")}>{value}</span>
+        <span className={cn("text-foreground break-words", mono && "font-mono text-xs")}>{value}</span>
       </div>
     </div>
   );
@@ -116,41 +154,35 @@ export function ReputationCompanyCard({ data, compact = false }: ReputationCompa
   const inn = extractField(data, 'Inn');
   const ogrn = extractField(data, 'Ogrn');
   const kpp = extractField(data, 'Kpp');
-  const status = extractField(data, 'StatusText', 'StatusName') || (typeof data.Status === 'string' ? data.Status : undefined);
+  const status = extractField(data, 'StatusText', 'StatusName') || (typeof data.Status === 'string' ? data.Status : (data.Status && typeof data.Status === 'object' ? safeString(data.Status) : undefined));
   const address = extractField(data, 'Address');
   const regDate = extractField(data, 'RegistrationDate');
+  const liqDate = extractField(data, 'LiquidationDate');
   const entityType = extractField(data, 'Type');
 
-  // Director
   const director = extractField(data, 'DirectorName', 'Director')
-    || (data.Head?.Name)
-    || (data.Managers?.[0]?.Name);
+    || (data.Head && typeof data.Head === 'object' ? safeString(data.Head.Name || data.Head.Fio || data.Head) : undefined)
+    || (Array.isArray(data.Managers) && data.Managers[0] ? safeString(data.Managers[0].Name) : undefined);
   const directorTitle = extractField(data, 'DirectorTitle')
-    || (data.Head?.Position)
-    || (data.Managers?.[0]?.Position)
+    || (data.Head && typeof data.Head === 'object' ? data.Head.Position : undefined)
+    || (Array.isArray(data.Managers) && data.Managers[0] ? data.Managers[0].Position : undefined)
     || 'Руководитель';
 
-  // Activity
   const activityCode = extractField(data, 'MainActivityCode', 'Okved')
-    || (data.MainActivity?.Code);
+    || (data.MainActivity && typeof data.MainActivity === 'object' ? data.MainActivity.Code : undefined);
   const activityName = extractField(data, 'MainActivityName', 'OkvedName')
-    || (data.MainActivity?.Name);
+    || (data.MainActivity && typeof data.MainActivity === 'object' ? data.MainActivity.Name : undefined);
 
-  // Capital
   const capital = data.AuthorizedCapital
-    || (data.Capital?.Value)
-    || extractField(data, 'Capital');
+    || (data.Capital && typeof data.Capital === 'object' ? data.Capital.Value : data.Capital);
 
-  // Contacts
-  const phones = data.Phones || (data.Phone ? [data.Phone] : []);
-  const emails = data.Emails || (data.Email ? [data.Email] : []);
-  const websites = data.Websites || (data.Website ? [data.Website] : []);
+  const phones = Array.isArray(data.Phones) ? data.Phones : (data.Phone ? [data.Phone] : []);
+  const emails = Array.isArray(data.Emails) ? data.Emails : (data.Email ? [data.Email] : []);
+  const websites = Array.isArray(data.Websites) ? data.Websites : (data.Website ? [data.Website] : []);
 
-  // Founders
-  const founders = data.Founders || [];
-
-  // Additional OKVED
+  const founders = Array.isArray(data.Founders) ? data.Founders : [];
   const additionalActivities = Array.isArray(data.ActivityTypes) ? data.ActivityTypes.slice(0, 5) : [];
+  const trademarks = Array.isArray(data._trademarks) ? data._trademarks : [];
 
   const handleCopyAll = () => {
     const lines = [
@@ -194,6 +226,11 @@ export function ReputationCompanyCard({ data, compact = false }: ReputationCompa
                     {status}
                   </Badge>
                 )}
+                {liqDate && (
+                  <span className="text-xs text-destructive font-medium">
+                    Ликвидация: {liqDate}
+                  </span>
+                )}
                 {entityType && (
                   <Badge variant="outline" className="text-xs">
                     {entityType === 'Company' ? 'Юр. лицо' : entityType === 'Entrepreneur' ? 'ИП' : entityType === 'Person' ? 'Физ. лицо' : entityType}
@@ -221,11 +258,27 @@ export function ReputationCompanyCard({ data, compact = false }: ReputationCompa
         </div>
       </div>
 
-      {/* Requisites - always visible */}
+      {/* Requisites - always visible, with clickable links */}
       <div className="px-4 pb-3">
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-x-6 gap-y-1.5">
-          <InfoRow icon={Hash} label="ИНН" value={inn} mono />
-          <InfoRow icon={Hash} label="ОГРН" value={ogrn} mono />
+          {inn && (
+            <LinkableValue
+              icon={Hash}
+              label="ИНН"
+              value={inn}
+              href={`https://reputation.ru/company/inn-${inn}`}
+              mono
+            />
+          )}
+          {ogrn && (
+            <LinkableValue
+              icon={Hash}
+              label="ОГРН"
+              value={ogrn}
+              href={`https://reputation.ru/company/ogrn-${ogrn}`}
+              mono
+            />
+          )}
           {kpp && <InfoRow icon={Hash} label="КПП" value={kpp} mono />}
           {address && <InfoRow icon={MapPin} label="Адрес" value={address} />}
         </div>
@@ -245,13 +298,13 @@ export function ReputationCompanyCard({ data, compact = false }: ReputationCompa
               </h4>
               <div className="space-y-1">
                 <div className="text-sm">
-                  <span className="text-muted-foreground">{directorTitle}: </span>
-                  <span className="font-medium text-foreground">{director}</span>
+                  <span className="text-muted-foreground">{safeString(directorTitle)}: </span>
+                  <span className="font-medium text-foreground">{safeString(director)}</span>
                 </div>
                 {Array.isArray(data.Managers) && data.Managers.length > 1 && data.Managers.slice(1, 4).map((m: any, i: number) => (
                   <div key={i} className="text-sm">
-                    <span className="text-muted-foreground">{m.Position || 'Участник'}: </span>
-                    <span className="text-foreground">{m.Name}</span>
+                    <span className="text-muted-foreground">{safeString(m?.Position) || 'Участник'}: </span>
+                    <span className="text-foreground">{safeString(m?.Name)}</span>
                   </div>
                 ))}
               </div>
@@ -270,10 +323,10 @@ export function ReputationCompanyCard({ data, compact = false }: ReputationCompa
                 <div className="space-y-1">
                   {founders.slice(0, 5).map((f: any, i: number) => (
                     <div key={i} className="text-sm flex items-center justify-between">
-                      <span className="text-foreground">{f.Name || f.FullName || 'Без имени'}</span>
-                      {f.Share && (
+                      <span className="text-foreground">{safeString(f?.Name || f?.FullName) || 'Без имени'}</span>
+                      {f?.Share && (
                         <Badge variant="outline" className="text-xs ml-2">
-                          {typeof f.Share === 'number' ? `${f.Share}%` : f.Share}
+                          {typeof f.Share === 'number' ? `${f.Share}%` : safeString(f.Share)}
                         </Badge>
                       )}
                     </div>
@@ -299,8 +352,8 @@ export function ReputationCompanyCard({ data, compact = false }: ReputationCompa
                   </div>
                   {additionalActivities.length > 0 && additionalActivities.map((a: any, i: number) => (
                     <div key={i} className="text-sm text-muted-foreground">
-                      {a.Code && <span className="font-mono text-xs mr-1">{a.Code}</span>}
-                      {a.Name || a.name}
+                      {a?.Code && <span className="font-mono text-xs mr-1">{safeString(a.Code)}</span>}
+                      {safeString(a?.Name || a?.name)}
                     </div>
                   ))}
                 </div>
@@ -318,7 +371,7 @@ export function ReputationCompanyCard({ data, compact = false }: ReputationCompa
                   Уставный капитал
                 </h4>
                 <p className="text-sm font-medium text-foreground">
-                  {typeof capital === 'number' ? capital.toLocaleString('ru-RU') + ' ₽' : capital}
+                  {typeof capital === 'number' ? capital.toLocaleString('ru-RU') + ' ₽' : safeString(capital)}
                 </p>
               </div>
             </>
@@ -335,19 +388,85 @@ export function ReputationCompanyCard({ data, compact = false }: ReputationCompa
                 </h4>
                 <div className="space-y-1">
                   {phones.map((p: string, i: number) => (
-                    <InfoRow key={`p-${i}`} icon={Phone} label="Тел" value={p} />
+                    <InfoRow key={`p-${i}`} icon={Phone} label="Тел" value={safeString(p)} />
                   ))}
                   {emails.map((e: string, i: number) => (
-                    <InfoRow key={`e-${i}`} icon={Mail} label="Email" value={e} />
+                    <InfoRow key={`e-${i}`} icon={Mail} label="Email" value={safeString(e)} />
                   ))}
-                  {websites.map((w: string, i: number) => (
-                    <div key={`w-${i}`} className="flex items-center gap-2 text-sm">
-                      <Globe className="h-4 w-4 text-muted-foreground shrink-0" />
-                      <a href={w.startsWith('http') ? w : `https://${w}`} target="_blank" rel="noopener noreferrer" className="text-primary hover:underline truncate">
-                        {w}
-                      </a>
-                    </div>
-                  ))}
+                  {websites.map((w: string, i: number) => {
+                    const url = safeString(w);
+                    return (
+                      <div key={`w-${i}`} className="flex items-center gap-2 text-sm">
+                        <Globe className="h-4 w-4 text-muted-foreground shrink-0" />
+                        <a href={url.startsWith('http') ? url : `https://${url}`} target="_blank" rel="noopener noreferrer" className="text-primary hover:underline truncate">
+                          {url}
+                        </a>
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+            </>
+          )}
+
+          {/* Intellectual Property */}
+          {trademarks.length > 0 && (
+            <>
+              <Separator />
+              <div className="px-4 py-3">
+                <h4 className="text-xs font-medium text-muted-foreground uppercase tracking-wide mb-2 flex items-center gap-1.5">
+                  <Award className="h-3.5 w-3.5" />
+                  Интеллектуальная собственность ({trademarks.length})
+                </h4>
+                <div className="space-y-2">
+                  {trademarks.slice(0, 15).map((tm: any, i: number) => {
+                    const regNum = tm.RegistrationNumber || tm.Number || tm.RegNumber;
+                    const tmName = tm.Name || tm.Title || '';
+                    const tmStatus = tm.Status || tm.StatusText;
+                    const fipsUrl = buildFipsUrl(tm);
+                    const source = tm._source === 'patents' ? 'Патент' : tm._source === 'applications' ? 'Заявка' : '';
+
+                    return (
+                      <div key={i} className="flex items-start justify-between gap-2 text-sm border border-border/50 rounded-md px-3 py-2">
+                        <div className="min-w-0 flex-1">
+                          <div className="flex items-center gap-2 flex-wrap">
+                            {regNum && fipsUrl ? (
+                              <a
+                                href={fipsUrl}
+                                target="_blank"
+                                rel="noopener noreferrer"
+                                className="text-primary hover:underline font-mono text-xs inline-flex items-center gap-1"
+                              >
+                                №{safeString(regNum)}
+                                <ExternalLink className="h-3 w-3" />
+                              </a>
+                            ) : regNum ? (
+                              <span className="font-mono text-xs text-foreground">№{safeString(regNum)}</span>
+                            ) : null}
+                            {source && (
+                              <Badge variant="outline" className="text-[10px] px-1.5 py-0">
+                                {source}
+                              </Badge>
+                            )}
+                          </div>
+                          {tmName && (
+                            <p className="text-foreground mt-0.5 break-words">{safeString(tmName)}</p>
+                          )}
+                        </div>
+                        {tmStatus && (
+                          <Badge
+                            variant={String(tmStatus).toLowerCase().includes('действ') ? 'default' : 'secondary'}
+                            className="text-[10px] shrink-0"
+                          >
+                            {safeString(tmStatus)}
+                          </Badge>
+                        )}
+                      </div>
+                    );
+                  })}
+                  {trademarks.length > 15 && (
+                    <p className="text-xs text-muted-foreground">…и ещё {trademarks.length - 15} объектов</p>
+                  )}
                 </div>
               </div>
             </>
@@ -365,15 +484,15 @@ export function ReputationCompanyCard({ data, compact = false }: ReputationCompa
                 <div className="flex items-center gap-3">
                   {(data.ReliabilityScore !== undefined || data.Score !== undefined) && (
                     <Badge variant="outline" className="text-sm font-medium">
-                      Рейтинг: {data.ReliabilityScore ?? data.Score}
+                      Рейтинг: {safeString(data.ReliabilityScore ?? data.Score)}
                     </Badge>
                   )}
                   {data.RiskLevel && (
-                    <Badge 
-                      variant={data.RiskLevel.toLowerCase().includes('высок') ? 'destructive' : 'secondary'}
+                    <Badge
+                      variant={String(data.RiskLevel).toLowerCase().includes('высок') ? 'destructive' : 'secondary'}
                       className="text-xs"
                     >
-                      {data.RiskLevel}
+                      {safeString(data.RiskLevel)}
                     </Badge>
                   )}
                 </div>
