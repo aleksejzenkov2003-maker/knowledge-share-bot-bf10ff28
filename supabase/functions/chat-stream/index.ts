@@ -769,7 +769,8 @@ serve(async (req) => {
     const REPUTATION_API_BASE = 'https://api.reputation.ru/api/v1';
     
     if (externalApis?.reputation?.enabled && message && REPUTATION_API_KEY) {
-      console.log('Reputation: Calling reputation-api edge function');
+      console.log('Reputation: Direct API calls to api.reputation.ru');
+      const repHeaders = { 'Authorization': REPUTATION_API_KEY, 'Content-Type': 'application/json', 'Accept': 'application/json' };
       
       const selectMatch = message.match(/\[REPUTATION_SELECT:([^:]+):([^\]]+)\]/);
       
@@ -779,17 +780,32 @@ serve(async (req) => {
           const entityType = selectMatch[2];
           console.log(`Reputation: Fetching card for ${entityId} (${entityType})`);
           
+          const repEntityType = entityType === 'entrepreneur' ? 'Entrepreneur' : entityType === 'person' ? 'Person' : 'Company';
           const [cardRes, tmRes] = await Promise.all([
-            fetch(`${supabaseUrl}/functions/v1/reputation-api`, {
-              method: 'POST',
-              headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${supabaseKey}` },
-              body: JSON.stringify({ action: entityType, entity_id: entityId, entity_type: entityType }),
+            fetch(`${REPUTATION_API_BASE}/entities/${entityType}?id=${entityId}`, {
+              method: 'GET',
+              headers: repHeaders,
             }),
-            fetch(`${supabaseUrl}/functions/v1/reputation-api`, {
-              method: 'POST',
-              headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${supabaseKey}` },
-              body: JSON.stringify({ action: 'trademarks', entity_id: entityId, entity_type: entityType === 'entrepreneur' ? 'Entrepreneur' : entityType === 'person' ? 'Person' : 'Company' }),
-            }).catch(e => { console.error('TM fetch error:', e); return null; }),
+            (async () => {
+              const results: any[] = [];
+              const seenIds = new Set<string>();
+              const typesToTry = (repEntityType === 'Person') ? ['Person', 'Entrepreneur'] :
+                                 (repEntityType === 'Entrepreneur') ? ['Entrepreneur', 'Person'] : [repEntityType];
+              for (const tryType of typesToTry) {
+                for (const endpoint of ['patents', 'applications']) {
+                  try {
+                    const res = await fetch(`${REPUTATION_API_BASE}/fips/${endpoint}?entityId=${encodeURIComponent(entityId)}&entityType=${encodeURIComponent(tryType)}`, { method: 'GET', headers: repHeaders });
+                    if (res.ok) {
+                      const data = await res.json();
+                      const items = Array.isArray(data) ? data : (data.Items || data.Results || data.items || []);
+                      for (const item of items) { const iid = item.Id || item.id || JSON.stringify(item); if (!seenIds.has(iid)) { seenIds.add(iid); results.push({ ...item, _source: endpoint }); } }
+                    } else { await res.text(); }
+                  } catch (e) { console.error(`FIPS ${endpoint} error:`, e); }
+                }
+                if (results.length > 0) break;
+              }
+              return { ok: true, trademarks: results };
+            })().catch(e => { console.error('TM fetch error:', e); return null; }),
           ]);
           
           if (cardRes.ok) {
@@ -800,14 +816,9 @@ serve(async (req) => {
             console.error('Reputation card error:', cardRes.status, await cardRes.text());
           }
           
-          if (tmRes && tmRes.ok) {
-            try {
-              const tmData = await tmRes.json();
-              if (tmData.trademarks?.length > 0 && reputationCompanyData) {
-                reputationCompanyData._trademarks = tmData.trademarks.slice(0, 20);
-                console.log(`Reputation: Got ${tmData.trademarks.length} trademarks`);
-              }
-            } catch (e) { console.error('TM parse error:', e); }
+          if (tmRes && tmRes.trademarks?.length > 0 && reputationCompanyData) {
+            reputationCompanyData._trademarks = tmRes.trademarks.slice(0, 20);
+            console.log(`Reputation: Got ${tmRes.trademarks.length} trademarks`);
           }
           
           message = message.replace(/\[REPUTATION_SELECT:[^\]]+\]\s*/g, '').trim() || 'Покажи досье на выбранную компанию';
@@ -815,42 +826,60 @@ serve(async (req) => {
         } else {
           console.log(`Reputation: Searching for "${message}"`);
           
-          const searchRes = await fetch(`${supabaseUrl}/functions/v1/reputation-api`, {
+          // Direct search to api.reputation.ru
+          const searchRes = await fetch(`${REPUTATION_API_BASE}/entities/search`, {
             method: 'POST',
-            headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${supabaseKey}` },
-            body: JSON.stringify({ query: message, action: 'full_report' }),
+            headers: repHeaders,
+            body: JSON.stringify({ QueryText: message, Filter: { EntityTypes: ['Company', 'Entrepreneur', 'Person'] } }),
           });
           
           if (searchRes.ok) {
-            const result = await searchRes.json();
-            console.log(`Reputation: Got response, results=${result.search_results?.length}, hasCompany=${!!result.company}`);
+            const searchData = await searchRes.json();
+            const results = Array.isArray(searchData) ? searchData : (searchData.Items || searchData.Results || searchData.items || []);
+            console.log(`Reputation: Got ${results.length} search results`);
             
-            if (result.search_results?.length > 1 && !result.company) {
-              reputationSearchResults = result.search_results.slice(0, 10);
-              console.log(`Reputation: ${result.search_results.length} results, sending for selection`);
-            } else if (result.company) {
-              reputationCompanyData = result.company;
-              reputationContext = JSON.stringify(result.company, null, 2);
+            if (results.length > 1) {
+              reputationSearchResults = results.slice(0, 10);
+              console.log(`Reputation: ${results.length} results, sending for selection`);
+            } else if (results.length === 1) {
+              const firstResult = results[0];
+              const entityType = (firstResult.Type || 'Company').toLowerCase();
+              const cardType = entityType === 'entrepreneur' ? 'entrepreneur' : entityType === 'person' ? 'person' : 'company';
               
-              if (result.search_results?.[0]?.Id) {
-                try {
-                  const firstResult = result.search_results[0];
-                  const tmRes = await fetch(`${supabaseUrl}/functions/v1/reputation-api`, {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${supabaseKey}` },
-                    body: JSON.stringify({ action: 'trademarks', entity_id: firstResult.Id, entity_type: firstResult.Type || 'Company' }),
-                  });
-                  if (tmRes.ok) {
-                    const tmData = await tmRes.json();
-                    if (tmData.trademarks?.length > 0) {
-                      reputationCompanyData._trademarks = tmData.trademarks.slice(0, 20);
-                      console.log(`Reputation: Got ${tmData.trademarks.length} trademarks`);
+              // Fetch card + trademarks in parallel
+              try {
+                const [cardRes2, tmData2] = await Promise.all([
+                  fetch(`${REPUTATION_API_BASE}/entities/${cardType}?id=${firstResult.Id}`, { method: 'GET', headers: repHeaders }),
+                  (async () => {
+                    const tmResults: any[] = [];
+                    const seenIds = new Set<string>();
+                    const entType = firstResult.Type || 'Company';
+                    const typesToTry2 = (entType === 'Person') ? ['Person', 'Entrepreneur'] : (entType === 'Entrepreneur') ? ['Entrepreneur', 'Person'] : [entType];
+                    for (const tryType of typesToTry2) {
+                      for (const ep of ['patents', 'applications']) {
+                        try {
+                          const r = await fetch(`${REPUTATION_API_BASE}/fips/${ep}?entityId=${encodeURIComponent(firstResult.Id)}&entityType=${encodeURIComponent(tryType)}`, { method: 'GET', headers: repHeaders });
+                          if (r.ok) { const d = await r.json(); const items = Array.isArray(d) ? d : (d.Items || d.Results || d.items || []); for (const it of items) { const iid = it.Id || it.id || JSON.stringify(it); if (!seenIds.has(iid)) { seenIds.add(iid); tmResults.push({ ...it, _source: ep }); } } } else { await r.text(); }
+                        } catch (e) { console.error(`FIPS ${ep} error:`, e); }
+                      }
+                      if (tmResults.length > 0) break;
                     }
+                    return tmResults;
+                  })().catch(e => { console.error('TM error:', e); return []; }),
+                ]);
+                
+                if (cardRes2.ok) {
+                  reputationCompanyData = await cardRes2.json();
+                  reputationContext = JSON.stringify(reputationCompanyData, null, 2);
+                  if (tmData2.length > 0) {
+                    reputationCompanyData._trademarks = tmData2.slice(0, 20);
+                    console.log(`Reputation: Got ${tmData2.length} trademarks`);
                   }
-                } catch (e) { console.error('Reputation TM error:', e); }
-              }
-            } else if (result.search_results?.length === 1) {
-              reputationCompanyData = result.search_results[0];
+                } else {
+                  console.error('Reputation card error:', cardRes2.status, await cardRes2.text());
+                  reputationCompanyData = firstResult;
+                }
+              } catch (e) { console.error('Reputation card+tm error:', e); reputationCompanyData = firstResult; }
             } else {
               console.log('Reputation: No results found');
             }
