@@ -157,9 +157,9 @@ const DepartmentChat: React.FC = () => {
     const agentForSelect = lastAssistantWithRole 
       ? availableAgents.find(a => a.id === lastAssistantWithRole.role_id)
       : null;
-    const mention = agentForSelect 
-      ? `@${agentForSelect.mention_trigger || agentForSelect.slug} ` 
-      : '';
+    const rawMentionTrigger = (agentForSelect?.mention_trigger || agentForSelect?.slug || '').trim();
+    const normalizedMentionTrigger = rawMentionTrigger.replace(/^@+/, '');
+    const mention = normalizedMentionTrigger ? `@${normalizedMentionTrigger} ` : '';
     sendMessage(mention + selectMessage);
   }, [sendMessage, availableAgents, messages]);
 
