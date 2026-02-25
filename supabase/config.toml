@@ -26,3 +26,6 @@ verify_jwt = false
 
 [functions.reputation-api]
 verify_jwt = false
+
+[functions.reputation-web-search]
+verify_jwt = false
