@@ -514,6 +514,7 @@ export function useOptimizedDepartmentChat(userId: string | undefined, departmen
                   smart_search: parsed.smart_search,
                   stop_reason: parsed.stop_reason,
                   reputation_results: parsed.reputation_results,
+                  reputation_company_data: parsed.reputation_company_data,
                 };
               }
             } catch {
@@ -540,6 +541,7 @@ export function useOptimizedDepartmentChat(userId: string | undefined, departmen
                 web_search_used: parsed.web_search_used,
                 smart_search: parsed.smart_search,
                 reputation_results: parsed.reputation_results,
+                reputation_company_data: parsed.reputation_company_data,
               };
             }
           } catch {

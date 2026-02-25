@@ -762,11 +762,29 @@ serve(async (req) => {
     // =====================================================
     let reputationContext = '';
     let reputationSearchResults: any[] = [];
+    let reputationCompanyData: any = null; // Structured company data for frontend card rendering
     if (externalApis?.reputation?.enabled && message) {
       console.log('Reputation API: Enabled for this role, fetching company data...');
       
       // Check if user selected a specific company: [REPUTATION_SELECT:id:type]
       const selectMatch = message.match(/\[REPUTATION_SELECT:([^:]+):([^\]]+)\]/);
+      
+      // Helper: fetch with timeout to prevent 504 errors
+      const fetchWithTimeout = async (url: string, options: RequestInit, timeoutMs = 25000): Promise<Response> => {
+        const controller = new AbortController();
+        const timeout = setTimeout(() => controller.abort(), timeoutMs);
+        try {
+          const res = await fetch(url, { ...options, signal: controller.signal });
+          clearTimeout(timeout);
+          return res;
+        } catch (e: any) {
+          clearTimeout(timeout);
+          if (e.name === 'AbortError') {
+            throw new Error(`Reputation API timeout after ${timeoutMs}ms`);
+          }
+          throw e;
+        }
+      };
       
       try {
         if (selectMatch) {
@@ -775,7 +793,7 @@ serve(async (req) => {
           const entityType = selectMatch[2];
           console.log(`Reputation API: Fetching card for selected entity ${entityId} (${entityType})`);
           
-          const cardResponse = await fetch(`${supabaseUrl}/functions/v1/reputation-api`, {
+          const cardResponse = await fetchWithTimeout(`${supabaseUrl}/functions/v1/reputation-api`, {
             method: 'POST',
             headers: {
               'Content-Type': 'application/json',
@@ -789,6 +807,7 @@ serve(async (req) => {
           
           if (cardResponse.ok) {
             const cardData = await cardResponse.json();
+            reputationCompanyData = cardData; // Send structured data to frontend
             const parts: string[] = ['=== ДАННЫЕ REPUTATION API (проверка контрагента) ==='];
             parts.push('\n--- КАРТОЧКА КОМПАНИИ ---');
             parts.push(JSON.stringify(cardData, null, 2));
@@ -797,11 +816,41 @@ serve(async (req) => {
             console.log(`Reputation API: Got company card (${reputationContext.length} chars)`);
           }
           
+          // Also fetch trademarks in parallel (non-blocking)
+          try {
+            const tmResponse = await fetchWithTimeout(`${supabaseUrl}/functions/v1/reputation-api`, {
+              method: 'POST',
+              headers: {
+                'Content-Type': 'application/json',
+                'Authorization': `Bearer ${supabaseKey}`,
+              },
+              body: JSON.stringify({
+                entity_id: entityId,
+                entity_type: entityType === 'entrepreneur' ? 'Entrepreneur' : 'Company',
+                action: 'trademarks',
+              }),
+            }, 15000);
+            
+            if (tmResponse.ok) {
+              const tmData = await tmResponse.json();
+              if (tmData.trademarks && tmData.trademarks.length > 0) {
+                reputationContext += '\n\n--- ИНТЕЛЛЕКТУАЛЬНАЯ СОБСТВЕННОСТЬ ---\n';
+                reputationContext += JSON.stringify(tmData.trademarks.slice(0, 20), null, 2);
+                if (reputationCompanyData) {
+                  reputationCompanyData._trademarks = tmData.trademarks.slice(0, 20);
+                }
+                console.log(`Reputation API: Got ${tmData.trademarks.length} IP objects`);
+              }
+            }
+          } catch (tmErr) {
+            console.error('Reputation trademarks fetch error (non-critical):', tmErr);
+          }
+          
           // Clean message for LLM (remove the select marker)
           message = message.replace(/\[REPUTATION_SELECT:[^\]]+\]\s*/g, '').trim() || 'Покажи досье на выбранную компанию';
         } else {
           // Normal search
-          const reputationResponse = await fetch(`${supabaseUrl}/functions/v1/reputation-api`, {
+          const reputationResponse = await fetchWithTimeout(`${supabaseUrl}/functions/v1/reputation-api`, {
             method: 'POST',
             headers: {
               'Content-Type': 'application/json',
@@ -831,6 +880,7 @@ serve(async (req) => {
               }
               
               if (repData.company) {
+                reputationCompanyData = repData.company;
                 parts.push('\n--- КАРТОЧКА КОМПАНИИ ---');
                 parts.push(JSON.stringify(repData.company, null, 2));
               }
@@ -1657,6 +1707,7 @@ ${goldenExamples.join('\n\n---\n\n')}
             web_search_used: webSearchUsed,
             smart_search: usedSmartSearch,
             reputation_results: reputationSearchResults.length > 0 ? reputationSearchResults : undefined,
+            reputation_company_data: reputationCompanyData || undefined,
           })}\n\n`));
           controller.enqueue(encoder.encode('data: [DONE]\n\n'));
           controller.close();
@@ -1958,6 +2009,7 @@ ${goldenExamples.join('\n\n---\n\n')}
             smart_search: usedSmartSearch,
             stop_reason: stopReason,
             reputation_results: reputationSearchResults.length > 0 ? reputationSearchResults : undefined,
+            reputation_company_data: reputationCompanyData || undefined,
           })}\n\n`));
 
           controller.enqueue(encoder.encode('data: [DONE]\n\n'));

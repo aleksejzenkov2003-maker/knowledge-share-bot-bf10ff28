@@ -30,6 +30,7 @@ import { SourcesPanel } from './SourcesPanel';
 import { DownloadDropdown } from './DownloadDropdown';
 import { MarkdownWithCitations } from './MarkdownWithCitations';
 import { ReputationCarousel } from './ReputationCarousel';
+import { ReputationCompanyCard } from './ReputationCompanyCard';
 import { ReputationSearchResult } from '@/types/chat';
 
 interface AgentInfo {
@@ -191,6 +192,11 @@ function DepartmentChatMessageComponent({
               perplexityCitations={message.metadata?.perplexity_citations || message.metadata?.web_search_citations}
             />
           </div>
+
+          {/* Reputation company card (structured data) */}
+          {message.metadata?.reputation_company_data && (
+            <ReputationCompanyCard data={message.metadata.reputation_company_data} />
+          )}
 
           {/* Reputation company selection carousel */}
           {message.metadata?.reputation_results && message.metadata.reputation_results.length > 0 && onSelectReputationCompany && (
@@ -553,6 +559,7 @@ export const DepartmentChatMessage = React.memo(DepartmentChatMessageComponent, 
     prevProps.onReply === nextProps.onReply &&
     prevProps.replyToMessage?.id === nextProps.replyToMessage?.id &&
     prevProps.onSelectReputationCompany === nextProps.onSelectReputationCompany &&
-    prev.metadata?.reputation_results?.length === next.metadata?.reputation_results?.length
+    prev.metadata?.reputation_results?.length === next.metadata?.reputation_results?.length &&
+    prev.metadata?.reputation_company_data === next.metadata?.reputation_company_data
   );
 });

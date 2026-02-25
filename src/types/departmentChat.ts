@@ -45,6 +45,7 @@ export interface DepartmentChatMessage {
     smart_search?: boolean;
     stop_reason?: string | null; // 'max_tokens' if response was truncated
     reputation_results?: Array<{ Id: string; Type: string; Inn?: string; Ogrn?: string; Name?: string; Address?: string; Status?: string }>;
+    reputation_company_data?: any;
     user_name?: string;
     agent_name?: string;
     attachments?: DepartmentChatAttachment[];

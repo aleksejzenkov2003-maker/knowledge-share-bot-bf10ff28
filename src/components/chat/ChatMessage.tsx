@@ -23,6 +23,7 @@ import { MarkdownWithCitations } from "./MarkdownWithCitations";
 import { PiiIndicator } from "./PiiIndicator";
 import { PiiUnmaskDialog } from "./PiiUnmaskDialog";
 import { ReputationCarousel } from "./ReputationCarousel";
+import { ReputationCompanyCard } from "./ReputationCompanyCard";
 import { useAuth } from "@/contexts/AuthContext";
 import { toast } from "sonner";
 
@@ -97,6 +98,11 @@ function ChatMessageComponent({ message, onEditMessage, onRegenerateResponse, on
               <span className="inline-block w-2 h-4 bg-primary animate-pulse ml-1" />
             )}
           </div>
+
+          {/* Reputation company card (structured data) */}
+          {message.reputationCompanyData && (
+            <ReputationCompanyCard data={message.reputationCompanyData} />
+          )}
 
           {/* Reputation company selection carousel */}
           {message.reputationResults && message.reputationResults.length > 0 && onSelectReputationCompany && (
@@ -314,6 +320,7 @@ export const ChatMessage = React.memo(ChatMessageComponent, (prevProps, nextProp
     prev.hasMaskedPii === next.hasMaskedPii &&
     prev.piiTokensCount === next.piiTokensCount &&
     prev.reputationResults?.length === next.reputationResults?.length &&
+    prev.reputationCompanyData === next.reputationCompanyData &&
     prevProps.onEditMessage === nextProps.onEditMessage &&
     prevProps.onRegenerateResponse === nextProps.onRegenerateResponse &&
     prevProps.onRetryMessage === nextProps.onRetryMessage &&

@@ -331,6 +331,7 @@ export function useOptimizedChat(userId: string | undefined, departmentId: strin
         web_search_used?: boolean;
         stop_reason?: string;
         reputation_results?: any[];
+        reputation_company_data?: any;
       } = {};
 
       if (reader) {
@@ -373,6 +374,7 @@ export function useOptimizedChat(userId: string | undefined, departmentId: strin
                     web_search_used: parsed.web_search_used,
                     stop_reason: parsed.stop_reason,
                     reputation_results: parsed.reputation_results,
+                    reputation_company_data: parsed.reputation_company_data,
                   };
                 }
               } catch {
@@ -400,6 +402,7 @@ export function useOptimizedChat(userId: string | undefined, departmentId: strin
                     web_search_used: parsed.web_search_used,
                     stop_reason: parsed.stop_reason,
                     reputation_results: parsed.reputation_results,
+                    reputation_company_data: parsed.reputation_company_data,
                   };
               }
             } catch {
@@ -432,6 +435,7 @@ export function useOptimizedChat(userId: string | undefined, departmentId: strin
               webSearchUsed: metadata.web_search_used,
               stopReason: metadata.stop_reason,
               reputationResults: metadata.reputation_results,
+              reputationCompanyData: metadata.reputation_company_data,
             }
           : m
       ));

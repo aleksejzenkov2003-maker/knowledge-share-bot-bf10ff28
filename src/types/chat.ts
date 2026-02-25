@@ -80,6 +80,7 @@ export interface Message {
   hasMaskedPii?: boolean; // True if message contains masked PII tokens
   piiTokensCount?: number; // Number of PII tokens in the message
   reputationResults?: ReputationSearchResult[]; // Multiple company results for user selection
+  reputationCompanyData?: any; // Structured company data for card rendering
 }
 
 export interface ReputationSearchResult {
