@@ -760,6 +760,57 @@ serve(async (req) => {
     console.log(`RAG: Final context has ${ragContext.length} chunks, smart search: ${usedSmartSearch}`);
 
     // =====================================================
+    // REPUTATION QUERY NORMALIZER (ported from Reputation.tsx)
+    // =====================================================
+    function normalizeRepQuery(raw: string): string {
+      const trimmed = raw.trim();
+      // Extract INN (10/12 digits)
+      const innMatch = trimmed.match(/\b(\d{10}|\d{12})\b/);
+      if (innMatch) return innMatch[1];
+      // Extract OGRN (13/15 digits)
+      const ogrnMatch = trimmed.match(/\b(\d{13}|\d{15})\b/);
+      if (ogrnMatch) return ogrnMatch[1];
+      // Remove country suffix like (RU)
+      let cleaned = trimmed.replace(/\s*\([A-Z]{2}\)\s*$/i, '');
+      // Parse structured address strings with quoted company name
+      const quotedMatch = cleaned.match(/"([^"]+)"/);
+      if (quotedMatch) {
+        const companyName = quotedMatch[1];
+        const parts = cleaned.replace(/"[^"]+"/g, '').split(',').map((p: string) => p.trim()).filter(Boolean);
+        let city = '';
+        let street = '';
+        for (const part of parts) {
+          if (/^\d{6}$/.test(part)) continue;
+          if (/^(д\.|дом\s|лит|помещ|корп|кв|стр|оф)/i.test(part)) continue;
+          if (/^(Общество|Акционерное|Закрытое|Публичное|Индивидуальный)/i.test(part)) continue;
+          if (/^(ул\.?|улица|пер\.?|переулок|пр-кт\.?|проспект|наб\.?|набережная|бульвар|б-р\.?|шоссе|ш\.?)\s/i.test(part)) {
+            const streetName = part
+              .replace(/^(ул\.?\s*|улица\s+|пер\.?\s*|переулок\s+|пр-кт\.?\s*|проспект\s+|наб\.?\s*|набережная\s+|бульвар\s+|б-р\.?\s*|шоссе\s+|ш\.?\s*)/i, '')
+              .replace(/\s*д\..*$/i, '')
+              .trim();
+            if (streetName) street = streetName;
+            continue;
+          }
+          if (!city && /^[А-ЯЁA-Z]/.test(part) && part.length > 2 && !/^\d/.test(part)) {
+            city = part.replace(/^г\.?\s*/i, '');
+          }
+        }
+        let result = companyName;
+        if (city) result += ` ${city}`;
+        if (street) result += ` ${street}`;
+        return result;
+      }
+      // Remove postal codes & legal forms
+      cleaned = cleaned.replace(/\b\d{6}\b/g, '');
+      cleaned = cleaned.replace(/^(Общество с ограниченной ответственностью|Акционерное общество|Закрытое акционерное общество|Публичное акционерное общество|Индивидуальный предприниматель|ООО|ОАО|ЗАО|ПАО|АО|ИП)\s*/i, '');
+      const parts = cleaned.split(',').map((p: string) => p.trim()).filter(Boolean);
+      if (parts.length > 2) {
+        return parts.slice(0, 2).join(' ').replace(/\s+/g, ' ').trim();
+      }
+      return cleaned.replace(/\s+/g, ' ').trim();
+    }
+
+    // =====================================================
     // REPUTATION API - Direct calls to api.reputation.ru
     // =====================================================
     let reputationContext = '';
@@ -767,6 +818,8 @@ serve(async (req) => {
     let reputationCompanyData: any = null;
     const REPUTATION_API_KEY = Deno.env.get('REPUTATION_API_KEY');
     const REPUTATION_API_BASE = 'https://api.reputation.ru/api/v1';
+    const REP_TIMEOUT = 25000; // 25s timeout for search/card
+    const FIPS_TIMEOUT = 15000; // 15s timeout for FIPS
     
     if (externalApis?.reputation?.enabled && message && REPUTATION_API_KEY) {
       console.log('Reputation: Direct API calls to api.reputation.ru');
@@ -785,6 +838,7 @@ serve(async (req) => {
             fetch(`${REPUTATION_API_BASE}/entities/${entityType}?id=${entityId}`, {
               method: 'GET',
               headers: repHeaders,
+              signal: AbortSignal.timeout(REP_TIMEOUT),
             }),
             (async () => {
               const results: any[] = [];
@@ -794,7 +848,7 @@ serve(async (req) => {
               for (const tryType of typesToTry) {
                 for (const endpoint of ['patents', 'applications']) {
                   try {
-                    const res = await fetch(`${REPUTATION_API_BASE}/fips/${endpoint}?entityId=${encodeURIComponent(entityId)}&entityType=${encodeURIComponent(tryType)}`, { method: 'GET', headers: repHeaders });
+                    const res = await fetch(`${REPUTATION_API_BASE}/fips/${endpoint}?entityId=${encodeURIComponent(entityId)}&entityType=${encodeURIComponent(tryType)}`, { method: 'GET', headers: repHeaders, signal: AbortSignal.timeout(FIPS_TIMEOUT) });
                     if (res.ok) {
                       const data = await res.json();
                       const items = Array.isArray(data) ? data : (data.Items || data.Results || data.items || []);
@@ -824,13 +878,16 @@ serve(async (req) => {
           message = message.replace(/\[REPUTATION_SELECT:[^\]]+\]\s*/g, '').trim() || 'Покажи досье на выбранную компанию';
           
         } else {
-          console.log(`Reputation: Searching for "${message}"`);
+          // Normalize the search query (strip legal forms, extract INN/OGRN, etc.)
+          const normalizedQuery = normalizeRepQuery(message);
+          console.log(`Reputation: Searching for "${message}" → normalized: "${normalizedQuery}"`);
           
-          // Direct search to api.reputation.ru
+          // Direct search to api.reputation.ru with timeout
           const searchRes = await fetch(`${REPUTATION_API_BASE}/entities/search`, {
             method: 'POST',
             headers: repHeaders,
-            body: JSON.stringify({ QueryText: message, Filter: { EntityTypes: ['Company', 'Entrepreneur', 'Person'] } }),
+            body: JSON.stringify({ QueryText: normalizedQuery, Filter: { EntityTypes: ['Company', 'Entrepreneur', 'Person'] } }),
+            signal: AbortSignal.timeout(REP_TIMEOUT),
           });
           
           if (searchRes.ok) {
@@ -846,10 +903,10 @@ serve(async (req) => {
               const entityType = (firstResult.Type || 'Company').toLowerCase();
               const cardType = entityType === 'entrepreneur' ? 'entrepreneur' : entityType === 'person' ? 'person' : 'company';
               
-              // Fetch card + trademarks in parallel
+              // Fetch card + trademarks in parallel with timeouts
               try {
                 const [cardRes2, tmData2] = await Promise.all([
-                  fetch(`${REPUTATION_API_BASE}/entities/${cardType}?id=${firstResult.Id}`, { method: 'GET', headers: repHeaders }),
+                  fetch(`${REPUTATION_API_BASE}/entities/${cardType}?id=${firstResult.Id}`, { method: 'GET', headers: repHeaders, signal: AbortSignal.timeout(REP_TIMEOUT) }),
                   (async () => {
                     const tmResults: any[] = [];
                     const seenIds = new Set<string>();
@@ -858,7 +915,7 @@ serve(async (req) => {
                     for (const tryType of typesToTry2) {
                       for (const ep of ['patents', 'applications']) {
                         try {
-                          const r = await fetch(`${REPUTATION_API_BASE}/fips/${ep}?entityId=${encodeURIComponent(firstResult.Id)}&entityType=${encodeURIComponent(tryType)}`, { method: 'GET', headers: repHeaders });
+                          const r = await fetch(`${REPUTATION_API_BASE}/fips/${ep}?entityId=${encodeURIComponent(firstResult.Id)}&entityType=${encodeURIComponent(tryType)}`, { method: 'GET', headers: repHeaders, signal: AbortSignal.timeout(FIPS_TIMEOUT) });
                           if (r.ok) { const d = await r.json(); const items = Array.isArray(d) ? d : (d.Items || d.Results || d.items || []); for (const it of items) { const iid = it.Id || it.id || JSON.stringify(it); if (!seenIds.has(iid)) { seenIds.add(iid); tmResults.push({ ...it, _source: ep }); } } } else { await r.text(); }
                         } catch (e) { console.error(`FIPS ${ep} error:`, e); }
                       }
@@ -887,8 +944,13 @@ serve(async (req) => {
             console.error('Reputation search error:', searchRes.status, await searchRes.text());
           }
         }
-      } catch (repErr) {
-        console.error('Reputation API error:', repErr);
+      } catch (repErr: any) {
+        if (repErr?.name === 'TimeoutError' || repErr?.name === 'AbortError') {
+          console.error(`Reputation API timeout after ${REP_TIMEOUT}ms`);
+          reputationContext = 'API Reputation.ru не ответил вовремя. Попробуйте уточнить запрос — например, добавьте ИНН или город.';
+        } else {
+          console.error('Reputation API error:', repErr);
+        }
       }
     } else if (externalApis?.reputation?.enabled && !REPUTATION_API_KEY) {
       console.error('Reputation API: REPUTATION_API_KEY not configured');
