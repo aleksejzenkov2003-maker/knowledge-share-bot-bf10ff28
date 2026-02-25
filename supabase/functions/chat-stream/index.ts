@@ -906,7 +906,164 @@ serve(async (req) => {
       }
     }
 
-    // HYBRID WEB SEARCH: If RAG results are insufficient and provider is Anthropic, 
+    // =====================================================
+    // SHORT-CIRCUIT: Pure Reputation API role (no LLM needed)
+    // If role has reputation enabled and it's the primary function,
+    // return results directly without calling any LLM
+    // =====================================================
+    const isReputationOnlyRole = externalApis?.reputation?.enabled && folderIds.length === 0;
+    
+    if (isReputationOnlyRole) {
+      const responseTimeMs = Date.now() - startTime;
+      console.log(`Reputation-only role: bypassing LLM, returning structured data directly (${responseTimeMs}ms)`);
+      
+      const encoder = new TextEncoder();
+      
+      // Build a human-readable text summary from reputation data
+      let textContent = '';
+      
+      if (reputationSearchResults.length > 0) {
+        // Multiple results found — user needs to select
+        textContent = `🔍 **Найдено компаний: ${reputationSearchResults.length}**\n\nВыберите нужную компанию из списка ниже:`;
+      } else if (reputationCompanyData) {
+        // Single company data — format as structured dossier
+        const d = reputationCompanyData;
+        const parts: string[] = [];
+        parts.push(`## 📋 Досье: ${d.Name || d.ShortName || d.FullName || 'Компания'}\n`);
+        
+        // Basic info
+        const info: string[] = [];
+        if (d.Inn) info.push(`**ИНН:** ${d.Inn}`);
+        if (d.Ogrn) info.push(`**ОГРН:** ${d.Ogrn}`);
+        if (d.Kpp) info.push(`**КПП:** ${d.Kpp}`);
+        if (d.Status || d.StatusName) info.push(`**Статус:** ${d.StatusName || d.Status}`);
+        if (d.RegistrationDate) info.push(`**Дата регистрации:** ${d.RegistrationDate}`);
+        if (d.LegalAddress || d.Address) info.push(`**Адрес:** ${d.LegalAddress || d.Address}`);
+        if (info.length > 0) {
+          parts.push(`### Реквизиты\n${info.join('\n')}`);
+        }
+        
+        // Capital
+        if (d.Capital || d.AuthorizedCapital) {
+          parts.push(`\n### Уставный капитал\n${d.Capital || d.AuthorizedCapital}`);
+        }
+        
+        // Management
+        if (d.Director || d.Head || d.ManagementCompanies || d.Heads) {
+          const mgmt: string[] = [];
+          if (d.Director || d.Head) {
+            const head = d.Director || d.Head;
+            if (typeof head === 'string') {
+              mgmt.push(`**Руководитель:** ${head}`);
+            } else if (head.Name || head.Fio) {
+              mgmt.push(`**Руководитель:** ${head.Name || head.Fio}${head.Position ? ` (${head.Position})` : ''}`);
+            }
+          }
+          if (d.Heads && Array.isArray(d.Heads)) {
+            for (const h of d.Heads.slice(0, 5)) {
+              mgmt.push(`- ${h.Name || h.Fio || '—'}${h.Position ? ` — ${h.Position}` : ''}`);
+            }
+          }
+          if (mgmt.length > 0) {
+            parts.push(`\n### Руководство\n${mgmt.join('\n')}`);
+          }
+        }
+        
+        // Founders
+        if (d.Founders && Array.isArray(d.Founders) && d.Founders.length > 0) {
+          const founders = d.Founders.slice(0, 10).map((f: any) => 
+            `- ${f.Name || f.Fio || '—'}${f.Share ? ` (${f.Share}%)` : ''}`
+          );
+          parts.push(`\n### Учредители\n${founders.join('\n')}`);
+        }
+        
+        // Activities (OKVED)
+        if (d.Activities || d.Okved || d.MainOkved) {
+          const acts: string[] = [];
+          if (d.MainOkved) {
+            acts.push(`**Основной:** ${typeof d.MainOkved === 'string' ? d.MainOkved : `${d.MainOkved.Code} — ${d.MainOkved.Name}`}`);
+          }
+          if (d.Activities && Array.isArray(d.Activities)) {
+            for (const a of d.Activities.slice(0, 5)) {
+              acts.push(`- ${a.Code || ''} ${a.Name || a.Description || ''}`);
+            }
+          }
+          if (acts.length > 0) {
+            parts.push(`\n### Деятельность (ОКВЭД)\n${acts.join('\n')}`);
+          }
+        }
+        
+        // Contacts
+        if (d.Phones || d.Emails || d.Websites || d.Phone || d.Email || d.Website) {
+          const contacts: string[] = [];
+          const phones = d.Phones || (d.Phone ? [d.Phone] : []);
+          const emails = d.Emails || (d.Email ? [d.Email] : []);
+          const websites = d.Websites || (d.Website ? [d.Website] : []);
+          if (phones.length > 0) contacts.push(`**Телефон:** ${Array.isArray(phones) ? phones.join(', ') : phones}`);
+          if (emails.length > 0) contacts.push(`**Email:** ${Array.isArray(emails) ? emails.join(', ') : emails}`);
+          if (websites.length > 0) contacts.push(`**Сайт:** ${Array.isArray(websites) ? websites.join(', ') : websites}`);
+          if (contacts.length > 0) {
+            parts.push(`\n### Контакты\n${contacts.join('\n')}`);
+          }
+        }
+        
+        // Trademarks
+        if (d._trademarks && Array.isArray(d._trademarks) && d._trademarks.length > 0) {
+          const tms = d._trademarks.slice(0, 10).map((tm: any) => 
+            `- ${tm.Name || tm.Title || tm.Number || '—'}${tm.RegistrationNumber ? ` (рег. №${tm.RegistrationNumber})` : ''}${tm.Status ? ` — ${tm.Status}` : ''}`
+          );
+          parts.push(`\n### Интеллектуальная собственность (${d._trademarks.length} объектов)\n${tms.join('\n')}`);
+        }
+        
+        // Risks / Scoring
+        if (d.RiskIndicators || d.Score || d.Scoring) {
+          const risks: string[] = [];
+          if (d.Score !== undefined) risks.push(`**Скоринг:** ${d.Score}`);
+          if (d.Scoring) risks.push(`**Рейтинг:** ${JSON.stringify(d.Scoring)}`);
+          if (d.RiskIndicators && Array.isArray(d.RiskIndicators)) {
+            for (const r of d.RiskIndicators.slice(0, 5)) {
+              risks.push(`- ⚠️ ${r.Name || r.Description || JSON.stringify(r)}`);
+            }
+          }
+          if (risks.length > 0) {
+            parts.push(`\n### Риски и скоринг\n${risks.join('\n')}`);
+          }
+        }
+        
+        textContent = parts.join('\n');
+      } else {
+        textContent = '❌ По вашему запросу ничего не найдено. Попробуйте уточнить ИНН, ОГРН или название компании.';
+      }
+      
+      const stream = new ReadableStream({
+        start(controller) {
+          controller.enqueue(encoder.encode(`data: ${JSON.stringify({ type: 'content', content: textContent })}\n\n`));
+          controller.enqueue(encoder.encode(`data: ${JSON.stringify({
+            type: 'metadata',
+            response_time_ms: responseTimeMs,
+            reputation_results: reputationSearchResults.length > 0 ? reputationSearchResults : undefined,
+            reputation_company_data: reputationCompanyData || undefined,
+          })}\n\n`));
+          controller.enqueue(encoder.encode('data: [DONE]\n\n'));
+          controller.close();
+        },
+      });
+      
+      // Log the API call
+      await supabase.from('chat_logs').insert({
+        user_id: userId,
+        department_id: deptId,
+        provider_id: null,
+        prompt: message,
+        response: textContent.substring(0, 5000),
+        response_time_ms: responseTimeMs,
+        metadata: { type: 'reputation_api_only', results_count: reputationSearchResults.length, has_company: !!reputationCompanyData },
+      });
+      
+      return new Response(stream, { headers: corsHeaders });
+    }
+
+    // HYBRID WEB SEARCH: If RAG results are insufficient and provider is Anthropic,
     // perform a web search via Perplexity to supplement the context
     let webSearchContext: string[] = [];
     let webSearchCitations: string[] = [];
