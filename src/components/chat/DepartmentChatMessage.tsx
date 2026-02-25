@@ -29,6 +29,8 @@ import {
 import { SourcesPanel } from './SourcesPanel';
 import { DownloadDropdown } from './DownloadDropdown';
 import { MarkdownWithCitations } from './MarkdownWithCitations';
+import { ReputationCarousel } from './ReputationCarousel';
+import { ReputationSearchResult } from '@/types/chat';
 
 interface AgentInfo {
   id: string;
@@ -46,6 +48,7 @@ interface DepartmentChatMessageProps {
   onRetryMessage?: (messageId: string) => void;
   onReply?: (message: MessageType) => void;
   replyToMessage?: MessageType | null;
+  onSelectReputationCompany?: (result: ReputationSearchResult) => void;
 }
 
 function DepartmentChatMessageComponent({
@@ -55,7 +58,8 @@ function DepartmentChatMessageComponent({
   onRegenerateResponse,
   onRetryMessage,
   onReply,
-  replyToMessage
+  replyToMessage,
+  onSelectReputationCompany
 }: DepartmentChatMessageProps) {
   const [copied, setCopied] = useState(false);
   
@@ -187,6 +191,14 @@ function DepartmentChatMessageComponent({
               perplexityCitations={message.metadata?.perplexity_citations || message.metadata?.web_search_citations}
             />
           </div>
+
+          {/* Reputation company selection carousel */}
+          {message.metadata?.reputation_results && message.metadata.reputation_results.length > 0 && onSelectReputationCompany && (
+            <ReputationCarousel
+              results={message.metadata.reputation_results}
+              onSelect={onSelectReputationCompany}
+            />
+          )}
 
           {/* Attachments */}
           {message.metadata?.attachments && message.metadata.attachments.length > 0 && (
@@ -539,6 +551,8 @@ export const DepartmentChatMessage = React.memo(DepartmentChatMessageComponent, 
     prevProps.onRegenerateResponse === nextProps.onRegenerateResponse &&
     prevProps.onRetryMessage === nextProps.onRetryMessage &&
     prevProps.onReply === nextProps.onReply &&
-    prevProps.replyToMessage?.id === nextProps.replyToMessage?.id
+    prevProps.replyToMessage?.id === nextProps.replyToMessage?.id &&
+    prevProps.onSelectReputationCompany === nextProps.onSelectReputationCompany &&
+    prev.metadata?.reputation_results?.length === next.metadata?.reputation_results?.length
   );
 });
