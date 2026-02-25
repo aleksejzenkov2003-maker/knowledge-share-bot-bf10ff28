@@ -16,7 +16,7 @@ import { Loader2, Users, Bot, Maximize2, Minimize2, Filter, Search, PanelLeftClo
 import { supabase } from '@/integrations/supabase/client';
 import { cn } from '@/lib/utils';
 import { DepartmentChatMessage as DepartmentChatMessageType } from '@/types/departmentChat';
-import { Attachment } from '@/types/chat';
+import { Attachment, ReputationSearchResult } from '@/types/chat';
 import { useAttachmentTextExtractor } from '@/hooks/useAttachmentTextExtractor';
 import { toast } from 'sonner';
 
@@ -146,6 +146,20 @@ const DepartmentChat: React.FC = () => {
   const handleReply = useCallback((message: DepartmentChatMessageType) => {
     setReplyToMessage(message);
   }, [setReplyToMessage]);
+
+  // Handle reputation company selection from carousel
+  const handleSelectReputationCompany = useCallback((result: ReputationSearchResult) => {
+    const entityType = (result.Type || 'Company').toLowerCase() === 'entrepreneur' ? 'entrepreneur' : 'company';
+    const selectMessage = `[REPUTATION_SELECT:${result.Id}:${entityType}] Покажи полное досье на компанию "${result.Name}"`;
+    // Find a reputation-enabled agent to mention
+    const reputationAgent = availableAgents.find(a => 
+      (a as any).external_apis?.reputation?.enabled
+    );
+    const mention = reputationAgent 
+      ? `@${reputationAgent.mention_trigger || reputationAgent.slug} ` 
+      : '';
+    sendMessage(mention + selectMessage);
+  }, [sendMessage, availableAgents]);
 
   // PII preview handler
   const handlePiiPreview = useCallback(async (attachment: Attachment) => {
@@ -356,6 +370,7 @@ const DepartmentChat: React.FC = () => {
                   onRetryMessage={retryMessage}
                   onReply={handleReply}
                   replyToMessage={replyTo}
+                  onSelectReputationCompany={handleSelectReputationCompany}
                 />
               );
             })}
