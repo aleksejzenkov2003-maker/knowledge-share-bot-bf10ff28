@@ -150,7 +150,7 @@ export function ReputationCompanyCard({ data, compact = false }: ReputationCompa
   const founders = data.Founders || [];
 
   // Additional OKVED
-  const additionalActivities = data.ActivityTypes?.slice(0, 5) || [];
+  const additionalActivities = Array.isArray(data.ActivityTypes) ? data.ActivityTypes.slice(0, 5) : [];
 
   const handleCopyAll = () => {
     const lines = [
