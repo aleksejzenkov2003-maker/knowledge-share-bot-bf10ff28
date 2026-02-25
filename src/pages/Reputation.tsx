@@ -1,4 +1,6 @@
 import { useState, useEffect } from 'react';
+import ReactMarkdown from 'react-markdown';
+import remarkGfm from 'remark-gfm';
 import { supabase } from '@/integrations/supabase/client';
 import { useAuth } from '@/contexts/AuthContext';
 import { Input } from '@/components/ui/input';
@@ -11,7 +13,7 @@ import { Separator } from '@/components/ui/separator';
 import { toast } from '@/hooks/use-toast';
 import {
   Search, Building2, Copy, Bookmark, Loader2, ChevronLeft, ExternalLink, Hash, MapPin, Filter, FileText,
-  Shield, Clock, Trash2, Users, Phone, Banknote, Scale, Briefcase, Lightbulb, SearchX, User, CircleDot
+  Shield, Clock, Trash2, Users, Phone, Banknote, Scale, Briefcase, Lightbulb, SearchX, User, CircleDot, Globe
 } from 'lucide-react';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import type { LucideIcon } from 'lucide-react';
@@ -43,6 +45,7 @@ const DATA_SECTIONS = [
   { key: 'trademarks', label: 'Интеллектуальная собственность', description: 'Товарные знаки, патенты, ПО' },
   { key: 'arbitration', label: 'Арбитраж', description: 'Судебные дела' },
   { key: 'contacts', label: 'Контакты', description: 'Телефон, email, сайт' },
+  { key: 'internet', label: 'Интернет', description: 'Поиск информации в интернете' },
 ] as const;
 
 const SECTION_ICONS: Record<string, LucideIcon> = {
@@ -54,6 +57,7 @@ const SECTION_ICONS: Record<string, LucideIcon> = {
   trademarks: Lightbulb,
   arbitration: Scale,
   contacts: Phone,
+  internet: Globe,
 };
 
 const REGISTRY_MAP: Record<string, { label: string; db: string; short: string }> = {
@@ -753,6 +757,10 @@ const CompanyDetailCard = ({ company, entityType, selectedSections, onSave, onCo
   const otherNames = c.OtherNames && Array.isArray(c.OtherNames) ? c.OtherNames[0] : null;
   const [fipsTrademarks, setFipsTrademarks] = useState<any[]>(initialTrademarks);
   const [fipsLoading, setFipsLoading] = useState(false);
+  const [webSearchResult, setWebSearchResult] = useState('');
+  const [webSearchCitations, setWebSearchCitations] = useState<string[]>([]);
+  const [webSearchLoading, setWebSearchLoading] = useState(false);
+  const [webSearchError, setWebSearchError] = useState<string | null>(null);
 
   useEffect(() => {
     if (initialTrademarks.length > 0) {
@@ -1164,6 +1172,113 @@ const CompanyDetailCard = ({ company, entityType, selectedSections, onSave, onCo
               {(!c.Phones?.length && !c.Emails?.length && !c.Sites?.length) && (
                 <p className="text-sm text-muted-foreground">Нет контактных данных</p>
               )}
+            </TabsContent>
+          )}
+
+          {selectedSections.includes('internet') && (
+            <TabsContent value="internet">
+              <div className="space-y-4">
+                {!webSearchResult && !webSearchLoading && !webSearchError && (
+                  <div className="text-center py-8">
+                    <Globe className="h-10 w-10 mx-auto text-muted-foreground/40 mb-3" />
+                    <p className="text-sm text-muted-foreground mb-4">Найдите информацию о компании из открытых интернет-источников</p>
+                    <Button
+                      onClick={async () => {
+                        setWebSearchLoading(true);
+                        setWebSearchError(null);
+                        try {
+                          const { data, error } = await supabase.functions.invoke('reputation-web-search', {
+                            body: { companyName: c.Name || '', inn: c.Inn || '', ogrn: c.Ogrn || '' },
+                          });
+                          if (error) throw error;
+                          if (data?.error) throw new Error(data.error);
+                          setWebSearchResult(data.content || '');
+                          setWebSearchCitations(data.citations || []);
+                        } catch (err: any) {
+                          setWebSearchError(err.message || 'Ошибка поиска');
+                        } finally {
+                          setWebSearchLoading(false);
+                        }
+                      }}
+                      className="gap-2"
+                    >
+                      <Search className="h-4 w-4" />
+                      Найти информацию в интернете
+                    </Button>
+                  </div>
+                )}
+
+                {webSearchLoading && (
+                  <div className="flex flex-col items-center justify-center py-12 gap-3">
+                    <Loader2 className="h-8 w-8 animate-spin text-primary" />
+                    <p className="text-sm text-muted-foreground">Поиск информации о компании...</p>
+                  </div>
+                )}
+
+                {webSearchError && (
+                  <div className="rounded-lg border border-destructive/30 bg-destructive/5 p-4">
+                    <p className="text-sm text-destructive">{webSearchError}</p>
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      className="mt-2"
+                      onClick={() => { setWebSearchError(null); }}
+                    >
+                      Попробовать снова
+                    </Button>
+                  </div>
+                )}
+
+                {webSearchResult && (
+                  <div className="space-y-4">
+                    <div className="prose prose-sm max-w-none dark:prose-invert">
+                      <ReactMarkdown remarkPlugins={[remarkGfm]}>
+                        {webSearchResult}
+                      </ReactMarkdown>
+                    </div>
+
+                    {webSearchCitations.length > 0 && (
+                      <div className="border-t pt-3 mt-4">
+                        <h4 className="text-xs font-medium text-muted-foreground mb-2">Источники:</h4>
+                        <div className="flex flex-wrap gap-1.5">
+                          {webSearchCitations.map((url, i) => {
+                            let domain = '';
+                            try { domain = new URL(url).hostname.replace('www.', ''); } catch { domain = url; }
+                            return (
+                              <a
+                                key={i}
+                                href={url}
+                                target="_blank"
+                                rel="noopener noreferrer"
+                                className="inline-flex items-center gap-1 text-xs px-2 py-1 rounded-md bg-muted hover:bg-muted/80 text-primary hover:underline transition-colors"
+                              >
+                                <span className="flex h-4 w-4 items-center justify-center rounded-full bg-primary/10 text-[10px] font-bold text-primary shrink-0">
+                                  {i + 1}
+                                </span>
+                                {domain}
+                              </a>
+                            );
+                          })}
+                        </div>
+                      </div>
+                    )}
+
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      className="gap-1.5"
+                      onClick={() => {
+                        setWebSearchResult('');
+                        setWebSearchCitations([]);
+                        setWebSearchError(null);
+                      }}
+                    >
+                      <Search className="h-3.5 w-3.5" />
+                      Искать заново
+                    </Button>
+                  </div>
+                )}
+              </div>
             </TabsContent>
           )}
         </Tabs>
