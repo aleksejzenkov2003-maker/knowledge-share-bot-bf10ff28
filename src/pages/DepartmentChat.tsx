@@ -152,15 +152,16 @@ const DepartmentChat: React.FC = () => {
     const entityType = (result.Type || 'Company').toLowerCase() === 'entrepreneur' ? 'entrepreneur' : 
                        (result.Type || 'Company').toLowerCase() === 'person' ? 'person' : 'company';
     const selectMessage = `[REPUTATION_SELECT:${result.Id}:${entityType}] Покажи полное досье на компанию "${result.Name}"`;
-    // Find a reputation-enabled agent to mention
-    const reputationAgent = availableAgents.find(a => 
-      (a as any).external_apis?.reputation?.enabled
-    );
-    const mention = reputationAgent 
-      ? `@${reputationAgent.mention_trigger || reputationAgent.slug} ` 
+    // Find the agent that was used for the reputation search by looking at the last assistant message with role_id
+    const lastAssistantWithRole = [...messages].reverse().find(m => m.message_role === 'assistant' && m.role_id);
+    const agentForSelect = lastAssistantWithRole 
+      ? availableAgents.find(a => a.id === lastAssistantWithRole.role_id)
+      : null;
+    const mention = agentForSelect 
+      ? `@${agentForSelect.mention_trigger || agentForSelect.slug} ` 
       : '';
     sendMessage(mention + selectMessage);
-  }, [sendMessage, availableAgents]);
+  }, [sendMessage, availableAgents, messages]);
 
   // PII preview handler
   const handlePiiPreview = useCallback(async (attachment: Attachment) => {
