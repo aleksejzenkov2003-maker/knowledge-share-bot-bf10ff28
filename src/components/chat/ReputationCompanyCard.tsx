@@ -7,7 +7,7 @@ import {
   Building2, MapPin, Phone, Mail, Globe, Calendar, Users, Shield,
   AlertTriangle, CheckCircle, XCircle, ChevronDown, ChevronUp, Copy,
   Briefcase, Hash, FileText, Scale, Award, ExternalLink, TrendingUp,
-  Receipt, Landmark
+  Receipt, Landmark, Download, DollarSign
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { toast } from "sonner";
@@ -200,7 +200,9 @@ export function ReputationCompanyCard({ data, compact = false }: ReputationCompa
 
   const phones = Array.isArray(data.Phones) ? data.Phones : (data.Phone ? [data.Phone] : []);
   const emails = Array.isArray(data.Emails) ? data.Emails : (data.Email ? [data.Email] : []);
-  const websites = Array.isArray(data.Websites) ? data.Websites : (data.Website ? [data.Website] : []);
+  const websites = Array.isArray(data.Websites) ? data.Websites 
+    : (Array.isArray(data.Sites) ? data.Sites 
+    : (data.Website ? [data.Website] : []));
 
   // Founders from Shareholders.Items or flat Founders
   let founders: { Name: string; Share?: number | string }[] = [];
@@ -226,6 +228,12 @@ export function ReputationCompanyCard({ data, compact = false }: ReputationCompa
     ? data.ActivityTypes.slice(0, 5)
     : unwrapItems(data.ActivityTypes).slice(0, 5);
   const trademarks = Array.isArray(data._trademarks) ? data._trademarks : [];
+  
+  // Financial history
+  const financialHistory = Array.isArray(data.FinancialHistory) ? data.FinancialHistory : [];
+  
+  // Link for reputation.ru
+  const repLink = data.Link;
 
   // Employees
   const employeesHistory = Array.isArray(data.EmployeesHistory) ? data.EmployeesHistory : [];
@@ -323,6 +331,20 @@ export function ReputationCompanyCard({ data, compact = false }: ReputationCompa
             </div>
           </div>
           <div className="flex items-center gap-1 shrink-0">
+            {(ogrn || inn) && (
+              <a href={`https://egrul.nalog.ru/index.html?query=${ogrn || inn}`} target="_blank" rel="noopener noreferrer">
+                <Button variant="ghost" size="icon" className="h-7 w-7" title="Выписка ЕГРЮЛ">
+                  <Download className="h-3.5 w-3.5" />
+                </Button>
+              </a>
+            )}
+            {repLink && (
+              <a href={`https://reputation.ru/${repLink}`} target="_blank" rel="noopener noreferrer">
+                <Button variant="ghost" size="icon" className="h-7 w-7" title="Reputation.ru">
+                  <ExternalLink className="h-3.5 w-3.5" />
+                </Button>
+              </a>
+            )}
             <Button variant="ghost" size="icon" className="h-7 w-7" onClick={handleCopyAll} title="Скопировать данные">
               <Copy className="h-3.5 w-3.5" />
             </Button>
@@ -429,6 +451,49 @@ export function ReputationCompanyCard({ data, compact = false }: ReputationCompa
                     ))}
                   </div>
                 )}
+              </div>
+            </>
+          )}
+
+          {/* Financial History */}
+          {financialHistory.length > 0 && (
+            <>
+              <Separator />
+              <div className="px-4 py-3">
+                <SectionHeader icon={DollarSign} title="Финансы" badge={`${financialHistory.length} лет`} />
+                <div className="overflow-x-auto">
+                  <table className="w-full text-sm">
+                    <thead>
+                      <tr className="border-b border-border/50">
+                        <th className="text-left text-xs font-medium text-muted-foreground py-1.5 pr-4">Год</th>
+                        <th className="text-right text-xs font-medium text-muted-foreground py-1.5 px-2">Выручка</th>
+                        <th className="text-right text-xs font-medium text-muted-foreground py-1.5 pl-2">Прибыль</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {financialHistory.slice(0, 8).map((f: any, i: number) => {
+                        const revenue = f.Revenue !== undefined && f.Revenue !== null ? Number(f.Revenue) : null;
+                        const profit = f.Profit !== undefined && f.Profit !== null ? Number(f.Profit) : null;
+                        const formatMoney = (v: number | null) => {
+                          if (v === null) return '—';
+                          if (Math.abs(v) >= 1e9) return `${(v / 1e9).toFixed(1)} млрд ₽`;
+                          if (Math.abs(v) >= 1e6) return `${(v / 1e6).toFixed(1)} млн ₽`;
+                          if (Math.abs(v) >= 1e3) return `${(v / 1e3).toFixed(0)} тыс ₽`;
+                          return `${v.toLocaleString('ru-RU')} ₽`;
+                        };
+                        return (
+                          <tr key={i} className="border-b border-border/30 last:border-0">
+                            <td className="py-1.5 pr-4 text-foreground font-medium">{safeString(f.Year)}</td>
+                            <td className="py-1.5 px-2 text-right text-foreground">{formatMoney(revenue)}</td>
+                            <td className={cn("py-1.5 pl-2 text-right font-medium", profit !== null && profit < 0 ? "text-destructive" : "text-foreground")}>
+                              {formatMoney(profit)}
+                            </td>
+                          </tr>
+                        );
+                      })}
+                    </tbody>
+                  </table>
+                </div>
               </div>
             </>
           )}

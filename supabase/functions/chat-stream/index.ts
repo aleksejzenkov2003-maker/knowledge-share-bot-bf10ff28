@@ -957,6 +957,21 @@ serve(async (req) => {
         if (emails.length > 0 && (!n.Emails || n.Emails.length === 0)) n.Emails = emails;
       }
 
+      // Financial data: FinancialStatements / Finance → FinancialHistory
+      const rawFinance = unwrapItems(n.FinancialStatements || n.Finance);
+      if (rawFinance.length > 0) {
+        n.FinancialHistory = rawFinance.map((f: any) => {
+          let year = f.Year || '';
+          if (!year && f.Date) { const m = String(f.Date).match(/^(\d{4})/); if (m) year = m[1]; }
+          if (!year && f.Period) year = String(f.Period);
+          return {
+            Year: year,
+            Revenue: f.Revenue ?? f.Income ?? f.Proceeds ?? undefined,
+            Profit: f.Profit ?? f.NetProfit ?? f.NetIncome ?? undefined,
+          };
+        }).filter((f: any) => f.Year).sort((a: any, b: any) => String(b.Year).localeCompare(String(a.Year)));
+      }
+
       // ActivityTypes: unwrap Items
       const rawActivities = unwrapItems(n.ActivityTypes);
       if (rawActivities.length > 0 && rawActivities[0].Code) {
@@ -1046,6 +1061,7 @@ serve(async (req) => {
           
           if (cardRes.ok) {
             reputationCompanyData = normalizeCompanyData(await cardRes.json());
+            // Merge contacts from the original select command context (search results may have had them)
             reputationContext = JSON.stringify(reputationCompanyData, null, 2);
             console.log(`Reputation: Got card (${reputationContext.length} chars)`);
           } else {
@@ -1109,6 +1125,14 @@ serve(async (req) => {
                 
                 if (cardRes2.ok) {
                   reputationCompanyData = normalizeCompanyData(await cardRes2.json());
+                  // Merge contacts from search result (card API often doesn't return them)
+                  if (!reputationCompanyData.Phones?.length && firstResult.Phones?.length) reputationCompanyData.Phones = firstResult.Phones;
+                  if (!reputationCompanyData.Emails?.length && firstResult.Emails?.length) reputationCompanyData.Emails = firstResult.Emails;
+                  if (!reputationCompanyData.Sites?.length && firstResult.Sites?.length) reputationCompanyData.Sites = firstResult.Sites;
+                  if (!reputationCompanyData.Websites?.length && firstResult.Sites?.length) reputationCompanyData.Websites = firstResult.Sites;
+                  if (!reputationCompanyData.EmployeesCount && firstResult.EmployeesCount) reputationCompanyData.EmployeesCount = firstResult.EmployeesCount;
+                  if (!reputationCompanyData.RsmpCategory && firstResult.RsmpCategory) reputationCompanyData.RsmpCategory = firstResult.RsmpCategory;
+                  if (!reputationCompanyData.Link && firstResult.Link) reputationCompanyData.Link = firstResult.Link;
                   reputationContext = JSON.stringify(reputationCompanyData, null, 2);
                   if (tmData2.length > 0) {
                     reputationCompanyData._trademarks = tmData2.slice(0, 20);
@@ -1158,7 +1182,7 @@ serve(async (req) => {
         // Multiple results found — user needs to select
         textContent = `🔍 **Найдено компаний: ${reputationSearchResults.length}**\n\nВыберите нужную компанию из списка ниже:`;
       } else if (reputationCompanyData) {
-        // Single company data — format as structured dossier
+        // Single company data — short summary (full data is in the card UI)
         const d = reputationCompanyData;
         const ss = (v: any): string => {
           if (v === null || v === undefined) return '';
@@ -1167,143 +1191,17 @@ serve(async (req) => {
           if (typeof v === 'object') {
             if (v.Name) return String(v.Name);
             if (v.Value) return String(v.Value);
-            if (v.Text) return String(v.Text);
             try { return JSON.stringify(v); } catch { return ''; }
           }
           return String(v);
         };
+        const companyName = ss(d.Name || d.ShortName || d.FullName) || 'Компания';
+        const statusText = ss(d.StatusText || d.StatusName || d.Status) || '';
+        const innText = d.Inn ? `ИНН ${d.Inn}` : '';
         const parts: string[] = [];
-        parts.push(`## 📋 Досье: ${ss(d.Name || d.ShortName || d.FullName) || 'Компания'}\n`);
-        
-        // Requisites as markdown table
-        const reqRows: string[][] = [];
-        if (d.Inn) reqRows.push(['ИНН', `[${d.Inn}](https://reputation.ru/company/inn-${d.Inn})`]);
-        if (d.Ogrn) reqRows.push(['ОГРН', `[${d.Ogrn}](https://reputation.ru/company/ogrn-${d.Ogrn})`]);
-        if (d.Kpp) reqRows.push(['КПП', ss(d.Kpp)]);
-        if (d.Status || d.StatusText || d.StatusName) reqRows.push(['Статус', ss(d.StatusText || d.StatusName || d.Status)]);
-        if (d.RegistrationDate) reqRows.push(['Дата регистрации', ss(d.RegistrationDate)]);
-        if (d.LiquidationDate) reqRows.push(['Дата ликвидации', ss(d.LiquidationDate)]);
-        if (d.Address || d.LegalAddress) reqRows.push(['Адрес', ss(d.Address || d.LegalAddress)]);
-        if (d.Type) reqRows.push(['Тип', d.Type === 'Company' ? 'Юр. лицо' : d.Type === 'Entrepreneur' ? 'ИП' : ss(d.Type)]);
-        if (reqRows.length > 0) {
-          parts.push(`### Реквизиты\n\n| Поле | Значение |\n|------|----------|\n${reqRows.map(r => `| ${r[0]} | ${r[1]} |`).join('\n')}`);
-        }
-        
-        // Capital
-        const cap = d.AuthorizedCapital || (d.Capital && typeof d.Capital === 'object' ? d.Capital.Value : d.Capital);
-        if (cap) {
-          parts.push(`\n### Уставный капитал\n${typeof cap === 'number' ? cap.toLocaleString('ru-RU') + ' ₽' : ss(cap)}`);
-        }
-        
-        // Management
-        if (d.DirectorName || d.Director || d.Head || (Array.isArray(d.Managers) && d.Managers.length > 0)) {
-          const mgmt: string[] = [];
-          const dirName = ss(d.DirectorName || (d.Head && typeof d.Head === 'object' ? (d.Head.Name || d.Head.Fio) : d.Director));
-          const dirTitle = ss(d.DirectorTitle || (d.Head && typeof d.Head === 'object' ? d.Head.Position : '')) || 'Руководитель';
-          if (dirName) mgmt.push(`**${dirTitle}:** ${dirName}`);
-          if (Array.isArray(d.Managers)) {
-            for (const m of d.Managers.slice(dirName ? 1 : 0, 5)) {
-              mgmt.push(`- ${ss(m.Name || m.Fio) || '—'}${m.Position ? ` — ${ss(m.Position)}` : ''}`);
-            }
-          }
-          if (mgmt.length > 0) {
-            parts.push(`\n### Руководство\n${mgmt.join('\n')}`);
-          }
-        }
-        
-        // Founders / Shareholders
-        if (d.Founders && Array.isArray(d.Founders) && d.Founders.length > 0) {
-          const founders = d.Founders.slice(0, 10).map((f: any) => {
-            const share = f.Share !== undefined && f.Share !== null ? ` — ${typeof f.Share === 'number' ? f.Share.toFixed(2) + '%' : ss(f.Share)}` : '';
-            return `- ${ss(f.Name || f.Fio) || '—'}${share}`;
-          });
-          parts.push(`\n### Учредители\n${founders.join('\n')}`);
-        }
-        
-        // Employees
-        if (d.EmployeesCount !== undefined || (Array.isArray(d.EmployeesHistory) && d.EmployeesHistory.length > 0)) {
-          const empParts: string[] = [];
-          if (d.EmployeesCount !== undefined) empParts.push(`**Текущее количество:** ${ss(d.EmployeesCount)} чел.`);
-          if (Array.isArray(d.EmployeesHistory) && d.EmployeesHistory.length > 0) {
-            empParts.push(`\n| Год | Сотрудников |\n|-----|-------------|\n${d.EmployeesHistory.slice(0, 10).map((e: any) => `| ${ss(e.Year)} | ${ss(e.Count)} |`).join('\n')}`);
-          }
-          parts.push(`\n### Сотрудники\n${empParts.join('\n')}`);
-        }
-
-        // RSMP (МСП)
-        if (d.RsmpCategory) {
-          parts.push(`\n### Категория МСП\n**${ss(d.RsmpCategory)}**${d.RsmpDate ? ` (с ${ss(d.RsmpDate)})` : ''}`);
-        }
-
-        // Taxation
-        if (Array.isArray(d.TaxationTypes) && d.TaxationTypes.length > 0) {
-          parts.push(`\n### Налогообложение\n${d.TaxationTypes.map((t: string) => `- ${t}`).join('\n')}`);
-        }
-
-        // Activities (OKVED)
-        const mainCode = ss(d.MainActivityCode || (d.MainOkved && typeof d.MainOkved === 'object' ? d.MainOkved.Code : d.MainOkved) || d.Okved);
-        const mainName = ss(d.MainActivityName || (d.MainOkved && typeof d.MainOkved === 'object' ? d.MainOkved.Name : '') || d.OkvedName);
-        if (mainCode || mainName) {
-          const acts: string[] = [];
-          acts.push(`**Основной:** ${mainCode ? mainCode + ' — ' : ''}${mainName}`);
-          const extraActs = Array.isArray(d.ActivityTypes) ? d.ActivityTypes : (Array.isArray(d.Activities) ? d.Activities : []);
-          for (const a of extraActs.slice(0, 5)) {
-            acts.push(`- ${ss(a.Code) || ''} ${ss(a.Name || a.Description) || ''}`);
-          }
-          parts.push(`\n### Деятельность (ОКВЭД)\n${acts.join('\n')}`);
-        }
-        
-        // Contacts
-        const cPhones = Array.isArray(d.Phones) ? d.Phones : (d.Phone ? [d.Phone] : []);
-        const cEmails = Array.isArray(d.Emails) ? d.Emails : (d.Email ? [d.Email] : []);
-        const cWebsites = Array.isArray(d.Websites) ? d.Websites : (d.Website ? [d.Website] : []);
-        if (cPhones.length > 0 || cEmails.length > 0 || cWebsites.length > 0) {
-          const contacts: string[] = [];
-          if (cPhones.length > 0) contacts.push(`**Телефон:** ${cPhones.map(ss).join(', ')}`);
-          if (cEmails.length > 0) contacts.push(`**Email:** ${cEmails.map(ss).join(', ')}`);
-          if (cWebsites.length > 0) contacts.push(`**Сайт:** ${cWebsites.map(ss).join(', ')}`);
-          parts.push(`\n### Контакты\n${contacts.join('\n')}`);
-        }
-        
-        // Trademarks with FIPS links
-        if (d._trademarks && Array.isArray(d._trademarks) && d._trademarks.length > 0) {
-          const fipsBuildUrl = (tm: any): string => {
-            const regNum = tm.RegistrationNumber || tm.Number || tm.RegNumber;
-            if (!regNum) return '';
-            const registry = tm.Registry || '';
-            const dbMap: Record<string, string> = { RUTM: 'RUTM', RUPM: 'RUPM', RUDE: 'RUDE', RSPODB: 'RSPODB' };
-            const db = dbMap[registry] || 'RUTM';
-            return `https://fips.ru/registers-doc-view/fips_servlet?DB=${db}&DocNumber=${encodeURIComponent(regNum)}&TypeFile=html`;
-          };
-          const tms = d._trademarks.slice(0, 15).map((tm: any) => {
-            const regNum = tm.RegistrationNumber || tm.Number || tm.RegNumber;
-            const tmName = ss(tm.Name || tm.Title);
-            const tmStatus = ss(tm.Status || tm.StatusText);
-            const fipsUrl = fipsBuildUrl(tm);
-            const source = tm._source === 'patents' ? '🔬' : tm._source === 'applications' ? '📄' : '';
-            const numPart = regNum ? (fipsUrl ? `[№${regNum}](${fipsUrl})` : `№${regNum}`) : '';
-            const namePart = tmName ? ` — ${tmName}` : '';
-            const statusPart = tmStatus ? ` — *${tmStatus}*` : '';
-            return `- ${source} ${numPart}${namePart}${statusPart}`;
-          });
-          parts.push(`\n### Интеллектуальная собственность (${d._trademarks.length} объектов)\n${tms.join('\n')}`);
-        }
-        
-        // Risks / Scoring
-        if (d.RiskIndicators || d.Score || d.Scoring) {
-          const risks: string[] = [];
-          if (d.Score !== undefined) risks.push(`**Скоринг:** ${ss(d.Score)}`);
-          if (d.Scoring) risks.push(`**Рейтинг:** ${ss(d.Scoring)}`);
-          if (d.RiskIndicators && Array.isArray(d.RiskIndicators)) {
-            for (const r of d.RiskIndicators.slice(0, 5)) {
-              risks.push(`- ⚠️ ${ss(r.Name || r.Description || r)}`);
-            }
-          }
-          if (risks.length > 0) {
-            parts.push(`\n### Риски и скоринг\n${risks.join('\n')}`);
-          }
-        }
-        
+        parts.push(`📋 **${companyName}**${innText ? ` — ${innText}` : ''}${statusText ? ` — ${statusText}` : ''}`);
+        if (d.Address) parts.push(`📍 ${ss(d.Address)}`);
+        parts.push('\nПодробное досье отображено в карточке ниже.');
         textContent = parts.join('\n');
       } else {
         textContent = '❌ По вашему запросу ничего не найдено. Попробуйте уточнить ИНН, ОГРН или название компании.';
