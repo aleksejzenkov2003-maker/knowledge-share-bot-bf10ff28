@@ -884,14 +884,19 @@ serve(async (req) => {
         }));
       }
 
-      // Shareholders → Founders: unwrap {Items: [{Entity: {Name}, Share: {Size}}]}
+      // Shareholders → Founders: unwrap {Items: [{Entity: {Name}, Share: [{Size}]}]}
       const rawShareholders = unwrapItems(n.Shareholders);
       if (rawShareholders.length > 0) {
-        n.Founders = rawShareholders.map((s: any) => ({
-          Name: s.Entity?.Name || s.Entity?.Fio || s.Name || s.FullName || '',
-          Share: s.Share?.Size ?? s.Share?.Percent ?? s.Percent ?? s.Share ?? undefined,
-          Inn: s.Entity?.Inn || '',
-        }));
+        n.Founders = rawShareholders.map((s: any) => {
+          // Share is an ARRAY [{Size, FaceValue, IsActual}], not a single object
+          const shareArr = Array.isArray(s.Share) ? s.Share : (s.Share ? [s.Share] : []);
+          const actualShare = shareArr.find((sh: any) => sh.IsActual) || shareArr[0];
+          return {
+            Name: s.Entity?.Name || s.Entity?.Fio || s.Name || s.FullName || '',
+            Share: actualShare?.Size ?? actualShare?.Percent ?? undefined,
+            Inn: s.Entity?.Inn || '',
+          };
+        });
       } else if (n.Founders && Array.isArray(n.Founders)) {
         n.Founders = n.Founders.map((f: any) => typeof f === 'object' ? { Name: f.Name || f.Fio || f.FullName || '', Share: f.Share || f.Percent || undefined } : { Name: String(f) });
       }
@@ -909,10 +914,16 @@ serve(async (req) => {
       // EmployeesInfo → EmployeesHistory array + EmployeesCount
       const rawEmployees = unwrapItems(n.EmployeesInfo);
       if (rawEmployees.length > 0) {
-        n.EmployeesHistory = rawEmployees.map((e: any) => ({
-          Year: e.Year || e.Date || '',
-          Count: e.Count ?? e.Number ?? e.Value ?? '',
-        })).sort((a: any, b: any) => String(b.Year).localeCompare(String(a.Year)));
+        n.EmployeesHistory = rawEmployees.map((e: any) => {
+          // Year may be missing; extract from Date field
+          let year = e.Year || '';
+          if (!year && e.Date) {
+            const m = String(e.Date).match(/^(\d{4})/);
+            if (m) year = m[1];
+          }
+          if (!year && e.Period) year = String(e.Period);
+          return { Year: year, Count: e.Count ?? e.Number ?? e.Value ?? '' };
+        }).sort((a: any, b: any) => String(b.Year).localeCompare(String(a.Year)));
         n.EmployeesCount = n.EmployeesHistory[0]?.Count;
       }
 

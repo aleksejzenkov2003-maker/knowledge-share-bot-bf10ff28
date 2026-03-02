@@ -677,6 +677,34 @@ const formatArray = (v: unknown): string | null => {
   return String(v);
 };
 
+// Map common English tax names to Russian
+const TAX_NAME_MAP: Record<string, string> = {
+  'Simplified': 'Упрощённая (УСН)',
+  'General': 'Общая (ОСН)',
+  'ENVD': 'ЕНВД',
+  'Patent': 'Патентная',
+  'ESHN': 'ЕСХН',
+  'USN': 'УСН',
+  'OSN': 'ОСН',
+};
+
+function localizeCapitalType(t: string | undefined): string | undefined {
+  if (!t) return t;
+  // Fix concatenated words like "УСТАВНЫЙКАПИТАЛ" → "УСТАВНЫЙ КАПИТАЛ"
+  return t.replace(/([а-яё])([А-ЯЁ])/g, '$1 $2').replace(/([A-Z])([A-Z][a-z])/g, '$1 $2');
+}
+
+function extractYearFromDate(item: any): string {
+  if (item.Year) return String(item.Year);
+  if (item.Date) {
+    const d = String(item.Date);
+    const m = d.match(/^(\d{4})/);
+    if (m) return m[1];
+  }
+  if (item.Period) return String(item.Period);
+  return '';
+}
+
 function normalizeCompanyData(raw: any): any {
   const c = { ...raw };
   if (!c.Name) {
@@ -706,16 +734,28 @@ function normalizeCompanyData(raw: any): any {
     }
     c._managers = c.Managers.Items;
   }
+  // Founders: may be in Founders.Items or Shareholders.Items
   if (c.Founders?.Items?.length > 0) {
     c._founders = c.Founders.Items;
+  } else if (c.Shareholders?.Items?.length > 0) {
+    // Shareholders have Share as ARRAY [{Size, FaceValue, IsActual}]
+    c._founders = c.Shareholders.Items.map((s: any) => ({
+      ...s,
+      _shareSize: Array.isArray(s.Share)
+        ? (s.Share.find((sh: any) => sh.IsActual) || s.Share[0])?.Size
+        : s.Share?.Size,
+    }));
   }
   if (c.Capital == null && c.AuthorizedCapitals?.Items?.length > 0) {
     const actual = c.AuthorizedCapitals.Items.find((a: any) => a.IsActual) || c.AuthorizedCapitals.Items[0];
     c.Capital = actual.Sum;
-    c._capitalType = actual.Type;
+    c._capitalType = localizeCapitalType(actual.Type);
   }
   if (c.EmployeesCount == null && c.EmployeesInfo?.Items?.length > 0) {
-    const sorted = [...c.EmployeesInfo.Items].sort((a: any, b: any) => (b.Year || 0) - (a.Year || 0));
+    const sorted = [...c.EmployeesInfo.Items].map((e: any) => ({
+      ...e,
+      _year: extractYearFromDate(e),
+    })).sort((a: any, b: any) => String(b._year).localeCompare(String(a._year)));
     c.EmployeesCount = sorted[0]?.Count;
     c._employeesHistory = sorted;
   }
@@ -726,7 +766,21 @@ function normalizeCompanyData(raw: any): any {
   }
   if (c.Taxation?.Items?.length > 0) {
     const actual = c.Taxation.Items.find((t: any) => t.IsActual) || c.Taxation.Items[0];
-    c._taxation = actual.Types || actual;
+    const rawTypes = actual.Types || actual;
+    // Localize tax type names
+    if (Array.isArray(rawTypes)) {
+      c._taxation = rawTypes.map((t: any) => {
+        if (typeof t === 'object') {
+          const name = t.Name || t.Code || '';
+          return { ...t, Name: TAX_NAME_MAP[name] || name };
+        }
+        return TAX_NAME_MAP[String(t)] || String(t);
+      });
+    } else if (typeof rawTypes === 'string') {
+      c._taxation = [TAX_NAME_MAP[rawTypes] || rawTypes];
+    } else {
+      c._taxation = rawTypes;
+    }
   }
   if (c.Rsmp?.Items?.length > 0) {
     const actual = c.Rsmp.Items.find((r: any) => r.IsActual) || c.Rsmp.Items[0];
@@ -924,15 +978,18 @@ const CompanyDetailCard = ({ company, entityType, selectedSections, onSave, onCo
                 <div className="mt-4">
                   <h4 className="text-sm font-medium mb-2">Учредители</h4>
                   <div className="space-y-1">
-                    {c._founders.map((f: any, i: number) => (
-                      <div key={i} className="text-sm text-muted-foreground flex items-center gap-2">
-                        <div className="flex h-6 w-6 items-center justify-center rounded-full bg-muted shrink-0">
-                          <User className="h-3 w-3 text-muted-foreground" />
+                    {c._founders.map((f: any, i: number) => {
+                      const shareSize = f._shareSize ?? (Array.isArray(f.Share) ? (f.Share.find((s: any) => s.IsActual) || f.Share[0])?.Size : f.Share?.Size ?? f.Share?.Percent);
+                      return (
+                        <div key={i} className="text-sm text-muted-foreground flex items-center gap-2">
+                          <div className="flex h-6 w-6 items-center justify-center rounded-full bg-muted shrink-0">
+                            <User className="h-3 w-3 text-muted-foreground" />
+                          </div>
+                          {f.Entity?.Name || f.Name || safeString(f)}
+                          {shareSize != null && <Badge variant="outline" className="text-[10px] ml-1">{typeof shareSize === 'number' ? `${shareSize}%` : shareSize}</Badge>}
                         </div>
-                        {f.Entity?.Name || f.Name || safeString(f)}
-                        {f.Share?.Percent != null && <Badge variant="outline" className="text-[10px] ml-1">{f.Share.Percent}%</Badge>}
-                      </div>
-                    ))}
+                      );
+                    })}
                   </div>
                 </div>
               )}
@@ -1017,12 +1074,15 @@ const CompanyDetailCard = ({ company, entityType, selectedSections, onSave, onCo
                         </tr>
                       </thead>
                       <tbody>
-                        {c._employeesHistory.map((e: any, i: number) => (
-                          <tr key={i} className={`border-b last:border-0 hover:bg-muted/30 transition-colors ${i % 2 === 1 ? 'bg-muted/20' : ''}`}>
-                            <td className="p-2.5">{e.Year || '—'}</td>
-                            <td className="p-2.5">{e.Count != null ? e.Count : '—'}</td>
-                          </tr>
-                        ))}
+                        {c._employeesHistory.map((e: any, i: number) => {
+                          const year = e._year || e.Year || (e.Date ? String(e.Date).slice(0, 4) : '');
+                          return (
+                            <tr key={i} className={`border-b last:border-0 hover:bg-muted/30 transition-colors ${i % 2 === 1 ? 'bg-muted/20' : ''}`}>
+                              <td className="p-2.5">{year || '—'}</td>
+                              <td className="p-2.5">{e.Count != null ? e.Count : '—'}</td>
+                            </tr>
+                          );
+                        })}
                       </tbody>
                     </table>
                   </div>
