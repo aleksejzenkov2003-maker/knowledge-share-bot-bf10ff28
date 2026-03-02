@@ -13,7 +13,7 @@ import { Separator } from '@/components/ui/separator';
 import { toast } from '@/hooks/use-toast';
 import {
   Search, Building2, Copy, Bookmark, Loader2, ChevronLeft, ExternalLink, Hash, MapPin, Filter, FileText,
-  Shield, Clock, Trash2, Users, Phone, Banknote, Scale, Briefcase, Lightbulb, SearchX, User, CircleDot, Globe
+  Shield, Clock, Trash2, Users, Phone, Banknote, Scale, Briefcase, Lightbulb, SearchX, User, CircleDot, Globe, Download
 } from 'lucide-react';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import type { LucideIcon } from 'lucide-react';
@@ -302,7 +302,16 @@ const Reputation = () => {
       ]);
 
       if (cardRes.status === 'fulfilled' && cardRes.value.data && !cardRes.value.error) {
-        setSelectedCompany(cardRes.value.data);
+        // Merge contacts from search result into card data (card API doesn't return them)
+        const merged = { ...cardRes.value.data };
+        if (!merged.Phones?.length && (result as any).Phones?.length) merged.Phones = (result as any).Phones;
+        if (!merged.Emails?.length && (result as any).Emails?.length) merged.Emails = (result as any).Emails;
+        if (!merged.Sites?.length && (result as any).Sites?.length) merged.Sites = (result as any).Sites;
+        if (!merged.EmployeesCount && (result as any).EmployeesCount) merged.EmployeesCount = (result as any).EmployeesCount;
+        if (!merged.RsmpCategory && (result as any).RsmpCategory) merged.RsmpCategory = (result as any).RsmpCategory;
+        if (!merged.ManagerName && (result as any).ManagerName) merged.ManagerName = (result as any).ManagerName;
+        if (!merged.Capital && (result as any).Capital) merged.Capital = (result as any).Capital;
+        setSelectedCompany(merged);
       }
 
       if (tmRes.status === 'fulfilled' && tmRes.value.data?.trademarks?.length > 0) {
@@ -867,7 +876,29 @@ const CompanyDetailCard = ({ company, entityType, selectedSections, onSave, onCo
               </div>
             </div>
           </div>
-          <div className="flex gap-2 shrink-0">
+          <div className="flex flex-wrap gap-2 shrink-0">
+            {(c.Ogrn || c.Inn) && (
+              <a
+                href={`https://egrul.nalog.ru/index.html?query=${c.Ogrn || c.Inn}`}
+                target="_blank"
+                rel="noopener noreferrer"
+              >
+                <Button variant="outline" size="sm" className="gap-1.5 shadow-sm hover:shadow-md transition-shadow">
+                  <Download className="h-3.5 w-3.5" /> Выписка ЕГРЮЛ
+                </Button>
+              </a>
+            )}
+            {c.Link && (
+              <a
+                href={`https://reputation.ru/${c.Link}`}
+                target="_blank"
+                rel="noopener noreferrer"
+              >
+                <Button variant="outline" size="sm" className="gap-1.5 shadow-sm hover:shadow-md transition-shadow">
+                  <ExternalLink className="h-3.5 w-3.5" /> Reputation.ru
+                </Button>
+              </a>
+            )}
             <Button variant="outline" size="sm" onClick={onCopy} className="gap-1.5 shadow-sm hover:shadow-md transition-shadow">
               <Copy className="h-3.5 w-3.5" /> Копировать
             </Button>
@@ -1229,6 +1260,19 @@ const CompanyDetailCard = ({ company, entityType, selectedSections, onSave, onCo
                 { label: 'Email', value: formatArray(c.Emails) },
                 { label: 'Сайты', value: formatArray(c.Sites) },
               ]} />
+              {c.Sites && Array.isArray(c.Sites) && c.Sites.length > 0 && (
+                <div className="mt-3 flex flex-wrap gap-2">
+                  {c.Sites.map((site: string, i: number) => {
+                    const url = site.startsWith('http') ? site : `https://${site}`;
+                    return (
+                      <a key={i} href={url} target="_blank" rel="noopener noreferrer"
+                        className="inline-flex items-center gap-1.5 text-sm text-primary hover:underline">
+                        <Globe className="h-3.5 w-3.5" /> {site}
+                      </a>
+                    );
+                  })}
+                </div>
+              )}
               {(!c.Phones?.length && !c.Emails?.length && !c.Sites?.length) && (
                 <p className="text-sm text-muted-foreground">Нет контактных данных</p>
               )}
