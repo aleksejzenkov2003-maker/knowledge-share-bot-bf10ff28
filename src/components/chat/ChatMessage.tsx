@@ -64,11 +64,7 @@ function ChatMessageComponent({ message, onEditMessage, onRegenerateResponse, on
         message.role === "user" ? "justify-end" : "justify-start"
       )}
     >
-      {message.role === "assistant" && (
-        <div className="flex-shrink-0 h-8 w-8 rounded-full bg-primary/10 flex items-center justify-center">
-          <Bot className="h-4 w-4 text-primary" />
-        </div>
-      )}
+      {/* No avatar icons - clean minimalist style */}
       
       {message.role === "assistant" ? (
         // Assistant message - full width, no background card
@@ -81,7 +77,7 @@ function ChatMessageComponent({ message, onEditMessage, onRegenerateResponse, on
           </div>
           
           {/* Content */}
-          <div className="prose prose-sm max-w-none prose-neutral dark:prose-invert">
+          <div className="prose prose-sm max-w-none prose-neutral dark:prose-invert text-[15px] leading-relaxed">
             {message.isStreaming && !message.content ? (
               <div className="flex items-center gap-2">
                 <Loader2 className="h-4 w-4 animate-spin" />
@@ -261,7 +257,7 @@ function ChatMessageComponent({ message, onEditMessage, onRegenerateResponse, on
       ) : (
         // User message - card style, wider
         <>
-          <Card className="max-w-[85%] p-4 bg-primary text-primary-foreground">
+          <div className="max-w-[85%] px-4 py-3 bg-muted/70 text-foreground rounded-2xl rounded-tr-sm">
             <div className="space-y-2">
               {/* Display attachments for user messages */}
               {message.attachments && message.attachments.length > 0 && (
@@ -269,7 +265,7 @@ function ChatMessageComponent({ message, onEditMessage, onRegenerateResponse, on
                   {message.attachments.map((attachment) => (
                     <div
                       key={attachment.id}
-                      className="flex items-center gap-2 px-2 py-1 rounded bg-primary-foreground/10 text-xs"
+                      className="flex items-center gap-2 px-2 py-1 rounded-md bg-background/50 text-xs text-muted-foreground"
                     >
                       {attachment.file_type.startsWith('image/') ? (
                         <Image className="h-3 w-3" />
@@ -281,7 +277,7 @@ function ChatMessageComponent({ message, onEditMessage, onRegenerateResponse, on
                   ))}
                 </div>
               )}
-              <p className="whitespace-pre-wrap">{message.content}</p>
+              <p className="whitespace-pre-wrap text-[15px] leading-relaxed">{message.content}</p>
             </div>
             {/* User message actions: edit + retry */}
             {!message.isStreaming && (
@@ -294,9 +290,6 @@ function ChatMessageComponent({ message, onEditMessage, onRegenerateResponse, on
                 onRetryMessage={onRetryMessage}
               />
             )}
-          </Card>
-          <div className="flex-shrink-0 h-8 w-8 rounded-full bg-secondary flex items-center justify-center">
-            <User className="h-4 w-4" />
           </div>
         </>
       )}

@@ -146,12 +146,7 @@ function DepartmentChatMessageComponent({
       "group flex gap-3 py-4",
       isAssistant ? "" : "justify-end"
     )}>
-      {/* Avatar for assistant */}
-      {isAssistant && (
-        <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-primary/10">
-          <Bot className="h-4 w-4 text-primary" />
-        </div>
-      )}
+      {/* No avatar icons - clean minimalist style */}
 
       {/* Content */}
       {isAssistant ? (
@@ -185,7 +180,7 @@ function DepartmentChatMessageComponent({
           </div>
 
           {/* Message content */}
-          <div className="prose prose-sm dark:prose-invert max-w-none break-words">
+          <div className="prose prose-sm dark:prose-invert max-w-none break-words text-[15px] leading-relaxed">
             <MarkdownWithCitations
               content={message.content || '...'}
               citations={message.metadata?.citations}
@@ -449,23 +444,23 @@ function DepartmentChatMessageComponent({
       ) : (
         // User message - compact card style
         <>
-          <div className="max-w-[85%] p-3 rounded-lg bg-primary text-primary-foreground">
+          <div className="max-w-[85%] px-4 py-3 rounded-2xl rounded-tr-sm bg-muted/70 text-foreground">
             {/* Reply indicator */}
             {replyToMessage && (
-              <div className="mb-2 p-2 bg-primary-foreground/10 rounded border-l-2 border-primary-foreground/50 text-xs">
+              <div className="mb-2 p-2 bg-background/50 rounded border-l-2 border-muted-foreground/30 text-xs">
                 <div className="flex items-center gap-1 mb-0.5">
-                  <Reply className="h-3 w-3" />
-                  <span className="font-medium">
+                  <Reply className="h-3 w-3 text-muted-foreground" />
+                  <span className="font-medium text-muted-foreground">
                     {replyToMessage.message_role === 'assistant' ? '🤖 ' : ''}
                     {replyToMessage.metadata?.user_name || replyToMessage.metadata?.agent_name || 'Сообщение'}
                   </span>
                 </div>
-                <p className="truncate opacity-80">{replyToMessage.content.slice(0, 60)}{replyToMessage.content.length > 60 ? '...' : ''}</p>
+                <p className="truncate text-muted-foreground">{replyToMessage.content.slice(0, 60)}{replyToMessage.content.length > 60 ? '...' : ''}</p>
               </div>
             )}
             
             {/* Header with name and time */}
-            <div className="flex items-center gap-2 mb-1 text-xs opacity-80">
+            <div className="flex items-center gap-2 mb-1 text-xs text-muted-foreground">
               <span className="font-medium">{userName}</span>
               <span>
                 {new Date(message.created_at).toLocaleTimeString('ru-RU', {
@@ -475,7 +470,7 @@ function DepartmentChatMessageComponent({
               </span>
             </div>
             
-            <p className="whitespace-pre-wrap text-sm">{message.content}</p>
+            <p className="whitespace-pre-wrap text-[15px] leading-relaxed">{message.content}</p>
             
             {/* Attachments */}
             {message.metadata?.attachments && message.metadata.attachments.length > 0 && (
@@ -490,7 +485,7 @@ function DepartmentChatMessageComponent({
                       href={data.publicUrl}
                       target="_blank"
                       rel="noopener noreferrer"
-                      className="flex items-center gap-2 px-2 py-1 rounded bg-primary-foreground/10 hover:bg-primary-foreground/20 transition-colors text-xs"
+                      className="flex items-center gap-2 px-2 py-1 rounded-md bg-background/50 hover:bg-background/80 transition-colors text-xs text-muted-foreground"
                     >
                       {isImage ? (
                         <Image className="h-3 w-3" />
@@ -511,7 +506,7 @@ function DepartmentChatMessageComponent({
                   <Button
                     variant="ghost"
                     size="sm"
-                    className="h-6 px-2 text-xs text-primary-foreground/80 hover:text-primary-foreground hover:bg-primary-foreground/10"
+                    className="h-6 px-2 text-xs text-muted-foreground hover:text-foreground"
                     onClick={() => onReply(message)}
                   >
                     <Reply className="h-3 w-3 mr-1" />
@@ -522,7 +517,7 @@ function DepartmentChatMessageComponent({
                   <Button
                     variant="ghost"
                     size="sm"
-                    className="h-6 px-2 text-xs text-primary-foreground/80 hover:text-primary-foreground hover:bg-primary-foreground/10"
+                    className="h-6 px-2 text-xs text-muted-foreground hover:text-foreground"
                     onClick={() => onRetryMessage(message.id)}
                   >
                     <RefreshCw className="h-3 w-3 mr-1" />
@@ -531,9 +526,6 @@ function DepartmentChatMessageComponent({
                 )}
               </div>
             )}
-          </div>
-          <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-secondary">
-            <User className="h-4 w-4" />
           </div>
         </>
       )}
