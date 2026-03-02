@@ -206,10 +206,15 @@ export function ReputationCompanyCard({ data, compact = false }: ReputationCompa
   let founders: { Name: string; Share?: number | string }[] = [];
   const rawShareholders = unwrapItems(data.Shareholders);
   if (rawShareholders.length > 0) {
-    founders = rawShareholders.map((s: any) => ({
-      Name: safeString(s.Entity?.Name || s.Name || s.FullName),
-      Share: s.Share?.Size ?? s.Share?.Percent ?? s.Percent ?? undefined,
-    }));
+    founders = rawShareholders.map((s: any) => {
+      // Share is an ARRAY [{Size, FaceValue, IsActual}]
+      const shareArr = Array.isArray(s.Share) ? s.Share : (s.Share ? [s.Share] : []);
+      const actualShare = shareArr.find((sh: any) => sh.IsActual) || shareArr[0];
+      return {
+        Name: safeString(s.Entity?.Name || s.Name || s.FullName),
+        Share: actualShare?.Size ?? actualShare?.Percent ?? undefined,
+      };
+    });
   } else if (Array.isArray(data.Founders)) {
     founders = data.Founders.map((f: any) => ({
       Name: safeString(f.Name || f.Fio || f.FullName || f),
@@ -228,8 +233,12 @@ export function ReputationCompanyCard({ data, compact = false }: ReputationCompa
   const rawEmployees = unwrapItems(data.EmployeesInfo);
   const empHistory = employeesHistory.length > 0
     ? employeesHistory
-    : rawEmployees.map((e: any) => ({ Year: e.Year || e.Date || '', Count: e.Count ?? e.Number ?? e.Value ?? '' }))
-        .sort((a: any, b: any) => String(b.Year).localeCompare(String(a.Year)));
+    : rawEmployees.map((e: any) => {
+        let year = e.Year || '';
+        if (!year && e.Date) { const m = String(e.Date).match(/^(\d{4})/); if (m) year = m[1]; }
+        if (!year && e.Period) year = String(e.Period);
+        return { Year: year, Count: e.Count ?? e.Number ?? e.Value ?? '' };
+      }).sort((a: any, b: any) => String(b.Year).localeCompare(String(a.Year)));
 
   // RSMP
   const rsmpCategory = data.RsmpCategory || (() => {
