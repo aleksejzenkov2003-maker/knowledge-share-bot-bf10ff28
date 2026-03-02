@@ -204,7 +204,7 @@ export default function Chat() {
   );
 
   const messagesContent = (
-    <ScrollArea className="flex-1">
+    <ScrollArea className="flex-1 bg-chat-bg">
       <div className="max-w-4xl mx-auto py-6 px-4 lg:px-8">
         {messages.length === 0 ? (
           <div className={cn(
@@ -259,7 +259,7 @@ export default function Chat() {
   );
 
   const inputContent = (
-    <div className="border-t bg-background py-4" data-tour="chat-input">
+    <div className="bg-background py-4" data-tour="chat-input">
       <ChatInputEnhanced
         value={inputValue}
         onChange={setInputValue}

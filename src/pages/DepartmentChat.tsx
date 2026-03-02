@@ -316,7 +316,7 @@ const DepartmentChat: React.FC = () => {
   const emptyHeight = isFullscreen ? "h-[60vh]" : "h-[50vh]";
 
   const messagesContent = (
-    <ScrollArea className="flex-1">
+    <ScrollArea className="flex-1 bg-chat-bg">
       <div className="max-w-4xl mx-auto py-6 px-4 lg:px-8">
         {isLoading ? (
           <div className="flex items-center justify-center py-8">
@@ -390,7 +390,7 @@ const DepartmentChat: React.FC = () => {
   );
 
   const inputContent = (
-    <div className="border-t bg-background py-4" data-tour="dept-chat-input">
+    <div className="bg-background py-4" data-tour="dept-chat-input">
       <ChatInputEnhanced
         value={inputValue}
         onChange={setInputValue}
