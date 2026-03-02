@@ -1,50 +1,44 @@
 
 
-## План: Перестилизация чатов в стиле Perplexity
+## План: Исправить нормализацию данных Reputation API в чате
 
-### Что меняется
+### Проблема
+API Reputation.ru возвращает вложенные объекты вида `{Items: [...], TotalItems: N}`, а нормализатор в `chat-stream` и компонент `ReputationCompanyCard` ожидают плоские массивы. Из-за этого в чате не отображаются: адрес, директор, учредители, финансы, сотрудники, налогообложение.
 
-На скриншоте Perplexity видно:
-- **Сообщения пользователя**: мягкий серый/бежевый пузырь, справа, без тяжёлых контрастных цветов
-- **Ответы ассистента**: чистый текст без подложки, хорошая типографика, цитации инлайн
-- **Без аватаров-кругов** — чистый минимализм
-- **Мягкие цвета**, тёплый фон для пользовательских сообщений
+### Изменения
 
-### Файлы и изменения
+**Файл 1: `supabase/functions/chat-stream/index.ts`** (~строки 818-1186)
 
-**Файл 1: `src/components/chat/ChatMessage.tsx`**
-- Пользовательское сообщение: заменить `bg-primary text-primary-foreground` (тёмный) на `bg-muted/70 text-foreground` (мягкий серый пузырь)
-- Убрать аватар пользователя (круг с иконкой User)
-- Убрать аватар ассистента (круг с Bot) — вместо него просто имя агента
-- Скруглить пузырь пользователя: `rounded-2xl rounded-tr-sm` (как в мессенджерах)
-- Увеличить размер шрифта текста: `text-[15px] leading-relaxed`
+Переписать `normalizeCompanyData`:
+- Извлекать `Address` из `Addresses.Items[0].UnsplittedAddress` (первый `IsActual`)
+- Извлекать директора из `Managers.Items[0].Entity.Name` + `Position[0].PositionName`
+- Маппить `Managers.Items` → плоский массив `[{Name, Position}]`
+- Маппить `Shareholders.Items` → `Founders` с `Share.Size` как процент
+- Извлекать `AuthorizedCapitals.Items[0].Sum` → `AuthorizedCapital`
+- Извлекать `EmployeesInfo.Items` → `EmployeesCount` + массив по годам
+- Извлекать `Rsmp.Items[0].Category` → `RsmpCategory`
+- Извлекать `Taxation.Items[0].Types` → `TaxationType`
+- Извлекать `ActivityTypes.Items` → плоский массив + `MainActivityCode/Name`
+- Извлекать контакты из `ContactInfo.Items`
 
-**Файл 2: `src/components/chat/DepartmentChatMessage.tsx`**
-- Аналогичные изменения:
-  - Пользовательское сообщение: мягкий серый пузырь `bg-muted/70` с `rounded-2xl rounded-tr-sm`
-  - Убрать круглый аватар Bot у ассистента
-  - Убрать круглый аватар User у пользователя
-  - Увеличить шрифт контента
+Обновить текстовый дossier (строки 1056-1186):
+- Добавить секцию "Сотрудники" с историей по годам
+- Добавить секцию "Налогообложение" (УСН/ОСН/ЕНВД)
+- Добавить секцию "Категория МСП" (микро/малое/среднее)
+- Добавить секцию "Учредители" с долями из `Shareholders`
+- Убедиться что адрес, директор, капитал корректно попадают в дossier
 
-**Файл 3: `src/pages/DepartmentChat.tsx` и `src/pages/Chat.tsx`**
-- Минимальные правки (если нужно убрать внешние обёртки/отступы)
+**Файл 2: `src/components/chat/ReputationCompanyCard.tsx`**
 
-### Визуальный результат
-
-```text
-                    ┌──────────────────────────┐
-                    │  подбери товары МКТУ для  │  ← мягкий серый пузырь
-                    │  "Строительства"          │     rounded-2xl
-                    └──────────────────────────┘
-
-  Юрист                                           ← просто имя, без аватара
-  Для обозначения «строительства» по МКТУ...
-  [mktu +4]                                       ← инлайн цитации
-
-  ──── 245ms · 3 источников ────                  ← футер
-```
+Обновить карточку для отображения новых данных:
+- Добавить секцию "Сотрудники" (число + год)
+- Добавить секцию "Налогообложение"
+- Добавить секцию "МСП"
+- Исправить извлечение `Founders` из `Shareholders` (с долями в %)
+- Исправить извлечение `Managers` — обработка `{Items: [{Entity: {Name}, Position: [{PositionName}]}]}`
+- Добавить `Address` из `Addresses.Items[].UnsplittedAddress`
 
 ### Итого: 2 файла
-- `src/components/chat/ChatMessage.tsx` — стиль пузырей и убрать аватары
-- `src/components/chat/DepartmentChatMessage.tsx` — то же самое
+- `supabase/functions/chat-stream/index.ts` — фикс нормализатора + расширение дossier
+- `src/components/chat/ReputationCompanyCard.tsx` — новые секции данных
 
