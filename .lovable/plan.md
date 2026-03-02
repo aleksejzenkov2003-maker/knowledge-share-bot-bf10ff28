@@ -1,44 +1,52 @@
 
 
-## План: Исправить нормализацию данных Reputation API в чате
+## План: Красивое досье в чатах с полными данными
 
-### Проблема
-API Reputation.ru возвращает вложенные объекты вида `{Items: [...], TotalItems: N}`, а нормализатор в `chat-stream` и компонент `ReputationCompanyCard` ожидают плоские массивы. Из-за этого в чате не отображаются: адрес, директор, учредители, финансы, сотрудники, налогообложение.
+### Текущая ситуация
+- `ReputationCompanyCard` уже рендерится в обоих чатах (личный и отдельский) и выглядит хорошо
+- Проблема: edge function генерирует **длинный markdown-текст** который дублирует карточку и выглядит как "сплошняк"
+- Финансовые данные (выручка, прибыль) не извлекаются из API
+- Контакты из поисковой выдачи не мёрджатся в `reputationCompanyData`
 
 ### Изменения
 
-**Файл 1: `supabase/functions/chat-stream/index.ts`** (~строки 818-1186)
+**Файл 1: `supabase/functions/chat-stream/index.ts`**
 
-Переписать `normalizeCompanyData`:
-- Извлекать `Address` из `Addresses.Items[0].UnsplittedAddress` (первый `IsActual`)
-- Извлекать директора из `Managers.Items[0].Entity.Name` + `Position[0].PositionName`
-- Маппить `Managers.Items` → плоский массив `[{Name, Position}]`
-- Маппить `Shareholders.Items` → `Founders` с `Share.Size` как процент
-- Извлекать `AuthorizedCapitals.Items[0].Sum` → `AuthorizedCapital`
-- Извлекать `EmployeesInfo.Items` → `EmployeesCount` + массив по годам
-- Извлекать `Rsmp.Items[0].Category` → `RsmpCategory`
-- Извлекать `Taxation.Items[0].Types` → `TaxationType`
-- Извлекать `ActivityTypes.Items` → плоский массив + `MainActivityCode/Name`
-- Извлекать контакты из `ContactInfo.Items`
-
-Обновить текстовый дossier (строки 1056-1186):
-- Добавить секцию "Сотрудники" с историей по годам
-- Добавить секцию "Налогообложение" (УСН/ОСН/ЕНВД)
-- Добавить секцию "Категория МСП" (микро/малое/среднее)
-- Добавить секцию "Учредители" с долями из `Shareholders`
-- Убедиться что адрес, директор, капитал корректно попадают в дossier
+1. **Сократить текстовый дossier** — вместо длинного markdown оставить только краткую сводку (название, ИНН, статус, адрес — 3-4 строки), т.к. все данные уже показываются в `ReputationCompanyCard`
+2. **Добавить финансовые данные в нормализатор** — извлечь `FinancialStatements` / `Finance` / `Revenue` / `Profit` из API (поля вида `{Items: [{Year, Revenue, Profit}]}`)
+3. **Мёрджить контакты** из search result в company data (Phones, Emails, Sites) — как уже сделано на странице Reputation
 
 **Файл 2: `src/components/chat/ReputationCompanyCard.tsx`**
 
-Обновить карточку для отображения новых данных:
-- Добавить секцию "Сотрудники" (число + год)
-- Добавить секцию "Налогообложение"
-- Добавить секцию "МСП"
-- Исправить извлечение `Founders` из `Shareholders` (с долями в %)
-- Исправить извлечение `Managers` — обработка `{Items: [{Entity: {Name}, Position: [{PositionName}]}]}`
-- Добавить `Address` из `Addresses.Items[].UnsplittedAddress`
+1. **Добавить секцию "Финансы"** — таблица выручка/прибыль по годам (если данные есть)
+2. **Добавить кнопки "Выписка ЕГРЮЛ" и "Reputation.ru"** — как на странице /reputation
+3. **Показать контакты из Sites** — уже есть `websites`, но нужно добавить `Sites` как fallback
+
+### Технические детали
+
+Нормализатор — добавить извлечение:
+```typescript
+// Financial data
+const rawFinance = unwrapItems(n.FinancialStatements || n.Finance);
+if (rawFinance.length > 0) {
+  n.FinancialHistory = rawFinance.map(f => ({
+    Year: f.Year || extractYear(f.Date),
+    Revenue: f.Revenue ?? f.Income,
+    Profit: f.Profit ?? f.NetProfit,
+  })).sort((a,b) => String(b.Year).localeCompare(String(a.Year)));
+}
+
+// Merge contacts from search result
+if (searchResult.Phones) n.Phones = searchResult.Phones;
+```
+
+Текст дossier — заменить на:
+```
+📋 **Компания:** ИНН 1234567890 — Действующая
+Подробное досье отображено в карточке ниже.
+```
 
 ### Итого: 2 файла
-- `supabase/functions/chat-stream/index.ts` — фикс нормализатора + расширение дossier
-- `src/components/chat/ReputationCompanyCard.tsx` — новые секции данных
+- `supabase/functions/chat-stream/index.ts` — сокращённый текст + финансы + мёрдж контактов
+- `src/components/chat/ReputationCompanyCard.tsx` — секция финансов + кнопки ЕГРЮЛ
 
