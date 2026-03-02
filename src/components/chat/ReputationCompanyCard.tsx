@@ -6,7 +6,8 @@ import { Separator } from "@/components/ui/separator";
 import {
   Building2, MapPin, Phone, Mail, Globe, Calendar, Users, Shield,
   AlertTriangle, CheckCircle, XCircle, ChevronDown, ChevronUp, Copy,
-  Briefcase, Hash, FileText, Scale, Award, ExternalLink
+  Briefcase, Hash, FileText, Scale, Award, ExternalLink, TrendingUp,
+  Receipt, Landmark
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { toast } from "sonner";
@@ -27,43 +28,15 @@ function safeString(val: any): string {
   return String(val);
 }
 
+// Unwrap {Items: [...]} → flat array
+function unwrapItems(val: any): any[] {
+  if (!val) return [];
+  if (Array.isArray(val)) return val;
+  if (val.Items && Array.isArray(val.Items)) return val.Items;
+  return [];
+}
+
 interface ReputationCompanyData {
-  Name?: string;
-  ShortName?: string;
-  FullName?: string;
-  Inn?: string;
-  Ogrn?: string;
-  Kpp?: string;
-  Status?: string;
-  StatusText?: string;
-  Type?: string;
-  RegistrationDate?: string;
-  LiquidationDate?: string;
-  Address?: string;
-  AuthorizedCapital?: number | string;
-  Capital?: { Value?: number; Date?: string } | any;
-  MainActivityCode?: string;
-  MainActivityName?: string;
-  MainActivity?: { Code?: string; Name?: string } | any;
-  ActivityTypes?: any[];
-  Okved?: string;
-  OkvedName?: string;
-  Director?: string;
-  DirectorName?: string;
-  DirectorTitle?: string;
-  Managers?: any[];
-  Head?: { Name?: string; Position?: string } | any;
-  Founders?: any[];
-  Phones?: string[];
-  Phone?: string;
-  Emails?: string[];
-  Email?: string;
-  Website?: string;
-  Websites?: string[];
-  ReliabilityScore?: number;
-  RiskLevel?: string;
-  Score?: number;
-  _trademarks?: any[];
   [key: string]: any;
 }
 
@@ -147,6 +120,16 @@ function InfoRow({ icon: Icon, label, value, mono }: { icon?: any; label: string
   );
 }
 
+function SectionHeader({ icon: Icon, title, badge }: { icon: any; title: string; badge?: string }) {
+  return (
+    <h4 className="text-xs font-medium text-muted-foreground uppercase tracking-wide mb-2 flex items-center gap-1.5">
+      <Icon className="h-3.5 w-3.5" />
+      {title}
+      {badge && <Badge variant="outline" className="text-[10px] ml-1">{badge}</Badge>}
+    </h4>
+  );
+}
+
 export function ReputationCompanyCard({ data, compact = false }: ReputationCompanyCardProps) {
   const [expanded, setExpanded] = useState(!compact);
 
@@ -155,18 +138,57 @@ export function ReputationCompanyCard({ data, compact = false }: ReputationCompa
   const ogrn = extractField(data, 'Ogrn');
   const kpp = extractField(data, 'Kpp');
   const status = extractField(data, 'StatusText', 'StatusName') || (typeof data.Status === 'string' ? data.Status : (data.Status && typeof data.Status === 'object' ? safeString(data.Status) : undefined));
-  const address = extractField(data, 'Address');
+  
+  // Address: try Addresses.Items first, then flat fields
+  let address = extractField(data, 'Address');
+  if (!address) {
+    const addresses = unwrapItems(data.Addresses);
+    const actual = addresses.find((a: any) => a.IsActual) || addresses[0];
+    if (actual) address = actual.UnsplittedAddress || actual.Address || safeString(actual);
+  }
+
   const regDate = extractField(data, 'RegistrationDate');
   const liqDate = extractField(data, 'LiquidationDate');
   const entityType = extractField(data, 'Type');
 
-  const director = extractField(data, 'DirectorName', 'Director')
-    || (data.Head && typeof data.Head === 'object' ? safeString(data.Head.Name || data.Head.Fio || data.Head) : undefined)
-    || (Array.isArray(data.Managers) && data.Managers[0] ? safeString(data.Managers[0].Name) : undefined);
-  const directorTitle = extractField(data, 'DirectorTitle')
-    || (data.Head && typeof data.Head === 'object' ? data.Head.Position : undefined)
-    || (Array.isArray(data.Managers) && data.Managers[0] ? data.Managers[0].Position : undefined)
-    || 'Руководитель';
+  // Director: try Managers.Items[0].Entity first
+  let director: string | undefined;
+  let directorTitle = 'Руководитель';
+  const rawManagers = unwrapItems(data.Managers);
+  
+  if (data.DirectorName) {
+    director = safeString(data.DirectorName);
+    directorTitle = safeString(data.DirectorTitle) || 'Руководитель';
+  } else if (rawManagers.length > 0 && rawManagers[0].Entity) {
+    director = safeString(rawManagers[0].Entity?.Name || rawManagers[0].Entity?.Fio);
+    const pos = Array.isArray(rawManagers[0].Position) ? rawManagers[0].Position[0]?.PositionName : rawManagers[0].Position?.PositionName;
+    directorTitle = pos || 'Руководитель';
+  } else if (rawManagers.length > 0 && rawManagers[0].Name) {
+    director = safeString(rawManagers[0].Name);
+    directorTitle = safeString(rawManagers[0].Position) || 'Руководитель';
+  } else {
+    director = extractField(data, 'DirectorName', 'Director')
+      || (data.Head && typeof data.Head === 'object' ? safeString(data.Head.Name || data.Head.Fio || data.Head) : undefined);
+    directorTitle = extractField(data, 'DirectorTitle')
+      || (data.Head && typeof data.Head === 'object' ? data.Head.Position : undefined)
+      || 'Руководитель';
+  }
+
+  // Managers flat array
+  let managers: { Name: string; Position: string }[] = [];
+  if (Array.isArray(data.Managers) && data.Managers.length > 0) {
+    if (data.Managers[0].Entity) {
+      managers = data.Managers.map((m: any) => ({
+        Name: safeString(m.Entity?.Name || m.Name),
+        Position: (Array.isArray(m.Position) ? m.Position[0]?.PositionName : m.Position?.PositionName) || safeString(m.PositionName) || '',
+      }));
+    } else {
+      managers = data.Managers.map((m: any) => ({
+        Name: safeString(m.Name || m.Fio || m),
+        Position: safeString(m.Position) || '',
+      }));
+    }
+  }
 
   const activityCode = extractField(data, 'MainActivityCode', 'Okved')
     || (data.MainActivity && typeof data.MainActivity === 'object' ? data.MainActivity.Code : undefined);
@@ -180,9 +202,55 @@ export function ReputationCompanyCard({ data, compact = false }: ReputationCompa
   const emails = Array.isArray(data.Emails) ? data.Emails : (data.Email ? [data.Email] : []);
   const websites = Array.isArray(data.Websites) ? data.Websites : (data.Website ? [data.Website] : []);
 
-  const founders = Array.isArray(data.Founders) ? data.Founders : [];
-  const additionalActivities = Array.isArray(data.ActivityTypes) ? data.ActivityTypes.slice(0, 5) : [];
+  // Founders from Shareholders.Items or flat Founders
+  let founders: { Name: string; Share?: number | string }[] = [];
+  const rawShareholders = unwrapItems(data.Shareholders);
+  if (rawShareholders.length > 0) {
+    founders = rawShareholders.map((s: any) => ({
+      Name: safeString(s.Entity?.Name || s.Name || s.FullName),
+      Share: s.Share?.Size ?? s.Share?.Percent ?? s.Percent ?? undefined,
+    }));
+  } else if (Array.isArray(data.Founders)) {
+    founders = data.Founders.map((f: any) => ({
+      Name: safeString(f.Name || f.Fio || f.FullName || f),
+      Share: f.Share,
+    }));
+  }
+
+  const additionalActivities = Array.isArray(data.ActivityTypes)
+    ? data.ActivityTypes.slice(0, 5)
+    : unwrapItems(data.ActivityTypes).slice(0, 5);
   const trademarks = Array.isArray(data._trademarks) ? data._trademarks : [];
+
+  // Employees
+  const employeesHistory = Array.isArray(data.EmployeesHistory) ? data.EmployeesHistory : [];
+  const employeesCount = data.EmployeesCount;
+  const rawEmployees = unwrapItems(data.EmployeesInfo);
+  const empHistory = employeesHistory.length > 0
+    ? employeesHistory
+    : rawEmployees.map((e: any) => ({ Year: e.Year || e.Date || '', Count: e.Count ?? e.Number ?? e.Value ?? '' }))
+        .sort((a: any, b: any) => String(b.Year).localeCompare(String(a.Year)));
+
+  // RSMP
+  const rsmpCategory = data.RsmpCategory || (() => {
+    const raw = unwrapItems(data.Rsmp);
+    return raw[0]?.Category || raw[0]?.CategoryName || '';
+  })();
+  const rsmpDate = data.RsmpDate || (() => {
+    const raw = unwrapItems(data.Rsmp);
+    return raw[0]?.InclusionDate || raw[0]?.Date || '';
+  })();
+
+  // Taxation
+  let taxationTypes: string[] = Array.isArray(data.TaxationTypes) ? data.TaxationTypes : [];
+  if (taxationTypes.length === 0) {
+    const rawTax = unwrapItems(data.Taxation);
+    if (rawTax.length > 0) {
+      const types = rawTax[0].Types || rawTax[0].TaxTypes;
+      taxationTypes = Array.isArray(types) ? types.map((t: any) => typeof t === 'object' ? (t.Name || t.Type || '') : String(t)) : [];
+      if (!taxationTypes.length && rawTax[0].Name) taxationTypes = [rawTax[0].Name];
+    }
+  }
 
   const handleCopyAll = () => {
     const lines = [
@@ -258,26 +326,16 @@ export function ReputationCompanyCard({ data, compact = false }: ReputationCompa
         </div>
       </div>
 
-      {/* Requisites - always visible, with clickable links */}
+      {/* Requisites - always visible */}
       <div className="px-4 pb-3">
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-x-6 gap-y-1.5">
           {inn && (
-            <LinkableValue
-              icon={Hash}
-              label="ИНН"
-              value={inn}
-              href={`https://reputation.ru/company/inn-${inn}`}
-              mono
-            />
+            <LinkableValue icon={Hash} label="ИНН" value={inn}
+              href={`https://reputation.ru/company/inn-${inn}`} mono />
           )}
           {ogrn && (
-            <LinkableValue
-              icon={Hash}
-              label="ОГРН"
-              value={ogrn}
-              href={`https://reputation.ru/company/ogrn-${ogrn}`}
-              mono
-            />
+            <LinkableValue icon={Hash} label="ОГРН" value={ogrn}
+              href={`https://reputation.ru/company/ogrn-${ogrn}`} mono />
           )}
           {kpp && <InfoRow icon={Hash} label="КПП" value={kpp} mono />}
           {address && <InfoRow icon={MapPin} label="Адрес" value={address} />}
@@ -290,21 +348,20 @@ export function ReputationCompanyCard({ data, compact = false }: ReputationCompa
           <Separator />
 
           {/* Director / Management */}
-          {director && (
+          {(director || managers.length > 0) && (
             <div className="px-4 py-3">
-              <h4 className="text-xs font-medium text-muted-foreground uppercase tracking-wide mb-2 flex items-center gap-1.5">
-                <Users className="h-3.5 w-3.5" />
-                Руководство
-              </h4>
+              <SectionHeader icon={Users} title="Руководство" />
               <div className="space-y-1">
-                <div className="text-sm">
-                  <span className="text-muted-foreground">{safeString(directorTitle)}: </span>
-                  <span className="font-medium text-foreground">{safeString(director)}</span>
-                </div>
-                {Array.isArray(data.Managers) && data.Managers.length > 1 && data.Managers.slice(1, 4).map((m: any, i: number) => (
+                {director && (
+                  <div className="text-sm">
+                    <span className="text-muted-foreground">{safeString(directorTitle)}: </span>
+                    <span className="font-medium text-foreground">{safeString(director)}</span>
+                  </div>
+                )}
+                {managers.slice(director ? 1 : 0, 4).map((m, i) => (
                   <div key={i} className="text-sm">
-                    <span className="text-muted-foreground">{safeString(m?.Position) || 'Участник'}: </span>
-                    <span className="text-foreground">{safeString(m?.Name)}</span>
+                    <span className="text-muted-foreground">{m.Position || 'Участник'}: </span>
+                    <span className="text-foreground">{m.Name}</span>
                   </div>
                 ))}
               </div>
@@ -316,20 +373,80 @@ export function ReputationCompanyCard({ data, compact = false }: ReputationCompa
             <>
               <Separator />
               <div className="px-4 py-3">
-                <h4 className="text-xs font-medium text-muted-foreground uppercase tracking-wide mb-2 flex items-center gap-1.5">
-                  <Scale className="h-3.5 w-3.5" />
-                  Учредители
-                </h4>
+                <SectionHeader icon={Scale} title="Учредители" badge={String(founders.length)} />
                 <div className="space-y-1">
-                  {founders.slice(0, 5).map((f: any, i: number) => (
+                  {founders.slice(0, 5).map((f, i) => (
                     <div key={i} className="text-sm flex items-center justify-between">
-                      <span className="text-foreground">{safeString(f?.Name || f?.FullName) || 'Без имени'}</span>
-                      {f?.Share && (
+                      <span className="text-foreground">{f.Name || 'Без имени'}</span>
+                      {f.Share !== undefined && f.Share !== null && (
                         <Badge variant="outline" className="text-xs ml-2">
-                          {typeof f.Share === 'number' ? `${f.Share}%` : safeString(f.Share)}
+                          {typeof f.Share === 'number' ? `${f.Share.toFixed(2)}%` : safeString(f.Share)}
                         </Badge>
                       )}
                     </div>
+                  ))}
+                </div>
+              </div>
+            </>
+          )}
+
+          {/* Capital */}
+          {capital && (
+            <>
+              <Separator />
+              <div className="px-4 py-3">
+                <SectionHeader icon={FileText} title="Уставный капитал" />
+                <p className="text-sm font-medium text-foreground">
+                  {typeof capital === 'number' ? capital.toLocaleString('ru-RU') + ' ₽' : safeString(capital)}
+                </p>
+              </div>
+            </>
+          )}
+
+          {/* Employees */}
+          {(employeesCount !== undefined || empHistory.length > 0) && (
+            <>
+              <Separator />
+              <div className="px-4 py-3">
+                <SectionHeader icon={TrendingUp} title="Сотрудники" 
+                  badge={employeesCount !== undefined ? `${safeString(employeesCount)} чел.` : undefined} />
+                {empHistory.length > 0 && (
+                  <div className="grid grid-cols-2 sm:grid-cols-3 gap-2 mt-1">
+                    {empHistory.slice(0, 6).map((e: any, i: number) => (
+                      <div key={i} className="text-sm bg-muted/50 rounded-md px-2.5 py-1.5 text-center">
+                        <div className="text-muted-foreground text-xs">{safeString(e.Year)}</div>
+                        <div className="font-medium text-foreground">{safeString(e.Count)} чел.</div>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+            </>
+          )}
+
+          {/* RSMP (МСП) */}
+          {rsmpCategory && (
+            <>
+              <Separator />
+              <div className="px-4 py-3">
+                <SectionHeader icon={Landmark} title="Категория МСП" />
+                <div className="text-sm">
+                  <Badge variant="outline" className="text-xs">{safeString(rsmpCategory)}</Badge>
+                  {rsmpDate && <span className="text-muted-foreground ml-2 text-xs">с {safeString(rsmpDate)}</span>}
+                </div>
+              </div>
+            </>
+          )}
+
+          {/* Taxation */}
+          {taxationTypes.length > 0 && (
+            <>
+              <Separator />
+              <div className="px-4 py-3">
+                <SectionHeader icon={Receipt} title="Налогообложение" />
+                <div className="flex flex-wrap gap-1.5">
+                  {taxationTypes.map((t, i) => (
+                    <Badge key={i} variant="outline" className="text-xs">{t}</Badge>
                   ))}
                 </div>
               </div>
@@ -341,10 +458,7 @@ export function ReputationCompanyCard({ data, compact = false }: ReputationCompa
             <>
               <Separator />
               <div className="px-4 py-3">
-                <h4 className="text-xs font-medium text-muted-foreground uppercase tracking-wide mb-2 flex items-center gap-1.5">
-                  <Briefcase className="h-3.5 w-3.5" />
-                  Деятельность
-                </h4>
+                <SectionHeader icon={Briefcase} title="Деятельность" />
                 <div className="space-y-1">
                   <div className="text-sm">
                     {activityCode && <Badge variant="outline" className="text-xs mr-2 font-mono">{activityCode}</Badge>}
@@ -361,31 +475,12 @@ export function ReputationCompanyCard({ data, compact = false }: ReputationCompa
             </>
           )}
 
-          {/* Capital */}
-          {capital && (
-            <>
-              <Separator />
-              <div className="px-4 py-3">
-                <h4 className="text-xs font-medium text-muted-foreground uppercase tracking-wide mb-2 flex items-center gap-1.5">
-                  <FileText className="h-3.5 w-3.5" />
-                  Уставный капитал
-                </h4>
-                <p className="text-sm font-medium text-foreground">
-                  {typeof capital === 'number' ? capital.toLocaleString('ru-RU') + ' ₽' : safeString(capital)}
-                </p>
-              </div>
-            </>
-          )}
-
           {/* Contacts */}
           {(phones.length > 0 || emails.length > 0 || websites.length > 0) && (
             <>
               <Separator />
               <div className="px-4 py-3">
-                <h4 className="text-xs font-medium text-muted-foreground uppercase tracking-wide mb-2 flex items-center gap-1.5">
-                  <Phone className="h-3.5 w-3.5" />
-                  Контакты
-                </h4>
+                <SectionHeader icon={Phone} title="Контакты" />
                 <div className="space-y-1">
                   {phones.map((p: string, i: number) => (
                     <InfoRow key={`p-${i}`} icon={Phone} label="Тел" value={safeString(p)} />
@@ -414,10 +509,7 @@ export function ReputationCompanyCard({ data, compact = false }: ReputationCompa
             <>
               <Separator />
               <div className="px-4 py-3">
-                <h4 className="text-xs font-medium text-muted-foreground uppercase tracking-wide mb-2 flex items-center gap-1.5">
-                  <Award className="h-3.5 w-3.5" />
-                  Интеллектуальная собственность ({trademarks.length})
-                </h4>
+                <SectionHeader icon={Award} title="Интеллектуальная собственность" badge={String(trademarks.length)} />
                 <div className="space-y-2">
                   {trademarks.slice(0, 15).map((tm: any, i: number) => {
                     const regNum = tm.RegistrationNumber || tm.Number || tm.RegNumber;
@@ -431,12 +523,8 @@ export function ReputationCompanyCard({ data, compact = false }: ReputationCompa
                         <div className="min-w-0 flex-1">
                           <div className="flex items-center gap-2 flex-wrap">
                             {regNum && fipsUrl ? (
-                              <a
-                                href={fipsUrl}
-                                target="_blank"
-                                rel="noopener noreferrer"
-                                className="text-primary hover:underline font-mono text-xs inline-flex items-center gap-1"
-                              >
+                              <a href={fipsUrl} target="_blank" rel="noopener noreferrer"
+                                className="text-primary hover:underline font-mono text-xs inline-flex items-center gap-1">
                                 №{safeString(regNum)}
                                 <ExternalLink className="h-3 w-3" />
                               </a>
@@ -444,20 +532,15 @@ export function ReputationCompanyCard({ data, compact = false }: ReputationCompa
                               <span className="font-mono text-xs text-foreground">№{safeString(regNum)}</span>
                             ) : null}
                             {source && (
-                              <Badge variant="outline" className="text-[10px] px-1.5 py-0">
-                                {source}
-                              </Badge>
+                              <Badge variant="outline" className="text-[10px] px-1.5 py-0">{source}</Badge>
                             )}
                           </div>
-                          {tmName && (
-                            <p className="text-foreground mt-0.5 break-words">{safeString(tmName)}</p>
-                          )}
+                          {tmName && <p className="text-foreground mt-0.5 break-words">{safeString(tmName)}</p>}
                         </div>
                         {tmStatus && (
                           <Badge
                             variant={String(tmStatus).toLowerCase().includes('действ') ? 'default' : 'secondary'}
-                            className="text-[10px] shrink-0"
-                          >
+                            className="text-[10px] shrink-0">
                             {safeString(tmStatus)}
                           </Badge>
                         )}
@@ -477,10 +560,7 @@ export function ReputationCompanyCard({ data, compact = false }: ReputationCompa
             <>
               <Separator />
               <div className="px-4 py-3">
-                <h4 className="text-xs font-medium text-muted-foreground uppercase tracking-wide mb-2 flex items-center gap-1.5">
-                  <Shield className="h-3.5 w-3.5" />
-                  Надежность
-                </h4>
+                <SectionHeader icon={Shield} title="Надежность" />
                 <div className="flex items-center gap-3">
                   {(data.ReliabilityScore !== undefined || data.Score !== undefined) && (
                     <Badge variant="outline" className="text-sm font-medium">
@@ -490,8 +570,7 @@ export function ReputationCompanyCard({ data, compact = false }: ReputationCompa
                   {data.RiskLevel && (
                     <Badge
                       variant={String(data.RiskLevel).toLowerCase().includes('высок') ? 'destructive' : 'secondary'}
-                      className="text-xs"
-                    >
+                      className="text-xs">
                       {safeString(data.RiskLevel)}
                     </Badge>
                   )}

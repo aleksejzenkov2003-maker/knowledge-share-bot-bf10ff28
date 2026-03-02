@@ -814,6 +814,14 @@ serve(async (req) => {
     // REPUTATION API - Direct calls to api.reputation.ru
     // =====================================================
 
+    // Helper: unwrap {Items: [...]} → flat array
+    function unwrapItems(val: any): any[] {
+      if (!val) return [];
+      if (Array.isArray(val)) return val;
+      if (val.Items && Array.isArray(val.Items)) return val.Items;
+      return [];
+    }
+
     // Normalize raw API data to flat structure expected by ReputationCompanyCard
     function normalizeCompanyData(d: any): any {
       if (!d || typeof d !== 'object') return d;
@@ -828,12 +836,37 @@ serve(async (req) => {
         n.Status = n.StatusName;
       }
 
-      // Address: prefer LegalAddress
-      if (!n.Address && n.LegalAddress) n.Address = typeof n.LegalAddress === 'object' ? (n.LegalAddress.Address || n.LegalAddress.Value || JSON.stringify(n.LegalAddress)) : n.LegalAddress;
-      if (n.Address && typeof n.Address === 'object') n.Address = n.Address.Address || n.Address.Value || JSON.stringify(n.Address);
+      // Address: unwrap Addresses.Items → first actual address
+      if (!n.Address) {
+        const addresses = unwrapItems(n.Addresses);
+        const actual = addresses.find((a: any) => a.IsActual) || addresses[0];
+        if (actual) {
+          n.Address = actual.UnsplittedAddress || actual.Address || actual.Value || '';
+        }
+      }
+      if (!n.Address && n.LegalAddress) {
+        n.Address = typeof n.LegalAddress === 'object' ? (n.LegalAddress.Address || n.LegalAddress.UnsplittedAddress || n.LegalAddress.Value || JSON.stringify(n.LegalAddress)) : n.LegalAddress;
+      }
+      if (n.Address && typeof n.Address === 'object') n.Address = n.Address.Address || n.Address.UnsplittedAddress || n.Address.Value || JSON.stringify(n.Address);
 
-      // Head/Director: may be object {Name, Fio, Position}
-      if (n.Head && typeof n.Head === 'object') {
+      // Managers: unwrap {Items: [{Entity: {Name}, Position: [{PositionName}]}]}
+      const rawManagers = unwrapItems(n.Managers);
+      if (rawManagers.length > 0 && rawManagers[0].Entity) {
+        n.Managers = rawManagers.map((m: any) => ({
+          Name: m.Entity?.Name || m.Entity?.Fio || m.Name || '',
+          Position: (Array.isArray(m.Position) ? m.Position[0]?.PositionName : m.Position?.PositionName) || m.PositionName || '',
+          Inn: m.Entity?.Inn || '',
+        }));
+        if (!n.DirectorName && n.Managers[0]) {
+          n.DirectorName = n.Managers[0].Name;
+          n.DirectorTitle = n.Managers[0].Position || 'Руководитель';
+        }
+      } else if (rawManagers.length > 0) {
+        n.Managers = rawManagers.map((m: any) => typeof m === 'object' ? { Name: m.Name || m.Fio || '', Position: m.Position || '' } : { Name: String(m), Position: '' });
+      }
+
+      // Head/Director fallback
+      if (n.Head && typeof n.Head === 'object' && !n.DirectorName) {
         n.DirectorName = n.Head.Name || n.Head.Fio || n.Head.FullName || '';
         n.DirectorTitle = n.Head.Position || 'Руководитель';
       }
@@ -843,21 +876,84 @@ serve(async (req) => {
         n.Director = n.DirectorName;
       }
 
-      // Heads → Managers array
-      if (n.Heads && Array.isArray(n.Heads) && !n.Managers) {
+      // Heads → Managers fallback
+      if (n.Heads && Array.isArray(n.Heads) && (!n.Managers || n.Managers.length === 0)) {
         n.Managers = n.Heads.map((h: any) => ({
           Name: h.Name || h.Fio || h.FullName || '',
           Position: h.Position || '',
         }));
       }
-      if (n.Managers && Array.isArray(n.Managers)) {
-        n.Managers = n.Managers.map((m: any) => typeof m === 'object' ? { Name: m.Name || m.Fio || '', Position: m.Position || '' } : { Name: String(m), Position: '' });
+
+      // Shareholders → Founders: unwrap {Items: [{Entity: {Name}, Share: {Size}}]}
+      const rawShareholders = unwrapItems(n.Shareholders);
+      if (rawShareholders.length > 0) {
+        n.Founders = rawShareholders.map((s: any) => ({
+          Name: s.Entity?.Name || s.Entity?.Fio || s.Name || s.FullName || '',
+          Share: s.Share?.Size ?? s.Share?.Percent ?? s.Percent ?? s.Share ?? undefined,
+          Inn: s.Entity?.Inn || '',
+        }));
+      } else if (n.Founders && Array.isArray(n.Founders)) {
+        n.Founders = n.Founders.map((f: any) => typeof f === 'object' ? { Name: f.Name || f.Fio || f.FullName || '', Share: f.Share || f.Percent || undefined } : { Name: String(f) });
       }
 
-      // Capital: may be object {Value, Date}
-      if (n.Capital && typeof n.Capital === 'object') {
+      // AuthorizedCapitals → AuthorizedCapital
+      const rawCapitals = unwrapItems(n.AuthorizedCapitals);
+      if (rawCapitals.length > 0 && !n.AuthorizedCapital) {
+        n.AuthorizedCapital = rawCapitals[0].Sum ?? rawCapitals[0].Value ?? rawCapitals[0].Amount ?? '';
+      }
+      // Capital fallback
+      if (!n.AuthorizedCapital && n.Capital && typeof n.Capital === 'object') {
         n.AuthorizedCapital = n.Capital.Value ?? n.Capital.Amount ?? '';
       }
+
+      // EmployeesInfo → EmployeesHistory array + EmployeesCount
+      const rawEmployees = unwrapItems(n.EmployeesInfo);
+      if (rawEmployees.length > 0) {
+        n.EmployeesHistory = rawEmployees.map((e: any) => ({
+          Year: e.Year || e.Date || '',
+          Count: e.Count ?? e.Number ?? e.Value ?? '',
+        })).sort((a: any, b: any) => String(b.Year).localeCompare(String(a.Year)));
+        n.EmployeesCount = n.EmployeesHistory[0]?.Count;
+      }
+
+      // RSMP (МСП category)
+      const rawRsmp = unwrapItems(n.Rsmp);
+      if (rawRsmp.length > 0) {
+        n.RsmpCategory = rawRsmp[0].Category || rawRsmp[0].CategoryName || '';
+        n.RsmpDate = rawRsmp[0].InclusionDate || rawRsmp[0].Date || '';
+      }
+
+      // Taxation
+      const rawTax = unwrapItems(n.Taxation);
+      if (rawTax.length > 0) {
+        const types = rawTax[0].Types || rawTax[0].TaxTypes;
+        n.TaxationTypes = Array.isArray(types) ? types.map((t: any) => typeof t === 'object' ? (t.Name || t.Type || '') : String(t)) : [];
+        if (!n.TaxationTypes.length && rawTax[0].Name) {
+          n.TaxationTypes = [rawTax[0].Name];
+        }
+      }
+
+      // ContactInfo → Phones/Emails
+      const rawContacts = unwrapItems(n.ContactInfo);
+      if (rawContacts.length > 0) {
+        const phones: string[] = [];
+        const emails: string[] = [];
+        for (const c of rawContacts) {
+          if (c.Type === 'Phone' || c.Type === 'Телефон') phones.push(c.Value || c.Number || '');
+          else if (c.Type === 'Email' || c.Type === 'Почта') emails.push(c.Value || c.Address || '');
+        }
+        if (phones.length > 0 && (!n.Phones || n.Phones.length === 0)) n.Phones = phones;
+        if (emails.length > 0 && (!n.Emails || n.Emails.length === 0)) n.Emails = emails;
+      }
+
+      // ActivityTypes: unwrap Items
+      const rawActivities = unwrapItems(n.ActivityTypes);
+      if (rawActivities.length > 0 && rawActivities[0].Code) {
+        n.ActivityTypes = rawActivities.map((a: any) => ({ Code: a.Code || '', Name: a.Name || a.Description || '' }));
+      } else if (n.Activities && Array.isArray(n.Activities) && !Array.isArray(n.ActivityTypes)) {
+        n.ActivityTypes = n.Activities.map((a: any) => typeof a === 'object' ? { Code: a.Code || '', Name: a.Name || a.Description || '' } : { Code: '', Name: String(a) });
+      }
+      if (n.ActivityTypes && !Array.isArray(n.ActivityTypes)) n.ActivityTypes = [];
 
       // MainOkved → MainActivity
       if (n.MainOkved && typeof n.MainOkved === 'object') {
@@ -870,18 +966,10 @@ serve(async (req) => {
         if (!n.MainActivityCode) n.MainActivityCode = n.MainActivity.Code || '';
         if (!n.MainActivityName) n.MainActivityName = n.MainActivity.Name || '';
       }
-
-      // Activities → ActivityTypes as array
-      if (n.Activities && Array.isArray(n.Activities) && !Array.isArray(n.ActivityTypes)) {
-        n.ActivityTypes = n.Activities.map((a: any) => typeof a === 'object' ? { Code: a.Code || '', Name: a.Name || a.Description || '' } : { Code: '', Name: String(a) });
-      }
-      if (n.ActivityTypes && !Array.isArray(n.ActivityTypes)) {
-        n.ActivityTypes = [];
-      }
-
-      // Founders normalization
-      if (n.Founders && Array.isArray(n.Founders)) {
-        n.Founders = n.Founders.map((f: any) => typeof f === 'object' ? { Name: f.Name || f.Fio || f.FullName || '', Share: f.Share || f.Percent || f.OwnershipShare || undefined } : { Name: String(f) });
+      // If no main activity, pick first from ActivityTypes
+      if (!n.MainActivityCode && Array.isArray(n.ActivityTypes) && n.ActivityTypes.length > 0 && n.ActivityTypes[0].IsMain !== false) {
+        n.MainActivityCode = n.ActivityTypes[0].Code || '';
+        n.MainActivityName = n.ActivityTypes[0].Name || '';
       }
 
       // RegistrationDate cleanup
@@ -1085,6 +1173,7 @@ serve(async (req) => {
         if (d.RegistrationDate) reqRows.push(['Дата регистрации', ss(d.RegistrationDate)]);
         if (d.LiquidationDate) reqRows.push(['Дата ликвидации', ss(d.LiquidationDate)]);
         if (d.Address || d.LegalAddress) reqRows.push(['Адрес', ss(d.Address || d.LegalAddress)]);
+        if (d.Type) reqRows.push(['Тип', d.Type === 'Company' ? 'Юр. лицо' : d.Type === 'Entrepreneur' ? 'ИП' : ss(d.Type)]);
         if (reqRows.length > 0) {
           parts.push(`### Реквизиты\n\n| Поле | Значение |\n|------|----------|\n${reqRows.map(r => `| ${r[0]} | ${r[1]} |`).join('\n')}`);
         }
@@ -1096,7 +1185,7 @@ serve(async (req) => {
         }
         
         // Management
-        if (d.DirectorName || d.Director || d.Head || d.Managers) {
+        if (d.DirectorName || d.Director || d.Head || (Array.isArray(d.Managers) && d.Managers.length > 0)) {
           const mgmt: string[] = [];
           const dirName = ss(d.DirectorName || (d.Head && typeof d.Head === 'object' ? (d.Head.Name || d.Head.Fio) : d.Director));
           const dirTitle = ss(d.DirectorTitle || (d.Head && typeof d.Head === 'object' ? d.Head.Position : '')) || 'Руководитель';
@@ -1111,14 +1200,35 @@ serve(async (req) => {
           }
         }
         
-        // Founders
+        // Founders / Shareholders
         if (d.Founders && Array.isArray(d.Founders) && d.Founders.length > 0) {
-          const founders = d.Founders.slice(0, 10).map((f: any) => 
-            `- ${ss(f.Name || f.Fio) || '—'}${f.Share ? ` (${f.Share}%)` : ''}`
-          );
+          const founders = d.Founders.slice(0, 10).map((f: any) => {
+            const share = f.Share !== undefined && f.Share !== null ? ` — ${typeof f.Share === 'number' ? f.Share.toFixed(2) + '%' : ss(f.Share)}` : '';
+            return `- ${ss(f.Name || f.Fio) || '—'}${share}`;
+          });
           parts.push(`\n### Учредители\n${founders.join('\n')}`);
         }
         
+        // Employees
+        if (d.EmployeesCount !== undefined || (Array.isArray(d.EmployeesHistory) && d.EmployeesHistory.length > 0)) {
+          const empParts: string[] = [];
+          if (d.EmployeesCount !== undefined) empParts.push(`**Текущее количество:** ${ss(d.EmployeesCount)} чел.`);
+          if (Array.isArray(d.EmployeesHistory) && d.EmployeesHistory.length > 0) {
+            empParts.push(`\n| Год | Сотрудников |\n|-----|-------------|\n${d.EmployeesHistory.slice(0, 10).map((e: any) => `| ${ss(e.Year)} | ${ss(e.Count)} |`).join('\n')}`);
+          }
+          parts.push(`\n### Сотрудники\n${empParts.join('\n')}`);
+        }
+
+        // RSMP (МСП)
+        if (d.RsmpCategory) {
+          parts.push(`\n### Категория МСП\n**${ss(d.RsmpCategory)}**${d.RsmpDate ? ` (с ${ss(d.RsmpDate)})` : ''}`);
+        }
+
+        // Taxation
+        if (Array.isArray(d.TaxationTypes) && d.TaxationTypes.length > 0) {
+          parts.push(`\n### Налогообложение\n${d.TaxationTypes.map((t: string) => `- ${t}`).join('\n')}`);
+        }
+
         // Activities (OKVED)
         const mainCode = ss(d.MainActivityCode || (d.MainOkved && typeof d.MainOkved === 'object' ? d.MainOkved.Code : d.MainOkved) || d.Okved);
         const mainName = ss(d.MainActivityName || (d.MainOkved && typeof d.MainOkved === 'object' ? d.MainOkved.Name : '') || d.OkvedName);
