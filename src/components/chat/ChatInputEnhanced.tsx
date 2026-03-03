@@ -408,7 +408,7 @@ export function ChatInputEnhanced({
 
         <div 
           className={cn(
-            "relative flex flex-col bg-[#F9F8F4] border border-border transition-all duration-200",
+            "relative flex flex-col bg-[#F2F1EC] border border-border transition-all duration-200",
             replyTo ? "rounded-b-3xl" : "rounded-3xl",
             isFocused ? "ring-1 ring-ring/15 shadow-sm" : "",
             disabled && "opacity-50"
