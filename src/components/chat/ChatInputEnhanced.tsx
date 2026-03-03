@@ -408,9 +408,9 @@ export function ChatInputEnhanced({
 
         <div 
           className={cn(
-            "relative flex flex-col bg-muted/50 border transition-all duration-200",
-            replyTo ? "rounded-b-2xl" : "rounded-2xl",
-            isFocused ? "border-ring shadow-sm" : "border-border",
+            "relative flex flex-col bg-white border border-border transition-all duration-200",
+            replyTo ? "rounded-b-3xl" : "rounded-3xl",
+            isFocused ? "shadow-[0_0_0_1px_hsl(var(--ring)/0.15),0_2px_8px_hsl(var(--ring)/0.08)]" : "",
             disabled && "opacity-50"
           )}
         >
