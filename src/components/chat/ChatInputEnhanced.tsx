@@ -410,7 +410,7 @@ export function ChatInputEnhanced({
           className={cn(
             "relative flex flex-col bg-white border border-border transition-all duration-200",
             replyTo ? "rounded-b-3xl" : "rounded-3xl",
-            isFocused ? "shadow-[0_0_0_1px_hsl(var(--ring)/0.15),0_2px_8px_hsl(var(--ring)/0.08)]" : "",
+            isFocused ? "ring-1 ring-ring/15 shadow-sm" : "",
             disabled && "opacity-50"
           )}
         >
