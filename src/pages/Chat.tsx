@@ -259,7 +259,7 @@ export default function Chat() {
   );
 
   const inputContent = (
-    <div className="bg-background py-4" data-tour="chat-input">
+    <div className="py-4" data-tour="chat-input">
       <ChatInputEnhanced
         value={inputValue}
         onChange={setInputValue}
