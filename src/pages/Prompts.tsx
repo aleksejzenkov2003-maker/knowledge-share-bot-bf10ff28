@@ -178,6 +178,13 @@ const Prompts = () => {
     return dept?.name || 'Общий';
   };
 
+  const getSystemLabel = (name: string) => {
+    const map: Record<string, { label: string; emoji: string }> = {
+      'reputation-web-search': { label: 'Репутация → вкладка «Интернет»', emoji: '🌐' },
+    };
+    return map[name] || null;
+  };
+
   const getPromptPreview = (text: string, maxLength: number = 100) => {
     if (text.length <= maxLength) return text;
     return text.slice(0, maxLength).trim() + '...';
