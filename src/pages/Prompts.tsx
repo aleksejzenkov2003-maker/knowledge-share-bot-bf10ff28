@@ -302,17 +302,31 @@ const Prompts = () => {
               <Collapsible key={prompt.id} open={isExpanded} onOpenChange={() => toggleExpanded(prompt.id)}>
                 <Card className={cn(
                   "transition-all",
-                  !prompt.is_active && "opacity-60"
+                  !prompt.is_active && "opacity-60",
+                  getSystemLabel(prompt.name) && "border-primary/30 bg-primary/[0.03]"
                 )}>
                   <CollapsibleTrigger asChild>
                     <div className="flex items-center justify-between p-4 cursor-pointer hover:bg-muted/50 transition-colors">
                       <div className="flex items-center gap-3 min-w-0 flex-1">
-                        <div className="flex items-center justify-center h-9 w-9 rounded-lg bg-primary/10 text-primary shrink-0">
-                          <FileText className="h-4 w-4" />
+                        <div className={cn(
+                          "flex items-center justify-center h-9 w-9 rounded-lg shrink-0",
+                          getSystemLabel(prompt.name)
+                            ? "bg-primary/20 text-primary"
+                            : "bg-primary/10 text-primary"
+                        )}>
+                          {getSystemLabel(prompt.name)
+                            ? <span className="text-lg">{getSystemLabel(prompt.name)!.emoji}</span>
+                            : <FileText className="h-4 w-4" />
+                          }
                         </div>
                         <div className="min-w-0 flex-1">
-                          <div className="flex items-center gap-2">
+                          <div className="flex items-center gap-2 flex-wrap">
                             <span className="font-medium truncate">{prompt.name}</span>
+                            {getSystemLabel(prompt.name) && (
+                              <Badge variant="outline" className="text-xs border-primary/40 text-primary bg-primary/10">
+                                {getSystemLabel(prompt.name)!.label}
+                              </Badge>
+                            )}
                             {!prompt.is_active && (
                               <Badge variant="secondary" className="text-xs">Неактивен</Badge>
                             )}
