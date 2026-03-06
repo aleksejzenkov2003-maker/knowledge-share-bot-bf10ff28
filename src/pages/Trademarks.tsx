@@ -547,6 +547,23 @@ export default function Trademarks() {
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
+      {/* Clear all confirmation */}
+      <AlertDialog open={clearAllOpen} onOpenChange={setClearAllOpen}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Очистить всю базу?</AlertDialogTitle>
+            <AlertDialogDescription>
+              Все {totalCount} записей будут удалены. Это действие нельзя отменить.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Отмена</AlertDialogCancel>
+            <AlertDialogAction onClick={handleClearAll} disabled={clearing}>
+              {clearing ? 'Очистка...' : 'Очистить'}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   );
 }
