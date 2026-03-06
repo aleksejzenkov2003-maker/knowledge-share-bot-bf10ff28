@@ -297,6 +297,23 @@ export default function Trademarks() {
     }
   }, [selectedFile, toast, queryClient]);
 
+  const handleClearAll = useCallback(async () => {
+    setClearing(true);
+    try {
+      const { error } = await supabase.from('trademarks').delete().neq('id', '00000000-0000-0000-0000-000000000000');
+      if (error) throw error;
+      queryClient.invalidateQueries({ queryKey: ['trademarks'] });
+      queryClient.invalidateQueries({ queryKey: ['trademarks-count'] });
+      toast({ title: 'База очищена' });
+      setClearAllOpen(false);
+      setPage(0);
+    } catch (err: any) {
+      toast({ title: 'Ошибка очистки', description: err.message, variant: 'destructive' });
+    } finally {
+      setClearing(false);
+    }
+  }, [queryClient, toast]);
+
   const totalPages = Math.ceil((totalCount ?? 0) / PAGE_SIZE);
 
   return (
@@ -308,10 +325,18 @@ export default function Trademarks() {
             {totalCount !== undefined ? `${totalCount} записей` : 'Загрузка...'}
           </p>
         </div>
-        <Button onClick={() => setUploadOpen(true)} className="gap-2">
-          <Upload className="h-4 w-4" />
-          Импорт CSV
-        </Button>
+        <div className="flex gap-2">
+          {(totalCount ?? 0) > 0 && (
+            <Button variant="outline" onClick={() => setClearAllOpen(true)} className="gap-2 text-destructive">
+              <Eraser className="h-4 w-4" />
+              Очистить
+            </Button>
+          )}
+          <Button onClick={() => setUploadOpen(true)} className="gap-2">
+            <Upload className="h-4 w-4" />
+            Импорт CSV
+          </Button>
+        </div>
       </div>
 
       {/* Filters */}
