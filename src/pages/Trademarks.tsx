@@ -35,11 +35,25 @@ interface Trademark {
   right_holder_inn: string | null;
   correspondence_address: string | null;
   collective: boolean | null;
+  collective_users: string | null;
+  extraction_from_charter: string | null;
   color_specification: string | null;
   unprotected_elements: string | null;
   kind_specification: string | null;
+  threedimensional: boolean | null;
+  holographic: boolean | null;
+  sound: boolean | null;
+  olfactory: boolean | null;
+  color: boolean | null;
+  light: boolean | null;
+  changing: boolean | null;
+  positional: boolean | null;
   actual: boolean | null;
+  metadata: any;
+  trademark_image_path: string | null;
+  has_trademark: boolean | null;
   created_at: string;
+  updated_at: string;
 }
 
 const PAGE_SIZE = 50;
