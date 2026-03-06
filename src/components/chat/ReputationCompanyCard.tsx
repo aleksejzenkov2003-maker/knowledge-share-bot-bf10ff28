@@ -297,6 +297,24 @@ export function ReputationCompanyCard({ data, compact = false }: ReputationCompa
     });
   };
 
+  const handleWebSearch = async () => {
+    setWebLoading(true);
+    setWebError(null);
+    try {
+      const { data: result, error } = await supabase.functions.invoke('reputation-web-search', {
+        body: { companyName: name, inn, ogrn },
+      });
+      if (error) throw error;
+      if (result?.error) throw new Error(result.error);
+      setWebResult(result.content || '');
+      setWebCitations(result.citations || []);
+    } catch (err: any) {
+      setWebError(err.message || 'Ошибка поиска');
+    } finally {
+      setWebLoading(false);
+    }
+  };
+
   return (
     <Card className="my-3 overflow-hidden border-primary/20 bg-card">
       {/* Header */}
