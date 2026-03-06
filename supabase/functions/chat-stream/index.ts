@@ -1192,7 +1192,7 @@ serve(async (req) => {
         // Multiple results found — user needs to select
         textContent = `🔍 **Найдено компаний: ${reputationSearchResults.length}**\n\nВыберите нужную компанию из списка ниже:`;
       } else if (reputationCompanyData) {
-        // Card UI handles full display — no duplicate text summary needed
+        // Card UI handles full display — no text needed, web search available via button in card
         const d = reputationCompanyData;
         const ss = (v: any): string => {
           if (v === null || v === undefined) return '';
@@ -1206,76 +1206,7 @@ serve(async (req) => {
           return String(v);
         };
         const companyName = ss(d.Name || d.ShortName || d.FullName || d.name || d.CompanyName || d.Title) || 'Компания';
-
-        // Start with empty — card is the primary UI
-        textContent = '';
-
-        // ---- Perplexity web search ----
-        const PERPLEXITY_API_KEY = Deno.env.get('PERPLEXITY_API_KEY');
-        if (PERPLEXITY_API_KEY) {
-          try {
-            console.log('Reputation: Running Perplexity web search for', companyName);
-            const supabaseUrl = Deno.env.get('SUPABASE_URL')!;
-            const supabaseKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!;
-            const { createClient } = await import("https://esm.sh/@supabase/supabase-js@2");
-            const sb = createClient(supabaseUrl, supabaseKey);
-
-            let webSystemPrompt = 'Ты — аналитик деловой репутации. Предоставляй структурированную, фактическую информацию о компаниях на основе открытых источников. Отвечай на русском языке.';
-            let webUserTemplate = `Составь подробное досье на компанию "{{companyName}}"{{identifiers}}.\n\nВключи следующие разделы:\n1. **Общая информация** — чем занимается компания, основная деятельность\n2. **История и ключевые факты** — когда основана, важные события\n3. **Репутация и отзывы** — что говорят о компании клиенты, партнёры, сотрудники\n4. **Новости** — последние упоминания в СМИ\n5. **Конкуренты и позиция на рынке** — основные конкуренты, доля рынка\n6. **Риски и проблемы** — судебные дела, скандалы, проблемы если есть\n\nОтвечай на русском языке. Будь максимально конкретен, приводи факты и цифры.`;
-
-            try {
-              const { data: promptData } = await sb
-                .from('system_prompts')
-                .select('prompt_text')
-                .eq('name', 'reputation-web-search')
-                .eq('is_active', true)
-                .limit(1)
-                .maybeSingle();
-              if (promptData?.prompt_text) webUserTemplate = promptData.prompt_text;
-            } catch (e) { console.warn('Failed to fetch web search prompt:', e); }
-
-            const identifiers = [d.Inn ? `ИНН ${d.Inn}` : '', d.Ogrn ? `ОГРН ${d.Ogrn}` : ''].filter(Boolean).join(', ');
-            const webPrompt = webUserTemplate
-              .replace('{{companyName}}', companyName)
-              .replace('{{identifiers}}', identifiers ? ` (${identifiers})` : '');
-
-            const perplexityRes = await fetch('https://api.perplexity.ai/chat/completions', {
-              method: 'POST',
-              headers: { 'Authorization': `Bearer ${PERPLEXITY_API_KEY}`, 'Content-Type': 'application/json' },
-              body: JSON.stringify({
-                model: 'sonar-pro',
-                messages: [
-                  { role: 'system', content: webSystemPrompt },
-                  { role: 'user', content: webPrompt },
-                ],
-                temperature: 0.1,
-              }),
-              signal: AbortSignal.timeout(30000),
-            });
-
-            if (perplexityRes.ok) {
-              const perplexityData = await perplexityRes.json();
-              const webContent = perplexityData.choices?.[0]?.message?.content || '';
-              const webCitations: string[] = perplexityData.citations || [];
-              if (webContent) {
-                textContent = '🌐 **Информация из интернета**\n\n' + webContent;
-                if (webCitations.length > 0) {
-                  reputationCompanyData._webCitations = webCitations;
-                }
-              }
-              console.log(`Reputation: Perplexity returned ${webContent.length} chars, ${webCitations.length} citations`);
-            } else {
-              console.error('Perplexity error:', perplexityRes.status, await perplexityRes.text());
-            }
-          } catch (webErr) {
-            console.error('Perplexity web search error:', webErr);
-          }
-        }
-
-        // Fallback if no web search result
-        if (!textContent) {
-          textContent = `📋 **${companyName}** — досье в карточке ниже.`;
-        }
+        textContent = `📋 **${companyName}** — досье в карточке ниже.`;
       } else {
         textContent = '❌ По вашему запросу ничего не найдено. Попробуйте уточнить ИНН, ОГРН или название компании.';
       }
