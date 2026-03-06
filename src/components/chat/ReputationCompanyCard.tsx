@@ -139,7 +139,7 @@ export function ReputationCompanyCard({ data, compact = false }: ReputationCompa
   const [webLoading, setWebLoading] = useState(false);
   const [webError, setWebError] = useState<string | null>(null);
 
-  const name = extractField(data, 'Name', 'ShortName', 'FullName') || 'Без названия';
+  const name = extractField(data, '_searchResultName', 'Name', 'ShortName', 'FullName') || 'Без названия';
   const inn = extractField(data, 'Inn');
   const ogrn = extractField(data, 'Ogrn');
   const kpp = extractField(data, 'Kpp');
