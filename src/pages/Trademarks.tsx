@@ -35,11 +35,23 @@ interface Trademark {
   right_holder_inn: string | null;
   correspondence_address: string | null;
   collective: boolean | null;
+  collective_users: string | null;
+  extraction_from_charter: string | null;
   color_specification: string | null;
   unprotected_elements: string | null;
   kind_specification: string | null;
+  threedimensional: boolean | null;
+  holographic: boolean | null;
+  sound: boolean | null;
+  olfactory: boolean | null;
+  color: boolean | null;
+  light: boolean | null;
+  changing: boolean | null;
+  positional: boolean | null;
   actual: boolean | null;
+  metadata: any;
   created_at: string;
+  updated_at: string;
 }
 
 const PAGE_SIZE = 50;
@@ -507,26 +519,88 @@ export default function Trademarks() {
 
       {/* Detail Dialog */}
       <Dialog open={!!detailTm} onOpenChange={(open) => { if (!open) setDetailTm(null); }}>
-        <DialogContent className="max-w-lg max-h-[80vh] overflow-y-auto">
+        <DialogContent className="max-w-2xl max-h-[85vh] overflow-y-auto">
           <DialogHeader>
             <DialogTitle>ТЗ №{detailTm?.registration_number || '—'}</DialogTitle>
+            <DialogDescription>
+              {detailTm?.actual ? 'Действующий' : 'Недействующий'} товарный знак
+            </DialogDescription>
           </DialogHeader>
           {detailTm && (
-            <div className="grid grid-cols-1 gap-3 text-sm">
-              <InfoRow label="Правообладатель" value={detailTm.right_holder_name} />
-              <InfoRow label="Правообладатель (ин.)" value={detailTm.foreign_right_holder_name} />
-              <InfoRow label="ИНН" value={detailTm.right_holder_inn} />
-              <InfoRow label="ОГРН" value={detailTm.right_holder_ogrn} />
-              <InfoRow label="Адрес" value={detailTm.right_holder_address} />
-              <InfoRow label="Код страны" value={detailTm.right_holder_country_code} />
-              <InfoRow label="Дата регистрации" value={detailTm.registration_date ? new Date(detailTm.registration_date).toLocaleDateString('ru-RU') : null} />
-              <InfoRow label="Дата общеизвестности" value={detailTm.well_known_trademark_date ? new Date(detailTm.well_known_trademark_date).toLocaleDateString('ru-RU') : null} />
-              <InfoRow label="Связанные рег." value={detailTm.legally_related_registrations} />
-              <InfoRow label="Цвет" value={detailTm.color_specification} />
-              <InfoRow label="Неохраняемые элементы" value={detailTm.unprotected_elements} />
-              <InfoRow label="Вид знака" value={detailTm.kind_specification} />
-              <InfoRow label="Коллективный" value={detailTm.collective ? 'Да' : 'Нет'} />
-              <InfoRow label="Статус" value={detailTm.actual ? 'Действующий' : 'Недействующий'} />
+            <div className="space-y-4 text-sm">
+              {/* Основная информация */}
+              <div>
+                <h4 className="font-semibold text-base mb-2 text-foreground">Основная информация</h4>
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                  <InfoRow label="Рег. номер" value={detailTm.registration_number} />
+                  <InfoRow label="Дата регистрации" value={detailTm.registration_date ? new Date(detailTm.registration_date).toLocaleDateString('ru-RU') : null} />
+                  <InfoRow label="Статус" value={detailTm.actual ? 'Действующий' : 'Недействующий'} />
+                  <InfoRow label="Вид знака" value={detailTm.kind_specification} />
+                  <InfoRow label="Дата общеизвестности" value={detailTm.well_known_trademark_date ? new Date(detailTm.well_known_trademark_date).toLocaleDateString('ru-RU') : null} />
+                  <InfoRow label="Связанные рег." value={detailTm.legally_related_registrations} />
+                </div>
+              </div>
+
+              {/* Правообладатель */}
+              <div>
+                <h4 className="font-semibold text-base mb-2 text-foreground">Правообладатель</h4>
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                  <InfoRow label="Наименование" value={detailTm.right_holder_name} />
+                  <InfoRow label="Наименование (ин.)" value={detailTm.foreign_right_holder_name} />
+                  <InfoRow label="ИНН" value={detailTm.right_holder_inn} />
+                  <InfoRow label="ОГРН" value={detailTm.right_holder_ogrn} />
+                  <InfoRow label="Код страны" value={detailTm.right_holder_country_code} />
+                </div>
+                <div className="mt-2 space-y-2">
+                  <InfoRow label="Адрес" value={detailTm.right_holder_address} />
+                  <InfoRow label="Адрес для переписки" value={detailTm.correspondence_address} />
+                </div>
+              </div>
+
+              {/* Характеристики знака */}
+              {(detailTm.threedimensional || detailTm.holographic || detailTm.sound || detailTm.olfactory || detailTm.color || detailTm.light || detailTm.changing || detailTm.positional || detailTm.collective) && (
+                <div>
+                  <h4 className="font-semibold text-base mb-2 text-foreground">Характеристики знака</h4>
+                  <div className="flex flex-wrap gap-2">
+                    {detailTm.collective && <Badge variant="outline">Коллективный</Badge>}
+                    {detailTm.threedimensional && <Badge variant="outline">Объёмный (3D)</Badge>}
+                    {detailTm.holographic && <Badge variant="outline">Голографический</Badge>}
+                    {detailTm.sound && <Badge variant="outline">Звуковой</Badge>}
+                    {detailTm.olfactory && <Badge variant="outline">Обонятельный</Badge>}
+                    {detailTm.color && <Badge variant="outline">Цветовой</Badge>}
+                    {detailTm.light && <Badge variant="outline">Световой</Badge>}
+                    {detailTm.changing && <Badge variant="outline">Изменяющийся</Badge>}
+                    {detailTm.positional && <Badge variant="outline">Позиционный</Badge>}
+                  </div>
+                </div>
+              )}
+
+              {/* Дополнительно */}
+              {(detailTm.color_specification || detailTm.unprotected_elements || detailTm.collective_users || detailTm.extraction_from_charter) && (
+                <div>
+                  <h4 className="font-semibold text-base mb-2 text-foreground">Дополнительно</h4>
+                  <div className="space-y-2">
+                    <InfoRow label="Указание цвета" value={detailTm.color_specification} />
+                    <InfoRow label="Неохраняемые элементы" value={detailTm.unprotected_elements} />
+                    <InfoRow label="Пользователи коллективного ТЗ" value={detailTm.collective_users} />
+                    <InfoRow label="Выписка из устава" value={detailTm.extraction_from_charter} />
+                  </div>
+                </div>
+              )}
+
+              {/* Метаданные */}
+              {detailTm.metadata && Object.keys(detailTm.metadata).length > 0 && (
+                <div>
+                  <h4 className="font-semibold text-base mb-2 text-foreground">Метаданные</h4>
+                  <pre className="bg-muted p-3 rounded text-xs overflow-auto max-h-[200px]">
+                    {JSON.stringify(detailTm.metadata, null, 2)}
+                  </pre>
+                </div>
+              )}
+
+              <div className="text-xs text-muted-foreground pt-2 border-t">
+                Добавлено: {new Date(detailTm.created_at).toLocaleString('ru-RU')}
+              </div>
             </div>
           )}
         </DialogContent>
