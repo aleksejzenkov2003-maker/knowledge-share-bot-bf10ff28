@@ -255,12 +255,14 @@ export default function Trademarks() {
             if (BOOLEAN_FIELDS.has(dbField)) {
               row[dbField] = val === '1' || val.toLowerCase() === 'true' || val.toLowerCase() === 'yes';
             } else if (DATE_FIELDS.has(dbField)) {
-              // Try to parse date - accept YYYY-MM-DD or DD.MM.YYYY
+              // Accept YYYY-MM-DD, DD.MM.YYYY, or YYYYMMDD
               if (/^\d{4}-\d{2}-\d{2}/.test(val)) {
                 row[dbField] = val.substring(0, 10);
               } else if (/^\d{2}\.\d{2}\.\d{4}/.test(val)) {
                 const [d, m, y] = val.split('.');
                 row[dbField] = `${y}-${m}-${d}`;
+              } else if (/^\d{8}$/.test(val)) {
+                row[dbField] = `${val.substring(0, 4)}-${val.substring(4, 6)}-${val.substring(6, 8)}`;
               } else {
                 row[dbField] = null;
               }
