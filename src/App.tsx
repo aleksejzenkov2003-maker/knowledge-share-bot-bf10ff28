@@ -35,6 +35,7 @@ import Projects from "./pages/Projects";
 import ProjectChat from "./pages/ProjectChat";
 import Reputation from "./pages/Reputation";
 import SbisReport from "./pages/SbisReport";
+import Trademarks from "./pages/Trademarks";
 import NotFound from "./pages/NotFound";
 
 const queryClient = new QueryClient();
