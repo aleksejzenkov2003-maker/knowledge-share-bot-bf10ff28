@@ -105,7 +105,6 @@ const FIELD_MAP: Record<string, string> = {
   changing: 'changing',
   positional: 'positional',
   actual: 'actual',
-  publication_url: 'publication_url',
 };
 
 const BOOLEAN_FIELDS = new Set([
