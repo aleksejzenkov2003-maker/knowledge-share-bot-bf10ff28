@@ -12,7 +12,7 @@ import {
 import { Badge } from '@/components/ui/badge';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { useToast } from '@/hooks/use-toast';
-import { Upload, Search, Trash2, ChevronLeft, ChevronRight, FileSpreadsheet, X, Eraser } from 'lucide-react';
+import { Upload, Search, Trash2, ChevronLeft, ChevronRight, FileSpreadsheet, X, Eraser, ExternalLink, ChevronDown } from 'lucide-react';
 import {
   Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter,
 } from '@/components/ui/dialog';
@@ -20,6 +20,9 @@ import {
   AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent,
   AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle,
 } from '@/components/ui/alert-dialog';
+import {
+  Collapsible, CollapsibleContent, CollapsibleTrigger,
+} from '@/components/ui/collapsible';
 
 interface Trademark {
   id: string;
@@ -52,6 +55,31 @@ interface Trademark {
   metadata: any;
   created_at: string;
   updated_at: string;
+  description_element: string | null;
+  description_image: string | null;
+  transliteration: string | null;
+  translation: string | null;
+  note: string | null;
+  publication_url: string | null;
+  threedimensional_specification: string | null;
+  holographic_specification: string | null;
+  sound_specification: string | null;
+  olfactory_specification: string | null;
+  color_trademark_specification: string | null;
+  light_specification: string | null;
+  changing_specification: string | null;
+  positional_specification: string | null;
+  place_name_specification: string | null;
+  phonetics_specification: string | null;
+  change_right_holder_name_history: string | null;
+  change_right_holder_address_history: string | null;
+  change_correspondence_address_history: string | null;
+  change_legal_related_registrations_history: string | null;
+  change_color_specification_history: string | null;
+  change_disclaimer_history: string | null;
+  change_description_element_history: string | null;
+  change_description_image_history: string | null;
+  change_note_history: string | null;
 }
 
 const PAGE_SIZE = 50;
@@ -105,8 +133,10 @@ const FIELD_MAP: Record<string, string> = {
   collective: 'collective',
   collective_users: 'collective_users',
   extraction_from_charter_of_the_collective_trademark: 'extraction_from_charter',
+  extraction_from_charter: 'extraction_from_charter',
   color_specification: 'color_specification',
   unprotected_elements: 'unprotected_elements',
+  disclaimer: 'unprotected_elements',
   kind_specification: 'kind_specification',
   threedimensional: 'threedimensional',
   holographic: 'holographic',
@@ -117,6 +147,31 @@ const FIELD_MAP: Record<string, string> = {
   changing: 'changing',
   positional: 'positional',
   actual: 'actual',
+  description_element: 'description_element',
+  description_image: 'description_image',
+  transliteration: 'transliteration',
+  translation: 'translation',
+  note: 'note',
+  publication_url: 'publication_url',
+  threedimensional_specification: 'threedimensional_specification',
+  holographic_specification: 'holographic_specification',
+  sound_specification: 'sound_specification',
+  olfactory_specification: 'olfactory_specification',
+  color_trademark_specification: 'color_trademark_specification',
+  light_specification: 'light_specification',
+  changing_specification: 'changing_specification',
+  positional_specification: 'positional_specification',
+  place_name_specification: 'place_name_specification',
+  phonetics_specification: 'phonetics_specification',
+  change_right_holder_name_history: 'change_right_holder_name_history',
+  change_right_holder_address_history: 'change_right_holder_address_history',
+  change_correspondence_address_history: 'change_correspondence_address_history',
+  change_legal_related_registrations_history: 'change_legal_related_registrations_history',
+  change_color_specification_history: 'change_color_specification_history',
+  change_disclaimer_history: 'change_disclaimer_history',
+  change_description_element_history: 'change_description_element_history',
+  change_description_image_history: 'change_description_image_history',
+  change_note_history: 'change_note_history',
 };
 
 const BOOLEAN_FIELDS = new Set([
@@ -541,6 +596,17 @@ export default function Trademarks() {
                 </div>
               </div>
 
+              {/* Публикация */}
+              {detailTm.publication_url && (
+                <div>
+                  <h4 className="font-semibold text-base mb-2 text-foreground">Публикация</h4>
+                  <a href={detailTm.publication_url} target="_blank" rel="noopener noreferrer" className="text-primary hover:underline inline-flex items-center gap-1">
+                    <ExternalLink className="h-3.5 w-3.5" />
+                    Открыть на сайте ФИПС
+                  </a>
+                </div>
+              )}
+
               {/* Правообладатель */}
               <div>
                 <h4 className="font-semibold text-base mb-2 text-foreground">Правообладатель</h4>
@@ -556,6 +622,20 @@ export default function Trademarks() {
                   <InfoRow label="Адрес для переписки" value={detailTm.correspondence_address} />
                 </div>
               </div>
+
+              {/* Описание обозначения */}
+              {(detailTm.description_element || detailTm.description_image || detailTm.transliteration || detailTm.translation || detailTm.note) && (
+                <div>
+                  <h4 className="font-semibold text-base mb-2 text-foreground">Описание обозначения</h4>
+                  <div className="space-y-2">
+                    <InfoRow label="Описание" value={detailTm.description_element} />
+                    <InfoRow label="Изображение" value={detailTm.description_image} />
+                    <InfoRow label="Транслитерация" value={detailTm.transliteration} />
+                    <InfoRow label="Перевод" value={detailTm.translation} />
+                    <InfoRow label="Примечание" value={detailTm.note} />
+                  </div>
+                </div>
+              )}
 
               {/* Характеристики знака */}
               {(detailTm.threedimensional || detailTm.holographic || detailTm.sound || detailTm.olfactory || detailTm.color || detailTm.light || detailTm.changing || detailTm.positional || detailTm.collective) && (
@@ -575,6 +655,25 @@ export default function Trademarks() {
                 </div>
               )}
 
+              {/* Спецификации */}
+              {(detailTm.threedimensional_specification || detailTm.holographic_specification || detailTm.sound_specification || detailTm.olfactory_specification || detailTm.color_trademark_specification || detailTm.light_specification || detailTm.changing_specification || detailTm.positional_specification || detailTm.place_name_specification || detailTm.phonetics_specification) && (
+                <div>
+                  <h4 className="font-semibold text-base mb-2 text-foreground">Спецификации</h4>
+                  <div className="space-y-2">
+                    <InfoRow label="Объёмный (3D)" value={detailTm.threedimensional_specification} />
+                    <InfoRow label="Голографический" value={detailTm.holographic_specification} />
+                    <InfoRow label="Звуковой" value={detailTm.sound_specification} />
+                    <InfoRow label="Обонятельный" value={detailTm.olfactory_specification} />
+                    <InfoRow label="Цветовой ТЗ" value={detailTm.color_trademark_specification} />
+                    <InfoRow label="Световой" value={detailTm.light_specification} />
+                    <InfoRow label="Изменяющийся" value={detailTm.changing_specification} />
+                    <InfoRow label="Позиционный" value={detailTm.positional_specification} />
+                    <InfoRow label="Географическое указание" value={detailTm.place_name_specification} />
+                    <InfoRow label="Звуковая характеристика" value={detailTm.phonetics_specification} />
+                  </div>
+                </div>
+              )}
+
               {/* Дополнительно */}
               {(detailTm.color_specification || detailTm.unprotected_elements || detailTm.collective_users || detailTm.extraction_from_charter) && (
                 <div>
@@ -586,6 +685,29 @@ export default function Trademarks() {
                     <InfoRow label="Выписка из устава" value={detailTm.extraction_from_charter} />
                   </div>
                 </div>
+              )}
+
+              {/* История изменений */}
+              {(detailTm.change_right_holder_name_history || detailTm.change_right_holder_address_history || detailTm.change_correspondence_address_history || detailTm.change_legal_related_registrations_history || detailTm.change_color_specification_history || detailTm.change_disclaimer_history || detailTm.change_description_element_history || detailTm.change_description_image_history || detailTm.change_note_history) && (
+                <Collapsible>
+                  <CollapsibleTrigger asChild>
+                    <Button variant="ghost" className="w-full justify-between px-0 hover:bg-transparent">
+                      <h4 className="font-semibold text-base text-foreground">История изменений</h4>
+                      <ChevronDown className="h-4 w-4" />
+                    </Button>
+                  </CollapsibleTrigger>
+                  <CollapsibleContent className="space-y-2 pt-2">
+                    <InfoRow label="Наименование правообладателя" value={detailTm.change_right_holder_name_history} />
+                    <InfoRow label="Адрес правообладателя" value={detailTm.change_right_holder_address_history} />
+                    <InfoRow label="Адрес для переписки" value={detailTm.change_correspondence_address_history} />
+                    <InfoRow label="Связанные регистрации" value={detailTm.change_legal_related_registrations_history} />
+                    <InfoRow label="Цветовое сочетание" value={detailTm.change_color_specification_history} />
+                    <InfoRow label="Неохраняемые элементы" value={detailTm.change_disclaimer_history} />
+                    <InfoRow label="Описание обозначения" value={detailTm.change_description_element_history} />
+                    <InfoRow label="Изображение обозначения" value={detailTm.change_description_image_history} />
+                    <InfoRow label="Примечание" value={detailTm.change_note_history} />
+                  </CollapsibleContent>
+                </Collapsible>
               )}
 
               {/* Метаданные */}
