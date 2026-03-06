@@ -447,7 +447,8 @@ export default function Trademarks() {
                       <TableRow>
                         <TableHead>Рег. номер</TableHead>
                         <TableHead>Правообладатель</TableHead>
-                        <TableHead>ИНН</TableHead>
+                        <TableHead>Дата рег.</TableHead>
+                        <TableHead>Страна</TableHead>
                         <TableHead>Статус</TableHead>
                       </TableRow>
                     </TableHeader>
@@ -455,9 +456,10 @@ export default function Trademarks() {
                       {previewData.map((row, i) => (
                         <TableRow key={i}>
                           <TableCell className="text-sm">{row.registration_number || '—'}</TableCell>
-                          <TableCell className="text-sm truncate max-w-[200px]">{row.right_holder_name || '—'}</TableCell>
-                          <TableCell className="text-sm">{row.right_holder_inn || '—'}</TableCell>
-                          <TableCell className="text-sm">{row.actual === '1' || row.actual === true ? 'Действ.' : 'Недейств.'}</TableCell>
+                          <TableCell className="text-sm truncate max-w-[200px]">{row.right_holder_name || row.foreign_right_holder_name || '—'}</TableCell>
+                          <TableCell className="text-sm">{row.registration_date || '—'}</TableCell>
+                          <TableCell className="text-sm">{row.right_holder_country_code || '—'}</TableCell>
+                          <TableCell className="text-sm">{row.actual === 'true' || row.actual === '1' || row.actual === true ? 'Действ.' : 'Недейств.'}</TableCell>
                         </TableRow>
                       ))}
                     </TableBody>
