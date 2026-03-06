@@ -234,7 +234,7 @@ export default function Trademarks() {
       const text = await selectedFile.text();
       const lines = text.split(/\r?\n/).filter(l => l.trim());
       const delimiter = lines[0].includes(';') ? ';' : ',';
-      const headers = parseCSVLine(lines[0], delimiter).map(h => h.replace(/^"|"$/g, '').trim());
+      const headers = parseCSVLine(lines[0], delimiter).map(h => normalizeHeader(h.replace(/^"|"$/g, '').trim()));
 
       const BATCH_SIZE = 500;
       let totalImported = 0;
