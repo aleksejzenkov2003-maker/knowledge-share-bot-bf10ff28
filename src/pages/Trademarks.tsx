@@ -126,6 +126,8 @@ export default function Trademarks() {
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
   const [deleteId, setDeleteId] = useState<string | null>(null);
   const [detailTm, setDetailTm] = useState<Trademark | null>(null);
+  const [clearAllOpen, setClearAllOpen] = useState(false);
+  const [clearing, setClearing] = useState(false);
 
   const { data: trademarks, isLoading } = useQuery({
     queryKey: ['trademarks', search, statusFilter, page],
