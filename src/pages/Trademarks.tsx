@@ -198,7 +198,8 @@ export default function Trademarks() {
 
     const reader = new FileReader();
     reader.onload = (ev) => {
-      const text = ev.target?.result as string;
+      // Strip BOM character
+      const text = (ev.target?.result as string).replace(/^\uFEFF/, '');
       const lines = text.split(/\r?\n/).filter(l => l.trim());
       if (lines.length < 2) {
         toast({ title: 'Файл пуст', variant: 'destructive' });
