@@ -134,6 +134,10 @@ function SectionHeader({ icon: Icon, title, badge }: { icon: any; title: string;
 
 export function ReputationCompanyCard({ data, compact = false }: ReputationCompanyCardProps) {
   const [expanded, setExpanded] = useState(!compact);
+  const [webResult, setWebResult] = useState<string | null>(null);
+  const [webCitations, setWebCitations] = useState<string[]>([]);
+  const [webLoading, setWebLoading] = useState(false);
+  const [webError, setWebError] = useState<string | null>(null);
 
   const name = extractField(data, 'Name', 'ShortName', 'FullName') || 'Без названия';
   const inn = extractField(data, 'Inn');

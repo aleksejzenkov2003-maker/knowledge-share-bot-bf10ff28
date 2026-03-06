@@ -1061,7 +1061,12 @@ serve(async (req) => {
           
           if (cardRes.ok) {
             reputationCompanyData = normalizeCompanyData(await cardRes.json());
-            // Merge contacts from the original select command context (search results may have had them)
+            // Merge name from select context if card didn't return it
+            if (!reputationCompanyData.Name) {
+              // Try to get name from the select message context
+              const nameMatch = message.match(/(?:досье|компани[юяи])\s+[«"]?([^«»"]+)[»"]?/i);
+              if (nameMatch) reputationCompanyData.Name = nameMatch[1].trim();
+            }
             reputationContext = JSON.stringify(reputationCompanyData, null, 2);
             console.log(`Reputation: Got card (${reputationContext.length} chars)`);
           } else {
