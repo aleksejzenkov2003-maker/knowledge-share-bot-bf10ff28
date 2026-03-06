@@ -1536,6 +1536,108 @@ export type Database = {
           },
         ]
       }
+      trademarks: {
+        Row: {
+          actual: boolean | null
+          changing: boolean | null
+          collective: boolean | null
+          collective_users: string | null
+          color: boolean | null
+          color_specification: string | null
+          correspondence_address: string | null
+          created_at: string
+          created_by: string | null
+          extraction_from_charter: string | null
+          foreign_right_holder_name: string | null
+          holographic: boolean | null
+          id: string
+          kind_specification: string | null
+          legally_related_registrations: string | null
+          light: boolean | null
+          metadata: Json | null
+          olfactory: boolean | null
+          positional: boolean | null
+          registration_date: string | null
+          registration_number: string | null
+          right_holder_address: string | null
+          right_holder_country_code: string | null
+          right_holder_inn: string | null
+          right_holder_name: string | null
+          right_holder_ogrn: string | null
+          sound: boolean | null
+          threedimensional: boolean | null
+          unprotected_elements: string | null
+          updated_at: string
+          well_known_trademark_date: string | null
+        }
+        Insert: {
+          actual?: boolean | null
+          changing?: boolean | null
+          collective?: boolean | null
+          collective_users?: string | null
+          color?: boolean | null
+          color_specification?: string | null
+          correspondence_address?: string | null
+          created_at?: string
+          created_by?: string | null
+          extraction_from_charter?: string | null
+          foreign_right_holder_name?: string | null
+          holographic?: boolean | null
+          id?: string
+          kind_specification?: string | null
+          legally_related_registrations?: string | null
+          light?: boolean | null
+          metadata?: Json | null
+          olfactory?: boolean | null
+          positional?: boolean | null
+          registration_date?: string | null
+          registration_number?: string | null
+          right_holder_address?: string | null
+          right_holder_country_code?: string | null
+          right_holder_inn?: string | null
+          right_holder_name?: string | null
+          right_holder_ogrn?: string | null
+          sound?: boolean | null
+          threedimensional?: boolean | null
+          unprotected_elements?: string | null
+          updated_at?: string
+          well_known_trademark_date?: string | null
+        }
+        Update: {
+          actual?: boolean | null
+          changing?: boolean | null
+          collective?: boolean | null
+          collective_users?: string | null
+          color?: boolean | null
+          color_specification?: string | null
+          correspondence_address?: string | null
+          created_at?: string
+          created_by?: string | null
+          extraction_from_charter?: string | null
+          foreign_right_holder_name?: string | null
+          holographic?: boolean | null
+          id?: string
+          kind_specification?: string | null
+          legally_related_registrations?: string | null
+          light?: boolean | null
+          metadata?: Json | null
+          olfactory?: boolean | null
+          positional?: boolean | null
+          registration_date?: string | null
+          registration_number?: string | null
+          right_holder_address?: string | null
+          right_holder_country_code?: string | null
+          right_holder_inn?: string | null
+          right_holder_name?: string | null
+          right_holder_ogrn?: string | null
+          sound?: boolean | null
+          threedimensional?: boolean | null
+          unprotected_elements?: string | null
+          updated_at?: string
+          well_known_trademark_date?: string | null
+        }
+        Relationships: []
+      }
       user_roles: {
         Row: {
           created_at: string

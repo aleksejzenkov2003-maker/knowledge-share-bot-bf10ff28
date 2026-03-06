@@ -35,6 +35,7 @@ import Projects from "./pages/Projects";
 import ProjectChat from "./pages/ProjectChat";
 import Reputation from "./pages/Reputation";
 import SbisReport from "./pages/SbisReport";
+import Trademarks from "./pages/Trademarks";
 import NotFound from "./pages/NotFound";
 
 const queryClient = new QueryClient();
@@ -164,6 +165,11 @@ const App = () => (
             <Route path="/sbis" element={
               <ProtectedRoute allowedRoles={['admin']}>
                 <AdminLayout><SbisReport /></AdminLayout>
+              </ProtectedRoute>
+            } />
+            <Route path="/trademarks" element={
+              <ProtectedRoute allowedRoles={['admin']}>
+                <AdminLayout><Trademarks /></AdminLayout>
               </ProtectedRoute>
             } />
             <Route path="*" element={<NotFound />} />
