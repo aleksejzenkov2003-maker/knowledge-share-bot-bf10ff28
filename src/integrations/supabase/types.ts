@@ -1539,24 +1539,45 @@ export type Database = {
       trademarks: {
         Row: {
           actual: boolean | null
+          change_color_specification_history: string | null
+          change_correspondence_address_history: string | null
+          change_description_element_history: string | null
+          change_description_image_history: string | null
+          change_disclaimer_history: string | null
+          change_legal_related_registrations_history: string | null
+          change_note_history: string | null
+          change_right_holder_address_history: string | null
+          change_right_holder_name_history: string | null
           changing: boolean | null
+          changing_specification: string | null
           collective: boolean | null
           collective_users: string | null
           color: boolean | null
           color_specification: string | null
+          color_trademark_specification: string | null
           correspondence_address: string | null
           created_at: string
           created_by: string | null
+          description_element: string | null
+          description_image: string | null
           extraction_from_charter: string | null
           foreign_right_holder_name: string | null
           holographic: boolean | null
+          holographic_specification: string | null
           id: string
           kind_specification: string | null
           legally_related_registrations: string | null
           light: boolean | null
+          light_specification: string | null
           metadata: Json | null
+          note: string | null
           olfactory: boolean | null
+          olfactory_specification: string | null
+          phonetics_specification: string | null
+          place_name_specification: string | null
           positional: boolean | null
+          positional_specification: string | null
+          publication_url: string | null
           registration_date: string | null
           registration_number: string | null
           right_holder_address: string | null
@@ -1565,31 +1586,56 @@ export type Database = {
           right_holder_name: string | null
           right_holder_ogrn: string | null
           sound: boolean | null
+          sound_specification: string | null
           threedimensional: boolean | null
+          threedimensional_specification: string | null
+          translation: string | null
+          transliteration: string | null
           unprotected_elements: string | null
           updated_at: string
           well_known_trademark_date: string | null
         }
         Insert: {
           actual?: boolean | null
+          change_color_specification_history?: string | null
+          change_correspondence_address_history?: string | null
+          change_description_element_history?: string | null
+          change_description_image_history?: string | null
+          change_disclaimer_history?: string | null
+          change_legal_related_registrations_history?: string | null
+          change_note_history?: string | null
+          change_right_holder_address_history?: string | null
+          change_right_holder_name_history?: string | null
           changing?: boolean | null
+          changing_specification?: string | null
           collective?: boolean | null
           collective_users?: string | null
           color?: boolean | null
           color_specification?: string | null
+          color_trademark_specification?: string | null
           correspondence_address?: string | null
           created_at?: string
           created_by?: string | null
+          description_element?: string | null
+          description_image?: string | null
           extraction_from_charter?: string | null
           foreign_right_holder_name?: string | null
           holographic?: boolean | null
+          holographic_specification?: string | null
           id?: string
           kind_specification?: string | null
           legally_related_registrations?: string | null
           light?: boolean | null
+          light_specification?: string | null
           metadata?: Json | null
+          note?: string | null
           olfactory?: boolean | null
+          olfactory_specification?: string | null
+          phonetics_specification?: string | null
+          place_name_specification?: string | null
           positional?: boolean | null
+          positional_specification?: string | null
+          publication_url?: string | null
           registration_date?: string | null
           registration_number?: string | null
           right_holder_address?: string | null
@@ -1598,31 +1644,56 @@ export type Database = {
           right_holder_name?: string | null
           right_holder_ogrn?: string | null
           sound?: boolean | null
+          sound_specification?: string | null
           threedimensional?: boolean | null
+          threedimensional_specification?: string | null
+          translation?: string | null
+          transliteration?: string | null
           unprotected_elements?: string | null
           updated_at?: string
           well_known_trademark_date?: string | null
         }
         Update: {
           actual?: boolean | null
+          change_color_specification_history?: string | null
+          change_correspondence_address_history?: string | null
+          change_description_element_history?: string | null
+          change_description_image_history?: string | null
+          change_disclaimer_history?: string | null
+          change_legal_related_registrations_history?: string | null
+          change_note_history?: string | null
+          change_right_holder_address_history?: string | null
+          change_right_holder_name_history?: string | null
           changing?: boolean | null
+          changing_specification?: string | null
           collective?: boolean | null
           collective_users?: string | null
           color?: boolean | null
           color_specification?: string | null
+          color_trademark_specification?: string | null
           correspondence_address?: string | null
           created_at?: string
           created_by?: string | null
+          description_element?: string | null
+          description_image?: string | null
           extraction_from_charter?: string | null
           foreign_right_holder_name?: string | null
           holographic?: boolean | null
+          holographic_specification?: string | null
           id?: string
           kind_specification?: string | null
           legally_related_registrations?: string | null
           light?: boolean | null
+          light_specification?: string | null
           metadata?: Json | null
+          note?: string | null
           olfactory?: boolean | null
+          olfactory_specification?: string | null
+          phonetics_specification?: string | null
+          place_name_specification?: string | null
           positional?: boolean | null
+          positional_specification?: string | null
+          publication_url?: string | null
           registration_date?: string | null
           registration_number?: string | null
           right_holder_address?: string | null
@@ -1631,7 +1702,11 @@ export type Database = {
           right_holder_name?: string | null
           right_holder_ogrn?: string | null
           sound?: boolean | null
+          sound_specification?: string | null
           threedimensional?: boolean | null
+          threedimensional_specification?: string | null
+          translation?: string | null
+          transliteration?: string | null
           unprotected_elements?: string | null
           updated_at?: string
           well_known_trademark_date?: string | null
