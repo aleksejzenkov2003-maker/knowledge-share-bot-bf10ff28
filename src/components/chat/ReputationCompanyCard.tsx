@@ -7,10 +7,12 @@ import {
   Building2, MapPin, Phone, Mail, Globe, Calendar, Users, Shield,
   AlertTriangle, CheckCircle, XCircle, ChevronDown, ChevronUp, Copy,
   Briefcase, Hash, FileText, Scale, Award, ExternalLink, TrendingUp,
-  Receipt, Landmark, Download, DollarSign
+  Receipt, Landmark, Download, DollarSign, Search, Loader2
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { toast } from "sonner";
+import { supabase } from "@/integrations/supabase/client";
+import { MarkdownWithCitations } from "./MarkdownWithCitations";
 
 // Safe string converter — handles objects, arrays, primitives
 function safeString(val: any): string {
