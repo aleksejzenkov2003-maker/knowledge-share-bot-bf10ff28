@@ -74,6 +74,10 @@ const parseCSVLine = (line: string, delimiter: string): string[] => {
   return result;
 };
 
+// Normalize header: lowercase, replace spaces/hyphens with underscores
+const normalizeHeader = (h: string): string =>
+  h.toLowerCase().replace(/[\s\-]+/g, '_').replace(/[^a-z0-9_]/g, '');
+
 const FIELD_MAP: Record<string, string> = {
   registration_number: 'registration_number',
   registration_date: 'registration_date',
@@ -101,6 +105,7 @@ const FIELD_MAP: Record<string, string> = {
   changing: 'changing',
   positional: 'positional',
   actual: 'actual',
+  publication_url: 'publication_url',
 };
 
 const BOOLEAN_FIELDS = new Set([
