@@ -1123,9 +1123,11 @@ serve(async (req) => {
                   })().catch(e => { console.error('TM error:', e); return []; }),
                 ]);
                 
-                if (cardRes2.ok) {
+      if (cardRes2.ok) {
                   reputationCompanyData = normalizeCompanyData(await cardRes2.json());
-                  // Merge contacts from search result (card API often doesn't return them)
+                  // Merge contacts and name from search result (card API often doesn't return them)
+                  if (!reputationCompanyData.Name && firstResult.Name) reputationCompanyData.Name = firstResult.Name;
+                  if (!reputationCompanyData.ShortName && firstResult.ShortName) reputationCompanyData.ShortName = firstResult.ShortName;
                   if (!reputationCompanyData.Phones?.length && firstResult.Phones?.length) reputationCompanyData.Phones = firstResult.Phones;
                   if (!reputationCompanyData.Emails?.length && firstResult.Emails?.length) reputationCompanyData.Emails = firstResult.Emails;
                   if (!reputationCompanyData.Sites?.length && firstResult.Sites?.length) reputationCompanyData.Sites = firstResult.Sites;
@@ -1133,6 +1135,9 @@ serve(async (req) => {
                   if (!reputationCompanyData.EmployeesCount && firstResult.EmployeesCount) reputationCompanyData.EmployeesCount = firstResult.EmployeesCount;
                   if (!reputationCompanyData.RsmpCategory && firstResult.RsmpCategory) reputationCompanyData.RsmpCategory = firstResult.RsmpCategory;
                   if (!reputationCompanyData.Link && firstResult.Link) reputationCompanyData.Link = firstResult.Link;
+                  if (!reputationCompanyData.Address && firstResult.Address) reputationCompanyData.Address = firstResult.Address;
+                  if (!reputationCompanyData.Status && firstResult.Status) reputationCompanyData.Status = firstResult.Status;
+                  if (!reputationCompanyData.StatusText && firstResult.StatusText) reputationCompanyData.StatusText = firstResult.StatusText;
                   reputationContext = JSON.stringify(reputationCompanyData, null, 2);
                   if (tmData2.length > 0) {
                     reputationCompanyData._trademarks = tmData2.slice(0, 20);
