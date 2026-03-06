@@ -1131,7 +1131,13 @@ serve(async (req) => {
       if (cardRes2.ok) {
                   reputationCompanyData = normalizeCompanyData(await cardRes2.json());
                   // Merge contacts and name from search result (card API often doesn't return them)
-                  if (!reputationCompanyData.Name && firstResult.Name) reputationCompanyData.Name = firstResult.Name;
+                  // Always prefer search result Name — card API often returns object instead of string
+                  if (firstResult.Name && typeof firstResult.Name === 'string') {
+                    reputationCompanyData._searchResultName = firstResult.Name;
+                    if (!reputationCompanyData.Name || typeof reputationCompanyData.Name !== 'string') {
+                      reputationCompanyData.Name = firstResult.Name;
+                    }
+                  }
                   if (!reputationCompanyData.ShortName && firstResult.ShortName) reputationCompanyData.ShortName = firstResult.ShortName;
                   if (!reputationCompanyData.Phones?.length && firstResult.Phones?.length) reputationCompanyData.Phones = firstResult.Phones;
                   if (!reputationCompanyData.Emails?.length && firstResult.Emails?.length) reputationCompanyData.Emails = firstResult.Emails;
@@ -1205,7 +1211,7 @@ serve(async (req) => {
           }
           return String(v);
         };
-        const companyName = ss(d.Name || d.ShortName || d.FullName || d.name || d.CompanyName || d.Title) || 'Компания';
+        const companyName = ss(d._searchResultName || d.Name || d.ShortName || d.FullName || d.name || d.CompanyName || d.Title) || 'Компания';
         textContent = `📋 **${companyName}** — досье в карточке ниже.`;
       } else {
         textContent = '❌ По вашему запросу ничего не найдено. Попробуйте уточнить ИНН, ОГРН или название компании.';
