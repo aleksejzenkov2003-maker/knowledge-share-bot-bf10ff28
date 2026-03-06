@@ -1187,7 +1187,7 @@ serve(async (req) => {
         // Multiple results found — user needs to select
         textContent = `🔍 **Найдено компаний: ${reputationSearchResults.length}**\n\nВыберите нужную компанию из списка ниже:`;
       } else if (reputationCompanyData) {
-        // Single company data — short summary (full data is in the card UI)
+        // Single company data — comprehensive summary
         const d = reputationCompanyData;
         const ss = (v: any): string => {
           if (v === null || v === undefined) return '';
@@ -1200,14 +1200,129 @@ serve(async (req) => {
           }
           return String(v);
         };
-        const companyName = ss(d.Name || d.ShortName || d.FullName) || 'Компания';
+        const companyName = ss(d.Name || d.ShortName || d.FullName || d.name || d.CompanyName || d.Title) || 'Компания';
         const statusText = ss(d.StatusText || d.StatusName || d.Status) || '';
         const innText = d.Inn ? `ИНН ${d.Inn}` : '';
+        const ogrnText = d.Ogrn ? `ОГРН ${d.Ogrn}` : '';
+        const statusEmoji = statusText.toLowerCase().includes('действ') ? '✅' : statusText.toLowerCase().includes('ликвид') || statusText.toLowerCase().includes('прекращ') ? '❌' : '⚪';
+        
         const parts: string[] = [];
-        parts.push(`📋 **${companyName}**${innText ? ` — ${innText}` : ''}${statusText ? ` — ${statusText}` : ''}`);
+        parts.push(`📋 **${companyName}**`);
+        
+        // Status line
+        if (statusText) parts.push(`${statusEmoji} Статус: **${statusText}**`);
+        
+        // Requisites
+        const reqParts: string[] = [];
+        if (innText) reqParts.push(innText);
+        if (ogrnText) reqParts.push(ogrnText);
+        if (d.Kpp) reqParts.push(`КПП ${ss(d.Kpp)}`);
+        if (reqParts.length > 0) parts.push(`🔢 ${reqParts.join(' | ')}`);
+        
+        // Address
         if (d.Address) parts.push(`📍 ${ss(d.Address)}`);
-        parts.push('\nПодробное досье отображено в карточке ниже.');
+        
+        // Director
+        let dirName = '';
+        let dirTitle = 'Руководитель';
+        if (d.DirectorName) {
+          dirName = ss(d.DirectorName);
+          dirTitle = ss(d.DirectorTitle) || dirTitle;
+        } else if (Array.isArray(d.Managers) && d.Managers.length > 0) {
+          const m0 = d.Managers[0];
+          dirName = ss(m0.Entity?.Name || m0.Entity?.Fio || m0.Name || m0.Fio || '');
+          const pos = Array.isArray(m0.Position) ? m0.Position[0]?.PositionName : m0.Position?.PositionName;
+          dirTitle = pos || ss(m0.PositionName) || dirTitle;
+        } else if (d.Head) {
+          dirName = ss(d.Head.Name || d.Head.Fio || d.Head);
+          dirTitle = d.Head.Position || dirTitle;
+        }
+        if (dirName) parts.push(`👤 ${dirTitle}: **${dirName}**`);
+        
+        // Main activity
+        const actCode = ss(d.MainActivityCode || (d.MainActivity?.Code) || d.Okved || '');
+        const actName = ss(d.MainActivityName || (d.MainActivity?.Name) || d.OkvedName || '');
+        if (actCode || actName) parts.push(`🏭 ОКВЭД: ${actCode}${actName ? ` — ${actName}` : ''}`);
+        
+        // Capital
+        const cap = d.AuthorizedCapital || (d.Capital?.Value ?? d.Capital);
+        if (cap) parts.push(`💰 Уставный капитал: ${typeof cap === 'number' ? cap.toLocaleString('ru-RU') + ' ₽' : ss(cap)}`);
+        
+        // Employees
+        if (d.EmployeesCount) parts.push(`👥 Сотрудников: ${ss(d.EmployeesCount)}`);
+        
+        // Registration date
+        if (d.RegistrationDate) parts.push(`📅 Дата регистрации: ${ss(d.RegistrationDate)}`);
+        
+        // SME category
+        if (d.RsmpCategory) parts.push(`📊 Категория МСП: ${ss(d.RsmpCategory)}`);
+        
+        parts.push('\n📇 Подробное досье отображено в карточке ниже.');
         textContent = parts.join('\n');
+
+        // ---- Perplexity web search ----
+        const PERPLEXITY_API_KEY = Deno.env.get('PERPLEXITY_API_KEY');
+        if (PERPLEXITY_API_KEY) {
+          try {
+            console.log('Reputation: Running Perplexity web search for', companyName);
+            const supabaseUrl = Deno.env.get('SUPABASE_URL')!;
+            const supabaseKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!;
+            const { createClient } = await import("https://esm.sh/@supabase/supabase-js@2");
+            const sb = createClient(supabaseUrl, supabaseKey);
+
+            // Fetch custom prompt
+            let webSystemPrompt = 'Ты — аналитик деловой репутации. Предоставляй структурированную, фактическую информацию о компаниях на основе открытых источников. Отвечай на русском языке.';
+            let webUserTemplate = `Составь подробное досье на компанию "{{companyName}}"{{identifiers}}.\n\nВключи следующие разделы:\n1. **Общая информация** — чем занимается компания, основная деятельность\n2. **История и ключевые факты** — когда основана, важные события\n3. **Репутация и отзывы** — что говорят о компании клиенты, партнёры, сотрудники\n4. **Новости** — последние упоминания в СМИ\n5. **Конкуренты и позиция на рынке** — основные конкуренты, доля рынка\n6. **Риски и проблемы** — судебные дела, скандалы, проблемы если есть\n\nОтвечай на русском языке. Будь максимально конкретен, приводи факты и цифры.`;
+
+            try {
+              const { data: promptData } = await sb
+                .from('system_prompts')
+                .select('prompt_text')
+                .eq('name', 'reputation-web-search')
+                .eq('is_active', true)
+                .limit(1)
+                .maybeSingle();
+              if (promptData?.prompt_text) webUserTemplate = promptData.prompt_text;
+            } catch (e) { console.warn('Failed to fetch web search prompt:', e); }
+
+            const identifiers = [d.Inn ? `ИНН ${d.Inn}` : '', d.Ogrn ? `ОГРН ${d.Ogrn}` : ''].filter(Boolean).join(', ');
+            const webPrompt = webUserTemplate
+              .replace('{{companyName}}', companyName)
+              .replace('{{identifiers}}', identifiers ? ` (${identifiers})` : '');
+
+            const perplexityRes = await fetch('https://api.perplexity.ai/chat/completions', {
+              method: 'POST',
+              headers: { 'Authorization': `Bearer ${PERPLEXITY_API_KEY}`, 'Content-Type': 'application/json' },
+              body: JSON.stringify({
+                model: 'sonar-pro',
+                messages: [
+                  { role: 'system', content: webSystemPrompt },
+                  { role: 'user', content: webPrompt },
+                ],
+                temperature: 0.1,
+              }),
+              signal: AbortSignal.timeout(30000),
+            });
+
+            if (perplexityRes.ok) {
+              const perplexityData = await perplexityRes.json();
+              const webContent = perplexityData.choices?.[0]?.message?.content || '';
+              const webCitations: string[] = perplexityData.citations || [];
+              if (webContent) {
+                textContent += '\n\n---\n\n🌐 **Информация из интернета**\n\n' + webContent;
+                if (webCitations.length > 0) {
+                  // Store citations in metadata
+                  reputationCompanyData._webCitations = webCitations;
+                }
+              }
+              console.log(`Reputation: Perplexity returned ${webContent.length} chars, ${webCitations.length} citations`);
+            } else {
+              console.error('Perplexity error:', perplexityRes.status, await perplexityRes.text());
+            }
+          } catch (webErr) {
+            console.error('Perplexity web search error:', webErr);
+          }
+        }
       } else {
         textContent = '❌ По вашему запросу ничего не найдено. Попробуйте уточнить ИНН, ОГРН или название компании.';
       }
