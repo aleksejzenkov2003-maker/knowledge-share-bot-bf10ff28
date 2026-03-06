@@ -231,7 +231,8 @@ export default function Trademarks() {
     setUploading(true);
 
     try {
-      const text = await selectedFile.text();
+      // Strip BOM character
+      const text = (await selectedFile.text()).replace(/^\uFEFF/, '');
       const lines = text.split(/\r?\n/).filter(l => l.trim());
       const delimiter = lines[0].includes(';') ? ';' : ',';
       const headers = parseCSVLine(lines[0], delimiter).map(h => normalizeHeader(h.replace(/^"|"$/g, '').trim()));
