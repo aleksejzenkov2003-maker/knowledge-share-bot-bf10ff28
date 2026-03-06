@@ -74,6 +74,10 @@ const parseCSVLine = (line: string, delimiter: string): string[] => {
   return result;
 };
 
+// Normalize header: lowercase, replace spaces/hyphens with underscores
+const normalizeHeader = (h: string): string =>
+  h.toLowerCase().replace(/[\s\-]+/g, '_').replace(/[^a-z0-9_]/g, '');
+
 const FIELD_MAP: Record<string, string> = {
   registration_number: 'registration_number',
   registration_date: 'registration_date',
@@ -202,7 +206,7 @@ export default function Trademarks() {
       }
 
       const delimiter = lines[0].includes(';') ? ';' : ',';
-      const headers = parseCSVLine(lines[0], delimiter).map(h => h.replace(/^"|"$/g, '').trim());
+      const headers = parseCSVLine(lines[0], delimiter).map(h => normalizeHeader(h.replace(/^"|"$/g, '').trim()));
 
       const rows: Record<string, any>[] = [];
       for (let i = 1; i < Math.min(lines.length, 6); i++) {
@@ -229,7 +233,7 @@ export default function Trademarks() {
       const text = await selectedFile.text();
       const lines = text.split(/\r?\n/).filter(l => l.trim());
       const delimiter = lines[0].includes(';') ? ';' : ',';
-      const headers = parseCSVLine(lines[0], delimiter).map(h => h.replace(/^"|"$/g, '').trim());
+      const headers = parseCSVLine(lines[0], delimiter).map(h => normalizeHeader(h.replace(/^"|"$/g, '').trim()));
 
       const BATCH_SIZE = 500;
       let totalImported = 0;
@@ -250,12 +254,14 @@ export default function Trademarks() {
             if (BOOLEAN_FIELDS.has(dbField)) {
               row[dbField] = val === '1' || val.toLowerCase() === 'true' || val.toLowerCase() === 'yes';
             } else if (DATE_FIELDS.has(dbField)) {
-              // Try to parse date - accept YYYY-MM-DD or DD.MM.YYYY
+              // Accept YYYY-MM-DD, DD.MM.YYYY, or YYYYMMDD
               if (/^\d{4}-\d{2}-\d{2}/.test(val)) {
                 row[dbField] = val.substring(0, 10);
               } else if (/^\d{2}\.\d{2}\.\d{4}/.test(val)) {
                 const [d, m, y] = val.split('.');
                 row[dbField] = `${y}-${m}-${d}`;
+              } else if (/^\d{8}$/.test(val)) {
+                row[dbField] = `${val.substring(0, 4)}-${val.substring(4, 6)}-${val.substring(6, 8)}`;
               } else {
                 row[dbField] = null;
               }
