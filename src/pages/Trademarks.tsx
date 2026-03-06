@@ -207,7 +207,7 @@ export default function Trademarks() {
       }
 
       const delimiter = lines[0].includes(';') ? ';' : ',';
-      const headers = parseCSVLine(lines[0], delimiter).map(h => h.replace(/^"|"$/g, '').trim());
+      const headers = parseCSVLine(lines[0], delimiter).map(h => normalizeHeader(h.replace(/^"|"$/g, '').trim()));
 
       const rows: Record<string, any>[] = [];
       for (let i = 1; i < Math.min(lines.length, 6); i++) {
