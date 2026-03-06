@@ -50,8 +50,6 @@ interface Trademark {
   positional: boolean | null;
   actual: boolean | null;
   metadata: any;
-  trademark_image_path: string | null;
-  has_trademark: boolean | null;
   created_at: string;
   updated_at: string;
 }
