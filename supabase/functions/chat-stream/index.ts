@@ -1211,7 +1211,7 @@ serve(async (req) => {
           }
           return String(v);
         };
-        const companyName = ss(d.Name || d.ShortName || d.FullName || d.name || d.CompanyName || d.Title) || 'Компания';
+        const companyName = ss(d._searchResultName || d.Name || d.ShortName || d.FullName || d.name || d.CompanyName || d.Title) || 'Компания';
         textContent = `📋 **${companyName}** — досье в карточке ниже.`;
       } else {
         textContent = '❌ По вашему запросу ничего не найдено. Попробуйте уточнить ИНН, ОГРН или название компании.';
