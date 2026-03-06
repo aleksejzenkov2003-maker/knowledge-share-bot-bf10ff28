@@ -167,6 +167,11 @@ const App = () => (
                 <AdminLayout><SbisReport /></AdminLayout>
               </ProtectedRoute>
             } />
+            <Route path="/trademarks" element={
+              <ProtectedRoute allowedRoles={['admin']}>
+                <AdminLayout><Trademarks /></AdminLayout>
+              </ProtectedRoute>
+            } />
             <Route path="*" element={<NotFound />} />
           </Routes>
           </TourProvider>
