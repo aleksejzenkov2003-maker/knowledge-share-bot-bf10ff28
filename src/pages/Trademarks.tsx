@@ -55,6 +55,31 @@ interface Trademark {
   metadata: any;
   created_at: string;
   updated_at: string;
+  description_element: string | null;
+  description_image: string | null;
+  transliteration: string | null;
+  translation: string | null;
+  note: string | null;
+  publication_url: string | null;
+  threedimensional_specification: string | null;
+  holographic_specification: string | null;
+  sound_specification: string | null;
+  olfactory_specification: string | null;
+  color_trademark_specification: string | null;
+  light_specification: string | null;
+  changing_specification: string | null;
+  positional_specification: string | null;
+  place_name_specification: string | null;
+  phonetics_specification: string | null;
+  change_right_holder_name_history: string | null;
+  change_right_holder_address_history: string | null;
+  change_correspondence_address_history: string | null;
+  change_legal_related_registrations_history: string | null;
+  change_color_specification_history: string | null;
+  change_disclaimer_history: string | null;
+  change_description_element_history: string | null;
+  change_description_image_history: string | null;
+  change_note_history: string | null;
 }
 
 const PAGE_SIZE = 50;
