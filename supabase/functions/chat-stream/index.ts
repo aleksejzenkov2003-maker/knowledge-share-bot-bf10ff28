@@ -1340,6 +1340,8 @@ serve(async (req) => {
             response_time_ms: responseTimeMs,
             reputation_results: reputationSearchResults.length > 0 ? reputationSearchResults : undefined,
             reputation_company_data: reputationCompanyData || undefined,
+            web_search_citations: reputationCompanyData?._webCitations || undefined,
+            web_search_used: !!reputationCompanyData?._webCitations,
           })}\n\n`));
           controller.enqueue(encoder.encode('data: [DONE]\n\n'));
           controller.close();
