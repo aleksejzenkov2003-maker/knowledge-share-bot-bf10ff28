@@ -12,7 +12,7 @@ import {
 import { Badge } from '@/components/ui/badge';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { useToast } from '@/hooks/use-toast';
-import { Upload, Search, Trash2, ChevronLeft, ChevronRight, FileSpreadsheet, X } from 'lucide-react';
+import { Upload, Search, Trash2, ChevronLeft, ChevronRight, FileSpreadsheet, X, Eraser } from 'lucide-react';
 import {
   Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter,
 } from '@/components/ui/dialog';
@@ -126,6 +126,8 @@ export default function Trademarks() {
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
   const [deleteId, setDeleteId] = useState<string | null>(null);
   const [detailTm, setDetailTm] = useState<Trademark | null>(null);
+  const [clearAllOpen, setClearAllOpen] = useState(false);
+  const [clearing, setClearing] = useState(false);
 
   const { data: trademarks, isLoading } = useQuery({
     queryKey: ['trademarks', search, statusFilter, page],
@@ -295,6 +297,23 @@ export default function Trademarks() {
     }
   }, [selectedFile, toast, queryClient]);
 
+  const handleClearAll = useCallback(async () => {
+    setClearing(true);
+    try {
+      const { error } = await supabase.from('trademarks').delete().neq('id', '00000000-0000-0000-0000-000000000000');
+      if (error) throw error;
+      queryClient.invalidateQueries({ queryKey: ['trademarks'] });
+      queryClient.invalidateQueries({ queryKey: ['trademarks-count'] });
+      toast({ title: 'База очищена' });
+      setClearAllOpen(false);
+      setPage(0);
+    } catch (err: any) {
+      toast({ title: 'Ошибка очистки', description: err.message, variant: 'destructive' });
+    } finally {
+      setClearing(false);
+    }
+  }, [queryClient, toast]);
+
   const totalPages = Math.ceil((totalCount ?? 0) / PAGE_SIZE);
 
   return (
@@ -306,10 +325,18 @@ export default function Trademarks() {
             {totalCount !== undefined ? `${totalCount} записей` : 'Загрузка...'}
           </p>
         </div>
-        <Button onClick={() => setUploadOpen(true)} className="gap-2">
-          <Upload className="h-4 w-4" />
-          Импорт CSV
-        </Button>
+        <div className="flex gap-2">
+          {(totalCount ?? 0) > 0 && (
+            <Button variant="outline" onClick={() => setClearAllOpen(true)} className="gap-2 text-destructive">
+              <Eraser className="h-4 w-4" />
+              Очистить
+            </Button>
+          )}
+          <Button onClick={() => setUploadOpen(true)} className="gap-2">
+            <Upload className="h-4 w-4" />
+            Импорт CSV
+          </Button>
+        </div>
       </div>
 
       {/* Filters */}
@@ -516,6 +543,23 @@ export default function Trademarks() {
             <AlertDialogCancel>Отмена</AlertDialogCancel>
             <AlertDialogAction onClick={() => deleteId && deleteMutation.mutate(deleteId)}>
               Удалить
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+      {/* Clear all confirmation */}
+      <AlertDialog open={clearAllOpen} onOpenChange={setClearAllOpen}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Очистить всю базу?</AlertDialogTitle>
+            <AlertDialogDescription>
+              Все {totalCount} записей будут удалены. Это действие нельзя отменить.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Отмена</AlertDialogCancel>
+            <AlertDialogAction onClick={handleClearAll} disabled={clearing}>
+              {clearing ? 'Очистка...' : 'Очистить'}
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>
