@@ -7,10 +7,12 @@ import {
   Building2, MapPin, Phone, Mail, Globe, Calendar, Users, Shield,
   AlertTriangle, CheckCircle, XCircle, ChevronDown, ChevronUp, Copy,
   Briefcase, Hash, FileText, Scale, Award, ExternalLink, TrendingUp,
-  Receipt, Landmark, Download, DollarSign
+  Receipt, Landmark, Download, DollarSign, Search, Loader2
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { toast } from "sonner";
+import { supabase } from "@/integrations/supabase/client";
+import { MarkdownWithCitations } from "./MarkdownWithCitations";
 
 // Safe string converter — handles objects, arrays, primitives
 function safeString(val: any): string {
@@ -132,6 +134,10 @@ function SectionHeader({ icon: Icon, title, badge }: { icon: any; title: string;
 
 export function ReputationCompanyCard({ data, compact = false }: ReputationCompanyCardProps) {
   const [expanded, setExpanded] = useState(!compact);
+  const [webResult, setWebResult] = useState<string | null>(null);
+  const [webCitations, setWebCitations] = useState<string[]>([]);
+  const [webLoading, setWebLoading] = useState(false);
+  const [webError, setWebError] = useState<string | null>(null);
 
   const name = extractField(data, 'Name', 'ShortName', 'FullName') || 'Без названия';
   const inn = extractField(data, 'Inn');
@@ -289,6 +295,24 @@ export function ReputationCompanyCard({ data, compact = false }: ReputationCompa
     }).catch(() => {
       toast.error('Ошибка копирования');
     });
+  };
+
+  const handleWebSearch = async () => {
+    setWebLoading(true);
+    setWebError(null);
+    try {
+      const { data: result, error } = await supabase.functions.invoke('reputation-web-search', {
+        body: { companyName: name, inn, ogrn },
+      });
+      if (error) throw error;
+      if (result?.error) throw new Error(result.error);
+      setWebResult(result.content || '');
+      setWebCitations(result.citations || []);
+    } catch (err: any) {
+      setWebError(err.message || 'Ошибка поиска');
+    } finally {
+      setWebLoading(false);
+    }
   };
 
   return (
@@ -652,6 +676,58 @@ export function ReputationCompanyCard({ data, compact = false }: ReputationCompa
               </div>
             </>
           )}
+          {/* Web Search */}
+          <Separator />
+          <div className="px-4 py-3">
+            <SectionHeader icon={Globe} title="Интернет" />
+            {!webResult && !webLoading && !webError && (
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={handleWebSearch}
+                className="gap-2"
+              >
+                <Search className="h-3.5 w-3.5" />
+                Найти в интернете
+              </Button>
+            )}
+            {webLoading && (
+              <div className="flex items-center gap-2 text-sm text-muted-foreground py-2">
+                <Loader2 className="h-4 w-4 animate-spin" />
+                Поиск информации...
+              </div>
+            )}
+            {webError && (
+              <div className="text-sm text-destructive py-1">{webError}</div>
+            )}
+            {webResult && (
+              <div className="text-sm mt-2 prose-sm max-w-none">
+                <MarkdownWithCitations
+                  content={webResult}
+                  perplexityCitations={webCitations}
+                />
+                {webCitations.length > 0 && (
+                  <div className="mt-3 flex flex-wrap gap-1.5">
+                    {webCitations.map((url, i) => {
+                      let domain = '';
+                      try { domain = new URL(url).hostname.replace('www.', ''); } catch { domain = url; }
+                      return (
+                        <a
+                          key={i}
+                          href={url}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="inline-flex items-center gap-1 text-xs bg-muted hover:bg-muted/80 px-2 py-0.5 rounded-full text-muted-foreground hover:text-foreground transition-colors"
+                        >
+                          [{i + 1}] {domain}
+                        </a>
+                      );
+                    })}
+                  </div>
+                )}
+              </div>
+            )}
+          </div>
         </>
       )}
     </Card>
