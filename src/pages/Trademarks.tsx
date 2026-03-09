@@ -277,22 +277,25 @@ export default function Trademarks() {
     setSelectedFile(file);
     setUploadProgress(null);
 
-    const slice = file.slice(0, 32 * 1024);
+    const slice = file.slice(0, 64 * 1024);
     const reader = new FileReader();
     reader.onload = (ev) => {
       const text = (ev.target?.result as string).replace(/^\uFEFF/, '');
       const lines = text.split(/\r?\n/).filter(l => l.trim());
       if (lines.length < 2) { toast({ title: 'Файл пуст', variant: 'destructive' }); return; }
       const delimiter = lines[0].includes(';') ? ';' : ',';
-      const headers = parseCSVLine(lines[0], delimiter).map(h => normalizeHeader(h.replace(/^"|"$/g, '').trim()));
+      const rawHeaders = parseCSVLine(lines[0], delimiter).map(h => h.replace(/^"|"$/g, '').trim());
+      const normalizedHeaders = rawHeaders.map(h => normalizeHeader(h));
       const rows: Record<string, any>[] = [];
       for (let i = 1; i < Math.min(lines.length, 6); i++) {
         const values = parseCSVLine(lines[i], delimiter);
         const row: Record<string, any> = {};
-        headers.forEach((h, idx) => { const f = FIELD_MAP[h]; if (f && values[idx]) row[f] = values[idx]; });
-        if (Object.keys(row).length > 0) rows.push(row);
+        rawHeaders.forEach((h, idx) => { row[h] = values[idx] || ''; });
+        rows.push(row);
       }
+      const mappedCount = normalizedHeaders.filter(h => FIELD_MAP[h]).length;
       setPreviewData(rows);
+      toast({ title: `Распознано ${mappedCount} из ${rawHeaders.length} полей для импорта` });
     };
     reader.readAsText(slice, 'utf-8');
   }, [toast]);
@@ -585,28 +588,30 @@ export default function Trademarks() {
             {previewData && previewData.length > 0 && (
               <div className="space-y-2">
                 <p className="text-sm font-medium">Превью (первые {previewData.length} записей):</p>
-                <p className="text-xs text-muted-foreground">Найдено полей: {Object.keys(previewData[0] || {}).length}</p>
-                <div className="rounded border overflow-auto max-h-[300px]">
-                  <Table>
-                    <TableHeader>
-                      <TableRow>
+                <p className="text-xs text-muted-foreground">Всего колонок в CSV: {Object.keys(previewData[0] || {}).length}</p>
+                <div className="rounded border overflow-x-auto overflow-y-auto max-h-[250px]">
+                  <table className="text-xs border-collapse w-max">
+                    <thead className="sticky top-0 bg-muted z-10">
+                      <tr>
+                        <th className="px-2 py-1 border-b text-left font-medium text-muted-foreground">#</th>
                         {Object.keys(previewData[0] || {}).map((key) => (
-                          <TableHead key={key} className="whitespace-nowrap text-xs px-2">{key}</TableHead>
+                          <th key={key} className="px-2 py-1 border-b text-left font-medium text-muted-foreground whitespace-nowrap max-w-[120px] truncate" title={key}>{key}</th>
                         ))}
-                      </TableRow>
-                    </TableHeader>
-                    <TableBody>
+                      </tr>
+                    </thead>
+                    <tbody>
                       {previewData.map((row, i) => (
-                        <TableRow key={i}>
+                        <tr key={i} className="border-b border-border/50 hover:bg-muted/50">
+                          <td className="px-2 py-1 text-muted-foreground">{i + 1}</td>
                           {Object.keys(previewData[0] || {}).map((key) => (
-                            <TableCell key={key} className="text-xs truncate max-w-[150px] px-2">
-                              {row[key] != null ? String(row[key]) : '—'}
-                            </TableCell>
+                            <td key={key} className="px-2 py-1 whitespace-nowrap max-w-[120px] truncate" title={row[key] != null ? String(row[key]) : ''}>
+                              {row[key] != null && String(row[key]).length > 0 ? String(row[key]) : <span className="text-muted-foreground">—</span>}
+                            </td>
                           ))}
-                        </TableRow>
+                        </tr>
                       ))}
-                    </TableBody>
-                  </Table>
+                    </tbody>
+                  </table>
                 </div>
               </div>
             )}
