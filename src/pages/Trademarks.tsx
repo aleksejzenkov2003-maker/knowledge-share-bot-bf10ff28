@@ -589,8 +589,8 @@ export default function Trademarks() {
               <div className="space-y-2">
                 <p className="text-sm font-medium">Превью (первые {previewData.length} записей):</p>
                 <p className="text-xs text-muted-foreground">Всего колонок в CSV: {Object.keys(previewData[0] || {}).length}</p>
-                <div className="rounded border overflow-x-auto overflow-y-auto max-h-[250px]">
-                  <table className="text-xs border-collapse w-max">
+                <div className="rounded border overflow-auto flex-1 min-h-0" style={{ maxHeight: '400px' }}>
+                  <table className="text-xs border-collapse" style={{ minWidth: 'max-content' }}>
                     <thead className="sticky top-0 bg-muted z-10">
                       <tr>
                         <th className="px-2 py-1 border-b text-left font-medium text-muted-foreground">#</th>
