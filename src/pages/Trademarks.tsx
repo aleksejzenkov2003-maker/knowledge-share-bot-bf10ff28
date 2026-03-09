@@ -555,7 +555,23 @@ export default function Trademarks() {
           </DialogHeader>
 
           <div className="space-y-4">
-            <Input type="file" accept=".csv" onChange={handleFileSelect} />
+            <Input type="file" accept=".csv" onChange={handleFileSelect} disabled={uploading} />
+
+            {selectedFile && (
+              <p className="text-xs text-muted-foreground">
+                Размер файла: {(selectedFile.size / (1024 * 1024)).toFixed(1)} МБ
+              </p>
+            )}
+
+            {uploadProgress && (
+              <div className="space-y-2">
+                <div className="flex justify-between text-xs text-muted-foreground">
+                  <span>Импорт...</span>
+                  <span>{Math.round((uploadProgress.current / uploadProgress.total) * 100)}%</span>
+                </div>
+                <Progress value={(uploadProgress.current / uploadProgress.total) * 100} className="h-2" />
+              </div>
+            )}
 
             {previewData && previewData.length > 0 && (
               <div className="space-y-2">
