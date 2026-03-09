@@ -558,7 +558,7 @@ export default function Trademarks() {
 
       {/* Upload Dialog */}
       <Dialog open={uploadOpen} onOpenChange={(open) => { setUploadOpen(open); if (!open) { setPreviewData(null); setSelectedFile(null); } }}>
-        <DialogContent className="max-w-2xl">
+        <DialogContent className="max-w-[90vw] max-h-[85vh] flex flex-col">
           <DialogHeader>
             <DialogTitle>Импорт CSV</DialogTitle>
             <DialogDescription>
