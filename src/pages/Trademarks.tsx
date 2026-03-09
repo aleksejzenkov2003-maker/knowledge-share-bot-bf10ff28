@@ -208,7 +208,7 @@ export default function Trademarks() {
   }, [search]);
 
   const { data: trademarks, isLoading } = useQuery({
-    queryKey: ['trademarks', search, statusFilter, page],
+    queryKey: ['trademarks', debouncedSearch, statusFilter, page],
     queryFn: async () => {
       let query = supabase
         .from('trademarks')
@@ -216,9 +216,9 @@ export default function Trademarks() {
         .order('created_at', { ascending: false })
         .range(page * PAGE_SIZE, (page + 1) * PAGE_SIZE - 1);
 
-      if (search) {
+      if (debouncedSearch) {
         query = query.or(
-          `registration_number.ilike.%${search}%,right_holder_name.ilike.%${search}%,right_holder_inn.ilike.%${search}%,right_holder_ogrn.ilike.%${search}%`
+          `registration_number.ilike.%${debouncedSearch}%,right_holder_name.ilike.%${debouncedSearch}%,right_holder_inn.ilike.%${debouncedSearch}%,right_holder_ogrn.ilike.%${debouncedSearch}%`
         );
       }
 
@@ -235,15 +235,15 @@ export default function Trademarks() {
   });
 
   const { data: totalCount } = useQuery({
-    queryKey: ['trademarks-count', search, statusFilter],
+    queryKey: ['trademarks-count', debouncedSearch, statusFilter],
     queryFn: async () => {
       let query = supabase
         .from('trademarks')
         .select('id', { count: 'exact', head: true });
 
-      if (search) {
+      if (debouncedSearch) {
         query = query.or(
-          `registration_number.ilike.%${search}%,right_holder_name.ilike.%${search}%,right_holder_inn.ilike.%${search}%,right_holder_ogrn.ilike.%${search}%`
+          `registration_number.ilike.%${debouncedSearch}%,right_holder_name.ilike.%${debouncedSearch}%,right_holder_inn.ilike.%${debouncedSearch}%,right_holder_ogrn.ilike.%${debouncedSearch}%`
         );
       }
       if (statusFilter === 'active') {

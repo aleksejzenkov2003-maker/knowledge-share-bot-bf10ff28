@@ -1,0 +1,1 @@
+CREATE INDEX IF NOT EXISTS idx_trademarks_holder_name_trgm ON trademarks USING gin(right_holder_name gin_trgm_ops);
