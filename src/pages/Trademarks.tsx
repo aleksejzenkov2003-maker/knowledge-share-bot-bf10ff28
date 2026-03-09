@@ -585,25 +585,24 @@ export default function Trademarks() {
             {previewData && previewData.length > 0 && (
               <div className="space-y-2">
                 <p className="text-sm font-medium">Превью (первые {previewData.length} записей):</p>
-                <div className="rounded border overflow-auto max-h-[200px]">
+                <p className="text-xs text-muted-foreground">Найдено полей: {Object.keys(previewData[0] || {}).length}</p>
+                <div className="rounded border overflow-auto max-h-[300px]">
                   <Table>
                     <TableHeader>
                       <TableRow>
-                        <TableHead>Рег. номер</TableHead>
-                        <TableHead>Правообладатель</TableHead>
-                        <TableHead>Дата рег.</TableHead>
-                        <TableHead>Страна</TableHead>
-                        <TableHead>Статус</TableHead>
+                        {Object.keys(previewData[0] || {}).map((key) => (
+                          <TableHead key={key} className="whitespace-nowrap text-xs px-2">{key}</TableHead>
+                        ))}
                       </TableRow>
                     </TableHeader>
                     <TableBody>
                       {previewData.map((row, i) => (
                         <TableRow key={i}>
-                          <TableCell className="text-sm">{row.registration_number || '—'}</TableCell>
-                          <TableCell className="text-sm truncate max-w-[200px]">{row.right_holder_name || row.foreign_right_holder_name || '—'}</TableCell>
-                          <TableCell className="text-sm">{row.registration_date || '—'}</TableCell>
-                          <TableCell className="text-sm">{row.right_holder_country_code || '—'}</TableCell>
-                          <TableCell className="text-sm">{row.actual === 'true' || row.actual === '1' || row.actual === true ? 'Действ.' : 'Недейств.'}</TableCell>
+                          {Object.keys(previewData[0] || {}).map((key) => (
+                            <TableCell key={key} className="text-xs truncate max-w-[150px] px-2">
+                              {row[key] != null ? String(row[key]) : '—'}
+                            </TableCell>
+                          ))}
                         </TableRow>
                       ))}
                     </TableBody>
