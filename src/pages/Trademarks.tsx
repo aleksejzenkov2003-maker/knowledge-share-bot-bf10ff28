@@ -566,7 +566,7 @@ export default function Trademarks() {
             </DialogDescription>
           </DialogHeader>
 
-          <div className="space-y-4">
+          <div className="space-y-4 flex-1 min-h-0 flex flex-col">
             <Input type="file" accept=".csv" onChange={handleFileSelect} disabled={uploading} />
 
             {selectedFile && (
