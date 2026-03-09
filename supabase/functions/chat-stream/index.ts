@@ -1061,11 +1061,16 @@ serve(async (req) => {
           
           if (cardRes.ok) {
             reputationCompanyData = normalizeCompanyData(await cardRes.json());
-            // Merge name from select context if card didn't return it
-            if (!reputationCompanyData.Name) {
-              // Try to get name from the select message context
-              const nameMatch = message.match(/(?:досье|компани[юяи])\s+[«"]?([^«»"]+)[»"]?/i);
-              if (nameMatch) reputationCompanyData.Name = nameMatch[1].trim();
+            // Merge name from select context if card didn't return it or it's an object
+            if (!reputationCompanyData.Name || typeof reputationCompanyData.Name !== 'string') {
+              // Try to get quoted name from the select message context
+              const nameMatch = message.match(/[«"""]([^«»"""]+)[»"""]/);
+              if (nameMatch) {
+                reputationCompanyData.Name = nameMatch[1].trim();
+                reputationCompanyData._searchResultName = nameMatch[1].trim();
+              }
+            } else {
+              reputationCompanyData._searchResultName = reputationCompanyData.Name;
             }
             reputationContext = JSON.stringify(reputationCompanyData, null, 2);
             console.log(`Reputation: Got card (${reputationContext.length} chars)`);
