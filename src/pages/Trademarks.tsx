@@ -266,94 +266,116 @@ export default function Trademarks() {
     const file = e.target.files?.[0];
     if (!file) return;
     setSelectedFile(file);
+    setUploadProgress(null);
 
+    const slice = file.slice(0, 32 * 1024);
     const reader = new FileReader();
     reader.onload = (ev) => {
-      // Strip BOM character
       const text = (ev.target?.result as string).replace(/^\uFEFF/, '');
       const lines = text.split(/\r?\n/).filter(l => l.trim());
-      if (lines.length < 2) {
-        toast({ title: 'Файл пуст', variant: 'destructive' });
-        return;
-      }
-
+      if (lines.length < 2) { toast({ title: 'Файл пуст', variant: 'destructive' }); return; }
       const delimiter = lines[0].includes(';') ? ';' : ',';
       const headers = parseCSVLine(lines[0], delimiter).map(h => normalizeHeader(h.replace(/^"|"$/g, '').trim()));
-
       const rows: Record<string, any>[] = [];
       for (let i = 1; i < Math.min(lines.length, 6); i++) {
         const values = parseCSVLine(lines[i], delimiter);
         const row: Record<string, any> = {};
-        headers.forEach((h, idx) => {
-          const dbField = FIELD_MAP[h];
-          if (dbField && values[idx]) {
-            row[dbField] = values[idx];
-          }
-        });
+        headers.forEach((h, idx) => { const f = FIELD_MAP[h]; if (f && values[idx]) row[f] = values[idx]; });
         if (Object.keys(row).length > 0) rows.push(row);
       }
       setPreviewData(rows);
     };
-    reader.readAsText(file, 'utf-8');
+    reader.readAsText(slice, 'utf-8');
   }, [toast]);
+
+  const parseCSVRows = useCallback((text: string, headers: string[], delimiter: string): { rows: Record<string, any>[]; remainder: string } => {
+    const rows: Record<string, any>[] = [];
+    const lines: string[] = [];
+    let cur = '', inQ = false;
+    for (let i = 0; i < text.length; i++) {
+      const c = text[i];
+      if (c === '"') inQ = !inQ;
+      if ((c === '\n' || c === '\r') && !inQ) {
+        if (cur.trim()) lines.push(cur);
+        cur = '';
+        if (c === '\r' && text[i + 1] === '\n') i++;
+      } else { cur += c; }
+    }
+    let remainder = '';
+    if (cur.trim()) { if (inQ) remainder = cur; else lines.push(cur); }
+
+    for (const line of lines) {
+      const values = parseCSVLine(line, delimiter);
+      if (values.length < 2) continue;
+      const row: Record<string, any> = {};
+      headers.forEach((h, idx) => {
+        const dbField = FIELD_MAP[h];
+        if (!dbField || !values[idx]) return;
+        const val = values[idx];
+        if (BOOLEAN_FIELDS.has(dbField)) {
+          row[dbField] = val === '1' || val.toLowerCase() === 'true' || val.toLowerCase() === 'yes';
+        } else if (DATE_FIELDS.has(dbField)) {
+          if (/^\d{4}-\d{2}-\d{2}/.test(val)) row[dbField] = val.substring(0, 10);
+          else if (/^\d{2}\.\d{2}\.\d{4}/.test(val)) { const [d, m, y] = val.split('.'); row[dbField] = `${y}-${m}-${d}`; }
+          else if (/^\d{8}$/.test(val)) row[dbField] = `${val.substring(0, 4)}-${val.substring(4, 6)}-${val.substring(6, 8)}`;
+          else row[dbField] = null;
+        } else { row[dbField] = val; }
+      });
+      if (Object.keys(row).length > 0) rows.push(row);
+    }
+    return { rows, remainder };
+  }, []);
 
   const handleUpload = useCallback(async () => {
     if (!selectedFile) return;
     setUploading(true);
-
+    setUploadProgress({ current: 0, total: selectedFile.size });
     try {
-      // Strip BOM character
-      const text = (await selectedFile.text()).replace(/^\uFEFF/, '');
-      const lines = text.split(/\r?\n/).filter(l => l.trim());
-      const delimiter = lines[0].includes(';') ? ';' : ',';
-      const headers = parseCSVLine(lines[0], delimiter).map(h => normalizeHeader(h.replace(/^"|"$/g, '').trim()));
+      const CHUNK = 512 * 1024;
+      const DB_BATCH = 500;
+      let total = 0, headers: string[] | null = null, delim = ';', left = '';
+      const sz = selectedFile.size, chunks = Math.ceil(sz / CHUNK);
 
-      const BATCH_SIZE = 500;
-      let totalImported = 0;
+      for (let ci = 0; ci < chunks; ci++) {
+        const s = ci * CHUNK, e = Math.min(s + CHUNK, sz);
+        let ct = await selectedFile.slice(s, e).text();
+        if (ci === 0) ct = ct.replace(/^\uFEFF/, '');
+        ct = left + ct; left = '';
 
-      for (let i = 1; i < lines.length; i += BATCH_SIZE) {
-        const batch: Record<string, any>[] = [];
-
-        for (let j = i; j < Math.min(i + BATCH_SIZE, lines.length); j++) {
-          const values = parseCSVLine(lines[j], delimiter);
-          if (values.length < 2) continue;
-
-          const row: Record<string, any> = {};
-          headers.forEach((h, idx) => {
-            const dbField = FIELD_MAP[h];
-            if (!dbField || !values[idx]) return;
-            const val = values[idx];
-
-            if (BOOLEAN_FIELDS.has(dbField)) {
-              row[dbField] = val === '1' || val.toLowerCase() === 'true' || val.toLowerCase() === 'yes';
-            } else if (DATE_FIELDS.has(dbField)) {
-              // Accept YYYY-MM-DD, DD.MM.YYYY, or YYYYMMDD
-              if (/^\d{4}-\d{2}-\d{2}/.test(val)) {
-                row[dbField] = val.substring(0, 10);
-              } else if (/^\d{2}\.\d{2}\.\d{4}/.test(val)) {
-                const [d, m, y] = val.split('.');
-                row[dbField] = `${y}-${m}-${d}`;
-              } else if (/^\d{8}$/.test(val)) {
-                row[dbField] = `${val.substring(0, 4)}-${val.substring(4, 6)}-${val.substring(6, 8)}`;
-              } else {
-                row[dbField] = null;
-              }
-            } else {
-              row[dbField] = val;
-            }
-          });
-
-          if (Object.keys(row).length > 0) batch.push(row);
+        if (!headers) {
+          const nl = ct.indexOf('\n');
+          if (nl === -1) continue;
+          const hl = ct.substring(0, nl).replace(/\r$/, '');
+          delim = hl.includes(';') ? ';' : ',';
+          headers = parseCSVLine(hl, delim).map(h => normalizeHeader(h.replace(/^"|"$/g, '').trim()));
+          ct = ct.substring(nl + 1);
         }
 
-        if (batch.length > 0) {
-          const { error } = await supabase.from('trademarks').insert(batch);
+        const { rows, remainder } = parseCSVRows(ct, headers, delim);
+        left = remainder;
+
+        for (let i = 0; i < rows.length; i += DB_BATCH) {
+          const batch = rows.slice(i, i + DB_BATCH);
+          if (batch.length > 0) {
+            const { error } = await supabase.from('trademarks').insert(batch);
+            if (error) throw error;
+            total += batch.length;
+          }
+        }
+        setUploadProgress({ current: e, total: sz });
+        await new Promise(r => setTimeout(r, 0));
+      }
+
+      if (left.trim() && headers) {
+        const { rows } = parseCSVRows(left, headers, delim);
+        if (rows.length > 0) {
+          const { error } = await supabase.from('trademarks').insert(rows);
           if (error) throw error;
-          totalImported += batch.length;
+          total += rows.length;
         }
       }
 
-      toast({ title: `Импортировано ${totalImported} записей` });
+      toast({ title: `Импортировано ${total} записей` });
       queryClient.invalidateQueries({ queryKey: ['trademarks'] });
       queryClient.invalidateQueries({ queryKey: ['trademarks-count'] });
       setUploadOpen(false);
@@ -363,8 +385,9 @@ export default function Trademarks() {
       toast({ title: 'Ошибка импорта', description: err.message, variant: 'destructive' });
     } finally {
       setUploading(false);
+      setUploadProgress(null);
     }
-  }, [selectedFile, toast, queryClient]);
+  }, [selectedFile, toast, queryClient, parseCSVRows]);
 
   const handleClearAll = useCallback(async () => {
     setClearing(true);
