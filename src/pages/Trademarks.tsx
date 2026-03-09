@@ -588,28 +588,30 @@ export default function Trademarks() {
             {previewData && previewData.length > 0 && (
               <div className="space-y-2">
                 <p className="text-sm font-medium">Превью (первые {previewData.length} записей):</p>
-                <p className="text-xs text-muted-foreground">Найдено полей: {Object.keys(previewData[0] || {}).length}</p>
-                <div className="rounded border overflow-auto max-h-[300px]">
-                  <Table>
-                    <TableHeader>
-                      <TableRow>
+                <p className="text-xs text-muted-foreground">Всего колонок в CSV: {Object.keys(previewData[0] || {}).length}</p>
+                <div className="rounded border overflow-x-auto overflow-y-auto max-h-[250px]">
+                  <table className="text-xs border-collapse w-max">
+                    <thead className="sticky top-0 bg-muted z-10">
+                      <tr>
+                        <th className="px-2 py-1 border-b text-left font-medium text-muted-foreground">#</th>
                         {Object.keys(previewData[0] || {}).map((key) => (
-                          <TableHead key={key} className="whitespace-nowrap text-xs px-2">{key}</TableHead>
+                          <th key={key} className="px-2 py-1 border-b text-left font-medium text-muted-foreground whitespace-nowrap max-w-[120px] truncate" title={key}>{key}</th>
                         ))}
-                      </TableRow>
-                    </TableHeader>
-                    <TableBody>
+                      </tr>
+                    </thead>
+                    <tbody>
                       {previewData.map((row, i) => (
-                        <TableRow key={i}>
+                        <tr key={i} className="border-b border-border/50 hover:bg-muted/50">
+                          <td className="px-2 py-1 text-muted-foreground">{i + 1}</td>
                           {Object.keys(previewData[0] || {}).map((key) => (
-                            <TableCell key={key} className="text-xs truncate max-w-[150px] px-2">
-                              {row[key] != null ? String(row[key]) : '—'}
-                            </TableCell>
+                            <td key={key} className="px-2 py-1 whitespace-nowrap max-w-[120px] truncate" title={row[key] != null ? String(row[key]) : ''}>
+                              {row[key] != null && String(row[key]).length > 0 ? String(row[key]) : <span className="text-muted-foreground">—</span>}
+                            </td>
                           ))}
-                        </TableRow>
+                        </tr>
                       ))}
-                    </TableBody>
-                  </Table>
+                    </tbody>
+                  </table>
                 </div>
               </div>
             )}
