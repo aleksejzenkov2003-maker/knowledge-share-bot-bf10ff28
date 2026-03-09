@@ -1851,6 +1851,8 @@ export type Database = {
           similarity: number
         }[]
       }
+      show_limit: { Args: never; Returns: number }
+      show_trgm: { Args: { "": string }; Returns: string[] }
       smart_fts_search: {
         Args: {
           match_count?: number

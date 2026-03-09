@@ -1,4 +1,4 @@
-import { useState, useCallback } from 'react';
+import { useState, useCallback, useEffect } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { supabase } from '@/integrations/supabase/client';
 import { Button } from '@/components/ui/button';
@@ -186,6 +186,7 @@ export default function Trademarks() {
   const { toast } = useToast();
   const queryClient = useQueryClient();
   const [search, setSearch] = useState('');
+  const [debouncedSearch, setDebouncedSearch] = useState('');
   const [statusFilter, setStatusFilter] = useState<string>('all');
   const [page, setPage] = useState(0);
   const [uploadOpen, setUploadOpen] = useState(false);
@@ -198,8 +199,16 @@ export default function Trademarks() {
   const [clearAllOpen, setClearAllOpen] = useState(false);
   const [clearing, setClearing] = useState(false);
 
+  useEffect(() => {
+    const t = setTimeout(() => {
+      setDebouncedSearch(search);
+      setPage(0);
+    }, 500);
+    return () => clearTimeout(t);
+  }, [search]);
+
   const { data: trademarks, isLoading } = useQuery({
-    queryKey: ['trademarks', search, statusFilter, page],
+    queryKey: ['trademarks', debouncedSearch, statusFilter, page],
     queryFn: async () => {
       let query = supabase
         .from('trademarks')
@@ -207,9 +216,9 @@ export default function Trademarks() {
         .order('created_at', { ascending: false })
         .range(page * PAGE_SIZE, (page + 1) * PAGE_SIZE - 1);
 
-      if (search) {
+      if (debouncedSearch) {
         query = query.or(
-          `registration_number.ilike.%${search}%,right_holder_name.ilike.%${search}%,right_holder_inn.ilike.%${search}%,right_holder_ogrn.ilike.%${search}%`
+          `registration_number.ilike.%${debouncedSearch}%,right_holder_name.ilike.%${debouncedSearch}%,right_holder_inn.ilike.%${debouncedSearch}%,right_holder_ogrn.ilike.%${debouncedSearch}%`
         );
       }
 
@@ -226,15 +235,15 @@ export default function Trademarks() {
   });
 
   const { data: totalCount } = useQuery({
-    queryKey: ['trademarks-count', search, statusFilter],
+    queryKey: ['trademarks-count', debouncedSearch, statusFilter],
     queryFn: async () => {
       let query = supabase
         .from('trademarks')
         .select('id', { count: 'exact', head: true });
 
-      if (search) {
+      if (debouncedSearch) {
         query = query.or(
-          `registration_number.ilike.%${search}%,right_holder_name.ilike.%${search}%,right_holder_inn.ilike.%${search}%,right_holder_ogrn.ilike.%${search}%`
+          `registration_number.ilike.%${debouncedSearch}%,right_holder_name.ilike.%${debouncedSearch}%,right_holder_inn.ilike.%${debouncedSearch}%,right_holder_ogrn.ilike.%${debouncedSearch}%`
         );
       }
       if (statusFilter === 'active') {
