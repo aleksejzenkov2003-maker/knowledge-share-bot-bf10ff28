@@ -186,6 +186,7 @@ export default function Trademarks() {
   const { toast } = useToast();
   const queryClient = useQueryClient();
   const [search, setSearch] = useState('');
+  const [debouncedSearch, setDebouncedSearch] = useState('');
   const [statusFilter, setStatusFilter] = useState<string>('all');
   const [page, setPage] = useState(0);
   const [uploadOpen, setUploadOpen] = useState(false);
@@ -197,6 +198,14 @@ export default function Trademarks() {
   const [detailTm, setDetailTm] = useState<Trademark | null>(null);
   const [clearAllOpen, setClearAllOpen] = useState(false);
   const [clearing, setClearing] = useState(false);
+
+  useEffect(() => {
+    const t = setTimeout(() => {
+      setDebouncedSearch(search);
+      setPage(0);
+    }, 500);
+    return () => clearTimeout(t);
+  }, [search]);
 
   const { data: trademarks, isLoading } = useQuery({
     queryKey: ['trademarks', search, statusFilter, page],
