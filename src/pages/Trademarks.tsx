@@ -558,7 +558,7 @@ export default function Trademarks() {
 
       {/* Upload Dialog */}
       <Dialog open={uploadOpen} onOpenChange={(open) => { setUploadOpen(open); if (!open) { setPreviewData(null); setSelectedFile(null); } }}>
-        <DialogContent className="max-w-2xl">
+        <DialogContent className="max-w-[90vw] max-h-[85vh] flex flex-col">
           <DialogHeader>
             <DialogTitle>Импорт CSV</DialogTitle>
             <DialogDescription>
@@ -566,7 +566,7 @@ export default function Trademarks() {
             </DialogDescription>
           </DialogHeader>
 
-          <div className="space-y-4">
+          <div className="space-y-4 flex-1 min-h-0 flex flex-col">
             <Input type="file" accept=".csv" onChange={handleFileSelect} disabled={uploading} />
 
             {selectedFile && (
@@ -589,8 +589,8 @@ export default function Trademarks() {
               <div className="space-y-2">
                 <p className="text-sm font-medium">Превью (первые {previewData.length} записей):</p>
                 <p className="text-xs text-muted-foreground">Всего колонок в CSV: {Object.keys(previewData[0] || {}).length}</p>
-                <div className="rounded border overflow-x-auto overflow-y-auto max-h-[250px]">
-                  <table className="text-xs border-collapse w-max">
+                <div className="rounded border overflow-auto flex-1 min-h-0" style={{ maxHeight: '400px' }}>
+                  <table className="text-xs border-collapse" style={{ minWidth: 'max-content' }}>
                     <thead className="sticky top-0 bg-muted z-10">
                       <tr>
                         <th className="px-2 py-1 border-b text-left font-medium text-muted-foreground">#</th>
