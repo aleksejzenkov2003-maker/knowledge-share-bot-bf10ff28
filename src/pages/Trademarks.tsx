@@ -724,6 +724,18 @@ export default function Trademarks() {
           </DialogHeader>
           {detailTm && (
             <div className="space-y-4 text-sm">
+              {/* FIPS Image */}
+              {detailTm.metadata?.fips_image_url && (
+                <div className="flex justify-center">
+                  <img
+                    src={detailTm.metadata.fips_image_url}
+                    alt="Изображение товарного знака"
+                    className="max-h-[180px] max-w-full object-contain rounded border p-2"
+                    onError={(e) => { (e.target as HTMLImageElement).style.display = 'none'; }}
+                  />
+                </div>
+              )}
+
               {/* Основная информация */}
               <div>
                 <h4 className="font-semibold text-base mb-2 text-foreground">Основная информация</h4>
@@ -732,6 +744,9 @@ export default function Trademarks() {
                   <InfoRow label="Дата регистрации" value={detailTm.registration_date ? new Date(detailTm.registration_date).toLocaleDateString('ru-RU') : null} />
                   <InfoRow label="Статус" value={detailTm.actual ? 'Действующий' : 'Недействующий'} />
                   <InfoRow label="Вид знака" value={detailTm.kind_specification} />
+                  <InfoRow label="Срок действия до" value={detailTm.metadata?.expiry_date ? new Date(detailTm.metadata.expiry_date).toLocaleDateString('ru-RU') : null} />
+                  <InfoRow label="Заявка №" value={detailTm.metadata?.application_number} />
+                  <InfoRow label="Дата приоритета" value={detailTm.metadata?.priority_date ? new Date(detailTm.metadata.priority_date).toLocaleDateString('ru-RU') : null} />
                   <InfoRow label="Дата общеизвестности" value={detailTm.well_known_trademark_date ? new Date(detailTm.well_known_trademark_date).toLocaleDateString('ru-RU') : null} />
                   <InfoRow label="Связанные рег." value={detailTm.legally_related_registrations} />
                 </div>
