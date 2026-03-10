@@ -577,7 +577,7 @@ export default function Trademarks() {
               ) : trademarks?.map((tm) => (
                 <TableRow
                   key={tm.id}
-                  className={`cursor-pointer ${tm.metadata?.fips_updated_at ? 'bg-primary/5 hover:bg-primary/10' : ''}`}
+                  className={`cursor-pointer ${tm.fips_updated ? 'bg-primary/5 hover:bg-primary/10' : ''}`}
                   onClick={async () => {
                     // Fetch fresh data to ensure metadata is up-to-date
                     const { data: fresh } = await supabase.from('trademarks').select('*').eq('id', tm.id).single();
