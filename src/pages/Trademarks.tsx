@@ -224,9 +224,9 @@ export default function Trademarks() {
     } else if (status === 'inactive') {
       query = query.eq('actual', false);
     } else if (status === 'fips_updated') {
-      query = query.not('metadata->>fips_updated_at', 'is', null);
+      query = query.eq('fips_updated', true);
     } else if (status === 'not_updated') {
-      query = query.or('metadata.is.null,metadata->>fips_updated_at.is.null');
+      query = query.eq('fips_updated', false);
     }
     return query;
   };
