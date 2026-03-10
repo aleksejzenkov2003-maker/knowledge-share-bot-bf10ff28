@@ -152,7 +152,15 @@ Deno.serve(async (req) => {
       });
     }
 
-    const html = await response.text();
+    // FIPS returns windows-1251 encoded HTML, need to decode properly
+    const rawBytes = new Uint8Array(await response.arrayBuffer());
+    let html: string;
+    try {
+      const decoder = new TextDecoder('windows-1251');
+      html = decoder.decode(rawBytes);
+    } catch {
+      html = new TextDecoder('utf-8').decode(rawBytes);
+    }
     console.log('HTML length:', html.length);
 
     if (html.includes('Документ не найден') || html.length < 500) {
