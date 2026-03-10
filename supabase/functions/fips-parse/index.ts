@@ -104,19 +104,26 @@ Deno.serve(async (req) => {
     const controller = new AbortController();
     const timeout = setTimeout(() => controller.abort(), 15000);
 
+    console.log('Fetching FIPS URL:', url);
     let response: Response;
     try {
       response = await fetch(url, {
         signal: controller.signal,
         headers: {
-          'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
-          'Accept': 'text/html,application/xhtml+xml',
-          'Accept-Language': 'ru-RU,ru;q=0.9',
+          'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+          'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
+          'Accept-Language': 'ru-RU,ru;q=0.9,en-US;q=0.8,en;q=0.7',
+          'Accept-Encoding': 'identity',
+          'Connection': 'keep-alive',
+          'Cache-Control': 'no-cache',
         },
+        redirect: 'follow',
       });
+      console.log('FIPS response status:', response.status);
     } catch (e) {
       clearTimeout(timeout);
-      return new Response(JSON.stringify({ error: 'Не удалось подключиться к ФИПС. Попробуйте позже.' }), {
+      console.error('FIPS fetch error:', e.message, e.name);
+      return new Response(JSON.stringify({ error: `Не удалось подключиться к ФИПС: ${e.message}` }), {
         status: 502,
         headers: { ...corsHeaders, 'Content-Type': 'application/json' },
       });
