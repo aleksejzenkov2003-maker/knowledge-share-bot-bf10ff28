@@ -599,7 +599,11 @@ export default function Trademarks() {
                 <TableRow
                   key={tm.id}
                   className={`cursor-pointer ${tm.metadata?.fips_updated_at ? 'bg-primary/5 hover:bg-primary/10' : ''}`}
-                  onClick={() => setDetailTm(tm)}
+                  onClick={async () => {
+                    // Fetch fresh data to ensure metadata is up-to-date
+                    const { data: fresh } = await supabase.from('trademarks').select('*').eq('id', tm.id).single();
+                    setDetailTm((fresh || tm) as Trademark);
+                  }}
                 >
                   <TableCell className="font-mono text-sm">{tm.registration_number || '—'}</TableCell>
                   <TableCell className="max-w-[300px] truncate">{tm.right_holder_name || '—'}</TableCell>
