@@ -543,13 +543,15 @@ export default function Trademarks() {
               )}
             </div>
             <Select value={statusFilter} onValueChange={(v) => { setStatusFilter(v); setPage(0); }}>
-              <SelectTrigger className="w-[180px]">
+              <SelectTrigger className="w-[200px]">
                 <SelectValue placeholder="Статус" />
               </SelectTrigger>
               <SelectContent>
                 <SelectItem value="all">Все</SelectItem>
                 <SelectItem value="active">Действующие</SelectItem>
                 <SelectItem value="inactive">Недействующие</SelectItem>
+                <SelectItem value="fips_updated">Обновлены с ФИПС</SelectItem>
+                <SelectItem value="not_updated">Не обновлены</SelectItem>
               </SelectContent>
             </Select>
           </div>
