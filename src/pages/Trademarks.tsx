@@ -472,6 +472,7 @@ export default function Trademarks() {
       if (fipsData.expiry_date) meta.expiry_date = fipsData.expiry_date;
       if (fipsData.classes_mktu) meta.classes_mktu = fipsData.classes_mktu;
       if (fipsData.application_number) meta.application_number = fipsData.application_number;
+      if (fipsData.application_date) meta.application_date = fipsData.application_date;
       if (fipsData.priority_date) meta.priority_date = fipsData.priority_date;
       if (fipsData.publication_date) meta.publication_date = fipsData.publication_date;
       if (fipsData.bulletin_number) meta.bulletin_number = fipsData.bulletin_number;
@@ -746,6 +747,7 @@ export default function Trademarks() {
                   <InfoRow label="Вид знака" value={detailTm.kind_specification} />
                   <InfoRow label="Срок действия до" value={detailTm.metadata?.expiry_date ? new Date(detailTm.metadata.expiry_date).toLocaleDateString('ru-RU') : null} />
                   <InfoRow label="Заявка №" value={detailTm.metadata?.application_number} />
+                  <InfoRow label="Дата подачи заявки" value={detailTm.metadata?.application_date ? new Date(detailTm.metadata.application_date).toLocaleDateString('ru-RU') : null} />
                   <InfoRow label="Дата приоритета" value={detailTm.metadata?.priority_date ? new Date(detailTm.metadata.priority_date).toLocaleDateString('ru-RU') : null} />
                   <InfoRow label="Дата общеизвестности" value={detailTm.well_known_trademark_date ? new Date(detailTm.well_known_trademark_date).toLocaleDateString('ru-RU') : null} />
                   <InfoRow label="Связанные рег." value={detailTm.legally_related_registrations} />
@@ -753,9 +755,13 @@ export default function Trademarks() {
               </div>
 
               {/* Публикация */}
-              {(detailTm.publication_url || detailTm.metadata?.fips_url) && (
+              {(detailTm.publication_url || detailTm.metadata?.fips_url || detailTm.metadata?.publication_date || detailTm.metadata?.bulletin_number) && (
                 <div>
                   <h4 className="font-semibold text-base mb-2 text-foreground">Публикация</h4>
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 mb-2">
+                    <InfoRow label="Дата публикации" value={detailTm.metadata?.publication_date ? new Date(detailTm.metadata.publication_date).toLocaleDateString('ru-RU') : null} />
+                    <InfoRow label="Бюллетень №" value={detailTm.metadata?.bulletin_number} />
+                  </div>
                   <div className="flex flex-wrap gap-3">
                     {detailTm.metadata?.fips_url && (
                       <a href={detailTm.metadata.fips_url} target="_blank" rel="noopener noreferrer" className="text-primary hover:underline inline-flex items-center gap-1">
@@ -971,6 +977,7 @@ export default function Trademarks() {
                   <InfoRow label="Срок действия до" value={fipsData.expiry_date} />
                   <InfoRow label="Статус" value={fipsData.actual === true ? 'Действующий' : fipsData.actual === false ? 'Недействующий' : 'Не определён'} />
                   <InfoRow label="Заявка №" value={fipsData.application_number} />
+                  <InfoRow label="Дата подачи заявки" value={fipsData.application_date} />
                   <InfoRow label="Дата приоритета" value={fipsData.priority_date} />
                   <InfoRow label="Дата публикации" value={fipsData.publication_date} />
                   <InfoRow label="Бюллетень №" value={fipsData.bulletin_number} />
