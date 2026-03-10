@@ -598,7 +598,7 @@ export default function Trademarks() {
               ) : trademarks?.map((tm) => (
                 <TableRow
                   key={tm.id}
-                  className="cursor-pointer"
+                  className={`cursor-pointer ${tm.metadata?.fips_updated_at ? 'bg-primary/5 hover:bg-primary/10' : ''}`}
                   onClick={() => setDetailTm(tm)}
                 >
                   <TableCell className="font-mono text-sm">{tm.registration_number || '—'}</TableCell>
