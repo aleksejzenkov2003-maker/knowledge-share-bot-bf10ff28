@@ -914,12 +914,6 @@ export default function Trademarks() {
                 </Collapsible>
               )}
 
-              {/* ФИПС обновление */}
-              {detailTm.metadata?.fips_updated_at && (
-                <div className="text-xs text-muted-foreground">
-                  Данные ФИПС обновлены: {new Date(detailTm.metadata.fips_updated_at).toLocaleString('ru-RU')}
-                </div>
-              )}
 
               <div className="text-xs text-muted-foreground pt-2 border-t">
                 Добавлено: {new Date(detailTm.created_at).toLocaleString('ru-RU')}
