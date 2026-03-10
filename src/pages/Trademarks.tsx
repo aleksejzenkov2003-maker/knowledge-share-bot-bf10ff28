@@ -258,7 +258,6 @@ export default function Trademarks() {
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['trademarks'] });
-      queryClient.invalidateQueries({ queryKey: ['trademarks-count'] });
       toast({ title: 'Запись удалена' });
       setDeleteId(null);
     },
