@@ -217,6 +217,7 @@ Deno.serve(async (req) => {
       registration_number: num,
       registration_date: parseDate(extractBibField(html, '151')),
       application_number: extractBibField(html, '210'),
+      application_date: parseDate(extractBibField(html, '220')),
       priority_date: extractPriorityDate(html),
       expiry_date: parseDate(extractBibField(html, '181')),
       

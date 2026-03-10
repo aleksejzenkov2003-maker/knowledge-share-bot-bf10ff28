@@ -755,9 +755,13 @@ export default function Trademarks() {
               </div>
 
               {/* Публикация */}
-              {(detailTm.publication_url || detailTm.metadata?.fips_url) && (
+              {(detailTm.publication_url || detailTm.metadata?.fips_url || detailTm.metadata?.publication_date || detailTm.metadata?.bulletin_number) && (
                 <div>
                   <h4 className="font-semibold text-base mb-2 text-foreground">Публикация</h4>
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 mb-2">
+                    <InfoRow label="Дата публикации" value={detailTm.metadata?.publication_date ? new Date(detailTm.metadata.publication_date).toLocaleDateString('ru-RU') : null} />
+                    <InfoRow label="Бюллетень №" value={detailTm.metadata?.bulletin_number} />
+                  </div>
                   <div className="flex flex-wrap gap-3">
                     {detailTm.metadata?.fips_url && (
                       <a href={detailTm.metadata.fips_url} target="_blank" rel="noopener noreferrer" className="text-primary hover:underline inline-flex items-center gap-1">
