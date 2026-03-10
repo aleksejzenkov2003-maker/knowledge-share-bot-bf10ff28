@@ -484,8 +484,13 @@ export default function Trademarks() {
       const { error } = await supabase.from('trademarks').update(updateData).eq('id', fipsTargetId);
       if (error) throw error;
 
+      // Refresh detailTm with saved data so the card updates immediately
+      const { data: refreshed } = await supabase.from('trademarks').select('*').eq('id', fipsTargetId).single();
+      if (refreshed) setDetailTm(refreshed as Trademark);
+
       toast({ title: 'Данные с ФИПС сохранены' });
       queryClient.invalidateQueries({ queryKey: ['trademarks'] });
+      queryClient.invalidateQueries({ queryKey: ['trademarks-count'] });
       setFipsPreviewOpen(false);
       setFipsData(null);
       setFipsTargetId(null);
