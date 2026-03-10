@@ -381,7 +381,6 @@ export default function Trademarks() {
 
       toast({ title: `Импортировано ${total} записей` });
       queryClient.invalidateQueries({ queryKey: ['trademarks'] });
-      queryClient.invalidateQueries({ queryKey: ['trademarks-count'] });
       setUploadOpen(false);
       setPreviewData(null);
       setSelectedFile(null);
