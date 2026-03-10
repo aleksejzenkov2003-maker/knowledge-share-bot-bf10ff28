@@ -888,6 +888,56 @@ export default function Trademarks() {
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
+      {/* FIPS Preview Dialog */}
+      <Dialog open={fipsPreviewOpen} onOpenChange={(open) => { if (!open) { setFipsPreviewOpen(false); setFipsData(null); } }}>
+        <DialogContent className="max-w-2xl max-h-[85vh] overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle>Данные с ФИПС</DialogTitle>
+            <DialogDescription>
+              Проверьте извлечённые данные перед сохранением
+            </DialogDescription>
+          </DialogHeader>
+          {fipsData && (
+            <div className="space-y-4 text-sm">
+              {fipsData.image_url && (
+                <div className="flex justify-center">
+                  <img
+                    src={fipsData.image_url}
+                    alt="Изображение товарного знака"
+                    className="max-h-[200px] max-w-full object-contain rounded border p-2"
+                    onError={(e) => { (e.target as HTMLImageElement).style.display = 'none'; }}
+                  />
+                </div>
+              )}
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                <InfoRow label="Рег. номер" value={fipsData.registration_number} />
+                <InfoRow label="Дата регистрации" value={fipsData.registration_date} />
+                <InfoRow label="Срок действия до" value={fipsData.expiry_date} />
+                <InfoRow label="Статус" value={fipsData.actual === true ? 'Действующий' : fipsData.actual === false ? 'Недействующий' : 'Не определён'} />
+                <InfoRow label="Заявка №" value={fipsData.application_number} />
+                <InfoRow label="Дата приоритета" value={fipsData.priority_date} />
+              </div>
+              <InfoRow label="Правообладатель" value={fipsData.right_holder_name} />
+              <InfoRow label="Адрес правообладателя" value={fipsData.right_holder_address} />
+              <InfoRow label="Адрес для переписки" value={fipsData.correspondence_address} />
+              <InfoRow label="Классы МКТУ" value={fipsData.classes_mktu} />
+              <InfoRow label="Описание" value={fipsData.description_element} />
+              <InfoRow label="Неохраняемые элементы" value={fipsData.unprotected_elements} />
+              <InfoRow label="Цвет" value={fipsData.color_specification} />
+              {fipsData.fips_url && (
+                <a href={fipsData.fips_url} target="_blank" rel="noopener noreferrer" className="text-primary hover:underline inline-flex items-center gap-1 text-xs">
+                  <ExternalLink className="h-3.5 w-3.5" />
+                  Открыть на ФИПС
+                </a>
+              )}
+            </div>
+          )}
+          <DialogFooter>
+            <Button variant="outline" onClick={() => { setFipsPreviewOpen(false); setFipsData(null); }}>Отмена</Button>
+            <Button onClick={handleFipsSave}>Сохранить</Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }
