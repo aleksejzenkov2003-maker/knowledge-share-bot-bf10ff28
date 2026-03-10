@@ -1,0 +1,1 @@
+CREATE INDEX idx_trademarks_fips_upd ON trademarks (fips_updated) WHERE fips_updated = true;

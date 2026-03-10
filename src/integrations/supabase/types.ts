@@ -1561,6 +1561,7 @@ export type Database = {
           description_element: string | null
           description_image: string | null
           extraction_from_charter: string | null
+          fips_updated: boolean
           foreign_right_holder_name: string | null
           holographic: boolean | null
           holographic_specification: string | null
@@ -1619,6 +1620,7 @@ export type Database = {
           description_element?: string | null
           description_image?: string | null
           extraction_from_charter?: string | null
+          fips_updated?: boolean
           foreign_right_holder_name?: string | null
           holographic?: boolean | null
           holographic_specification?: string | null
@@ -1677,6 +1679,7 @@ export type Database = {
           description_element?: string | null
           description_image?: string | null
           extraction_from_charter?: string | null
+          fips_updated?: boolean
           foreign_right_holder_name?: string | null
           holographic?: boolean | null
           holographic_specification?: string | null

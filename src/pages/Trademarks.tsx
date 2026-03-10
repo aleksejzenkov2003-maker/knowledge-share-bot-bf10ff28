@@ -53,6 +53,7 @@ interface Trademark {
   changing: boolean | null;
   positional: boolean | null;
   actual: boolean | null;
+  fips_updated: boolean;
   metadata: any;
   created_at: string;
   updated_at: string;
@@ -211,7 +212,7 @@ export default function Trademarks() {
     return () => clearTimeout(t);
   }, [search]);
 
-  const LIST_FIELDS = 'id, registration_number, right_holder_name, right_holder_inn, right_holder_ogrn, registration_date, actual, metadata, created_at';
+  const LIST_FIELDS = 'id, registration_number, right_holder_name, right_holder_inn, right_holder_ogrn, registration_date, actual, fips_updated, metadata, created_at';
 
   const applyFilters = (query: any, searchTerm: string, status: string) => {
     if (searchTerm) {
@@ -224,9 +225,9 @@ export default function Trademarks() {
     } else if (status === 'inactive') {
       query = query.eq('actual', false);
     } else if (status === 'fips_updated') {
-      query = query.not('metadata->>fips_updated_at', 'is', null);
+      query = query.eq('fips_updated', true);
     } else if (status === 'not_updated') {
-      query = query.or('metadata.is.null,metadata->>fips_updated_at.is.null');
+      query = query.eq('fips_updated', false);
     }
     return query;
   };
@@ -244,7 +245,7 @@ export default function Trademarks() {
 
       const { data, count, error } = await query;
       if (error) throw error;
-      return { data: data as Trademark[], count: count ?? 0 };
+      return { data: data as unknown as Trademark[], count: count ?? 0 };
     },
   });
 
@@ -466,6 +467,7 @@ export default function Trademarks() {
       meta.fips_updated_at = new Date().toISOString();
       
       updateData.metadata = meta;
+      updateData.fips_updated = true;
 
       const { error } = await supabase.from('trademarks').update(updateData).eq('id', fipsTargetId);
       if (error) throw error;
@@ -576,7 +578,7 @@ export default function Trademarks() {
               ) : trademarks?.map((tm) => (
                 <TableRow
                   key={tm.id}
-                  className={`cursor-pointer ${tm.metadata?.fips_updated_at ? 'bg-primary/5 hover:bg-primary/10' : ''}`}
+                  className={`cursor-pointer ${tm.fips_updated ? 'bg-primary/5 hover:bg-primary/10' : ''}`}
                   onClick={async () => {
                     // Fetch fresh data to ensure metadata is up-to-date
                     const { data: fresh } = await supabase.from('trademarks').select('*').eq('id', tm.id).single();
@@ -595,7 +597,7 @@ export default function Trademarks() {
                       <Badge variant={tm.actual ? 'default' : 'secondary'}>
                         {tm.actual ? 'Действ.' : 'Недейств.'}
                       </Badge>
-                      {tm.metadata?.fips_updated_at && (
+                      {tm.fips_updated && (
                         <Badge variant="outline" className="text-[10px] px-1 py-0 border-primary/30 text-primary">
                           ФИПС
                         </Badge>
