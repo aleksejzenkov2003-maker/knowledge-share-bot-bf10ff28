@@ -922,21 +922,61 @@ export default function Trademarks() {
                   />
                 </div>
               )}
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
-                <InfoRow label="Рег. номер" value={fipsData.registration_number} />
-                <InfoRow label="Дата регистрации" value={fipsData.registration_date} />
-                <InfoRow label="Срок действия до" value={fipsData.expiry_date} />
-                <InfoRow label="Статус" value={fipsData.actual === true ? 'Действующий' : fipsData.actual === false ? 'Недействующий' : 'Не определён'} />
-                <InfoRow label="Заявка №" value={fipsData.application_number} />
-                <InfoRow label="Дата приоритета" value={fipsData.priority_date} />
+              
+              {/* Core info */}
+              <div>
+                <h4 className="font-semibold text-base mb-2 text-foreground">Основная информация</h4>
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                  <InfoRow label="Рег. номер" value={fipsData.registration_number} />
+                  <InfoRow label="Дата регистрации" value={fipsData.registration_date} />
+                  <InfoRow label="Срок действия до" value={fipsData.expiry_date} />
+                  <InfoRow label="Статус" value={fipsData.actual === true ? 'Действующий' : fipsData.actual === false ? 'Недействующий' : 'Не определён'} />
+                  <InfoRow label="Заявка №" value={fipsData.application_number} />
+                  <InfoRow label="Дата приоритета" value={fipsData.priority_date} />
+                  <InfoRow label="Дата публикации" value={fipsData.publication_date} />
+                  <InfoRow label="Бюллетень №" value={fipsData.bulletin_number} />
+                </div>
               </div>
-              <InfoRow label="Правообладатель" value={fipsData.right_holder_name} />
-              <InfoRow label="Адрес правообладателя" value={fipsData.right_holder_address} />
-              <InfoRow label="Адрес для переписки" value={fipsData.correspondence_address} />
-              <InfoRow label="Классы МКТУ" value={fipsData.classes_mktu} />
-              <InfoRow label="Описание" value={fipsData.description_element} />
-              <InfoRow label="Неохраняемые элементы" value={fipsData.unprotected_elements} />
-              <InfoRow label="Цвет" value={fipsData.color_specification} />
+              
+              {/* Right holder */}
+              <div>
+                <h4 className="font-semibold text-base mb-2 text-foreground">Правообладатель</h4>
+                <div className="space-y-2">
+                  <InfoRow label="Наименование" value={fipsData.right_holder_name} />
+                  <InfoRow label="Код страны" value={fipsData.right_holder_country_code} />
+                  <InfoRow label="Адрес для переписки" value={fipsData.correspondence_address} />
+                </div>
+              </div>
+
+              {/* Description */}
+              <div>
+                <h4 className="font-semibold text-base mb-2 text-foreground">Характеристики</h4>
+                <div className="space-y-2">
+                  <InfoRow label="Вид знака" value={fipsData.kind_specification} />
+                  <InfoRow label="Указание цвета" value={fipsData.color_specification} />
+                  <InfoRow label="Неохраняемые элементы" value={fipsData.unprotected_elements} />
+                  <InfoRow label="Транслитерация" value={fipsData.transliteration} />
+                  <InfoRow label="Перевод" value={fipsData.translation} />
+                </div>
+              </div>
+
+              {/* Classes */}
+              {fipsData.classes_mktu && (
+                <Collapsible>
+                  <CollapsibleTrigger asChild>
+                    <Button variant="ghost" className="w-full justify-between px-0 hover:bg-transparent">
+                      <h4 className="font-semibold text-base text-foreground">Классы МКТУ</h4>
+                      <ChevronDown className="h-4 w-4" />
+                    </Button>
+                  </CollapsibleTrigger>
+                  <CollapsibleContent>
+                    <div className="bg-muted p-3 rounded text-xs max-h-[200px] overflow-y-auto whitespace-pre-wrap">
+                      {fipsData.classes_mktu}
+                    </div>
+                  </CollapsibleContent>
+                </Collapsible>
+              )}
+
               {fipsData.fips_url && (
                 <a href={fipsData.fips_url} target="_blank" rel="noopener noreferrer" className="text-primary hover:underline inline-flex items-center gap-1 text-xs">
                   <ExternalLink className="h-3.5 w-3.5" />
