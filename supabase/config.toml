@@ -29,3 +29,6 @@ verify_jwt = false
 
 [functions.reputation-web-search]
 verify_jwt = false
+
+[functions.fips-parse]
+verify_jwt = false

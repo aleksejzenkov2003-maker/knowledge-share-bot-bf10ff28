@@ -13,7 +13,7 @@ import {
 import { Badge } from '@/components/ui/badge';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { useToast } from '@/hooks/use-toast';
-import { Upload, Search, Trash2, ChevronLeft, ChevronRight, FileSpreadsheet, X, Eraser, ExternalLink, ChevronDown } from 'lucide-react';
+import { Upload, Search, Trash2, ChevronLeft, ChevronRight, FileSpreadsheet, X, Eraser, ExternalLink, ChevronDown, Download, Loader2 } from 'lucide-react';
 import {
   Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter,
 } from '@/components/ui/dialog';
@@ -198,6 +198,10 @@ export default function Trademarks() {
   const [detailTm, setDetailTm] = useState<Trademark | null>(null);
   const [clearAllOpen, setClearAllOpen] = useState(false);
   const [clearing, setClearing] = useState(false);
+  const [fipsData, setFipsData] = useState<Record<string, any> | null>(null);
+  const [fipsLoading, setFipsLoading] = useState<string | null>(null);
+  const [fipsPreviewOpen, setFipsPreviewOpen] = useState(false);
+  const [fipsTargetId, setFipsTargetId] = useState<string | null>(null);
 
   useEffect(() => {
     const t = setTimeout(() => {
@@ -418,6 +422,64 @@ export default function Trademarks() {
     }
   }, [queryClient, toast]);
 
+  const handleFipsFetch = useCallback(async (tm: Trademark) => {
+    if (!tm.registration_number) {
+      toast({ title: 'Нет номера регистрации', variant: 'destructive' });
+      return;
+    }
+    setFipsLoading(tm.id);
+    try {
+      const { data, error } = await supabase.functions.invoke('fips-parse', {
+        body: { registration_number: tm.registration_number },
+      });
+      if (error) throw error;
+      if (data?.error) throw new Error(data.error);
+      setFipsData(data.data);
+      setFipsTargetId(tm.id);
+      setFipsPreviewOpen(true);
+    } catch (err: any) {
+      toast({ title: 'Ошибка загрузки с ФИПС', description: err.message, variant: 'destructive' });
+    } finally {
+      setFipsLoading(null);
+    }
+  }, [toast]);
+
+  const handleFipsSave = useCallback(async () => {
+    if (!fipsData || !fipsTargetId) return;
+    try {
+      const updateData: Record<string, any> = {};
+      if (fipsData.right_holder_name) updateData.right_holder_name = fipsData.right_holder_name;
+      if (fipsData.right_holder_address) updateData.right_holder_address = fipsData.right_holder_address;
+      if (fipsData.correspondence_address) updateData.correspondence_address = fipsData.correspondence_address;
+      if (fipsData.registration_date) updateData.registration_date = fipsData.registration_date;
+      if (fipsData.description_element) updateData.description_element = fipsData.description_element;
+      if (fipsData.unprotected_elements) updateData.unprotected_elements = fipsData.unprotected_elements;
+      if (fipsData.color_specification) updateData.color_specification = fipsData.color_specification;
+      if (fipsData.actual !== undefined) updateData.actual = fipsData.actual;
+      
+      // Store extra fields in metadata
+      const meta: Record<string, any> = {};
+      if (fipsData.image_url) meta.fips_image_url = fipsData.image_url;
+      if (fipsData.expiry_date) meta.expiry_date = fipsData.expiry_date;
+      if (fipsData.classes_mktu) meta.classes_mktu = fipsData.classes_mktu;
+      if (fipsData.application_number) meta.application_number = fipsData.application_number;
+      if (fipsData.priority_date) meta.priority_date = fipsData.priority_date;
+      if (fipsData.fips_url) meta.fips_url = fipsData.fips_url;
+      if (Object.keys(meta).length > 0) updateData.metadata = meta;
+
+      const { error } = await supabase.from('trademarks').update(updateData).eq('id', fipsTargetId);
+      if (error) throw error;
+
+      toast({ title: 'Данные с ФИПС сохранены' });
+      queryClient.invalidateQueries({ queryKey: ['trademarks'] });
+      setFipsPreviewOpen(false);
+      setFipsData(null);
+      setFipsTargetId(null);
+    } catch (err: any) {
+      toast({ title: 'Ошибка сохранения', description: err.message, variant: 'destructive' });
+    }
+  }, [fipsData, fipsTargetId, toast, queryClient]);
+
   const totalPages = Math.ceil((totalCount ?? 0) / PAGE_SIZE);
 
   return (
@@ -523,14 +585,26 @@ export default function Trademarks() {
                     </Badge>
                   </TableCell>
                   <TableCell>
-                    <Button
-                      variant="ghost"
-                      size="icon"
-                      className="h-8 w-8 text-destructive"
-                      onClick={(e) => { e.stopPropagation(); setDeleteId(tm.id); }}
-                    >
-                      <Trash2 className="h-4 w-4" />
-                    </Button>
+                    <div className="flex gap-1">
+                      <Button
+                        variant="ghost"
+                        size="icon"
+                        className="h-8 w-8"
+                        title="Загрузить с ФИПС"
+                        disabled={fipsLoading === tm.id || !tm.registration_number}
+                        onClick={(e) => { e.stopPropagation(); handleFipsFetch(tm); }}
+                      >
+                        {fipsLoading === tm.id ? <Loader2 className="h-4 w-4 animate-spin" /> : <Download className="h-4 w-4" />}
+                      </Button>
+                      <Button
+                        variant="ghost"
+                        size="icon"
+                        className="h-8 w-8 text-destructive"
+                        onClick={(e) => { e.stopPropagation(); setDeleteId(tm.id); }}
+                      >
+                        <Trash2 className="h-4 w-4" />
+                      </Button>
+                    </div>
                   </TableCell>
                 </TableRow>
               ))}
@@ -814,6 +888,56 @@ export default function Trademarks() {
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
+      {/* FIPS Preview Dialog */}
+      <Dialog open={fipsPreviewOpen} onOpenChange={(open) => { if (!open) { setFipsPreviewOpen(false); setFipsData(null); } }}>
+        <DialogContent className="max-w-2xl max-h-[85vh] overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle>Данные с ФИПС</DialogTitle>
+            <DialogDescription>
+              Проверьте извлечённые данные перед сохранением
+            </DialogDescription>
+          </DialogHeader>
+          {fipsData && (
+            <div className="space-y-4 text-sm">
+              {fipsData.image_url && (
+                <div className="flex justify-center">
+                  <img
+                    src={fipsData.image_url}
+                    alt="Изображение товарного знака"
+                    className="max-h-[200px] max-w-full object-contain rounded border p-2"
+                    onError={(e) => { (e.target as HTMLImageElement).style.display = 'none'; }}
+                  />
+                </div>
+              )}
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                <InfoRow label="Рег. номер" value={fipsData.registration_number} />
+                <InfoRow label="Дата регистрации" value={fipsData.registration_date} />
+                <InfoRow label="Срок действия до" value={fipsData.expiry_date} />
+                <InfoRow label="Статус" value={fipsData.actual === true ? 'Действующий' : fipsData.actual === false ? 'Недействующий' : 'Не определён'} />
+                <InfoRow label="Заявка №" value={fipsData.application_number} />
+                <InfoRow label="Дата приоритета" value={fipsData.priority_date} />
+              </div>
+              <InfoRow label="Правообладатель" value={fipsData.right_holder_name} />
+              <InfoRow label="Адрес правообладателя" value={fipsData.right_holder_address} />
+              <InfoRow label="Адрес для переписки" value={fipsData.correspondence_address} />
+              <InfoRow label="Классы МКТУ" value={fipsData.classes_mktu} />
+              <InfoRow label="Описание" value={fipsData.description_element} />
+              <InfoRow label="Неохраняемые элементы" value={fipsData.unprotected_elements} />
+              <InfoRow label="Цвет" value={fipsData.color_specification} />
+              {fipsData.fips_url && (
+                <a href={fipsData.fips_url} target="_blank" rel="noopener noreferrer" className="text-primary hover:underline inline-flex items-center gap-1 text-xs">
+                  <ExternalLink className="h-3.5 w-3.5" />
+                  Открыть на ФИПС
+                </a>
+              )}
+            </div>
+          )}
+          <DialogFooter>
+            <Button variant="outline" onClick={() => { setFipsPreviewOpen(false); setFipsData(null); }}>Отмена</Button>
+            <Button onClick={handleFipsSave}>Сохранить</Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }
