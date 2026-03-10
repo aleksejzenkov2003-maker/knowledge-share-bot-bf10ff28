@@ -398,7 +398,6 @@ export default function Trademarks() {
       const { error } = await supabase.from('trademarks').delete().neq('id', '00000000-0000-0000-0000-000000000000');
       if (error) throw error;
       queryClient.invalidateQueries({ queryKey: ['trademarks'] });
-      queryClient.invalidateQueries({ queryKey: ['trademarks-count'] });
       toast({ title: 'База очищена' });
       setClearAllOpen(false);
       setPage(0);
