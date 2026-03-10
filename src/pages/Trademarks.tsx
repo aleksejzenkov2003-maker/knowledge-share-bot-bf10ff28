@@ -747,6 +747,7 @@ export default function Trademarks() {
                   <InfoRow label="Вид знака" value={detailTm.kind_specification} />
                   <InfoRow label="Срок действия до" value={detailTm.metadata?.expiry_date ? new Date(detailTm.metadata.expiry_date).toLocaleDateString('ru-RU') : null} />
                   <InfoRow label="Заявка №" value={detailTm.metadata?.application_number} />
+                  <InfoRow label="Дата подачи заявки" value={detailTm.metadata?.application_date ? new Date(detailTm.metadata.application_date).toLocaleDateString('ru-RU') : null} />
                   <InfoRow label="Дата приоритета" value={detailTm.metadata?.priority_date ? new Date(detailTm.metadata.priority_date).toLocaleDateString('ru-RU') : null} />
                   <InfoRow label="Дата общеизвестности" value={detailTm.well_known_trademark_date ? new Date(detailTm.well_known_trademark_date).toLocaleDateString('ru-RU') : null} />
                   <InfoRow label="Связанные рег." value={detailTm.legally_related_registrations} />
