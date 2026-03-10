@@ -585,14 +585,26 @@ export default function Trademarks() {
                     </Badge>
                   </TableCell>
                   <TableCell>
-                    <Button
-                      variant="ghost"
-                      size="icon"
-                      className="h-8 w-8 text-destructive"
-                      onClick={(e) => { e.stopPropagation(); setDeleteId(tm.id); }}
-                    >
-                      <Trash2 className="h-4 w-4" />
-                    </Button>
+                    <div className="flex gap-1">
+                      <Button
+                        variant="ghost"
+                        size="icon"
+                        className="h-8 w-8"
+                        title="Загрузить с ФИПС"
+                        disabled={fipsLoading === tm.id || !tm.registration_number}
+                        onClick={(e) => { e.stopPropagation(); handleFipsFetch(tm); }}
+                      >
+                        {fipsLoading === tm.id ? <Loader2 className="h-4 w-4 animate-spin" /> : <Download className="h-4 w-4" />}
+                      </Button>
+                      <Button
+                        variant="ghost"
+                        size="icon"
+                        className="h-8 w-8 text-destructive"
+                        onClick={(e) => { e.stopPropagation(); setDeleteId(tm.id); }}
+                      >
+                        <Trash2 className="h-4 w-4" />
+                      </Button>
+                    </div>
                   </TableCell>
                 </TableRow>
               ))}
