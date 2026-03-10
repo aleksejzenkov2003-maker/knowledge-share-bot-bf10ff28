@@ -476,7 +476,7 @@ export default function Trademarks() {
 
       toast({ title: 'Данные с ФИПС сохранены' });
       queryClient.invalidateQueries({ queryKey: ['trademarks'] });
-      queryClient.invalidateQueries({ queryKey: ['trademarks-count'] });
+      
       setFipsPreviewOpen(false);
       setFipsData(null);
       setFipsTargetId(null);
