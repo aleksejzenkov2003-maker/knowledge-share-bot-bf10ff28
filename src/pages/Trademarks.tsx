@@ -448,24 +448,37 @@ export default function Trademarks() {
     if (!fipsData || !fipsTargetId) return;
     try {
       const updateData: Record<string, any> = {};
+      
+      // Map all direct DB fields
       if (fipsData.right_holder_name) updateData.right_holder_name = fipsData.right_holder_name;
-      if (fipsData.right_holder_address) updateData.right_holder_address = fipsData.right_holder_address;
+      if (fipsData.right_holder_country_code) updateData.right_holder_country_code = fipsData.right_holder_country_code;
       if (fipsData.correspondence_address) updateData.correspondence_address = fipsData.correspondence_address;
       if (fipsData.registration_date) updateData.registration_date = fipsData.registration_date;
-      if (fipsData.description_element) updateData.description_element = fipsData.description_element;
-      if (fipsData.unprotected_elements) updateData.unprotected_elements = fipsData.unprotected_elements;
       if (fipsData.color_specification) updateData.color_specification = fipsData.color_specification;
+      if (fipsData.unprotected_elements) updateData.unprotected_elements = fipsData.unprotected_elements;
+      if (fipsData.kind_specification) updateData.kind_specification = fipsData.kind_specification;
+      if (fipsData.transliteration) updateData.transliteration = fipsData.transliteration;
+      if (fipsData.translation) updateData.translation = fipsData.translation;
       if (fipsData.actual !== undefined) updateData.actual = fipsData.actual;
+      if (fipsData.publication_url) updateData.publication_url = fipsData.publication_url;
       
-      // Store extra fields in metadata
-      const meta: Record<string, any> = {};
+      // Merge metadata preserving existing data
+      const existingTm = trademarks?.find(t => t.id === fipsTargetId);
+      const existingMeta = (existingTm?.metadata && typeof existingTm.metadata === 'object') ? existingTm.metadata : {};
+      const meta: Record<string, any> = { ...existingMeta };
+      
       if (fipsData.image_url) meta.fips_image_url = fipsData.image_url;
+      if (fipsData.image_url_full) meta.fips_image_url_full = fipsData.image_url_full;
       if (fipsData.expiry_date) meta.expiry_date = fipsData.expiry_date;
       if (fipsData.classes_mktu) meta.classes_mktu = fipsData.classes_mktu;
       if (fipsData.application_number) meta.application_number = fipsData.application_number;
       if (fipsData.priority_date) meta.priority_date = fipsData.priority_date;
+      if (fipsData.publication_date) meta.publication_date = fipsData.publication_date;
+      if (fipsData.bulletin_number) meta.bulletin_number = fipsData.bulletin_number;
       if (fipsData.fips_url) meta.fips_url = fipsData.fips_url;
-      if (Object.keys(meta).length > 0) updateData.metadata = meta;
+      meta.fips_updated_at = new Date().toISOString();
+      
+      updateData.metadata = meta;
 
       const { error } = await supabase.from('trademarks').update(updateData).eq('id', fipsTargetId);
       if (error) throw error;
@@ -478,7 +491,7 @@ export default function Trademarks() {
     } catch (err: any) {
       toast({ title: 'Ошибка сохранения', description: err.message, variant: 'destructive' });
     }
-  }, [fipsData, fipsTargetId, toast, queryClient]);
+  }, [fipsData, fipsTargetId, toast, queryClient, trademarks]);
 
   const totalPages = Math.ceil((totalCount ?? 0) / PAGE_SIZE);
 
@@ -711,6 +724,18 @@ export default function Trademarks() {
           </DialogHeader>
           {detailTm && (
             <div className="space-y-4 text-sm">
+              {/* FIPS Image */}
+              {detailTm.metadata?.fips_image_url && (
+                <div className="flex justify-center">
+                  <img
+                    src={detailTm.metadata.fips_image_url}
+                    alt="Изображение товарного знака"
+                    className="max-h-[180px] max-w-full object-contain rounded border p-2"
+                    onError={(e) => { (e.target as HTMLImageElement).style.display = 'none'; }}
+                  />
+                </div>
+              )}
+
               {/* Основная информация */}
               <div>
                 <h4 className="font-semibold text-base mb-2 text-foreground">Основная информация</h4>
@@ -719,19 +744,32 @@ export default function Trademarks() {
                   <InfoRow label="Дата регистрации" value={detailTm.registration_date ? new Date(detailTm.registration_date).toLocaleDateString('ru-RU') : null} />
                   <InfoRow label="Статус" value={detailTm.actual ? 'Действующий' : 'Недействующий'} />
                   <InfoRow label="Вид знака" value={detailTm.kind_specification} />
+                  <InfoRow label="Срок действия до" value={detailTm.metadata?.expiry_date ? new Date(detailTm.metadata.expiry_date).toLocaleDateString('ru-RU') : null} />
+                  <InfoRow label="Заявка №" value={detailTm.metadata?.application_number} />
+                  <InfoRow label="Дата приоритета" value={detailTm.metadata?.priority_date ? new Date(detailTm.metadata.priority_date).toLocaleDateString('ru-RU') : null} />
                   <InfoRow label="Дата общеизвестности" value={detailTm.well_known_trademark_date ? new Date(detailTm.well_known_trademark_date).toLocaleDateString('ru-RU') : null} />
                   <InfoRow label="Связанные рег." value={detailTm.legally_related_registrations} />
                 </div>
               </div>
 
               {/* Публикация */}
-              {detailTm.publication_url && (
+              {(detailTm.publication_url || detailTm.metadata?.fips_url) && (
                 <div>
                   <h4 className="font-semibold text-base mb-2 text-foreground">Публикация</h4>
-                  <a href={detailTm.publication_url} target="_blank" rel="noopener noreferrer" className="text-primary hover:underline inline-flex items-center gap-1">
-                    <ExternalLink className="h-3.5 w-3.5" />
-                    Открыть на сайте ФИПС
-                  </a>
+                  <div className="flex flex-wrap gap-3">
+                    {detailTm.metadata?.fips_url && (
+                      <a href={detailTm.metadata.fips_url} target="_blank" rel="noopener noreferrer" className="text-primary hover:underline inline-flex items-center gap-1">
+                        <ExternalLink className="h-3.5 w-3.5" />
+                        Реестр ФИПС
+                      </a>
+                    )}
+                    {detailTm.publication_url && (
+                      <a href={detailTm.publication_url} target="_blank" rel="noopener noreferrer" className="text-primary hover:underline inline-flex items-center gap-1">
+                        <ExternalLink className="h-3.5 w-3.5" />
+                        Публикация
+                      </a>
+                    )}
+                  </div>
                 </div>
               )}
 
@@ -815,6 +853,23 @@ export default function Trademarks() {
                 </div>
               )}
 
+              {/* Классы МКТУ */}
+              {detailTm.metadata?.classes_mktu && (
+                <Collapsible>
+                  <CollapsibleTrigger asChild>
+                    <Button variant="ghost" className="w-full justify-between px-0 hover:bg-transparent">
+                      <h4 className="font-semibold text-base text-foreground">Классы МКТУ</h4>
+                      <ChevronDown className="h-4 w-4" />
+                    </Button>
+                  </CollapsibleTrigger>
+                  <CollapsibleContent>
+                    <div className="bg-muted p-3 rounded text-xs max-h-[200px] overflow-y-auto whitespace-pre-wrap">
+                      {detailTm.metadata.classes_mktu}
+                    </div>
+                  </CollapsibleContent>
+                </Collapsible>
+              )}
+
               {/* История изменений */}
               {(detailTm.change_right_holder_name_history || detailTm.change_right_holder_address_history || detailTm.change_correspondence_address_history || detailTm.change_legal_related_registrations_history || detailTm.change_color_specification_history || detailTm.change_disclaimer_history || detailTm.change_description_element_history || detailTm.change_description_image_history || detailTm.change_note_history) && (
                 <Collapsible>
@@ -838,13 +893,10 @@ export default function Trademarks() {
                 </Collapsible>
               )}
 
-              {/* Метаданные */}
-              {detailTm.metadata && Object.keys(detailTm.metadata).length > 0 && (
-                <div>
-                  <h4 className="font-semibold text-base mb-2 text-foreground">Метаданные</h4>
-                  <pre className="bg-muted p-3 rounded text-xs overflow-auto max-h-[200px]">
-                    {JSON.stringify(detailTm.metadata, null, 2)}
-                  </pre>
+              {/* ФИПС обновление */}
+              {detailTm.metadata?.fips_updated_at && (
+                <div className="text-xs text-muted-foreground">
+                  Данные ФИПС обновлены: {new Date(detailTm.metadata.fips_updated_at).toLocaleString('ru-RU')}
                 </div>
               )}
 
@@ -909,21 +961,61 @@ export default function Trademarks() {
                   />
                 </div>
               )}
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
-                <InfoRow label="Рег. номер" value={fipsData.registration_number} />
-                <InfoRow label="Дата регистрации" value={fipsData.registration_date} />
-                <InfoRow label="Срок действия до" value={fipsData.expiry_date} />
-                <InfoRow label="Статус" value={fipsData.actual === true ? 'Действующий' : fipsData.actual === false ? 'Недействующий' : 'Не определён'} />
-                <InfoRow label="Заявка №" value={fipsData.application_number} />
-                <InfoRow label="Дата приоритета" value={fipsData.priority_date} />
+              
+              {/* Core info */}
+              <div>
+                <h4 className="font-semibold text-base mb-2 text-foreground">Основная информация</h4>
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                  <InfoRow label="Рег. номер" value={fipsData.registration_number} />
+                  <InfoRow label="Дата регистрации" value={fipsData.registration_date} />
+                  <InfoRow label="Срок действия до" value={fipsData.expiry_date} />
+                  <InfoRow label="Статус" value={fipsData.actual === true ? 'Действующий' : fipsData.actual === false ? 'Недействующий' : 'Не определён'} />
+                  <InfoRow label="Заявка №" value={fipsData.application_number} />
+                  <InfoRow label="Дата приоритета" value={fipsData.priority_date} />
+                  <InfoRow label="Дата публикации" value={fipsData.publication_date} />
+                  <InfoRow label="Бюллетень №" value={fipsData.bulletin_number} />
+                </div>
               </div>
-              <InfoRow label="Правообладатель" value={fipsData.right_holder_name} />
-              <InfoRow label="Адрес правообладателя" value={fipsData.right_holder_address} />
-              <InfoRow label="Адрес для переписки" value={fipsData.correspondence_address} />
-              <InfoRow label="Классы МКТУ" value={fipsData.classes_mktu} />
-              <InfoRow label="Описание" value={fipsData.description_element} />
-              <InfoRow label="Неохраняемые элементы" value={fipsData.unprotected_elements} />
-              <InfoRow label="Цвет" value={fipsData.color_specification} />
+              
+              {/* Right holder */}
+              <div>
+                <h4 className="font-semibold text-base mb-2 text-foreground">Правообладатель</h4>
+                <div className="space-y-2">
+                  <InfoRow label="Наименование" value={fipsData.right_holder_name} />
+                  <InfoRow label="Код страны" value={fipsData.right_holder_country_code} />
+                  <InfoRow label="Адрес для переписки" value={fipsData.correspondence_address} />
+                </div>
+              </div>
+
+              {/* Description */}
+              <div>
+                <h4 className="font-semibold text-base mb-2 text-foreground">Характеристики</h4>
+                <div className="space-y-2">
+                  <InfoRow label="Вид знака" value={fipsData.kind_specification} />
+                  <InfoRow label="Указание цвета" value={fipsData.color_specification} />
+                  <InfoRow label="Неохраняемые элементы" value={fipsData.unprotected_elements} />
+                  <InfoRow label="Транслитерация" value={fipsData.transliteration} />
+                  <InfoRow label="Перевод" value={fipsData.translation} />
+                </div>
+              </div>
+
+              {/* Classes */}
+              {fipsData.classes_mktu && (
+                <Collapsible>
+                  <CollapsibleTrigger asChild>
+                    <Button variant="ghost" className="w-full justify-between px-0 hover:bg-transparent">
+                      <h4 className="font-semibold text-base text-foreground">Классы МКТУ</h4>
+                      <ChevronDown className="h-4 w-4" />
+                    </Button>
+                  </CollapsibleTrigger>
+                  <CollapsibleContent>
+                    <div className="bg-muted p-3 rounded text-xs max-h-[200px] overflow-y-auto whitespace-pre-wrap">
+                      {fipsData.classes_mktu}
+                    </div>
+                  </CollapsibleContent>
+                </Collapsible>
+              )}
+
               {fipsData.fips_url && (
                 <a href={fipsData.fips_url} target="_blank" rel="noopener noreferrer" className="text-primary hover:underline inline-flex items-center gap-1 text-xs">
                   <ExternalLink className="h-3.5 w-3.5" />
