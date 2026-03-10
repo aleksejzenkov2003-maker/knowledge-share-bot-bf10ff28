@@ -484,8 +484,13 @@ export default function Trademarks() {
       const { error } = await supabase.from('trademarks').update(updateData).eq('id', fipsTargetId);
       if (error) throw error;
 
+      // Refresh detailTm with saved data so the card updates immediately
+      const { data: refreshed } = await supabase.from('trademarks').select('*').eq('id', fipsTargetId).single();
+      if (refreshed) setDetailTm(refreshed as Trademark);
+
       toast({ title: 'Данные с ФИПС сохранены' });
       queryClient.invalidateQueries({ queryKey: ['trademarks'] });
+      queryClient.invalidateQueries({ queryKey: ['trademarks-count'] });
       setFipsPreviewOpen(false);
       setFipsData(null);
       setFipsTargetId(null);
@@ -725,6 +730,16 @@ export default function Trademarks() {
           </DialogHeader>
           {detailTm && (
             <div className="space-y-4 text-sm">
+              {/* FIPS updated badge */}
+              {detailTm.metadata?.fips_updated_at && (
+                <div className="flex items-center gap-2 bg-primary/10 border border-primary/20 rounded-lg px-3 py-2">
+                  <Badge variant="default" className="text-xs">ФИПС</Badge>
+                  <span className="text-xs text-muted-foreground">
+                    Карточка обновлена из реестра ФИПС: {new Date(detailTm.metadata.fips_updated_at).toLocaleString('ru-RU')}
+                  </span>
+                </div>
+              )}
+
               {/* FIPS Image */}
               {detailTm.metadata?.fips_image_url && (
                 <div className="flex justify-center">
@@ -899,12 +914,6 @@ export default function Trademarks() {
                 </Collapsible>
               )}
 
-              {/* ФИПС обновление */}
-              {detailTm.metadata?.fips_updated_at && (
-                <div className="text-xs text-muted-foreground">
-                  Данные ФИПС обновлены: {new Date(detailTm.metadata.fips_updated_at).toLocaleString('ru-RU')}
-                </div>
-              )}
 
               <div className="text-xs text-muted-foreground pt-2 border-t">
                 Добавлено: {new Date(detailTm.created_at).toLocaleString('ru-RU')}
