@@ -230,6 +230,10 @@ export default function Trademarks() {
         query = query.eq('actual', true);
       } else if (statusFilter === 'inactive') {
         query = query.eq('actual', false);
+      } else if (statusFilter === 'fips_updated') {
+        query = query.not('metadata->fips_updated_at', 'is', null);
+      } else if (statusFilter === 'not_updated') {
+        query = query.or('metadata.is.null,metadata->fips_updated_at.is.null');
       }
 
       const { data, error } = await query;
@@ -254,6 +258,10 @@ export default function Trademarks() {
         query = query.eq('actual', true);
       } else if (statusFilter === 'inactive') {
         query = query.eq('actual', false);
+      } else if (statusFilter === 'fips_updated') {
+        query = query.not('metadata->fips_updated_at', 'is', null);
+      } else if (statusFilter === 'not_updated') {
+        query = query.or('metadata.is.null,metadata->fips_updated_at.is.null');
       }
 
       const { count, error } = await query;
@@ -543,13 +551,15 @@ export default function Trademarks() {
               )}
             </div>
             <Select value={statusFilter} onValueChange={(v) => { setStatusFilter(v); setPage(0); }}>
-              <SelectTrigger className="w-[180px]">
+              <SelectTrigger className="w-[200px]">
                 <SelectValue placeholder="Статус" />
               </SelectTrigger>
               <SelectContent>
                 <SelectItem value="all">Все</SelectItem>
                 <SelectItem value="active">Действующие</SelectItem>
                 <SelectItem value="inactive">Недействующие</SelectItem>
+                <SelectItem value="fips_updated">Обновлены с ФИПС</SelectItem>
+                <SelectItem value="not_updated">Не обновлены</SelectItem>
               </SelectContent>
             </Select>
           </div>
@@ -588,7 +598,7 @@ export default function Trademarks() {
               ) : trademarks?.map((tm) => (
                 <TableRow
                   key={tm.id}
-                  className="cursor-pointer"
+                  className={`cursor-pointer ${tm.metadata?.fips_updated_at ? 'bg-primary/5 hover:bg-primary/10' : ''}`}
                   onClick={() => setDetailTm(tm)}
                 >
                   <TableCell className="font-mono text-sm">{tm.registration_number || '—'}</TableCell>
@@ -599,9 +609,16 @@ export default function Trademarks() {
                     {tm.registration_date ? new Date(tm.registration_date).toLocaleDateString('ru-RU') : '—'}
                   </TableCell>
                   <TableCell>
-                    <Badge variant={tm.actual ? 'default' : 'secondary'}>
-                      {tm.actual ? 'Действ.' : 'Недейств.'}
-                    </Badge>
+                    <div className="flex items-center gap-1">
+                      <Badge variant={tm.actual ? 'default' : 'secondary'}>
+                        {tm.actual ? 'Действ.' : 'Недейств.'}
+                      </Badge>
+                      {tm.metadata?.fips_updated_at && (
+                        <Badge variant="outline" className="text-[10px] px-1 py-0 border-primary/30 text-primary">
+                          ФИПС
+                        </Badge>
+                      )}
+                    </div>
                   </TableCell>
                   <TableCell>
                     <div className="flex gap-1">
