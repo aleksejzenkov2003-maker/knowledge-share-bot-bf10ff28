@@ -596,7 +596,7 @@ export default function Trademarks() {
                       <Badge variant={tm.actual ? 'default' : 'secondary'}>
                         {tm.actual ? 'Действ.' : 'Недейств.'}
                       </Badge>
-                      {tm.metadata?.fips_updated_at && (
+                      {tm.fips_updated && (
                         <Badge variant="outline" className="text-[10px] px-1 py-0 border-primary/30 text-primary">
                           ФИПС
                         </Badge>
