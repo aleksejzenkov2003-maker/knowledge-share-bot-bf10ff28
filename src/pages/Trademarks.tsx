@@ -753,13 +753,23 @@ export default function Trademarks() {
               </div>
 
               {/* Публикация */}
-              {detailTm.publication_url && (
+              {(detailTm.publication_url || detailTm.metadata?.fips_url) && (
                 <div>
                   <h4 className="font-semibold text-base mb-2 text-foreground">Публикация</h4>
-                  <a href={detailTm.publication_url} target="_blank" rel="noopener noreferrer" className="text-primary hover:underline inline-flex items-center gap-1">
-                    <ExternalLink className="h-3.5 w-3.5" />
-                    Открыть на сайте ФИПС
-                  </a>
+                  <div className="flex flex-wrap gap-3">
+                    {detailTm.metadata?.fips_url && (
+                      <a href={detailTm.metadata.fips_url} target="_blank" rel="noopener noreferrer" className="text-primary hover:underline inline-flex items-center gap-1">
+                        <ExternalLink className="h-3.5 w-3.5" />
+                        Реестр ФИПС
+                      </a>
+                    )}
+                    {detailTm.publication_url && (
+                      <a href={detailTm.publication_url} target="_blank" rel="noopener noreferrer" className="text-primary hover:underline inline-flex items-center gap-1">
+                        <ExternalLink className="h-3.5 w-3.5" />
+                        Публикация
+                      </a>
+                    )}
+                  </div>
                 </div>
               )}
 
