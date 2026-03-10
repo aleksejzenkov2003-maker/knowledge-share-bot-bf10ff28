@@ -972,6 +972,7 @@ export default function Trademarks() {
                   <InfoRow label="Срок действия до" value={fipsData.expiry_date} />
                   <InfoRow label="Статус" value={fipsData.actual === true ? 'Действующий' : fipsData.actual === false ? 'Недействующий' : 'Не определён'} />
                   <InfoRow label="Заявка №" value={fipsData.application_number} />
+                  <InfoRow label="Дата подачи заявки" value={fipsData.application_date} />
                   <InfoRow label="Дата приоритета" value={fipsData.priority_date} />
                   <InfoRow label="Дата публикации" value={fipsData.publication_date} />
                   <InfoRow label="Бюллетень №" value={fipsData.bulletin_number} />
