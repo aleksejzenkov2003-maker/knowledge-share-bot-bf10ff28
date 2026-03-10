@@ -53,6 +53,7 @@ interface Trademark {
   changing: boolean | null;
   positional: boolean | null;
   actual: boolean | null;
+  fips_updated: boolean;
   metadata: any;
   created_at: string;
   updated_at: string;
