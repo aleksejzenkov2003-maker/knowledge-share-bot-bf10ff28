@@ -148,30 +148,40 @@ Deno.serve(async (req) => {
 
     console.log('Fetching FIPS URL:', url);
 
-    const controller = new AbortController();
-    const timeout = setTimeout(() => controller.abort(), 20000);
+    const fetchHeaders = {
+      'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+      'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
+      'Accept-Language': 'ru-RU,ru;q=0.9,en-US;q=0.8,en;q=0.7',
+      'Accept-Encoding': 'identity',
+    };
 
-    let response: Response;
-    try {
-      response = await fetch(url, {
-        signal: controller.signal,
-        headers: {
-          'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
-          'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
-          'Accept-Language': 'ru-RU,ru;q=0.9,en-US;q=0.8,en;q=0.7',
-          'Accept-Encoding': 'identity',
-        },
-        redirect: 'follow',
-      });
-    } catch (e) {
-      clearTimeout(timeout);
-      console.error('FIPS fetch error:', e.message);
-      return new Response(JSON.stringify({ error: `Не удалось подключиться к ФИПС: ${e.message}` }), {
+    let response: Response | null = null;
+    let lastError = '';
+
+    // Try up to 2 attempts with 45s timeout each
+    for (let attempt = 0; attempt < 2; attempt++) {
+      try {
+        response = await fetch(url, {
+          signal: AbortSignal.timeout(45000),
+          headers: fetchHeaders,
+          redirect: 'follow',
+        });
+        break; // success
+      } catch (e) {
+        lastError = e.message;
+        console.error(`FIPS fetch attempt ${attempt + 1} error:`, lastError);
+        if (attempt === 0) {
+          await new Promise(r => setTimeout(r, 2000)); // wait 2s before retry
+        }
+      }
+    }
+
+    if (!response) {
+      return new Response(JSON.stringify({ error: `Не удалось подключиться к ФИПС: ${lastError}` }), {
         status: 502,
         headers: { ...corsHeaders, 'Content-Type': 'application/json' },
       });
     }
-    clearTimeout(timeout);
 
     if (!response.ok) {
       return new Response(JSON.stringify({ error: `ФИПС вернул ошибку: ${response.status}` }), {
