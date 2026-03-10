@@ -1,22 +1,36 @@
 
 
-## План: Обновить цвета
+## Исправление фильтра «Обновлены с ФИПС»
 
-Пользователь хочет:
-- Фон страницы: `#F2F1EC` 
-- Поле ввода (белый): `#F9F8F4`
-- Цвет текста: `#2A2722`
+### Проблема
 
-### HSL-конвертация
-- `#F2F1EC` → `50 15% 94%`
-- `#F9F8F4` → `48 28% 97%`
-- `#2A2722` → `37 10% 15%`
+В базе есть 4 записи с `metadata->>'fips_updated_at' IS NOT NULL`, но Supabase JS клиент некорректно формирует PostgREST запрос при использовании `.not('metadata->fips_updated_at', 'is', null)` — оператор `->` в имени колонки не поддерживается методами `.not()` и `.or()`.
 
-### Файлы
+### Решение
 
-**`src/index.css`** — обновить переменные:
-- `--background` / `--chat-background`: `50 15% 94%` (#F2F1EC)
-- `--foreground` / `--card-foreground` / `--popover-foreground`: `37 10% 15%` (#2A2722)
+Заменить `.not()` / `.or()` на `.filter()`, который передает сырой PostgREST синтаксис напрямую:
 
-**`src/components/chat/ChatInputEnhanced.tsx`** — заменить `bg-white` на `bg-[#F9F8F4]` для поля ввода
+**`src/pages/Trademarks.tsx`**, строки 226-229:
+
+```typescript
+// Было:
+query = query.not('metadata->fips_updated_at', 'is', null);
+// ...
+query = query.or('metadata.is.null,metadata->fips_updated_at.is.null');
+
+// Станет:
+query = query.not('metadata->>fips_updated_at', 'is', null);
+// ...
+query = query.or('metadata.is.null,metadata->>fips_updated_at.is.null');
+```
+
+Если `->>` все еще не сработает через `.not()`, то fallback на `.filter()`:
+
+```typescript
+query = query.filter('metadata->>fips_updated_at', 'not.is', 'null');
+// ...
+query = query.or('metadata.is.null').filter('metadata->>fips_updated_at', 'is', 'null');
+```
+
+Минимальное изменение — 2 строки в `applyFilters`.
 
