@@ -13,27 +13,50 @@ function cleanHtml(str: string): string {
     .replace(/&gt;/g, '>')
     .replace(/&quot;/g, '"')
     .replace(/&#(\d+);/g, (_, n) => String.fromCharCode(Number(n)))
+    .replace(/\s+/g, ' ')
     .trim();
 }
 
 function extractBibField(html: string, code: string): string | null {
-  // Pattern: (CODE) <i>label</i> ... <b>VALUE</b>
-  // or: (CODE) <i>label</i><br><b>VALUE</b>
-  const regex = new RegExp(
-    `\\(${code}\\)\\s*<i>[^<]*</i>[\\s\\S]*?<b>([\\s\\S]*?)</b>`,
+  // The FIPS HTML uses <p class="bib"> blocks with pattern:
+  // (CODE) <i>label</i> ... <b>VALUE</b>
+  // Find the section starting with (CODE) and extract bold text after it
+  
+  // First, try to find within <p class="bib"> blocks
+  const bibBlocks = html.match(/<p class="bib">[^]*?<\/p>/gi) || [];
+  
+  for (const block of bibBlocks) {
+    if (block.includes(`(${code})`)) {
+      // Extract all <b>...</b> content from this block
+      const boldMatches = block.match(/<b>([\s\S]*?)<\/b>/gi);
+      if (boldMatches && boldMatches.length > 0) {
+        // Get the first bold value (skip if it's just a link with the code number itself)
+        for (const bm of boldMatches) {
+          const val = cleanHtml(bm);
+          if (val && val !== code && val.length > 0) {
+            return val;
+          }
+        }
+      }
+    }
+  }
+  
+  // Fallback: search anywhere in HTML
+  const fallbackRegex = new RegExp(
+    `\\(${code}\\)[\\s\\S]*?<b>([\\s\\S]*?)<\\/b>`,
     'i'
   );
-  const match = html.match(regex);
+  const match = html.match(fallbackRegex);
   if (match?.[1]) {
     const val = cleanHtml(match[1]);
-    if (val) return val;
+    if (val && val !== code) return val;
   }
+  
   return null;
 }
 
 function extractImageUrl(html: string): string | null {
-  // Look for (540) section with img tag
-  const section = html.match(/\(540\)[\s\S]{0,3000}?(?=<p class="bib">|\s*$)/i);
+  const section = html.match(/\(540\)[\s\S]{0,3000}/i);
   if (section) {
     const imgMatch = section[0].match(/<img[^>]+src=["']([^"']+)["']/i);
     if (imgMatch?.[1]) {
@@ -45,27 +68,35 @@ function extractImageUrl(html: string): string | null {
   return null;
 }
 
+function extractFullImageUrl(html: string): string | null {
+  // Get the full-size image link (not thumbnail)
+  const section = html.match(/\(540\)[\s\S]{0,3000}/i);
+  if (section) {
+    const linkMatch = section[0].match(/<a[^>]+href=["']([^"']+\.jpg)["']/i);
+    if (linkMatch?.[1]) {
+      let url = linkMatch[1];
+      if (url.startsWith('/')) url = 'https://fips.ru' + url;
+      return url;
+    }
+  }
+  return null;
+}
+
 function extractStatus(html: string): boolean | null {
-  const statusMatch = html.match(/class="Status"[\s\S]*?<td[^>]*class="(\w+)"[^>]*>\s*Статус:\s*([\s\S]*?)<\/td>/i);
+  const statusMatch = html.match(/class="Status"[\s\S]*?<td[^>]*>([\s\S]*?)<\/td>/i);
   if (statusMatch) {
-    const text = statusMatch[2].toLowerCase();
+    const text = statusMatch[1].toLowerCase();
     if (text.includes('не действу') || text.includes('прекращ') || text.includes('аннулир')) return false;
     if (text.includes('действу')) return true;
-  }
-  // Fallback
-  const alt = html.match(/Статус:\s*\n?\s*(действует|не действует|прекращ)/i);
-  if (alt) {
-    return !alt[1].toLowerCase().startsWith('не') && !alt[1].toLowerCase().startsWith('прекращ');
   }
   return null;
 }
 
 function parseDate(dateStr: string | null): string | null {
   if (!dateStr) return null;
-  const cleaned = dateStr.trim();
-  const dmy = cleaned.match(/(\d{2})\.(\d{2})\.(\d{4})/);
+  const dmy = dateStr.match(/(\d{2})\.(\d{2})\.(\d{4})/);
   if (dmy) return `${dmy[3]}-${dmy[2]}-${dmy[1]}`;
-  if (/^\d{4}-\d{2}-\d{2}/.test(cleaned)) return cleaned.substring(0, 10);
+  if (/^\d{4}-\d{2}-\d{2}/.test(dateStr)) return dateStr.substring(0, 10);
   return null;
 }
 
@@ -124,32 +155,43 @@ Deno.serve(async (req) => {
     const html = await response.text();
     console.log('HTML length:', html.length);
 
-    if (html.includes('Документ не найден') || html.includes('не найден') || html.length < 500) {
+    if (html.includes('Документ не найден') || html.length < 500) {
       return new Response(JSON.stringify({ error: `Товарный знак №${num} не найден в реестре ФИПС` }), {
         status: 404,
         headers: { ...corsHeaders, 'Content-Type': 'application/json' },
       });
     }
 
-    // Extract right holder - special handling: (732) ... <br><b>Name (CC)</b>
+    // Debug: log bib blocks count
+    const bibBlocks = html.match(/<p class="bib">/gi) || [];
+    console.log('Found bib blocks:', bibBlocks.length);
+
+    // Extract fields
     let rightHolder = extractBibField(html, '732');
-    // Remove country code like "(RU)" from end
     if (rightHolder) {
       rightHolder = rightHolder.replace(/\s*\([A-Z]{2}\)\s*$/, '').trim();
     }
 
+    const classesRaw = extractBibField(html, '511');
+    // Truncate classes to first 500 chars for preview
+    const classesMktu = classesRaw && classesRaw.length > 500 
+      ? classesRaw.substring(0, 500) + '...' 
+      : classesRaw;
+
     const data: Record<string, any> = {
       registration_number: num,
       registration_date: parseDate(extractBibField(html, '151')),
-      application_number: extractBibField(html, '210'),
+      application_number: cleanHtml(extractBibField(html, '210') || ''),
       priority_date: parseDate(extractBibField(html, '220')),
       expiry_date: parseDate(extractBibField(html, '181')),
       right_holder_name: rightHolder,
       correspondence_address: extractBibField(html, '750'),
       image_url: extractImageUrl(html),
+      image_url_full: extractFullImageUrl(html),
       color_specification: extractBibField(html, '591'),
       unprotected_elements: extractBibField(html, '526'),
-      classes_mktu: extractBibField(html, '511'),
+      description_element: extractBibField(html, '550'),
+      classes_mktu: classesMktu,
       transliteration: extractBibField(html, '441'),
       actual: extractStatus(html),
       fips_url: url,
