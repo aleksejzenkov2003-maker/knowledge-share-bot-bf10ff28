@@ -422,6 +422,64 @@ export default function Trademarks() {
     }
   }, [queryClient, toast]);
 
+  const handleFipsFetch = useCallback(async (tm: Trademark) => {
+    if (!tm.registration_number) {
+      toast({ title: 'Нет номера регистрации', variant: 'destructive' });
+      return;
+    }
+    setFipsLoading(tm.id);
+    try {
+      const { data, error } = await supabase.functions.invoke('fips-parse', {
+        body: { registration_number: tm.registration_number },
+      });
+      if (error) throw error;
+      if (data?.error) throw new Error(data.error);
+      setFipsData(data.data);
+      setFipsTargetId(tm.id);
+      setFipsPreviewOpen(true);
+    } catch (err: any) {
+      toast({ title: 'Ошибка загрузки с ФИПС', description: err.message, variant: 'destructive' });
+    } finally {
+      setFipsLoading(null);
+    }
+  }, [toast]);
+
+  const handleFipsSave = useCallback(async () => {
+    if (!fipsData || !fipsTargetId) return;
+    try {
+      const updateData: Record<string, any> = {};
+      if (fipsData.right_holder_name) updateData.right_holder_name = fipsData.right_holder_name;
+      if (fipsData.right_holder_address) updateData.right_holder_address = fipsData.right_holder_address;
+      if (fipsData.correspondence_address) updateData.correspondence_address = fipsData.correspondence_address;
+      if (fipsData.registration_date) updateData.registration_date = fipsData.registration_date;
+      if (fipsData.description_element) updateData.description_element = fipsData.description_element;
+      if (fipsData.unprotected_elements) updateData.unprotected_elements = fipsData.unprotected_elements;
+      if (fipsData.color_specification) updateData.color_specification = fipsData.color_specification;
+      if (fipsData.actual !== undefined) updateData.actual = fipsData.actual;
+      
+      // Store extra fields in metadata
+      const meta: Record<string, any> = {};
+      if (fipsData.image_url) meta.fips_image_url = fipsData.image_url;
+      if (fipsData.expiry_date) meta.expiry_date = fipsData.expiry_date;
+      if (fipsData.classes_mktu) meta.classes_mktu = fipsData.classes_mktu;
+      if (fipsData.application_number) meta.application_number = fipsData.application_number;
+      if (fipsData.priority_date) meta.priority_date = fipsData.priority_date;
+      if (fipsData.fips_url) meta.fips_url = fipsData.fips_url;
+      if (Object.keys(meta).length > 0) updateData.metadata = meta;
+
+      const { error } = await supabase.from('trademarks').update(updateData).eq('id', fipsTargetId);
+      if (error) throw error;
+
+      toast({ title: 'Данные с ФИПС сохранены' });
+      queryClient.invalidateQueries({ queryKey: ['trademarks'] });
+      setFipsPreviewOpen(false);
+      setFipsData(null);
+      setFipsTargetId(null);
+    } catch (err: any) {
+      toast({ title: 'Ошибка сохранения', description: err.message, variant: 'destructive' });
+    }
+  }, [fipsData, fipsTargetId, toast, queryClient]);
+
   const totalPages = Math.ceil((totalCount ?? 0) / PAGE_SIZE);
 
   return (
