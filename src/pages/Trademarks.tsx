@@ -853,6 +853,23 @@ export default function Trademarks() {
                 </div>
               )}
 
+              {/* Классы МКТУ */}
+              {detailTm.metadata?.classes_mktu && (
+                <Collapsible>
+                  <CollapsibleTrigger asChild>
+                    <Button variant="ghost" className="w-full justify-between px-0 hover:bg-transparent">
+                      <h4 className="font-semibold text-base text-foreground">Классы МКТУ</h4>
+                      <ChevronDown className="h-4 w-4" />
+                    </Button>
+                  </CollapsibleTrigger>
+                  <CollapsibleContent>
+                    <div className="bg-muted p-3 rounded text-xs max-h-[200px] overflow-y-auto whitespace-pre-wrap">
+                      {detailTm.metadata.classes_mktu}
+                    </div>
+                  </CollapsibleContent>
+                </Collapsible>
+              )}
+
               {/* История изменений */}
               {(detailTm.change_right_holder_name_history || detailTm.change_right_holder_address_history || detailTm.change_correspondence_address_history || detailTm.change_legal_related_registrations_history || detailTm.change_color_specification_history || detailTm.change_disclaimer_history || detailTm.change_description_element_history || detailTm.change_description_image_history || detailTm.change_note_history) && (
                 <Collapsible>
@@ -876,13 +893,10 @@ export default function Trademarks() {
                 </Collapsible>
               )}
 
-              {/* Метаданные */}
-              {detailTm.metadata && Object.keys(detailTm.metadata).length > 0 && (
-                <div>
-                  <h4 className="font-semibold text-base mb-2 text-foreground">Метаданные</h4>
-                  <pre className="bg-muted p-3 rounded text-xs overflow-auto max-h-[200px]">
-                    {JSON.stringify(detailTm.metadata, null, 2)}
-                  </pre>
+              {/* ФИПС обновление */}
+              {detailTm.metadata?.fips_updated_at && (
+                <div className="text-xs text-muted-foreground">
+                  Данные ФИПС обновлены: {new Date(detailTm.metadata.fips_updated_at).toLocaleString('ru-RU')}
                 </div>
               )}
 
