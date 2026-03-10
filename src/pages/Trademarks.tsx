@@ -472,6 +472,7 @@ export default function Trademarks() {
       if (fipsData.expiry_date) meta.expiry_date = fipsData.expiry_date;
       if (fipsData.classes_mktu) meta.classes_mktu = fipsData.classes_mktu;
       if (fipsData.application_number) meta.application_number = fipsData.application_number;
+      if (fipsData.application_date) meta.application_date = fipsData.application_date;
       if (fipsData.priority_date) meta.priority_date = fipsData.priority_date;
       if (fipsData.publication_date) meta.publication_date = fipsData.publication_date;
       if (fipsData.bulletin_number) meta.bulletin_number = fipsData.bulletin_number;
