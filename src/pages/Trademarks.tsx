@@ -211,7 +211,7 @@ export default function Trademarks() {
     return () => clearTimeout(t);
   }, [search]);
 
-  const LIST_FIELDS = 'id, registration_number, right_holder_name, right_holder_inn, right_holder_ogrn, registration_date, actual, metadata, created_at';
+  const LIST_FIELDS = 'id, registration_number, right_holder_name, right_holder_inn, right_holder_ogrn, registration_date, actual, fips_updated, metadata, created_at';
 
   const applyFilters = (query: any, searchTerm: string, status: string) => {
     if (searchTerm) {
