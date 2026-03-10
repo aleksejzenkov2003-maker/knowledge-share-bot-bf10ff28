@@ -245,7 +245,7 @@ export default function Trademarks() {
 
       const { data, count, error } = await query;
       if (error) throw error;
-      return { data: data as Trademark[], count: count ?? 0 };
+      return { data: data as unknown as Trademark[], count: count ?? 0 };
     },
   });
 
