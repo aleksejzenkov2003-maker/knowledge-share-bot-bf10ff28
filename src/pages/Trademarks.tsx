@@ -609,9 +609,16 @@ export default function Trademarks() {
                     {tm.registration_date ? new Date(tm.registration_date).toLocaleDateString('ru-RU') : '—'}
                   </TableCell>
                   <TableCell>
-                    <Badge variant={tm.actual ? 'default' : 'secondary'}>
-                      {tm.actual ? 'Действ.' : 'Недейств.'}
-                    </Badge>
+                    <div className="flex items-center gap-1">
+                      <Badge variant={tm.actual ? 'default' : 'secondary'}>
+                        {tm.actual ? 'Действ.' : 'Недейств.'}
+                      </Badge>
+                      {tm.metadata?.fips_updated_at && (
+                        <Badge variant="outline" className="text-[10px] px-1 py-0 border-primary/30 text-primary">
+                          ФИПС
+                        </Badge>
+                      )}
+                    </div>
                   </TableCell>
                   <TableCell>
                     <div className="flex gap-1">
