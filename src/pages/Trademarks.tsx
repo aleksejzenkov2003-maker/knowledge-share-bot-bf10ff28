@@ -466,6 +466,7 @@ export default function Trademarks() {
       meta.fips_updated_at = new Date().toISOString();
       
       updateData.metadata = meta;
+      updateData.fips_updated = true;
 
       const { error } = await supabase.from('trademarks').update(updateData).eq('id', fipsTargetId);
       if (error) throw error;
