@@ -211,64 +211,45 @@ export default function Trademarks() {
     return () => clearTimeout(t);
   }, [search]);
 
-  const { data: trademarks, isLoading } = useQuery({
+  const LIST_FIELDS = 'id, registration_number, right_holder_name, right_holder_inn, right_holder_ogrn, registration_date, actual, metadata, created_at';
+
+  const applyFilters = (query: any, searchTerm: string, status: string) => {
+    if (searchTerm) {
+      query = query.or(
+        `registration_number.ilike.%${searchTerm}%,right_holder_name.ilike.%${searchTerm}%,right_holder_inn.ilike.%${searchTerm}%,right_holder_ogrn.ilike.%${searchTerm}%`
+      );
+    }
+    if (status === 'active') {
+      query = query.eq('actual', true);
+    } else if (status === 'inactive') {
+      query = query.eq('actual', false);
+    } else if (status === 'fips_updated') {
+      query = query.not('metadata->fips_updated_at', 'is', null);
+    } else if (status === 'not_updated') {
+      query = query.or('metadata.is.null,metadata->fips_updated_at.is.null');
+    }
+    return query;
+  };
+
+  const { data: queryResult, isLoading } = useQuery({
     queryKey: ['trademarks', debouncedSearch, statusFilter, page],
     queryFn: async () => {
       let query = supabase
         .from('trademarks')
-        .select('*')
+        .select(LIST_FIELDS, { count: 'exact' })
         .order('created_at', { ascending: false })
         .range(page * PAGE_SIZE, (page + 1) * PAGE_SIZE - 1);
 
-      if (debouncedSearch) {
-        query = query.or(
-          `registration_number.ilike.%${debouncedSearch}%,right_holder_name.ilike.%${debouncedSearch}%,right_holder_inn.ilike.%${debouncedSearch}%,right_holder_ogrn.ilike.%${debouncedSearch}%`
-        );
-      }
+      query = applyFilters(query, debouncedSearch, statusFilter);
 
-      if (statusFilter === 'active') {
-        query = query.eq('actual', true);
-      } else if (statusFilter === 'inactive') {
-        query = query.eq('actual', false);
-      } else if (statusFilter === 'fips_updated') {
-        query = query.not('metadata->fips_updated_at', 'is', null);
-      } else if (statusFilter === 'not_updated') {
-        query = query.or('metadata.is.null,metadata->fips_updated_at.is.null');
-      }
-
-      const { data, error } = await query;
+      const { data, count, error } = await query;
       if (error) throw error;
-      return data as Trademark[];
+      return { data: data as Trademark[], count: count ?? 0 };
     },
   });
 
-  const { data: totalCount } = useQuery({
-    queryKey: ['trademarks-count', debouncedSearch, statusFilter],
-    queryFn: async () => {
-      let query = supabase
-        .from('trademarks')
-        .select('id', { count: 'exact', head: true });
-
-      if (debouncedSearch) {
-        query = query.or(
-          `registration_number.ilike.%${debouncedSearch}%,right_holder_name.ilike.%${debouncedSearch}%,right_holder_inn.ilike.%${debouncedSearch}%,right_holder_ogrn.ilike.%${debouncedSearch}%`
-        );
-      }
-      if (statusFilter === 'active') {
-        query = query.eq('actual', true);
-      } else if (statusFilter === 'inactive') {
-        query = query.eq('actual', false);
-      } else if (statusFilter === 'fips_updated') {
-        query = query.not('metadata->fips_updated_at', 'is', null);
-      } else if (statusFilter === 'not_updated') {
-        query = query.or('metadata.is.null,metadata->fips_updated_at.is.null');
-      }
-
-      const { count, error } = await query;
-      if (error) throw error;
-      return count ?? 0;
-    },
-  });
+  const trademarks = queryResult?.data;
+  const totalCount = queryResult?.count ?? 0;
 
   const deleteMutation = useMutation({
     mutationFn: async (id: string) => {
