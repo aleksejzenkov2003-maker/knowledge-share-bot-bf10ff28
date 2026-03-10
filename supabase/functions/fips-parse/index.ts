@@ -12,47 +12,54 @@ function cleanHtml(str: string): string {
     .replace(/&lt;/g, '<')
     .replace(/&gt;/g, '>')
     .replace(/&quot;/g, '"')
+    .replace(/&laquo;/g, '«')
+    .replace(/&raquo;/g, '»')
     .replace(/&#(\d+);/g, (_, n) => String.fromCharCode(Number(n)))
     .replace(/\s+/g, ' ')
     .trim();
 }
 
-function extractBibField(html: string, code: string): string | null {
+function extractBibField(html: string, code: string, allBold = false): string | null {
   // The FIPS HTML uses <p class="bib"> blocks with pattern:
   // (CODE) <i>label</i> ... <b>VALUE</b>
-  // Find the section starting with (CODE) and extract bold text after it
-  
-  // First, try to find within <p class="bib"> blocks
-  const bibBlocks = html.match(/<p class="bib">[^]*?<\/p>/gi) || [];
+  const bibBlocks = html.match(/<p class="bib"[\s\S]*?<\/p>/gi) || [];
   
   for (const block of bibBlocks) {
-    if (block.includes(`(${code})`)) {
-      // Extract all <b>...</b> content from this block
-      const boldMatches = block.match(/<b>([\s\S]*?)<\/b>/gi);
-      if (boldMatches && boldMatches.length > 0) {
-        // Get the first bold value (skip if it's just a link with the code number itself)
-        for (const bm of boldMatches) {
-          const val = cleanHtml(bm);
-          if (val && val !== code && val.length > 0) {
-            return val;
-          }
-        }
+    if (!block.includes(`(${code})`)) continue;
+    
+    const boldMatches = block.match(/<b>([\s\S]*?)<\/b>/gi);
+    if (!boldMatches || boldMatches.length === 0) continue;
+    
+    if (allBold) {
+      // Concatenate all bold values (for classes MKTU with multiple <b> blocks)
+      const values: string[] = [];
+      for (const bm of boldMatches) {
+        const val = cleanHtml(bm);
+        if (val && val !== code) values.push(val);
+      }
+      return values.length > 0 ? values.join('\n') : null;
+    }
+    
+    // Get first meaningful bold value
+    for (const bm of boldMatches) {
+      const val = cleanHtml(bm);
+      if (val && val !== code && val.length > 0) {
+        return val;
       }
     }
   }
   
-  // Fallback: search anywhere in HTML
-  const fallbackRegex = new RegExp(
-    `\\(${code}\\)[\\s\\S]*?<b>([\\s\\S]*?)<\\/b>`,
-    'i'
-  );
-  const match = html.match(fallbackRegex);
-  if (match?.[1]) {
-    const val = cleanHtml(match[1]);
-    if (val && val !== code) return val;
-  }
-  
   return null;
+}
+
+function extractBibFieldWithCountryCode(html: string, code: string): { name: string; countryCode: string | null } | null {
+  const raw = extractBibField(html, code);
+  if (!raw) return null;
+  const match = raw.match(/^(.*?)\s*\(([A-Z]{2})\)\s*$/);
+  if (match) {
+    return { name: match[1].trim(), countryCode: match[2] };
+  }
+  return { name: raw, countryCode: null };
 }
 
 function extractImageUrl(html: string): string | null {
@@ -69,7 +76,6 @@ function extractImageUrl(html: string): string | null {
 }
 
 function extractFullImageUrl(html: string): string | null {
-  // Get the full-size image link (not thumbnail)
   const section = html.match(/\(540\)[\s\S]{0,3000}/i);
   if (section) {
     const linkMatch = section[0].match(/<a[^>]+href=["']([^"']+\.jpg)["']/i);
@@ -90,6 +96,26 @@ function extractStatus(html: string): boolean | null {
     if (text.includes('действу')) return true;
   }
   return null;
+}
+
+function extractPriorityDate(html: string): string | null {
+  // Priority date is in a special <p class="bib2"> block
+  const match = html.match(/<p class="bib2">[\s\S]*?Приоритет[\s\S]*?<b>([\s\S]*?)<\/b>/i);
+  if (match?.[1]) {
+    return parseDate(cleanHtml(match[1]));
+  }
+  return parseDate(extractBibField(html, '220'));
+}
+
+function extractPublicationInfo(html: string): { date: string | null; bulletinNumber: string | null } {
+  const block = extractBibField(html, '450');
+  const result = { date: null as string | null, bulletinNumber: null as string | null };
+  if (block) {
+    result.date = parseDate(block);
+    const bulMatch = block.match(/(\d+)\s*$/);
+    if (bulMatch) result.bulletinNumber = bulMatch[1];
+  }
+  return result;
 }
 
 function parseDate(dateStr: string | null): string | null {
@@ -134,7 +160,6 @@ Deno.serve(async (req) => {
         },
         redirect: 'follow',
       });
-      console.log('FIPS response status:', response.status);
     } catch (e) {
       clearTimeout(timeout);
       console.error('FIPS fetch error:', e.message);
@@ -152,7 +177,6 @@ Deno.serve(async (req) => {
       });
     }
 
-    // FIPS returns windows-1251 encoded HTML, need to decode properly
     const rawBytes = new Uint8Array(await response.arrayBuffer());
     let html: string;
     try {
@@ -161,7 +185,6 @@ Deno.serve(async (req) => {
     } catch {
       html = new TextDecoder('utf-8').decode(rawBytes);
     }
-    console.log('HTML length:', html.length);
 
     if (html.includes('Документ не найден') || html.length < 500) {
       return new Response(JSON.stringify({ error: `Товарный знак №${num} не найден в реестре ФИПС` }), {
@@ -170,38 +193,61 @@ Deno.serve(async (req) => {
       });
     }
 
-    // Debug: log bib blocks count
-    const bibBlocks = html.match(/<p class="bib">/gi) || [];
-    console.log('Found bib blocks:', bibBlocks.length);
-
-    // Extract fields
-    let rightHolder = extractBibField(html, '732');
-    if (rightHolder) {
-      rightHolder = rightHolder.replace(/\s*\([A-Z]{2}\)\s*$/, '').trim();
-    }
-
-    const classesRaw = extractBibField(html, '511');
-    // Truncate classes to first 500 chars for preview
-    const classesMktu = classesRaw && classesRaw.length > 500 
-      ? classesRaw.substring(0, 500) + '...' 
-      : classesRaw;
+    // Extract right holder with country code
+    const holderInfo = extractBibFieldWithCountryCode(html, '732');
+    
+    // Extract kind/type of mark (550)
+    const kindSpec = extractBibField(html, '550');
+    
+    // Extract classes MKTU - concatenate all bold blocks
+    const classesRaw = extractBibField(html, '511', true);
+    
+    // Publication info
+    const pubInfo = extractPublicationInfo(html);
+    
+    // Build publication URL  
+    const pubUrlMatch = html.match(/\(450\)[\s\S]*?<a[^>]+href=["']([^"']+)["']/i);
+    const publicationUrl = pubUrlMatch?.[1] || null;
 
     const data: Record<string, any> = {
+      // Core identification
       registration_number: num,
       registration_date: parseDate(extractBibField(html, '151')),
-      application_number: cleanHtml(extractBibField(html, '210') || ''),
-      priority_date: parseDate(extractBibField(html, '220')),
+      application_number: extractBibField(html, '210'),
+      priority_date: extractPriorityDate(html),
       expiry_date: parseDate(extractBibField(html, '181')),
-      right_holder_name: rightHolder,
+      
+      // Right holder
+      right_holder_name: holderInfo?.name || null,
+      right_holder_country_code: holderInfo?.countryCode || null,
       correspondence_address: extractBibField(html, '750'),
+      
+      // Images
       image_url: extractImageUrl(html),
       image_url_full: extractFullImageUrl(html),
+      
+      // Description & characteristics
+      kind_specification: kindSpec,
       color_specification: extractBibField(html, '591'),
       unprotected_elements: extractBibField(html, '526'),
-      description_element: extractBibField(html, '550'),
-      classes_mktu: classesMktu,
       transliteration: extractBibField(html, '441'),
+      translation: extractBibField(html, '443'),
+      description_element: extractBibField(html, '540')
+        ? null // Skip if it's just the image block
+        : null,
+      
+      // Classes
+      classes_mktu: classesRaw,
+      
+      // Status
       actual: extractStatus(html),
+      
+      // Publication
+      publication_date: pubInfo.date,
+      bulletin_number: pubInfo.bulletinNumber,
+      publication_url: publicationUrl,
+      
+      // Link
       fips_url: url,
     };
 
