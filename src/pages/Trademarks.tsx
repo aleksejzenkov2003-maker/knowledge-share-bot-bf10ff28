@@ -448,24 +448,37 @@ export default function Trademarks() {
     if (!fipsData || !fipsTargetId) return;
     try {
       const updateData: Record<string, any> = {};
+      
+      // Map all direct DB fields
       if (fipsData.right_holder_name) updateData.right_holder_name = fipsData.right_holder_name;
-      if (fipsData.right_holder_address) updateData.right_holder_address = fipsData.right_holder_address;
+      if (fipsData.right_holder_country_code) updateData.right_holder_country_code = fipsData.right_holder_country_code;
       if (fipsData.correspondence_address) updateData.correspondence_address = fipsData.correspondence_address;
       if (fipsData.registration_date) updateData.registration_date = fipsData.registration_date;
-      if (fipsData.description_element) updateData.description_element = fipsData.description_element;
-      if (fipsData.unprotected_elements) updateData.unprotected_elements = fipsData.unprotected_elements;
       if (fipsData.color_specification) updateData.color_specification = fipsData.color_specification;
+      if (fipsData.unprotected_elements) updateData.unprotected_elements = fipsData.unprotected_elements;
+      if (fipsData.kind_specification) updateData.kind_specification = fipsData.kind_specification;
+      if (fipsData.transliteration) updateData.transliteration = fipsData.transliteration;
+      if (fipsData.translation) updateData.translation = fipsData.translation;
       if (fipsData.actual !== undefined) updateData.actual = fipsData.actual;
+      if (fipsData.publication_url) updateData.publication_url = fipsData.publication_url;
       
-      // Store extra fields in metadata
-      const meta: Record<string, any> = {};
+      // Merge metadata preserving existing data
+      const existingTm = trademarks?.find(t => t.id === fipsTargetId);
+      const existingMeta = (existingTm?.metadata && typeof existingTm.metadata === 'object') ? existingTm.metadata : {};
+      const meta: Record<string, any> = { ...existingMeta };
+      
       if (fipsData.image_url) meta.fips_image_url = fipsData.image_url;
+      if (fipsData.image_url_full) meta.fips_image_url_full = fipsData.image_url_full;
       if (fipsData.expiry_date) meta.expiry_date = fipsData.expiry_date;
       if (fipsData.classes_mktu) meta.classes_mktu = fipsData.classes_mktu;
       if (fipsData.application_number) meta.application_number = fipsData.application_number;
       if (fipsData.priority_date) meta.priority_date = fipsData.priority_date;
+      if (fipsData.publication_date) meta.publication_date = fipsData.publication_date;
+      if (fipsData.bulletin_number) meta.bulletin_number = fipsData.bulletin_number;
       if (fipsData.fips_url) meta.fips_url = fipsData.fips_url;
-      if (Object.keys(meta).length > 0) updateData.metadata = meta;
+      meta.fips_updated_at = new Date().toISOString();
+      
+      updateData.metadata = meta;
 
       const { error } = await supabase.from('trademarks').update(updateData).eq('id', fipsTargetId);
       if (error) throw error;
@@ -478,7 +491,7 @@ export default function Trademarks() {
     } catch (err: any) {
       toast({ title: 'Ошибка сохранения', description: err.message, variant: 'destructive' });
     }
-  }, [fipsData, fipsTargetId, toast, queryClient]);
+  }, [fipsData, fipsTargetId, toast, queryClient, trademarks]);
 
   const totalPages = Math.ceil((totalCount ?? 0) / PAGE_SIZE);
 
