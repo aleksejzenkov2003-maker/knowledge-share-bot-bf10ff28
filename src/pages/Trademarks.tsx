@@ -198,6 +198,10 @@ export default function Trademarks() {
   const [detailTm, setDetailTm] = useState<Trademark | null>(null);
   const [clearAllOpen, setClearAllOpen] = useState(false);
   const [clearing, setClearing] = useState(false);
+  const [fipsData, setFipsData] = useState<Record<string, any> | null>(null);
+  const [fipsLoading, setFipsLoading] = useState<string | null>(null);
+  const [fipsPreviewOpen, setFipsPreviewOpen] = useState(false);
+  const [fipsTargetId, setFipsTargetId] = useState<string | null>(null);
 
   useEffect(() => {
     const t = setTimeout(() => {
