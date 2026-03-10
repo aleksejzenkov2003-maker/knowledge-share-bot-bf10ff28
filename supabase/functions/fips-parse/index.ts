@@ -112,8 +112,11 @@ function extractPublicationInfo(html: string): { date: string | null; bulletinNu
   const result = { date: null as string | null, bulletinNumber: null as string | null };
   if (block) {
     result.date = parseDate(block);
-    const bulMatch = block.match(/(\d+)\s*$/);
-    if (bulMatch) result.bulletinNumber = bulMatch[1];
+    // Look for "Бюл. №5" or "Бюл.№ 5" pattern - number after №
+    const bulMatch = block.match(/Бюл[^\d]*№\s*(\d+)/i);
+    if (bulMatch) {
+      result.bulletinNumber = bulMatch[1];
+    }
   }
   return result;
 }
