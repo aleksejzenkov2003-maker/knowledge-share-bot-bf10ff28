@@ -258,6 +258,10 @@ export default function Trademarks() {
         query = query.eq('actual', true);
       } else if (statusFilter === 'inactive') {
         query = query.eq('actual', false);
+      } else if (statusFilter === 'fips_updated') {
+        query = query.not('metadata->fips_updated_at', 'is', null);
+      } else if (statusFilter === 'not_updated') {
+        query = query.or('metadata.is.null,metadata->fips_updated_at.is.null');
       }
 
       const { count, error } = await query;
