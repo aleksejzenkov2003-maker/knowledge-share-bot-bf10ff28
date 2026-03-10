@@ -1,72 +1,61 @@
-import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
-
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
   'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type, x-supabase-client-platform, x-supabase-client-platform-version, x-supabase-client-runtime, x-supabase-client-runtime-version',
 };
 
-function extractField(html: string, code: string): string | null {
-  // FIPS uses patterns like <td>(732)</td> followed by value in next <td>
-  // Or patterns like <b>(732)</b> followed by value
-  const patterns = [
-    new RegExp(`\\(${code}\\)\\s*</(?:td|th|b|span)>\\s*<(?:td|th|span)[^>]*>\\s*([\\s\\S]*?)\\s*</(?:td|th|span)>`, 'i'),
-    new RegExp(`\\(${code}\\)\\s*[:\\s]*([^<]+?)(?:<|$)`, 'i'),
-    new RegExp(`<td[^>]*>\\s*\\(${code}\\)\\s*</td>\\s*<td[^>]*>\\s*([\\s\\S]*?)\\s*</td>`, 'i'),
-  ];
-  
-  for (const regex of patterns) {
-    const match = html.match(regex);
-    if (match?.[1]) {
-      let val = match[1]
-        .replace(/<br\s*\/?>/gi, '\n')
-        .replace(/<[^>]+>/g, '')
-        .replace(/&nbsp;/g, ' ')
-        .replace(/&amp;/g, '&')
-        .replace(/&lt;/g, '<')
-        .replace(/&gt;/g, '>')
-        .replace(/&quot;/g, '"')
-        .trim();
-      if (val) return val;
-    }
+function cleanHtml(str: string): string {
+  return str
+    .replace(/<br\s*\/?>/gi, '\n')
+    .replace(/<[^>]+>/g, '')
+    .replace(/&nbsp;/g, ' ')
+    .replace(/&amp;/g, '&')
+    .replace(/&lt;/g, '<')
+    .replace(/&gt;/g, '>')
+    .replace(/&quot;/g, '"')
+    .replace(/&#(\d+);/g, (_, n) => String.fromCharCode(Number(n)))
+    .trim();
+}
+
+function extractBibField(html: string, code: string): string | null {
+  // Pattern: (CODE) <i>label</i> ... <b>VALUE</b>
+  // or: (CODE) <i>label</i><br><b>VALUE</b>
+  const regex = new RegExp(
+    `\\(${code}\\)\\s*<i>[^<]*</i>[\\s\\S]*?<b>([\\s\\S]*?)</b>`,
+    'i'
+  );
+  const match = html.match(regex);
+  if (match?.[1]) {
+    const val = cleanHtml(match[1]);
+    if (val) return val;
   }
   return null;
 }
 
 function extractImageUrl(html: string): string | null {
-  // Look for image near (540) code
-  const section540 = html.match(/\(540\)[\s\S]{0,2000}/i);
-  if (section540) {
-    const imgMatch = section540[0].match(/<img[^>]+src=["']([^"']+)["']/i);
+  // Look for (540) section with img tag
+  const section = html.match(/\(540\)[\s\S]{0,3000}?(?=<p class="bib">|\s*$)/i);
+  if (section) {
+    const imgMatch = section[0].match(/<img[^>]+src=["']([^"']+)["']/i);
     if (imgMatch?.[1]) {
       let url = imgMatch[1];
       if (url.startsWith('/')) url = 'https://fips.ru' + url;
       return url;
     }
   }
-  // Fallback: look for Archive image
-  const archiveMatch = html.match(/<img[^>]+src=["']((?:https?:\/\/fips\.ru)?\/Archive\/[^"']+)["']/i);
-  if (archiveMatch?.[1]) {
-    let url = archiveMatch[1];
-    if (url.startsWith('/')) url = 'https://fips.ru' + url;
-    return url;
-  }
   return null;
 }
 
 function extractStatus(html: string): boolean | null {
-  // Look for status indicator
-  const statusMatch = html.match(/class=["'][^"']*Status[^"']*["'][^>]*>([^<]+)/i);
-  if (statusMatch?.[1]) {
-    const text = statusMatch[1].toLowerCase();
+  const statusMatch = html.match(/class="Status"[\s\S]*?<td[^>]*class="(\w+)"[^>]*>\s*Статус:\s*([\s\S]*?)<\/td>/i);
+  if (statusMatch) {
+    const text = statusMatch[2].toLowerCase();
     if (text.includes('не действу') || text.includes('прекращ') || text.includes('аннулир')) return false;
     if (text.includes('действу')) return true;
   }
-  // Alternative status patterns
-  const altMatch = html.match(/Статус[\s:]*<[^>]*>([^<]+)/i);
-  if (altMatch?.[1]) {
-    const text = altMatch[1].toLowerCase();
-    if (text.includes('не действу') || text.includes('прекращ')) return false;
-    if (text.includes('действу')) return true;
+  // Fallback
+  const alt = html.match(/Статус:\s*\n?\s*(действует|не действует|прекращ)/i);
+  if (alt) {
+    return !alt[1].toLowerCase().startsWith('не') && !alt[1].toLowerCase().startsWith('прекращ');
   }
   return null;
 }
@@ -74,13 +63,9 @@ function extractStatus(html: string): boolean | null {
 function parseDate(dateStr: string | null): string | null {
   if (!dateStr) return null;
   const cleaned = dateStr.trim();
-  // DD.MM.YYYY
-  const dmy = cleaned.match(/^(\d{2})\.(\d{2})\.(\d{4})$/);
+  const dmy = cleaned.match(/(\d{2})\.(\d{2})\.(\d{4})/);
   if (dmy) return `${dmy[3]}-${dmy[2]}-${dmy[1]}`;
-  // YYYY-MM-DD
   if (/^\d{4}-\d{2}-\d{2}/.test(cleaned)) return cleaned.substring(0, 10);
-  // YYYYMMDD
-  if (/^\d{8}$/.test(cleaned)) return `${cleaned.substring(0,4)}-${cleaned.substring(4,6)}-${cleaned.substring(6,8)}`;
   return null;
 }
 
@@ -101,10 +86,11 @@ Deno.serve(async (req) => {
     const num = registration_number.toString().replace(/\D/g, '');
     const url = `https://fips.ru/registers-doc-view/fips_servlet?DB=RUTM&DocNumber=${num}&TypeFile=html`;
 
-    const controller = new AbortController();
-    const timeout = setTimeout(() => controller.abort(), 15000);
-
     console.log('Fetching FIPS URL:', url);
+
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 20000);
+
     let response: Response;
     try {
       response = await fetch(url, {
@@ -114,15 +100,13 @@ Deno.serve(async (req) => {
           'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
           'Accept-Language': 'ru-RU,ru;q=0.9,en-US;q=0.8,en;q=0.7',
           'Accept-Encoding': 'identity',
-          'Connection': 'keep-alive',
-          'Cache-Control': 'no-cache',
         },
         redirect: 'follow',
       });
       console.log('FIPS response status:', response.status);
     } catch (e) {
       clearTimeout(timeout);
-      console.error('FIPS fetch error:', e.message, e.name);
+      console.error('FIPS fetch error:', e.message);
       return new Response(JSON.stringify({ error: `Не удалось подключиться к ФИПС: ${e.message}` }), {
         status: 502,
         headers: { ...corsHeaders, 'Content-Type': 'application/json' },
@@ -138,8 +122,8 @@ Deno.serve(async (req) => {
     }
 
     const html = await response.text();
+    console.log('HTML length:', html.length);
 
-    // Check if we got a real result
     if (html.includes('Документ не найден') || html.includes('не найден') || html.length < 500) {
       return new Response(JSON.stringify({ error: `Товарный знак №${num} не найден в реестре ФИПС` }), {
         status: 404,
@@ -147,36 +131,44 @@ Deno.serve(async (req) => {
       });
     }
 
+    // Extract right holder - special handling: (732) ... <br><b>Name (CC)</b>
+    let rightHolder = extractBibField(html, '732');
+    // Remove country code like "(RU)" from end
+    if (rightHolder) {
+      rightHolder = rightHolder.replace(/\s*\([A-Z]{2}\)\s*$/, '').trim();
+    }
+
     const data: Record<string, any> = {
-      registration_number: extractField(html, '111') || num,
-      registration_date: parseDate(extractField(html, '151')),
-      right_holder_name: extractField(html, '732'),
-      right_holder_address: extractField(html, '750'),
-      correspondence_address: extractField(html, '740'),
-      description_element: extractField(html, '526') || extractField(html, '511'),
-      unprotected_elements: extractField(html, '526'),
-      color_specification: extractField(html, '591'),
-      transliteration: extractField(html, '441'),
+      registration_number: num,
+      registration_date: parseDate(extractBibField(html, '151')),
+      application_number: extractBibField(html, '210'),
+      priority_date: parseDate(extractBibField(html, '220')),
+      expiry_date: parseDate(extractBibField(html, '181')),
+      right_holder_name: rightHolder,
+      correspondence_address: extractBibField(html, '750'),
       image_url: extractImageUrl(html),
-      expiry_date: parseDate(extractField(html, '181')),
-      priority_date: parseDate(extractField(html, '220')),
-      application_number: extractField(html, '210'),
-      classes_mktu: extractField(html, '511'),
+      color_specification: extractBibField(html, '591'),
+      unprotected_elements: extractBibField(html, '526'),
+      classes_mktu: extractBibField(html, '511'),
+      transliteration: extractBibField(html, '441'),
       actual: extractStatus(html),
       fips_url: url,
     };
 
-    // Clean null values
+    // Clean null/empty values
     Object.keys(data).forEach(k => {
       if (data[k] === null || data[k] === undefined || data[k] === '') {
         delete data[k];
       }
     });
 
+    console.log('Extracted fields:', Object.keys(data).join(', '));
+
     return new Response(JSON.stringify({ success: true, data }), {
       headers: { ...corsHeaders, 'Content-Type': 'application/json' },
     });
   } catch (err) {
+    console.error('Error:', err.message);
     return new Response(JSON.stringify({ error: err.message || 'Internal error' }), {
       status: 500,
       headers: { ...corsHeaders, 'Content-Type': 'application/json' },
