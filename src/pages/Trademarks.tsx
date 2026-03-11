@@ -236,7 +236,8 @@ export default function Trademarks() {
   const [advSearchForeignName, setAdvSearchForeignName] = useState('');
   const [advSearchCorrAddress, setAdvSearchCorrAddress] = useState('');
   const [advSearchWellKnownDate, setAdvSearchWellKnownDate] = useState('');
-  const [appliedAdvSearch, setAppliedAdvSearch] = useState<{name: string; address: string; inn: string; ogrn: string; regNum: string; foreignName: string; corrAddress: string; wellKnownDate: string}>({name: '', address: '', inn: '', ogrn: '', regNum: '', foreignName: '', corrAddress: '', wellKnownDate: ''});
+  const [advSearchDesignation, setAdvSearchDesignation] = useState('');
+  const [appliedAdvSearch, setAppliedAdvSearch] = useState<{name: string; address: string; inn: string; ogrn: string; regNum: string; foreignName: string; corrAddress: string; wellKnownDate: string; designation: string}>({name: '', address: '', inn: '', ogrn: '', regNum: '', foreignName: '', corrAddress: '', wellKnownDate: '', designation: ''});
   const [page, setPage] = useState(0);
   const [uploadOpen, setUploadOpen] = useState(false);
   const [uploading, setUploading] = useState(false);
@@ -260,26 +261,26 @@ export default function Trademarks() {
     return () => clearTimeout(t);
   }, [search]);
 
-  const hasAdvancedFilters = !!(appliedAdvSearch.name || appliedAdvSearch.address || appliedAdvSearch.inn || appliedAdvSearch.ogrn || appliedAdvSearch.regNum || appliedAdvSearch.foreignName || appliedAdvSearch.corrAddress || appliedAdvSearch.wellKnownDate);
+  const hasAdvancedFilters = !!(appliedAdvSearch.name || appliedAdvSearch.address || appliedAdvSearch.inn || appliedAdvSearch.ogrn || appliedAdvSearch.regNum || appliedAdvSearch.foreignName || appliedAdvSearch.corrAddress || appliedAdvSearch.wellKnownDate || appliedAdvSearch.designation);
 
   const handleAdvancedSearch = () => {
-    setAppliedAdvSearch({ name: advSearchName.trim(), address: advSearchAddress.trim(), inn: advSearchInn.trim(), ogrn: advSearchOgrn.trim(), regNum: advSearchRegNum.trim(), foreignName: advSearchForeignName.trim(), corrAddress: advSearchCorrAddress.trim(), wellKnownDate: advSearchWellKnownDate.trim() });
+    setAppliedAdvSearch({ name: advSearchName.trim(), address: advSearchAddress.trim(), inn: advSearchInn.trim(), ogrn: advSearchOgrn.trim(), regNum: advSearchRegNum.trim(), foreignName: advSearchForeignName.trim(), corrAddress: advSearchCorrAddress.trim(), wellKnownDate: advSearchWellKnownDate.trim(), designation: advSearchDesignation.trim() });
     setPage(0);
   };
 
   const handleAdvancedReset = () => {
     setAdvSearchName(''); setAdvSearchAddress(''); setAdvSearchInn(''); setAdvSearchOgrn(''); setAdvSearchRegNum('');
-    setAdvSearchForeignName(''); setAdvSearchCorrAddress(''); setAdvSearchWellKnownDate('');
-    setAppliedAdvSearch({ name: '', address: '', inn: '', ogrn: '', regNum: '', foreignName: '', corrAddress: '', wellKnownDate: '' });
+    setAdvSearchForeignName(''); setAdvSearchCorrAddress(''); setAdvSearchWellKnownDate(''); setAdvSearchDesignation('');
+    setAppliedAdvSearch({ name: '', address: '', inn: '', ogrn: '', regNum: '', foreignName: '', corrAddress: '', wellKnownDate: '', designation: '' });
     setPage(0);
   };
 
-  const LIST_FIELDS = 'id, registration_number, right_holder_name, right_holder_inn, right_holder_ogrn, right_holder_address, registration_date, actual, fips_updated, metadata, created_at';
+  const LIST_FIELDS = 'id, registration_number, description_element, right_holder_name, right_holder_inn, right_holder_ogrn, right_holder_address, registration_date, actual, fips_updated, metadata, created_at';
 
   const applyFilters = (query: any, searchTerm: string, status: string, adv: typeof appliedAdvSearch) => {
-    // Quick search: prefix match on registration_number only
+    // Quick search: by number (prefix) OR by designation (contains)
     if (searchTerm) {
-      query = query.ilike('registration_number', `${searchTerm}%`);
+      query = query.or(`registration_number.ilike.${searchTerm}%,description_element.ilike.%${searchTerm}%`);
     }
     // Advanced field-specific filters (AND)
     if (adv.name) {
@@ -302,6 +303,9 @@ export default function Trademarks() {
     }
     if (adv.corrAddress) {
       query = query.ilike('correspondence_address', `%${adv.corrAddress}%`);
+    }
+    if (adv.designation) {
+      query = query.ilike('description_element', `%${adv.designation}%`);
     }
     if (adv.wellKnownDate) {
       // Expect DD.MM.YYYY, convert to YYYY-MM-DD for query
@@ -610,7 +614,7 @@ export default function Trademarks() {
             <div className="relative flex-1">
               <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
               <Input
-                placeholder="Быстрый поиск по номеру ТЗ..."
+                placeholder="Поиск по номеру или обозначению ТЗ..."
                 value={search}
                 onChange={(e) => { setSearch(e.target.value); setPage(0); }}
                 className="pl-9"
@@ -646,11 +650,15 @@ export default function Trademarks() {
             </CollapsibleTrigger>
             <CollapsibleContent className="pt-3">
               <div className="space-y-3">
-                {/* Строка 1: Номер ТЗ, Правообладатель, Иностранный правообладатель */}
-                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
+                {/* Строка 1: Номер ТЗ, Обозначение, Правообладатель, Иностранный правообладатель */}
+                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
                   <div className="space-y-1">
                     <label className="text-xs text-muted-foreground font-medium">Номер ТЗ (точный)</label>
                     <Input placeholder="123456" value={advSearchRegNum} onChange={(e) => setAdvSearchRegNum(e.target.value)} onKeyDown={(e) => e.key === 'Enter' && handleAdvancedSearch()} />
+                  </div>
+                  <div className="space-y-1">
+                    <label className="text-xs text-muted-foreground font-medium">Обозначение</label>
+                    <Input placeholder="МАНГУСТ, YANDEX..." value={advSearchDesignation} onChange={(e) => setAdvSearchDesignation(e.target.value)} onKeyDown={(e) => e.key === 'Enter' && handleAdvancedSearch()} />
                   </div>
                   <div className="space-y-1">
                     <label className="text-xs text-muted-foreground font-medium">Правообладатель</label>
@@ -689,7 +697,7 @@ export default function Trademarks() {
                 </div>
               </div>
               <div className="flex justify-end gap-2 mt-3">
-                <Button variant="ghost" size="sm" onClick={handleAdvancedReset} disabled={!hasAdvancedFilters && !advSearchName && !advSearchAddress && !advSearchInn && !advSearchOgrn && !advSearchRegNum && !advSearchForeignName && !advSearchCorrAddress && !advSearchWellKnownDate}>
+                <Button variant="ghost" size="sm" onClick={handleAdvancedReset} disabled={!hasAdvancedFilters && !advSearchName && !advSearchAddress && !advSearchInn && !advSearchOgrn && !advSearchRegNum && !advSearchForeignName && !advSearchCorrAddress && !advSearchWellKnownDate && !advSearchDesignation}>
                   Сбросить
                 </Button>
                 <Button size="sm" onClick={handleAdvancedSearch} className="gap-1">
