@@ -260,6 +260,19 @@ export default function Trademarks() {
     if (adv.regNum) {
       query = query.eq('registration_number', adv.regNum);
     }
+    if (adv.foreignName) {
+      query = query.ilike('foreign_right_holder_name', `%${adv.foreignName}%`);
+    }
+    if (adv.corrAddress) {
+      query = query.ilike('correspondence_address', `%${adv.corrAddress}%`);
+    }
+    if (adv.wellKnownDate) {
+      // Expect DD.MM.YYYY, convert to YYYY-MM-DD for query
+      const parts = adv.wellKnownDate.split('.');
+      if (parts.length === 3) {
+        query = query.eq('well_known_trademark_date', `${parts[2]}-${parts[1]}-${parts[0]}`);
+      }
+    }
     // Status filter
     if (status === 'active') {
       query = query.eq('actual', true);
