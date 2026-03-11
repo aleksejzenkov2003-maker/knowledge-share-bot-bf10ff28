@@ -905,7 +905,7 @@ export default function Trademarks() {
                 <InfoRow label="Дата приоритета" value={fmtDate(detailTm.metadata?.priority_date)} />
                 <InfoRow label="Дата публикации" value={fmtDate(detailTm.metadata?.publication_date)} />
                 <InfoRow label="Бюллетень №" value={detailTm.metadata?.bulletin_number} />
-                <InfoRow label="Дата общеизвестности" value={fmtDate(detailTm.well_known_trademark_date)} />
+                <InfoRow label="Дата признания общеизвестным" value={fmtDate(detailTm.well_known_trademark_date)} />
                 <InfoRow label="Связанные рег." value={detailTm.legally_related_registrations} />
               </div>
 
