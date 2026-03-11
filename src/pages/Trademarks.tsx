@@ -839,19 +839,43 @@ export default function Trademarks() {
               {detailTm?.actual ? 'Действующий' : 'Недействующий'} товарный знак
             </DialogDescription>
           </DialogHeader>
-          {detailTm && (
-            <div className="space-y-4 text-sm">
-              {/* FIPS updated badge */}
+          {detailTm && (() => {
+            const fmtDate = (d: string | null | undefined) => {
+              if (!d) return null;
+              const date = new Date(d);
+              if (isNaN(date.getTime())) return d;
+              return date.toLocaleDateString('ru-RU', { day: '2-digit', month: '2-digit', year: 'numeric' });
+            };
+            return (
+            <div className="space-y-5 text-sm">
+              {/* Top badges + links */}
+              <div className="flex flex-wrap items-center gap-2">
+                <Badge variant={detailTm.actual ? 'default' : 'secondary'}>
+                  {detailTm.actual ? 'Действующий' : 'Недействующий'}
+                </Badge>
+                {detailTm.fips_updated && (
+                  <Badge variant="outline" className="text-xs border-primary/30 text-primary">ФИПС</Badge>
+                )}
+                {detailTm.metadata?.fips_url && (
+                  <a href={detailTm.metadata.fips_url} target="_blank" rel="noopener noreferrer" className="text-primary hover:underline inline-flex items-center gap-1 text-xs ml-auto">
+                    <ExternalLink className="h-3.5 w-3.5" />
+                    Реестр ФИПС
+                  </a>
+                )}
+                {detailTm.publication_url && (
+                  <a href={detailTm.publication_url} target="_blank" rel="noopener noreferrer" className="text-primary hover:underline inline-flex items-center gap-1 text-xs">
+                    <ExternalLink className="h-3.5 w-3.5" />
+                    Публикация
+                  </a>
+                )}
+              </div>
+
               {detailTm.metadata?.fips_updated_at && (
-                <div className="flex items-center gap-2 bg-primary/10 border border-primary/20 rounded-lg px-3 py-2">
-                  <Badge variant="default" className="text-xs">ФИПС</Badge>
-                  <span className="text-xs text-muted-foreground">
-                    Карточка обновлена из реестра ФИПС: {new Date(detailTm.metadata.fips_updated_at).toLocaleString('ru-RU')}
-                  </span>
+                <div className="text-xs text-muted-foreground bg-primary/5 border border-primary/10 rounded px-3 py-1.5">
+                  Обновлено из ФИПС: {fmtDate(detailTm.metadata.fips_updated_at)}
                 </div>
               )}
 
-              {/* FIPS Image */}
               {detailTm.metadata?.fips_image_url && (
                 <div className="flex justify-center">
                   <img
@@ -863,68 +887,37 @@ export default function Trademarks() {
                 </div>
               )}
 
-              {/* Основная информация */}
-              <div>
-                <h4 className="font-semibold text-base mb-2 text-foreground">Основная информация</h4>
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
-                  <InfoRow label="Рег. номер" value={detailTm.registration_number} />
-                  <InfoRow label="Дата регистрации" value={detailTm.registration_date ? new Date(detailTm.registration_date).toLocaleDateString('ru-RU') : null} />
-                  <InfoRow label="Статус" value={detailTm.actual ? 'Действующий' : 'Недействующий'} />
-                  <InfoRow label="Вид знака" value={detailTm.kind_specification} />
-                  <InfoRow label="Срок действия до" value={detailTm.metadata?.expiry_date ? new Date(detailTm.metadata.expiry_date).toLocaleDateString('ru-RU') : null} />
-                  <InfoRow label="Заявка №" value={detailTm.metadata?.application_number} />
-                  <InfoRow label="Дата подачи заявки" value={detailTm.metadata?.application_date ? new Date(detailTm.metadata.application_date).toLocaleDateString('ru-RU') : null} />
-                  <InfoRow label="Дата приоритета" value={detailTm.metadata?.priority_date ? new Date(detailTm.metadata.priority_date).toLocaleDateString('ru-RU') : null} />
-                  <InfoRow label="Дата общеизвестности" value={detailTm.well_known_trademark_date ? new Date(detailTm.well_known_trademark_date).toLocaleDateString('ru-RU') : null} />
-                  <InfoRow label="Связанные рег." value={detailTm.legally_related_registrations} />
-                </div>
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                <InfoRow label="Рег. номер" value={detailTm.registration_number} />
+                <InfoRow label="Дата регистрации" value={fmtDate(detailTm.registration_date)} />
+                <InfoRow label="Вид знака" value={detailTm.kind_specification} />
+                <InfoRow label="Срок действия до" value={fmtDate(detailTm.metadata?.expiry_date)} />
+                <InfoRow label="Заявка №" value={detailTm.metadata?.application_number} />
+                <InfoRow label="Дата подачи заявки" value={fmtDate(detailTm.metadata?.application_date)} />
+                <InfoRow label="Дата приоритета" value={fmtDate(detailTm.metadata?.priority_date)} />
+                <InfoRow label="Дата публикации" value={fmtDate(detailTm.metadata?.publication_date)} />
+                <InfoRow label="Бюллетень №" value={detailTm.metadata?.bulletin_number} />
+                <InfoRow label="Дата общеизвестности" value={fmtDate(detailTm.well_known_trademark_date)} />
+                <InfoRow label="Связанные рег." value={detailTm.legally_related_registrations} />
               </div>
 
-              {/* Публикация */}
-              {(detailTm.publication_url || detailTm.metadata?.fips_url || detailTm.metadata?.publication_date || detailTm.metadata?.bulletin_number) && (
-                <div>
-                  <h4 className="font-semibold text-base mb-2 text-foreground">Публикация</h4>
-                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 mb-2">
-                    <InfoRow label="Дата публикации" value={detailTm.metadata?.publication_date ? new Date(detailTm.metadata.publication_date).toLocaleDateString('ru-RU') : null} />
-                    <InfoRow label="Бюллетень №" value={detailTm.metadata?.bulletin_number} />
-                  </div>
-                  <div className="flex flex-wrap gap-3">
-                    {detailTm.metadata?.fips_url && (
-                      <a href={detailTm.metadata.fips_url} target="_blank" rel="noopener noreferrer" className="text-primary hover:underline inline-flex items-center gap-1">
-                        <ExternalLink className="h-3.5 w-3.5" />
-                        Реестр ФИПС
-                      </a>
-                    )}
-                    {detailTm.publication_url && (
-                      <a href={detailTm.publication_url} target="_blank" rel="noopener noreferrer" className="text-primary hover:underline inline-flex items-center gap-1">
-                        <ExternalLink className="h-3.5 w-3.5" />
-                        Публикация
-                      </a>
-                    )}
-                  </div>
-                </div>
-              )}
+              <Separator />
 
-              {/* Правообладатель */}
-              <div>
-                <h4 className="font-semibold text-base mb-2 text-foreground">Правообладатель</h4>
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
-                  <InfoRow label="Наименование" value={detailTm.right_holder_name} />
-                  <InfoRow label="Наименование (ин.)" value={detailTm.foreign_right_holder_name} />
-                  <InfoRow label="ИНН" value={detailTm.right_holder_inn} />
-                  <InfoRow label="ОГРН" value={detailTm.right_holder_ogrn} />
-                  <InfoRow label="Код страны" value={detailTm.right_holder_country_code} />
-                </div>
-                <div className="mt-2 space-y-2">
-                  <InfoRow label="Адрес" value={detailTm.right_holder_address} />
-                  <InfoRow label="Адрес для переписки" value={detailTm.correspondence_address} />
-                </div>
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                <InfoRow label="Правообладатель" value={detailTm.right_holder_name} />
+                <InfoRow label="Наименование (ин.)" value={detailTm.foreign_right_holder_name} />
+                <InfoRow label="ИНН" value={detailTm.right_holder_inn} />
+                <InfoRow label="ОГРН" value={detailTm.right_holder_ogrn} />
+                <InfoRow label="Код страны" value={detailTm.right_holder_country_code} />
+              </div>
+              <div className="space-y-2">
+                <InfoRow label="Адрес" value={detailTm.right_holder_address} />
+                <InfoRow label="Адрес для переписки" value={detailTm.correspondence_address} />
               </div>
 
-              {/* Описание обозначения */}
               {(detailTm.description_element || detailTm.description_image || detailTm.transliteration || detailTm.translation || detailTm.note) && (
-                <div>
-                  <h4 className="font-semibold text-base mb-2 text-foreground">Описание обозначения</h4>
+                <>
+                  <Separator />
                   <div className="space-y-2">
                     <InfoRow label="Описание" value={detailTm.description_element} />
                     <InfoRow label="Изображение" value={detailTm.description_image} />
@@ -932,13 +925,12 @@ export default function Trademarks() {
                     <InfoRow label="Перевод" value={detailTm.translation} />
                     <InfoRow label="Примечание" value={detailTm.note} />
                   </div>
-                </div>
+                </>
               )}
 
-              {/* Характеристики знака */}
               {(detailTm.threedimensional || detailTm.holographic || detailTm.sound || detailTm.olfactory || detailTm.color || detailTm.light || detailTm.changing || detailTm.positional || detailTm.collective) && (
-                <div>
-                  <h4 className="font-semibold text-base mb-2 text-foreground">Характеристики знака</h4>
+                <>
+                  <Separator />
                   <div className="flex flex-wrap gap-2">
                     {detailTm.collective && <Badge variant="outline">Коллективный</Badge>}
                     {detailTm.threedimensional && <Badge variant="outline">Объёмный (3D)</Badge>}
@@ -950,13 +942,12 @@ export default function Trademarks() {
                     {detailTm.changing && <Badge variant="outline">Изменяющийся</Badge>}
                     {detailTm.positional && <Badge variant="outline">Позиционный</Badge>}
                   </div>
-                </div>
+                </>
               )}
 
-              {/* Спецификации */}
               {(detailTm.threedimensional_specification || detailTm.holographic_specification || detailTm.sound_specification || detailTm.olfactory_specification || detailTm.color_trademark_specification || detailTm.light_specification || detailTm.changing_specification || detailTm.positional_specification || detailTm.place_name_specification || detailTm.phonetics_specification) && (
-                <div>
-                  <h4 className="font-semibold text-base mb-2 text-foreground">Спецификации</h4>
+                <>
+                  <Separator />
                   <div className="space-y-2">
                     <InfoRow label="Объёмный (3D)" value={detailTm.threedimensional_specification} />
                     <InfoRow label="Голографический" value={detailTm.holographic_specification} />
@@ -969,68 +960,71 @@ export default function Trademarks() {
                     <InfoRow label="Географическое указание" value={detailTm.place_name_specification} />
                     <InfoRow label="Звуковая характеристика" value={detailTm.phonetics_specification} />
                   </div>
-                </div>
+                </>
               )}
 
-              {/* Дополнительно */}
               {(detailTm.color_specification || detailTm.unprotected_elements || detailTm.collective_users || detailTm.extraction_from_charter) && (
-                <div>
-                  <h4 className="font-semibold text-base mb-2 text-foreground">Дополнительно</h4>
+                <>
+                  <Separator />
                   <div className="space-y-2">
                     <InfoRow label="Указание цвета" value={detailTm.color_specification} />
                     <InfoRow label="Неохраняемые элементы" value={detailTm.unprotected_elements} />
                     <InfoRow label="Пользователи коллективного ТЗ" value={detailTm.collective_users} />
                     <InfoRow label="Выписка из устава" value={detailTm.extraction_from_charter} />
                   </div>
-                </div>
+                </>
               )}
 
-              {/* Классы МКТУ */}
               {detailTm.metadata?.classes_mktu && (
-                <Collapsible>
-                  <CollapsibleTrigger asChild>
-                    <Button variant="ghost" className="w-full justify-between px-0 hover:bg-transparent">
-                      <h4 className="font-semibold text-base text-foreground">Классы МКТУ</h4>
-                      <ChevronDown className="h-4 w-4" />
-                    </Button>
-                  </CollapsibleTrigger>
-                  <CollapsibleContent>
-                    <div className="bg-muted p-3 rounded text-xs max-h-[200px] overflow-y-auto whitespace-pre-wrap">
-                      {detailTm.metadata.classes_mktu}
-                    </div>
-                  </CollapsibleContent>
-                </Collapsible>
+                <>
+                  <Separator />
+                  <Collapsible>
+                    <CollapsibleTrigger asChild>
+                      <Button variant="ghost" className="w-full justify-between px-0 hover:bg-transparent">
+                        <h4 className="font-semibold text-base text-foreground">Классы МКТУ</h4>
+                        <ChevronDown className="h-4 w-4" />
+                      </Button>
+                    </CollapsibleTrigger>
+                    <CollapsibleContent>
+                      <div className="bg-muted p-3 rounded text-xs max-h-[200px] overflow-y-auto whitespace-pre-wrap">
+                        {detailTm.metadata.classes_mktu}
+                      </div>
+                    </CollapsibleContent>
+                  </Collapsible>
+                </>
               )}
 
-              {/* История изменений */}
               {(detailTm.change_right_holder_name_history || detailTm.change_right_holder_address_history || detailTm.change_correspondence_address_history || detailTm.change_legal_related_registrations_history || detailTm.change_color_specification_history || detailTm.change_disclaimer_history || detailTm.change_description_element_history || detailTm.change_description_image_history || detailTm.change_note_history) && (
-                <Collapsible>
-                  <CollapsibleTrigger asChild>
-                    <Button variant="ghost" className="w-full justify-between px-0 hover:bg-transparent">
-                      <h4 className="font-semibold text-base text-foreground">История изменений</h4>
-                      <ChevronDown className="h-4 w-4" />
-                    </Button>
-                  </CollapsibleTrigger>
-                  <CollapsibleContent className="space-y-2 pt-2">
-                    <InfoRow label="Наименование правообладателя" value={detailTm.change_right_holder_name_history} />
-                    <InfoRow label="Адрес правообладателя" value={detailTm.change_right_holder_address_history} />
-                    <InfoRow label="Адрес для переписки" value={detailTm.change_correspondence_address_history} />
-                    <InfoRow label="Связанные регистрации" value={detailTm.change_legal_related_registrations_history} />
-                    <InfoRow label="Цветовое сочетание" value={detailTm.change_color_specification_history} />
-                    <InfoRow label="Неохраняемые элементы" value={detailTm.change_disclaimer_history} />
-                    <InfoRow label="Описание обозначения" value={detailTm.change_description_element_history} />
-                    <InfoRow label="Изображение обозначения" value={detailTm.change_description_image_history} />
-                    <InfoRow label="Примечание" value={detailTm.change_note_history} />
-                  </CollapsibleContent>
-                </Collapsible>
+                <>
+                  <Separator />
+                  <Collapsible>
+                    <CollapsibleTrigger asChild>
+                      <Button variant="ghost" className="w-full justify-between px-0 hover:bg-transparent">
+                        <h4 className="font-semibold text-base text-foreground">История изменений</h4>
+                        <ChevronDown className="h-4 w-4" />
+                      </Button>
+                    </CollapsibleTrigger>
+                    <CollapsibleContent className="space-y-2 pt-2">
+                      <InfoRow label="Наименование правообладателя" value={detailTm.change_right_holder_name_history} />
+                      <InfoRow label="Адрес правообладателя" value={detailTm.change_right_holder_address_history} />
+                      <InfoRow label="Адрес для переписки" value={detailTm.change_correspondence_address_history} />
+                      <InfoRow label="Связанные регистрации" value={detailTm.change_legal_related_registrations_history} />
+                      <InfoRow label="Цветовое сочетание" value={detailTm.change_color_specification_history} />
+                      <InfoRow label="Неохраняемые элементы" value={detailTm.change_disclaimer_history} />
+                      <InfoRow label="Описание обозначения" value={detailTm.change_description_element_history} />
+                      <InfoRow label="Изображение обозначения" value={detailTm.change_description_image_history} />
+                      <InfoRow label="Примечание" value={detailTm.change_note_history} />
+                    </CollapsibleContent>
+                  </Collapsible>
+                </>
               )}
-
 
               <div className="text-xs text-muted-foreground pt-2 border-t">
-                Добавлено: {new Date(detailTm.created_at).toLocaleString('ru-RU')}
+                Добавлено: {fmtDate(detailTm.created_at)}
               </div>
             </div>
-          )}
+            );
+          })()}
         </DialogContent>
       </Dialog>
 
