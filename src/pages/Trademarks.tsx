@@ -277,9 +277,9 @@ export default function Trademarks() {
   const LIST_FIELDS = 'id, registration_number, description_element, right_holder_name, right_holder_inn, right_holder_ogrn, right_holder_address, registration_date, actual, fips_updated, metadata, created_at';
 
   const applyFilters = (query: any, searchTerm: string, status: string, adv: typeof appliedAdvSearch) => {
-    // Quick search: prefix match on registration_number only
+    // Quick search: by number (prefix) OR by designation (contains)
     if (searchTerm) {
-      query = query.ilike('registration_number', `${searchTerm}%`);
+      query = query.or(`registration_number.ilike.${searchTerm}%,description_element.ilike.%${searchTerm}%`);
     }
     // Advanced field-specific filters (AND)
     if (adv.name) {
