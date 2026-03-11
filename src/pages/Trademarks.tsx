@@ -236,7 +236,8 @@ export default function Trademarks() {
   const [advSearchForeignName, setAdvSearchForeignName] = useState('');
   const [advSearchCorrAddress, setAdvSearchCorrAddress] = useState('');
   const [advSearchWellKnownDate, setAdvSearchWellKnownDate] = useState('');
-  const [appliedAdvSearch, setAppliedAdvSearch] = useState<{name: string; address: string; inn: string; ogrn: string; regNum: string; foreignName: string; corrAddress: string; wellKnownDate: string}>({name: '', address: '', inn: '', ogrn: '', regNum: '', foreignName: '', corrAddress: '', wellKnownDate: ''});
+  const [advSearchDesignation, setAdvSearchDesignation] = useState('');
+  const [appliedAdvSearch, setAppliedAdvSearch] = useState<{name: string; address: string; inn: string; ogrn: string; regNum: string; foreignName: string; corrAddress: string; wellKnownDate: string; designation: string}>({name: '', address: '', inn: '', ogrn: '', regNum: '', foreignName: '', corrAddress: '', wellKnownDate: '', designation: ''});
   const [page, setPage] = useState(0);
   const [uploadOpen, setUploadOpen] = useState(false);
   const [uploading, setUploading] = useState(false);
