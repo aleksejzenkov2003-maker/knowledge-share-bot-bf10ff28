@@ -550,12 +550,12 @@ export default function Trademarks() {
 
       {/* Filters */}
       <Card>
-        <CardContent className="pt-4">
+        <CardContent className="pt-4 space-y-3">
           <div className="flex flex-col sm:flex-row gap-3">
             <div className="relative flex-1">
               <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
               <Input
-                placeholder="Поиск по номеру, правообладателю, ИНН, ОГРН..."
+                placeholder="Быстрый поиск по номеру ТЗ..."
                 value={search}
                 onChange={(e) => { setSearch(e.target.value); setPage(0); }}
                 className="pl-9"
@@ -579,6 +579,50 @@ export default function Trademarks() {
               </SelectContent>
             </Select>
           </div>
+
+          <Collapsible open={advancedOpen} onOpenChange={setAdvancedOpen}>
+            <CollapsibleTrigger asChild>
+              <Button variant="ghost" size="sm" className="gap-2 text-muted-foreground hover:text-foreground px-0">
+                <SlidersHorizontal className="h-4 w-4" />
+                Расширенный поиск
+                {hasAdvancedFilters && <Badge variant="secondary" className="text-xs px-1.5 py-0">Активен</Badge>}
+                <ChevronDown className={`h-3 w-3 transition-transform ${advancedOpen ? 'rotate-180' : ''}`} />
+              </Button>
+            </CollapsibleTrigger>
+            <CollapsibleContent className="pt-3">
+              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
+                <div className="space-y-1">
+                  <label className="text-xs text-muted-foreground font-medium">Правообладатель</label>
+                  <Input placeholder="Название компании..." value={advSearchName} onChange={(e) => setAdvSearchName(e.target.value)} onKeyDown={(e) => e.key === 'Enter' && handleAdvancedSearch()} />
+                </div>
+                <div className="space-y-1">
+                  <label className="text-xs text-muted-foreground font-medium">Адрес правообладателя</label>
+                  <Input placeholder="Город, улица..." value={advSearchAddress} onChange={(e) => setAdvSearchAddress(e.target.value)} onKeyDown={(e) => e.key === 'Enter' && handleAdvancedSearch()} />
+                </div>
+                <div className="space-y-1">
+                  <label className="text-xs text-muted-foreground font-medium">Номер ТЗ (точный)</label>
+                  <Input placeholder="123456" value={advSearchRegNum} onChange={(e) => setAdvSearchRegNum(e.target.value)} onKeyDown={(e) => e.key === 'Enter' && handleAdvancedSearch()} />
+                </div>
+                <div className="space-y-1">
+                  <label className="text-xs text-muted-foreground font-medium">ИНН (точный)</label>
+                  <Input placeholder="1234567890" value={advSearchInn} onChange={(e) => setAdvSearchInn(e.target.value)} onKeyDown={(e) => e.key === 'Enter' && handleAdvancedSearch()} />
+                </div>
+                <div className="space-y-1">
+                  <label className="text-xs text-muted-foreground font-medium">ОГРН (точный)</label>
+                  <Input placeholder="1234567890123" value={advSearchOgrn} onChange={(e) => setAdvSearchOgrn(e.target.value)} onKeyDown={(e) => e.key === 'Enter' && handleAdvancedSearch()} />
+                </div>
+              </div>
+              <div className="flex justify-end gap-2 mt-3">
+                <Button variant="ghost" size="sm" onClick={handleAdvancedReset} disabled={!hasAdvancedFilters && !advSearchName && !advSearchAddress && !advSearchInn && !advSearchOgrn && !advSearchRegNum}>
+                  Сбросить
+                </Button>
+                <Button size="sm" onClick={handleAdvancedSearch} className="gap-1">
+                  <Search className="h-3 w-3" />
+                  Найти
+                </Button>
+              </div>
+            </CollapsibleContent>
+          </Collapsible>
         </CardContent>
       </Card>
 
