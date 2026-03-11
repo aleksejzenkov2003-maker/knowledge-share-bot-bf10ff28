@@ -270,8 +270,8 @@ export default function Trademarks() {
 
   const handleAdvancedReset = () => {
     setAdvSearchName(''); setAdvSearchAddress(''); setAdvSearchInn(''); setAdvSearchOgrn(''); setAdvSearchRegNum('');
-    setAdvSearchForeignName(''); setAdvSearchCorrAddress(''); setAdvSearchWellKnownDate('');
-    setAppliedAdvSearch({ name: '', address: '', inn: '', ogrn: '', regNum: '', foreignName: '', corrAddress: '', wellKnownDate: '' });
+    setAdvSearchForeignName(''); setAdvSearchCorrAddress(''); setAdvSearchWellKnownDate(''); setAdvSearchDesignation('');
+    setAppliedAdvSearch({ name: '', address: '', inn: '', ogrn: '', regNum: '', foreignName: '', corrAddress: '', wellKnownDate: '', designation: '' });
     setPage(0);
   };
 
