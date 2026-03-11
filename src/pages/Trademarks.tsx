@@ -87,6 +87,43 @@ interface Trademark {
 
 const PAGE_SIZE = 50;
 
+const fipsFmtDate = (d: string | null | undefined) => {
+  if (!d) return null;
+  const date = new Date(d);
+  if (isNaN(date.getTime())) return d;
+  return date.toLocaleDateString('ru-RU', { day: '2-digit', month: '2-digit', year: 'numeric' });
+};
+
+const renderMktu = (text: string) => {
+  // Split by class number pattern: "42 – " or "42 - "
+  const parts = text.split(/(?=(?:^|\n)\d{1,2}\s*[–\-]\s*)/);
+  const classes: { num: string; desc: string }[] = [];
+  for (const part of parts) {
+    const trimmed = part.trim();
+    if (!trimmed) continue;
+    const match = trimmed.match(/^(\d{1,2})\s*[–\-]\s*([\s\S]*)/);
+    if (match) {
+      classes.push({ num: match[1], desc: match[2].trim() });
+    } else {
+      classes.push({ num: '', desc: trimmed });
+    }
+  }
+  if (classes.length <= 1 && classes[0]?.num === '') {
+    return <span className="whitespace-pre-wrap">{text}</span>;
+  }
+  return (
+    <div className="space-y-3">
+      {classes.map((cls, i) => (
+        <div key={i}>
+          {cls.num && <span className="font-bold text-destructive">{cls.num}</span>}
+          {cls.num && <span> – </span>}
+          <span>{cls.desc}</span>
+        </div>
+      ))}
+    </div>
+  );
+};
+
 const parseCSVLine = (line: string, delimiter: string): string[] => {
   const result: string[] = [];
   let current = '';
