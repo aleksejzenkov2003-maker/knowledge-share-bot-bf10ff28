@@ -13,7 +13,7 @@ import {
 import { Badge } from '@/components/ui/badge';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { useToast } from '@/hooks/use-toast';
-import { Upload, Search, Trash2, ChevronLeft, ChevronRight, FileSpreadsheet, X, Eraser, ExternalLink, ChevronDown, Download, Loader2 } from 'lucide-react';
+import { Upload, Search, Trash2, ChevronLeft, ChevronRight, FileSpreadsheet, X, Eraser, ExternalLink, ChevronDown, Download, Loader2, SlidersHorizontal } from 'lucide-react';
 import {
   Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter,
 } from '@/components/ui/dialog';
@@ -189,6 +189,13 @@ export default function Trademarks() {
   const [search, setSearch] = useState('');
   const [debouncedSearch, setDebouncedSearch] = useState('');
   const [statusFilter, setStatusFilter] = useState<string>('all');
+  const [advancedOpen, setAdvancedOpen] = useState(false);
+  const [advSearchName, setAdvSearchName] = useState('');
+  const [advSearchAddress, setAdvSearchAddress] = useState('');
+  const [advSearchInn, setAdvSearchInn] = useState('');
+  const [advSearchOgrn, setAdvSearchOgrn] = useState('');
+  const [advSearchRegNum, setAdvSearchRegNum] = useState('');
+  const [appliedAdvSearch, setAppliedAdvSearch] = useState<{name: string; address: string; inn: string; ogrn: string; regNum: string}>({name: '', address: '', inn: '', ogrn: '', regNum: ''});
   const [page, setPage] = useState(0);
   const [uploadOpen, setUploadOpen] = useState(false);
   const [uploading, setUploading] = useState(false);
@@ -212,14 +219,43 @@ export default function Trademarks() {
     return () => clearTimeout(t);
   }, [search]);
 
-  const LIST_FIELDS = 'id, registration_number, right_holder_name, right_holder_inn, right_holder_ogrn, registration_date, actual, fips_updated, metadata, created_at';
+  const hasAdvancedFilters = !!(appliedAdvSearch.name || appliedAdvSearch.address || appliedAdvSearch.inn || appliedAdvSearch.ogrn || appliedAdvSearch.regNum);
 
-  const applyFilters = (query: any, searchTerm: string, status: string) => {
+  const handleAdvancedSearch = () => {
+    setAppliedAdvSearch({ name: advSearchName.trim(), address: advSearchAddress.trim(), inn: advSearchInn.trim(), ogrn: advSearchOgrn.trim(), regNum: advSearchRegNum.trim() });
+    setPage(0);
+  };
+
+  const handleAdvancedReset = () => {
+    setAdvSearchName(''); setAdvSearchAddress(''); setAdvSearchInn(''); setAdvSearchOgrn(''); setAdvSearchRegNum('');
+    setAppliedAdvSearch({ name: '', address: '', inn: '', ogrn: '', regNum: '' });
+    setPage(0);
+  };
+
+  const LIST_FIELDS = 'id, registration_number, right_holder_name, right_holder_inn, right_holder_ogrn, right_holder_address, registration_date, actual, fips_updated, metadata, created_at';
+
+  const applyFilters = (query: any, searchTerm: string, status: string, adv: typeof appliedAdvSearch) => {
+    // Quick search: prefix match on registration_number only
     if (searchTerm) {
-      query = query.or(
-        `registration_number.ilike.%${searchTerm}%,right_holder_name.ilike.%${searchTerm}%,right_holder_inn.ilike.%${searchTerm}%,right_holder_ogrn.ilike.%${searchTerm}%`
-      );
+      query = query.ilike('registration_number', `${searchTerm}%`);
     }
+    // Advanced field-specific filters (AND)
+    if (adv.name) {
+      query = query.ilike('right_holder_name', `%${adv.name}%`);
+    }
+    if (adv.address) {
+      query = query.ilike('right_holder_address', `%${adv.address}%`);
+    }
+    if (adv.inn) {
+      query = query.eq('right_holder_inn', adv.inn);
+    }
+    if (adv.ogrn) {
+      query = query.eq('right_holder_ogrn', adv.ogrn);
+    }
+    if (adv.regNum) {
+      query = query.eq('registration_number', adv.regNum);
+    }
+    // Status filter
     if (status === 'active') {
       query = query.eq('actual', true);
     } else if (status === 'inactive') {
@@ -233,7 +269,7 @@ export default function Trademarks() {
   };
 
   const { data: queryResult, isLoading } = useQuery({
-    queryKey: ['trademarks', debouncedSearch, statusFilter, page],
+    queryKey: ['trademarks', debouncedSearch, statusFilter, page, appliedAdvSearch],
     queryFn: async () => {
       let query = supabase
         .from('trademarks')
@@ -241,7 +277,7 @@ export default function Trademarks() {
         .order('created_at', { ascending: false })
         .range(page * PAGE_SIZE, (page + 1) * PAGE_SIZE - 1);
 
-      query = applyFilters(query, debouncedSearch, statusFilter);
+      query = applyFilters(query, debouncedSearch, statusFilter, appliedAdvSearch);
 
       const { data, count, error } = await query;
       if (error) throw error;
@@ -514,12 +550,12 @@ export default function Trademarks() {
 
       {/* Filters */}
       <Card>
-        <CardContent className="pt-4">
+        <CardContent className="pt-4 space-y-3">
           <div className="flex flex-col sm:flex-row gap-3">
             <div className="relative flex-1">
               <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
               <Input
-                placeholder="Поиск по номеру, правообладателю, ИНН, ОГРН..."
+                placeholder="Быстрый поиск по номеру ТЗ..."
                 value={search}
                 onChange={(e) => { setSearch(e.target.value); setPage(0); }}
                 className="pl-9"
@@ -543,6 +579,50 @@ export default function Trademarks() {
               </SelectContent>
             </Select>
           </div>
+
+          <Collapsible open={advancedOpen} onOpenChange={setAdvancedOpen}>
+            <CollapsibleTrigger asChild>
+              <Button variant="ghost" size="sm" className="gap-2 text-muted-foreground hover:text-foreground px-0">
+                <SlidersHorizontal className="h-4 w-4" />
+                Расширенный поиск
+                {hasAdvancedFilters && <Badge variant="secondary" className="text-xs px-1.5 py-0">Активен</Badge>}
+                <ChevronDown className={`h-3 w-3 transition-transform ${advancedOpen ? 'rotate-180' : ''}`} />
+              </Button>
+            </CollapsibleTrigger>
+            <CollapsibleContent className="pt-3">
+              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
+                <div className="space-y-1">
+                  <label className="text-xs text-muted-foreground font-medium">Правообладатель</label>
+                  <Input placeholder="Название компании..." value={advSearchName} onChange={(e) => setAdvSearchName(e.target.value)} onKeyDown={(e) => e.key === 'Enter' && handleAdvancedSearch()} />
+                </div>
+                <div className="space-y-1">
+                  <label className="text-xs text-muted-foreground font-medium">Адрес правообладателя</label>
+                  <Input placeholder="Город, улица..." value={advSearchAddress} onChange={(e) => setAdvSearchAddress(e.target.value)} onKeyDown={(e) => e.key === 'Enter' && handleAdvancedSearch()} />
+                </div>
+                <div className="space-y-1">
+                  <label className="text-xs text-muted-foreground font-medium">Номер ТЗ (точный)</label>
+                  <Input placeholder="123456" value={advSearchRegNum} onChange={(e) => setAdvSearchRegNum(e.target.value)} onKeyDown={(e) => e.key === 'Enter' && handleAdvancedSearch()} />
+                </div>
+                <div className="space-y-1">
+                  <label className="text-xs text-muted-foreground font-medium">ИНН (точный)</label>
+                  <Input placeholder="1234567890" value={advSearchInn} onChange={(e) => setAdvSearchInn(e.target.value)} onKeyDown={(e) => e.key === 'Enter' && handleAdvancedSearch()} />
+                </div>
+                <div className="space-y-1">
+                  <label className="text-xs text-muted-foreground font-medium">ОГРН (точный)</label>
+                  <Input placeholder="1234567890123" value={advSearchOgrn} onChange={(e) => setAdvSearchOgrn(e.target.value)} onKeyDown={(e) => e.key === 'Enter' && handleAdvancedSearch()} />
+                </div>
+              </div>
+              <div className="flex justify-end gap-2 mt-3">
+                <Button variant="ghost" size="sm" onClick={handleAdvancedReset} disabled={!hasAdvancedFilters && !advSearchName && !advSearchAddress && !advSearchInn && !advSearchOgrn && !advSearchRegNum}>
+                  Сбросить
+                </Button>
+                <Button size="sm" onClick={handleAdvancedSearch} className="gap-1">
+                  <Search className="h-3 w-3" />
+                  Найти
+                </Button>
+              </div>
+            </CollapsibleContent>
+          </Collapsible>
         </CardContent>
       </Card>
 
