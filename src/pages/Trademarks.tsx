@@ -196,6 +196,20 @@ export default function Trademarks() {
   const [advSearchOgrn, setAdvSearchOgrn] = useState('');
   const [advSearchRegNum, setAdvSearchRegNum] = useState('');
   const [appliedAdvSearch, setAppliedAdvSearch] = useState<{name: string; address: string; inn: string; ogrn: string; regNum: string}>({name: '', address: '', inn: '', ogrn: '', regNum: ''});
+  const [page, setPage] = useState(0);
+  const [uploadOpen, setUploadOpen] = useState(false);
+  const [uploading, setUploading] = useState(false);
+  const [uploadProgress, setUploadProgress] = useState<{ current: number; total: number } | null>(null);
+  const [previewData, setPreviewData] = useState<Record<string, any>[] | null>(null);
+  const [selectedFile, setSelectedFile] = useState<File | null>(null);
+  const [deleteId, setDeleteId] = useState<string | null>(null);
+  const [detailTm, setDetailTm] = useState<Trademark | null>(null);
+  const [clearAllOpen, setClearAllOpen] = useState(false);
+  const [clearing, setClearing] = useState(false);
+  const [fipsData, setFipsData] = useState<Record<string, any> | null>(null);
+  const [fipsLoading, setFipsLoading] = useState<string | null>(null);
+  const [fipsPreviewOpen, setFipsPreviewOpen] = useState(false);
+  const [fipsTargetId, setFipsTargetId] = useState<string | null>(null);
 
   useEffect(() => {
     const t = setTimeout(() => {
