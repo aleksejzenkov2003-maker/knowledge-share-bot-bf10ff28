@@ -232,14 +232,30 @@ export default function Trademarks() {
     setPage(0);
   };
 
-  const LIST_FIELDS = 'id, registration_number, right_holder_name, right_holder_inn, right_holder_ogrn, registration_date, actual, fips_updated, metadata, created_at';
+  const LIST_FIELDS = 'id, registration_number, right_holder_name, right_holder_inn, right_holder_ogrn, right_holder_address, registration_date, actual, fips_updated, metadata, created_at';
 
-  const applyFilters = (query: any, searchTerm: string, status: string) => {
+  const applyFilters = (query: any, searchTerm: string, status: string, adv: typeof appliedAdvSearch) => {
+    // Quick search: prefix match on registration_number only
     if (searchTerm) {
-      query = query.or(
-        `registration_number.ilike.%${searchTerm}%,right_holder_name.ilike.%${searchTerm}%,right_holder_inn.ilike.%${searchTerm}%,right_holder_ogrn.ilike.%${searchTerm}%`
-      );
+      query = query.ilike('registration_number', `${searchTerm}%`);
     }
+    // Advanced field-specific filters (AND)
+    if (adv.name) {
+      query = query.ilike('right_holder_name', `%${adv.name}%`);
+    }
+    if (adv.address) {
+      query = query.ilike('right_holder_address', `%${adv.address}%`);
+    }
+    if (adv.inn) {
+      query = query.eq('right_holder_inn', adv.inn);
+    }
+    if (adv.ogrn) {
+      query = query.eq('right_holder_ogrn', adv.ogrn);
+    }
+    if (adv.regNum) {
+      query = query.eq('registration_number', adv.regNum);
+    }
+    // Status filter
     if (status === 'active') {
       query = query.eq('actual', true);
     } else if (status === 'inactive') {
@@ -253,7 +269,7 @@ export default function Trademarks() {
   };
 
   const { data: queryResult, isLoading } = useQuery({
-    queryKey: ['trademarks', debouncedSearch, statusFilter, page],
+    queryKey: ['trademarks', debouncedSearch, statusFilter, page, appliedAdvSearch],
     queryFn: async () => {
       let query = supabase
         .from('trademarks')
@@ -261,7 +277,7 @@ export default function Trademarks() {
         .order('created_at', { ascending: false })
         .range(page * PAGE_SIZE, (page + 1) * PAGE_SIZE - 1);
 
-      query = applyFilters(query, debouncedSearch, statusFilter);
+      query = applyFilters(query, debouncedSearch, statusFilter, appliedAdvSearch);
 
       const { data, count, error } = await query;
       if (error) throw error;
