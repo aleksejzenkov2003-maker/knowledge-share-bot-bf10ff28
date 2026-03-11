@@ -302,9 +302,6 @@ export default function Trademarks() {
     if (adv.corrAddress) {
       query = query.ilike('correspondence_address', `%${adv.corrAddress}%`);
     }
-    if (adv.designation) {
-      query = query.ilike('description_element', `%${adv.designation}%`);
-    }
     if (adv.wellKnownDate) {
       // Expect DD.MM.YYYY, convert to YYYY-MM-DD for query
       const parts = adv.wellKnownDate.split('.');
