@@ -608,38 +608,47 @@ export default function Trademarks() {
               </Button>
             </CollapsibleTrigger>
             <CollapsibleContent className="pt-3">
-              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
-                <div className="space-y-1">
-                  <label className="text-xs text-muted-foreground font-medium">Правообладатель</label>
-                  <Input placeholder="Название компании..." value={advSearchName} onChange={(e) => setAdvSearchName(e.target.value)} onKeyDown={(e) => e.key === 'Enter' && handleAdvancedSearch()} />
+              <div className="space-y-3">
+                {/* Строка 1: Номер ТЗ, Правообладатель, Иностранный правообладатель */}
+                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
+                  <div className="space-y-1">
+                    <label className="text-xs text-muted-foreground font-medium">Номер ТЗ (точный)</label>
+                    <Input placeholder="123456" value={advSearchRegNum} onChange={(e) => setAdvSearchRegNum(e.target.value)} onKeyDown={(e) => e.key === 'Enter' && handleAdvancedSearch()} />
+                  </div>
+                  <div className="space-y-1">
+                    <label className="text-xs text-muted-foreground font-medium">Правообладатель</label>
+                    <Input placeholder="Название компании..." value={advSearchName} onChange={(e) => setAdvSearchName(e.target.value)} onKeyDown={(e) => e.key === 'Enter' && handleAdvancedSearch()} />
+                  </div>
+                  <div className="space-y-1">
+                    <label className="text-xs text-muted-foreground font-medium">Иностранный правообладатель</label>
+                    <Input placeholder="Foreign name..." value={advSearchForeignName} onChange={(e) => setAdvSearchForeignName(e.target.value)} onKeyDown={(e) => e.key === 'Enter' && handleAdvancedSearch()} />
+                  </div>
                 </div>
-                <div className="space-y-1">
-                  <label className="text-xs text-muted-foreground font-medium">Иностранный правообладатель</label>
-                  <Input placeholder="Foreign name..." value={advSearchForeignName} onChange={(e) => setAdvSearchForeignName(e.target.value)} onKeyDown={(e) => e.key === 'Enter' && handleAdvancedSearch()} />
+                {/* Строка 2: Адрес правообладателя, Адрес для переписки */}
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                  <div className="space-y-1">
+                    <label className="text-xs text-muted-foreground font-medium">Адрес правообладателя</label>
+                    <Input placeholder="Город, улица..." value={advSearchAddress} onChange={(e) => setAdvSearchAddress(e.target.value)} onKeyDown={(e) => e.key === 'Enter' && handleAdvancedSearch()} />
+                  </div>
+                  <div className="space-y-1">
+                    <label className="text-xs text-muted-foreground font-medium">Адрес для переписки</label>
+                    <Input placeholder="Город, улица..." value={advSearchCorrAddress} onChange={(e) => setAdvSearchCorrAddress(e.target.value)} onKeyDown={(e) => e.key === 'Enter' && handleAdvancedSearch()} />
+                  </div>
                 </div>
-                <div className="space-y-1">
-                  <label className="text-xs text-muted-foreground font-medium">Адрес правообладателя</label>
-                  <Input placeholder="Город, улица..." value={advSearchAddress} onChange={(e) => setAdvSearchAddress(e.target.value)} onKeyDown={(e) => e.key === 'Enter' && handleAdvancedSearch()} />
-                </div>
-                <div className="space-y-1">
-                  <label className="text-xs text-muted-foreground font-medium">Адрес для переписки</label>
-                  <Input placeholder="Город, улица..." value={advSearchCorrAddress} onChange={(e) => setAdvSearchCorrAddress(e.target.value)} onKeyDown={(e) => e.key === 'Enter' && handleAdvancedSearch()} />
-                </div>
-                <div className="space-y-1">
-                  <label className="text-xs text-muted-foreground font-medium">Номер ТЗ (точный)</label>
-                  <Input placeholder="123456" value={advSearchRegNum} onChange={(e) => setAdvSearchRegNum(e.target.value)} onKeyDown={(e) => e.key === 'Enter' && handleAdvancedSearch()} />
-                </div>
-                <div className="space-y-1">
-                  <label className="text-xs text-muted-foreground font-medium">ИНН (точный)</label>
-                  <Input placeholder="1234567890" value={advSearchInn} onChange={(e) => setAdvSearchInn(e.target.value)} onKeyDown={(e) => e.key === 'Enter' && handleAdvancedSearch()} />
-                </div>
-                <div className="space-y-1">
-                  <label className="text-xs text-muted-foreground font-medium">ОГРН (точный)</label>
-                  <Input placeholder="1234567890123" value={advSearchOgrn} onChange={(e) => setAdvSearchOgrn(e.target.value)} onKeyDown={(e) => e.key === 'Enter' && handleAdvancedSearch()} />
-                </div>
-                <div className="space-y-1">
-                  <label className="text-xs text-muted-foreground font-medium">Дата общеизвестности</label>
-                  <Input placeholder="ДД.ММ.ГГГГ" value={advSearchWellKnownDate} onChange={(e) => setAdvSearchWellKnownDate(e.target.value)} onKeyDown={(e) => e.key === 'Enter' && handleAdvancedSearch()} />
+                {/* Строка 3: ИНН, ОГРН, Дата признания общеизвестным */}
+                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
+                  <div className="space-y-1">
+                    <label className="text-xs text-muted-foreground font-medium">ИНН (точный)</label>
+                    <Input placeholder="1234567890" value={advSearchInn} onChange={(e) => setAdvSearchInn(e.target.value)} onKeyDown={(e) => e.key === 'Enter' && handleAdvancedSearch()} />
+                  </div>
+                  <div className="space-y-1">
+                    <label className="text-xs text-muted-foreground font-medium">ОГРН (точный)</label>
+                    <Input placeholder="1234567890123" value={advSearchOgrn} onChange={(e) => setAdvSearchOgrn(e.target.value)} onKeyDown={(e) => e.key === 'Enter' && handleAdvancedSearch()} />
+                  </div>
+                  <div className="space-y-1">
+                    <label className="text-xs text-muted-foreground font-medium">Дата признания общеизвестным</label>
+                    <Input placeholder="ДД.ММ.ГГГГ" value={advSearchWellKnownDate} onChange={(e) => setAdvSearchWellKnownDate(e.target.value)} onKeyDown={(e) => e.key === 'Enter' && handleAdvancedSearch()} />
+                  </div>
                 </div>
               </div>
               <div className="flex justify-end gap-2 mt-3">
