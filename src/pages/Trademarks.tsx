@@ -645,15 +645,11 @@ export default function Trademarks() {
             </CollapsibleTrigger>
             <CollapsibleContent className="pt-3">
               <div className="space-y-3">
-                {/* Строка 1: Номер ТЗ, Обозначение, Правообладатель, Иностранный правообладатель */}
-                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
+                {/* Строка 1: Номер ТЗ, Правообладатель, Иностранный правообладатель */}
+                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
                   <div className="space-y-1">
                     <label className="text-xs text-muted-foreground font-medium">Номер ТЗ (точный)</label>
                     <Input placeholder="123456" value={advSearchRegNum} onChange={(e) => setAdvSearchRegNum(e.target.value)} onKeyDown={(e) => e.key === 'Enter' && handleAdvancedSearch()} />
-                  </div>
-                  <div className="space-y-1">
-                    <label className="text-xs text-muted-foreground font-medium">Обозначение</label>
-                    <Input placeholder="МАНГУСТ, YANDEX..." value={advSearchDesignation} onChange={(e) => setAdvSearchDesignation(e.target.value)} onKeyDown={(e) => e.key === 'Enter' && handleAdvancedSearch()} />
                   </div>
                   <div className="space-y-1">
                     <label className="text-xs text-muted-foreground font-medium">Правообладатель</label>
