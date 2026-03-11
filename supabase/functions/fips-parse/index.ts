@@ -234,6 +234,7 @@ Deno.serve(async (req) => {
       // Right holder
       right_holder_name: holderInfo?.name || null,
       right_holder_country_code: holderInfo?.countryCode || null,
+      right_holder_address: extractBibField(html, '731'),
       correspondence_address: extractBibField(html, '750'),
       
       // Images
