@@ -274,7 +274,7 @@ export default function Trademarks() {
     setPage(0);
   };
 
-  const LIST_FIELDS = 'id, registration_number, right_holder_name, right_holder_inn, right_holder_ogrn, right_holder_address, registration_date, actual, fips_updated, metadata, created_at';
+  const LIST_FIELDS = 'id, registration_number, description_element, right_holder_name, right_holder_inn, right_holder_ogrn, right_holder_address, registration_date, actual, fips_updated, metadata, created_at';
 
   const applyFilters = (query: any, searchTerm: string, status: string, adv: typeof appliedAdvSearch) => {
     // Quick search: prefix match on registration_number only
