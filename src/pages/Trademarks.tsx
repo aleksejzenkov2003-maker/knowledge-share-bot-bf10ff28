@@ -610,7 +610,7 @@ export default function Trademarks() {
             <div className="relative flex-1">
               <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
               <Input
-                placeholder="Быстрый поиск по номеру ТЗ..."
+                placeholder="Поиск по номеру или обозначению ТЗ..."
                 value={search}
                 onChange={(e) => { setSearch(e.target.value); setPage(0); }}
                 className="pl-9"
