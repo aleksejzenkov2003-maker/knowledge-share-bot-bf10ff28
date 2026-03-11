@@ -87,6 +87,43 @@ interface Trademark {
 
 const PAGE_SIZE = 50;
 
+const fipsFmtDate = (d: string | null | undefined) => {
+  if (!d) return null;
+  const date = new Date(d);
+  if (isNaN(date.getTime())) return d;
+  return date.toLocaleDateString('ru-RU', { day: '2-digit', month: '2-digit', year: 'numeric' });
+};
+
+const renderMktu = (text: string) => {
+  // Split by class number pattern: "42 – " or "42 - "
+  const parts = text.split(/(?=(?:^|\n)\d{1,2}\s*[–\-]\s*)/);
+  const classes: { num: string; desc: string }[] = [];
+  for (const part of parts) {
+    const trimmed = part.trim();
+    if (!trimmed) continue;
+    const match = trimmed.match(/^(\d{1,2})\s*[–\-]\s*([\s\S]*)/);
+    if (match) {
+      classes.push({ num: match[1], desc: match[2].trim() });
+    } else {
+      classes.push({ num: '', desc: trimmed });
+    }
+  }
+  if (classes.length <= 1 && classes[0]?.num === '') {
+    return <span className="whitespace-pre-wrap">{text}</span>;
+  }
+  return (
+    <div className="space-y-3">
+      {classes.map((cls, i) => (
+        <div key={i}>
+          {cls.num && <span className="font-bold text-destructive">{cls.num}</span>}
+          {cls.num && <span> – </span>}
+          <span>{cls.desc}</span>
+        </div>
+      ))}
+    </div>
+  );
+};
+
 const parseCSVLine = (line: string, delimiter: string): string[] => {
   const result: string[] = [];
   let current = '';
@@ -856,7 +893,7 @@ export default function Trademarks() {
               return date.toLocaleDateString('ru-RU', { day: '2-digit', month: '2-digit', year: 'numeric' });
             };
             return (
-            <div className="space-y-5 text-sm">
+            <div className="space-y-6 text-sm">
               {/* Top badges + links */}
               <div className="flex flex-wrap items-center gap-2">
                 <Badge variant={detailTm.actual ? 'default' : 'secondary'}>
@@ -872,9 +909,8 @@ export default function Trademarks() {
                   </a>
                 )}
                 {detailTm.publication_url && (
-                  <a href={detailTm.publication_url} target="_blank" rel="noopener noreferrer" className="text-primary hover:underline inline-flex items-center gap-1 text-xs">
+                  <a href={detailTm.publication_url} target="_blank" rel="noopener noreferrer" className="text-primary hover:underline inline-flex items-center gap-1 text-xs" title="Публикация">
                     <ExternalLink className="h-3.5 w-3.5" />
-                    Публикация
                   </a>
                 )}
               </div>
@@ -906,7 +942,7 @@ export default function Trademarks() {
                 <InfoRow label="Дата приоритета" value={fmtDate(detailTm.metadata?.priority_date)} />
                 <InfoRow label="Дата публикации" value={fmtDate(detailTm.metadata?.publication_date)} />
                 <InfoRow label="Бюллетень №" value={detailTm.metadata?.bulletin_number} />
-                <InfoRow label="Дата общеизвестности" value={fmtDate(detailTm.well_known_trademark_date)} />
+                <InfoRow label="Дата признания общеизвестным" value={fmtDate(detailTm.well_known_trademark_date)} />
                 <InfoRow label="Связанные рег." value={detailTm.legally_related_registrations} />
               </div>
 
@@ -995,8 +1031,8 @@ export default function Trademarks() {
                       </Button>
                     </CollapsibleTrigger>
                     <CollapsibleContent>
-                      <div className="bg-muted p-3 rounded text-xs max-h-[200px] overflow-y-auto whitespace-pre-wrap">
-                        {detailTm.metadata.classes_mktu}
+                      <div className="bg-muted p-3 rounded text-xs max-h-[200px] overflow-y-auto">
+                        {renderMktu(detailTm.metadata.classes_mktu)}
                       </div>
                     </CollapsibleContent>
                   </Collapsible>
@@ -1079,7 +1115,7 @@ export default function Trademarks() {
             </DialogDescription>
           </DialogHeader>
           {fipsData && (
-            <div className="space-y-4 text-sm">
+            <div className="space-y-5 text-sm">
               {fipsData.image_url && (
                 <div className="flex justify-center">
                   <img
@@ -1091,59 +1127,54 @@ export default function Trademarks() {
                 </div>
               )}
               
-              {/* Core info */}
-              <div>
-                <h4 className="font-semibold text-base mb-2 text-foreground">Основная информация</h4>
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
-                  <InfoRow label="Рег. номер" value={fipsData.registration_number} />
-                  <InfoRow label="Дата регистрации" value={fipsData.registration_date} />
-                  <InfoRow label="Срок действия до" value={fipsData.expiry_date} />
-                  <InfoRow label="Статус" value={fipsData.actual === true ? 'Действующий' : fipsData.actual === false ? 'Недействующий' : 'Не определён'} />
-                  <InfoRow label="Заявка №" value={fipsData.application_number} />
-                  <InfoRow label="Дата подачи заявки" value={fipsData.application_date} />
-                  <InfoRow label="Дата приоритета" value={fipsData.priority_date} />
-                  <InfoRow label="Дата публикации" value={fipsData.publication_date} />
-                  <InfoRow label="Бюллетень №" value={fipsData.bulletin_number} />
-                </div>
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                <InfoRow label="Рег. номер" value={fipsData.registration_number} />
+                <InfoRow label="Дата регистрации" value={fipsFmtDate(fipsData.registration_date)} />
+                <InfoRow label="Срок действия до" value={fipsFmtDate(fipsData.expiry_date)} />
+                <InfoRow label="Статус" value={fipsData.actual === true ? 'Действующий' : fipsData.actual === false ? 'Недействующий' : 'Не определён'} />
+                <InfoRow label="Заявка №" value={fipsData.application_number} />
+                <InfoRow label="Дата подачи заявки" value={fipsFmtDate(fipsData.application_date)} />
+                <InfoRow label="Дата приоритета" value={fipsFmtDate(fipsData.priority_date)} />
+                <InfoRow label="Дата публикации" value={fipsFmtDate(fipsData.publication_date)} />
+                <InfoRow label="Бюллетень №" value={fipsData.bulletin_number} />
               </div>
               
-              {/* Right holder */}
-              <div>
-                <h4 className="font-semibold text-base mb-2 text-foreground">Правообладатель</h4>
-                <div className="space-y-2">
-                  <InfoRow label="Наименование" value={fipsData.right_holder_name} />
-                  <InfoRow label="Код страны" value={fipsData.right_holder_country_code} />
-                  <InfoRow label="Адрес для переписки" value={fipsData.correspondence_address} />
-                </div>
+              <Separator />
+
+              <div className="space-y-2">
+                <InfoRow label="Правообладатель" value={fipsData.right_holder_name} />
+                <InfoRow label="Код страны" value={fipsData.right_holder_country_code} />
+                <InfoRow label="Адрес правообладателя" value={fipsData.right_holder_address} />
+                <InfoRow label="Адрес для переписки" value={fipsData.correspondence_address} />
               </div>
 
-              {/* Description */}
-              <div>
-                <h4 className="font-semibold text-base mb-2 text-foreground">Характеристики</h4>
-                <div className="space-y-2">
-                  <InfoRow label="Вид знака" value={fipsData.kind_specification} />
-                  <InfoRow label="Указание цвета" value={fipsData.color_specification} />
-                  <InfoRow label="Неохраняемые элементы" value={fipsData.unprotected_elements} />
-                  <InfoRow label="Транслитерация" value={fipsData.transliteration} />
-                  <InfoRow label="Перевод" value={fipsData.translation} />
-                </div>
+              <Separator />
+
+              <div className="space-y-2">
+                <InfoRow label="Вид знака" value={fipsData.kind_specification} />
+                <InfoRow label="Указание цвета" value={fipsData.color_specification} />
+                <InfoRow label="Неохраняемые элементы" value={fipsData.unprotected_elements} />
+                <InfoRow label="Транслитерация" value={fipsData.transliteration} />
+                <InfoRow label="Перевод" value={fipsData.translation} />
               </div>
 
-              {/* Classes */}
               {fipsData.classes_mktu && (
-                <Collapsible>
-                  <CollapsibleTrigger asChild>
-                    <Button variant="ghost" className="w-full justify-between px-0 hover:bg-transparent">
-                      <h4 className="font-semibold text-base text-foreground">Классы МКТУ</h4>
-                      <ChevronDown className="h-4 w-4" />
-                    </Button>
-                  </CollapsibleTrigger>
-                  <CollapsibleContent>
-                    <div className="bg-muted p-3 rounded text-xs max-h-[200px] overflow-y-auto whitespace-pre-wrap">
-                      {fipsData.classes_mktu}
-                    </div>
-                  </CollapsibleContent>
-                </Collapsible>
+                <>
+                  <Separator />
+                  <Collapsible>
+                    <CollapsibleTrigger asChild>
+                      <Button variant="ghost" className="w-full justify-between px-0 hover:bg-transparent">
+                        <h4 className="font-semibold text-base text-foreground">Классы МКТУ</h4>
+                        <ChevronDown className="h-4 w-4" />
+                      </Button>
+                    </CollapsibleTrigger>
+                    <CollapsibleContent>
+                      <div className="bg-muted p-3 rounded text-xs max-h-[200px] overflow-y-auto">
+                        {renderMktu(fipsData.classes_mktu)}
+                      </div>
+                    </CollapsibleContent>
+                  </Collapsible>
+                </>
               )}
 
               {fipsData.fips_url && (
