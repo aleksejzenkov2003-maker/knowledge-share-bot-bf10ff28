@@ -612,6 +612,17 @@ export default function Trademarks() {
                 <div className="space-y-1">
                   <label className="text-xs text-muted-foreground font-medium">Правообладатель</label>
                   <Input placeholder="Название компании..." value={advSearchName} onChange={(e) => setAdvSearchName(e.target.value)} onKeyDown={(e) => e.key === 'Enter' && handleAdvancedSearch()} />
+                <div className="space-y-1">
+                  <label className="text-xs text-muted-foreground font-medium">Иностранный правообладатель</label>
+                  <Input placeholder="Foreign name..." value={advSearchForeignName} onChange={(e) => setAdvSearchForeignName(e.target.value)} onKeyDown={(e) => e.key === 'Enter' && handleAdvancedSearch()} />
+                </div>
+                <div className="space-y-1">
+                  <label className="text-xs text-muted-foreground font-medium">Адрес для переписки</label>
+                  <Input placeholder="Город, улица..." value={advSearchCorrAddress} onChange={(e) => setAdvSearchCorrAddress(e.target.value)} onKeyDown={(e) => e.key === 'Enter' && handleAdvancedSearch()} />
+                </div>
+                <div className="space-y-1">
+                  <label className="text-xs text-muted-foreground font-medium">Дата общеизвестности</label>
+                  <Input placeholder="ДД.ММ.ГГГГ" value={advSearchWellKnownDate} onChange={(e) => setAdvSearchWellKnownDate(e.target.value)} onKeyDown={(e) => e.key === 'Enter' && handleAdvancedSearch()} />
                 </div>
                 <div className="space-y-1">
                   <label className="text-xs text-muted-foreground font-medium">Адрес правообладателя</label>
