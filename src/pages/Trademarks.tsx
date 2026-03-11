@@ -994,8 +994,8 @@ export default function Trademarks() {
                       </Button>
                     </CollapsibleTrigger>
                     <CollapsibleContent>
-                      <div className="bg-muted p-3 rounded text-xs max-h-[200px] overflow-y-auto whitespace-pre-wrap">
-                        {detailTm.metadata.classes_mktu}
+                      <div className="bg-muted p-3 rounded text-xs max-h-[200px] overflow-y-auto">
+                        {renderMktu(detailTm.metadata.classes_mktu)}
                       </div>
                     </CollapsibleContent>
                   </Collapsible>
