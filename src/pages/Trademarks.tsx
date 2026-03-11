@@ -856,7 +856,7 @@ export default function Trademarks() {
               return date.toLocaleDateString('ru-RU', { day: '2-digit', month: '2-digit', year: 'numeric' });
             };
             return (
-            <div className="space-y-5 text-sm">
+            <div className="space-y-6 text-sm">
               {/* Top badges + links */}
               <div className="flex flex-wrap items-center gap-2">
                 <Badge variant={detailTm.actual ? 'default' : 'secondary'}>
