@@ -872,9 +872,8 @@ export default function Trademarks() {
                   </a>
                 )}
                 {detailTm.publication_url && (
-                  <a href={detailTm.publication_url} target="_blank" rel="noopener noreferrer" className="text-primary hover:underline inline-flex items-center gap-1 text-xs">
+                  <a href={detailTm.publication_url} target="_blank" rel="noopener noreferrer" className="text-primary hover:underline inline-flex items-center gap-1 text-xs" title="Публикация">
                     <ExternalLink className="h-3.5 w-3.5" />
-                    Публикация
                   </a>
                 )}
               </div>
