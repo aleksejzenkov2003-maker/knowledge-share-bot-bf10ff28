@@ -223,16 +223,17 @@ export default function Trademarks() {
     return () => clearTimeout(t);
   }, [search]);
 
-  const hasAdvancedFilters = !!(appliedAdvSearch.name || appliedAdvSearch.address || appliedAdvSearch.inn || appliedAdvSearch.ogrn || appliedAdvSearch.regNum);
+  const hasAdvancedFilters = !!(appliedAdvSearch.name || appliedAdvSearch.address || appliedAdvSearch.inn || appliedAdvSearch.ogrn || appliedAdvSearch.regNum || appliedAdvSearch.foreignName || appliedAdvSearch.corrAddress || appliedAdvSearch.wellKnownDate);
 
   const handleAdvancedSearch = () => {
-    setAppliedAdvSearch({ name: advSearchName.trim(), address: advSearchAddress.trim(), inn: advSearchInn.trim(), ogrn: advSearchOgrn.trim(), regNum: advSearchRegNum.trim() });
+    setAppliedAdvSearch({ name: advSearchName.trim(), address: advSearchAddress.trim(), inn: advSearchInn.trim(), ogrn: advSearchOgrn.trim(), regNum: advSearchRegNum.trim(), foreignName: advSearchForeignName.trim(), corrAddress: advSearchCorrAddress.trim(), wellKnownDate: advSearchWellKnownDate.trim() });
     setPage(0);
   };
 
   const handleAdvancedReset = () => {
     setAdvSearchName(''); setAdvSearchAddress(''); setAdvSearchInn(''); setAdvSearchOgrn(''); setAdvSearchRegNum('');
-    setAppliedAdvSearch({ name: '', address: '', inn: '', ogrn: '', regNum: '' });
+    setAdvSearchForeignName(''); setAdvSearchCorrAddress(''); setAdvSearchWellKnownDate('');
+    setAppliedAdvSearch({ name: '', address: '', inn: '', ogrn: '', regNum: '', foreignName: '', corrAddress: '', wellKnownDate: '' });
     setPage(0);
   };
 
