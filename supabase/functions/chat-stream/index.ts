@@ -1697,23 +1697,27 @@ ${goldenExamples.join('\n\n---\n\n')}
 
     // Validate model identifiers for each provider
     const validAnthropicModels = [
-      'claude-sonnet-4-20250514',
+      'claude-opus-4-6',
+      'claude-sonnet-4-6',
+      'claude-haiku-4-5',
+      'claude-haiku-4-5-20251001',
       'claude-sonnet-4-5-20250929',
+      'claude-opus-4-5-20251101',
+      'claude-sonnet-4-20250514',
       'claude-3-5-sonnet-20241022',
       'claude-3-5-haiku-20241022',
-      'claude-3-opus-20240229',
     ];
     
     if (providerConfig.provider_type === 'anthropic' && !validAnthropicModels.includes(finalModel)) {
-      console.warn(`Invalid Anthropic model: ${finalModel}, falling back to claude-sonnet-4-20250514`);
-      finalModel = 'claude-sonnet-4-20250514';
+      console.warn(`Invalid Anthropic model: ${finalModel}, falling back to claude-sonnet-4-6`);
+      finalModel = 'claude-sonnet-4-6';
     }
 
     // Map Anthropic models to their correct max_tokens limits
     function getAnthropicMaxTokens(model: string): number {
-      if (model.includes('claude-3-opus')) return 4096;
       if (model.includes('claude-3-5-sonnet') || model.includes('claude-3-5-haiku')) return 8192;
-      return 16384; // claude-sonnet-4-*, claude-sonnet-4-5-*
+      if (model.includes('opus-4-6')) return 128000; // Opus 4.6 supports 128k output
+      return 16384; // claude-sonnet-4-6, claude-sonnet-4-5, claude-sonnet-4, haiku-4-5, opus-4-5
     }
 
     // Create streaming response based on provider with timeout
