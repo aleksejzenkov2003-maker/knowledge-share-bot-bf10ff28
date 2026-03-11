@@ -637,9 +637,13 @@ export default function Trademarks() {
                   <label className="text-xs text-muted-foreground font-medium">ОГРН (точный)</label>
                   <Input placeholder="1234567890123" value={advSearchOgrn} onChange={(e) => setAdvSearchOgrn(e.target.value)} onKeyDown={(e) => e.key === 'Enter' && handleAdvancedSearch()} />
                 </div>
+                <div className="space-y-1">
+                  <label className="text-xs text-muted-foreground font-medium">Дата общеизвестности</label>
+                  <Input placeholder="ДД.ММ.ГГГГ" value={advSearchWellKnownDate} onChange={(e) => setAdvSearchWellKnownDate(e.target.value)} onKeyDown={(e) => e.key === 'Enter' && handleAdvancedSearch()} />
+                </div>
               </div>
               <div className="flex justify-end gap-2 mt-3">
-                <Button variant="ghost" size="sm" onClick={handleAdvancedReset} disabled={!hasAdvancedFilters && !advSearchName && !advSearchAddress && !advSearchInn && !advSearchOgrn && !advSearchRegNum}>
+                <Button variant="ghost" size="sm" onClick={handleAdvancedReset} disabled={!hasAdvancedFilters && !advSearchName && !advSearchAddress && !advSearchInn && !advSearchOgrn && !advSearchRegNum && !advSearchForeignName && !advSearchCorrAddress && !advSearchWellKnownDate}>
                   Сбросить
                 </Button>
                 <Button size="sm" onClick={handleAdvancedSearch} className="gap-1">
