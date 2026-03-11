@@ -688,7 +688,7 @@ export default function Trademarks() {
                 </div>
               </div>
               <div className="flex justify-end gap-2 mt-3">
-                <Button variant="ghost" size="sm" onClick={handleAdvancedReset} disabled={!hasAdvancedFilters && !advSearchName && !advSearchAddress && !advSearchInn && !advSearchOgrn && !advSearchRegNum && !advSearchForeignName && !advSearchCorrAddress && !advSearchWellKnownDate && !advSearchDesignation}>
+                <Button variant="ghost" size="sm" onClick={handleAdvancedReset} disabled={!hasAdvancedFilters && !advSearchName && !advSearchAddress && !advSearchInn && !advSearchOgrn && !advSearchRegNum && !advSearchForeignName && !advSearchCorrAddress && !advSearchWellKnownDate}>
                   Сбросить
                 </Button>
                 <Button size="sm" onClick={handleAdvancedSearch} className="gap-1">
