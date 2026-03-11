@@ -189,20 +189,13 @@ export default function Trademarks() {
   const [search, setSearch] = useState('');
   const [debouncedSearch, setDebouncedSearch] = useState('');
   const [statusFilter, setStatusFilter] = useState<string>('all');
-  const [page, setPage] = useState(0);
-  const [uploadOpen, setUploadOpen] = useState(false);
-  const [uploading, setUploading] = useState(false);
-  const [uploadProgress, setUploadProgress] = useState<{ current: number; total: number } | null>(null);
-  const [previewData, setPreviewData] = useState<Record<string, any>[] | null>(null);
-  const [selectedFile, setSelectedFile] = useState<File | null>(null);
-  const [deleteId, setDeleteId] = useState<string | null>(null);
-  const [detailTm, setDetailTm] = useState<Trademark | null>(null);
-  const [clearAllOpen, setClearAllOpen] = useState(false);
-  const [clearing, setClearing] = useState(false);
-  const [fipsData, setFipsData] = useState<Record<string, any> | null>(null);
-  const [fipsLoading, setFipsLoading] = useState<string | null>(null);
-  const [fipsPreviewOpen, setFipsPreviewOpen] = useState(false);
-  const [fipsTargetId, setFipsTargetId] = useState<string | null>(null);
+  const [advancedOpen, setAdvancedOpen] = useState(false);
+  const [advSearchName, setAdvSearchName] = useState('');
+  const [advSearchAddress, setAdvSearchAddress] = useState('');
+  const [advSearchInn, setAdvSearchInn] = useState('');
+  const [advSearchOgrn, setAdvSearchOgrn] = useState('');
+  const [advSearchRegNum, setAdvSearchRegNum] = useState('');
+  const [appliedAdvSearch, setAppliedAdvSearch] = useState<{name: string; address: string; inn: string; ogrn: string; regNum: string}>({name: '', address: '', inn: '', ogrn: '', regNum: ''});
 
   useEffect(() => {
     const t = setTimeout(() => {
@@ -211,6 +204,19 @@ export default function Trademarks() {
     }, 500);
     return () => clearTimeout(t);
   }, [search]);
+
+  const hasAdvancedFilters = !!(appliedAdvSearch.name || appliedAdvSearch.address || appliedAdvSearch.inn || appliedAdvSearch.ogrn || appliedAdvSearch.regNum);
+
+  const handleAdvancedSearch = () => {
+    setAppliedAdvSearch({ name: advSearchName.trim(), address: advSearchAddress.trim(), inn: advSearchInn.trim(), ogrn: advSearchOgrn.trim(), regNum: advSearchRegNum.trim() });
+    setPage(0);
+  };
+
+  const handleAdvancedReset = () => {
+    setAdvSearchName(''); setAdvSearchAddress(''); setAdvSearchInn(''); setAdvSearchOgrn(''); setAdvSearchRegNum('');
+    setAppliedAdvSearch({ name: '', address: '', inn: '', ogrn: '', regNum: '' });
+    setPage(0);
+  };
 
   const LIST_FIELDS = 'id, registration_number, right_holder_name, right_holder_inn, right_holder_ogrn, registration_date, actual, fips_updated, metadata, created_at';
 
