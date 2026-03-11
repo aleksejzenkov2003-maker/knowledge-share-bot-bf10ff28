@@ -264,7 +264,7 @@ export default function Trademarks() {
   const hasAdvancedFilters = !!(appliedAdvSearch.name || appliedAdvSearch.address || appliedAdvSearch.inn || appliedAdvSearch.ogrn || appliedAdvSearch.regNum || appliedAdvSearch.foreignName || appliedAdvSearch.corrAddress || appliedAdvSearch.wellKnownDate || appliedAdvSearch.designation);
 
   const handleAdvancedSearch = () => {
-    setAppliedAdvSearch({ name: advSearchName.trim(), address: advSearchAddress.trim(), inn: advSearchInn.trim(), ogrn: advSearchOgrn.trim(), regNum: advSearchRegNum.trim(), foreignName: advSearchForeignName.trim(), corrAddress: advSearchCorrAddress.trim(), wellKnownDate: advSearchWellKnownDate.trim() });
+    setAppliedAdvSearch({ name: advSearchName.trim(), address: advSearchAddress.trim(), inn: advSearchInn.trim(), ogrn: advSearchOgrn.trim(), regNum: advSearchRegNum.trim(), foreignName: advSearchForeignName.trim(), corrAddress: advSearchCorrAddress.trim(), wellKnownDate: advSearchWellKnownDate.trim(), designation: advSearchDesignation.trim() });
     setPage(0);
   };
 
