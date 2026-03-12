@@ -1562,6 +1562,32 @@ ${goldenExamples.join('\n\n---\n\n')}
               },
             });
             console.log(`Added PDF: ${attachment.file_name}`);
+          } else {
+            // Text-based files: extract text content and add as text part
+            // Covers: .md, .txt, .csv, .json, .xml, .html, .doc, .docx, .xls, .xlsx, etc.
+            const decoder = new TextDecoder('utf-8', { fatal: false });
+            const textContent = decoder.decode(new Uint8Array(buffer));
+            
+            // Check if content looks like valid text (not binary garbage)
+            const nonPrintableRatio = (textContent.match(/[\x00-\x08\x0E-\x1F]/g) || []).length / Math.max(textContent.length, 1);
+            
+            if (nonPrintableRatio < 0.1 && textContent.length > 0) {
+              // Valid text file — truncate to 50k chars to avoid context overflow
+              const truncated = textContent.slice(0, 50000);
+              const suffix = textContent.length > 50000 ? '\n\n[...файл обрезан, показаны первые 50000 символов...]' : '';
+              attachmentParts.push({
+                type: 'text',
+                text: `--- СОДЕРЖИМОЕ ФАЙЛА: ${attachment.file_name} ---\n${truncated}${suffix}\n--- КОНЕЦ ФАЙЛА ---`,
+              });
+              console.log(`Added text file: ${attachment.file_name} (${truncated.length} chars)`);
+            } else {
+              // Binary file that we can't extract text from — just note its presence
+              attachmentParts.push({
+                type: 'text',
+                text: `[Прикреплён файл: ${attachment.file_name} (${attachment.file_type}, ${Math.round(attachment.file_size / 1024)}KB) — бинарный формат, содержимое недоступно для анализа]`,
+              });
+              console.log(`Added binary file reference: ${attachment.file_name}`);
+            }
           }
         } catch (err) {
           console.error(`Error processing attachment ${attachment.file_name}:`, err);
