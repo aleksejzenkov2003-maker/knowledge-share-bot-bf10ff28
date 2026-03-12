@@ -1302,7 +1302,7 @@ export default function BitrixPersonalChat() {
               ref={fileInputRef}
               type="file"
               multiple
-              accept=".pdf,.docx,.md,.txt,image/jpeg,image/png,image/webp"
+              accept="*/*"
               className="hidden"
               onChange={(e) => {
                 handleFileSelect(Array.from(e.target.files || []));

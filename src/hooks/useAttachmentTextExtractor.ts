@@ -66,7 +66,7 @@ export function useAttachmentTextExtractor() {
         return await extractTextFromDocx(file);
       }
       
-      if (['csv', 'txt', 'xls', 'xlsx'].includes(ext || '') || file.type.startsWith('text/')) {
+      if (['csv', 'txt', 'xls', 'xlsx', 'md', 'doc', 'json', 'xml', 'html', 'htm', 'log', 'yaml', 'yml', 'toml', 'ini', 'cfg', 'conf', 'rtf'].includes(ext || '') || file.type.startsWith('text/')) {
         return await extractTextFromPlain(file);
       }
       

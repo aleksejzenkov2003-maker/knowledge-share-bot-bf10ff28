@@ -551,8 +551,8 @@ export function ChatInputEnhanced({
       {/* Help text */}
       <p className="text-xs text-muted-foreground text-center mt-2">
         {hasMentionSupport 
-          ? "Начните с @ для выбора агента • PDF, JPG, PNG, WEBP, CSV, XLS, XLSX (до 10MB) • Enter для отправки"
-          : "PDF, JPG, PNG, WEBP, CSV, XLS, XLSX (до 10MB) • Enter для отправки • Shift+Enter для новой строки"
+          ? "Начните с @ для выбора агента • Любые файлы до 10MB • Enter для отправки"
+          : "Любые файлы до 10MB • Enter для отправки • Shift+Enter для новой строки"
         }
       </p>
 

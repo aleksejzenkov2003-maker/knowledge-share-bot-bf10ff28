@@ -353,7 +353,7 @@ export const MentionInput: React.FC<MentionInputProps> = ({
         </span>
         {hasFileSupport && (
           <span className="text-muted-foreground/60">
-            PDF, JPG, PNG, WEBP (до 10MB)
+            Любые файлы до 10MB
           </span>
         )}
       </div>

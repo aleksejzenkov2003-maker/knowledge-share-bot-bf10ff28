@@ -164,7 +164,7 @@ export function ChatInput({
 
         {/* Help text */}
         <p className="text-xs text-muted-foreground text-center">
-          Поддерживаемые форматы: PDF, JPG, PNG, WEBP, CSV, XLS, XLSX (до 10MB)
+          Любые файлы до 10MB • Enter для отправки
         </p>
       </div>
     </div>
