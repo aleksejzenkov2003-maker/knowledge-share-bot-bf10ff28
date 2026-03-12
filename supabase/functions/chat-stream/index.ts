@@ -123,6 +123,94 @@ async function extractDocxText(buffer: ArrayBuffer): Promise<string | null> {
   }
 }
 
+async function extractXlsxText(buffer: ArrayBuffer): Promise<string | null> {
+  try {
+    const zip = await JSZip.loadAsync(buffer);
+
+    // Parse shared strings
+    const sharedStringsXml = await zip.file('xl/sharedStrings.xml')?.async('text');
+    const sharedStrings: string[] = [];
+    if (sharedStringsXml) {
+      const matches = sharedStringsXml.matchAll(/<t[^>]*>([^<]*)<\/t>/g);
+      for (const m of matches) {
+        sharedStrings.push(decodeXmlEntities(m[1]));
+      }
+    }
+
+    // Parse sheets
+    const textParts: string[] = [];
+    const sheetFiles = Object.keys(zip.files).filter(f => f.match(/^xl\/worksheets\/sheet\d+\.xml$/)).sort();
+
+    for (const sheetFile of sheetFiles) {
+      const sheetXml = await zip.file(sheetFile)?.async('text');
+      if (!sheetXml) continue;
+
+      // Extract rows
+      const rows = sheetXml.matchAll(/<row[^>]*>([\s\S]*?)<\/row>/g);
+      for (const row of rows) {
+        const cells: string[] = [];
+        const cellMatches = row[1].matchAll(/<c[^>]*(?:t="([^"]*)")?[^>]*>[\s\S]*?(?:<v>([^<]*)<\/v>)?[\s\S]*?<\/c>/g);
+        for (const cell of cellMatches) {
+          const cellType = cell[1];
+          const cellValue = cell[2] || '';
+          if (cellType === 's' && sharedStrings[parseInt(cellValue)]) {
+            cells.push(sharedStrings[parseInt(cellValue)]);
+          } else if (cellValue) {
+            cells.push(decodeXmlEntities(cellValue));
+          }
+        }
+        if (cells.length > 0) {
+          textParts.push(cells.join('\t'));
+        }
+      }
+      textParts.push(''); // sheet separator
+    }
+
+    const result = normalizeExtractedText(textParts.join('\n'));
+    return result.length > 0 ? result : null;
+  } catch (error) {
+    console.error('XLSX extraction error:', error);
+    return null;
+  }
+}
+
+async function extractPptxText(buffer: ArrayBuffer): Promise<string | null> {
+  try {
+    const zip = await JSZip.loadAsync(buffer);
+    const textParts: string[] = [];
+
+    const slideFiles = Object.keys(zip.files)
+      .filter(f => f.match(/^ppt\/slides\/slide\d+\.xml$/))
+      .sort((a, b) => {
+        const numA = parseInt(a.match(/slide(\d+)/)?.[1] || '0');
+        const numB = parseInt(b.match(/slide(\d+)/)?.[1] || '0');
+        return numA - numB;
+      });
+
+    for (const slideFile of slideFiles) {
+      const slideXml = await zip.file(slideFile)?.async('text');
+      if (!slideXml) continue;
+
+      // Extract text from <a:t> tags
+      const textMatches = slideXml.matchAll(/<a:t>([^<]*)<\/a:t>/g);
+      const slideTexts: string[] = [];
+      for (const m of textMatches) {
+        const t = decodeXmlEntities(m[1]).trim();
+        if (t) slideTexts.push(t);
+      }
+      if (slideTexts.length > 0) {
+        textParts.push(slideTexts.join(' '));
+      }
+    }
+
+    const result = normalizeExtractedText(textParts.join('\n'));
+    return result.length > 0 ? result : null;
+  } catch (error) {
+    console.error('PPTX extraction error:', error);
+    return null;
+  }
+}
+
 
 // ============= GIGACHAT OAUTH TOKEN CACHE =============
 let gigachatTokenCache: { token: string; expiresAt: number } | null = null;
