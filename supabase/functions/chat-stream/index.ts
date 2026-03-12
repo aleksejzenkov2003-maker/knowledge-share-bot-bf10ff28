@@ -1,5 +1,6 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
+import JSZip from "https://esm.sh/jszip@3.10.1";
 import { getActivePatterns, extractPiiTokens } from "../_shared/pii-patterns.ts";
 import { encryptAES256, decryptAES256 } from "../_shared/pii-crypto.ts";
 
@@ -77,6 +78,51 @@ function arrayBufferToBase64(buffer: ArrayBuffer): string {
   }
   return btoa(binary);
 }
+
+function getFileExtension(fileName: string): string {
+  const parts = fileName.toLowerCase().split('.');
+  return parts.length > 1 ? parts.pop() || '' : '';
+}
+
+function decodeXmlEntities(value: string): string {
+  return value
+    .replace(/&lt;/g, '<')
+    .replace(/&gt;/g, '>')
+    .replace(/&amp;/g, '&')
+    .replace(/&quot;/g, '"')
+    .replace(/&apos;/g, "'");
+}
+
+function normalizeExtractedText(value: string): string {
+  return value
+    .replace(/\r/g, '')
+    .replace(/[ \t]+\n/g, '\n')
+    .replace(/\n{3,}/g, '\n\n')
+    .trim();
+}
+
+async function extractDocxText(buffer: ArrayBuffer): Promise<string | null> {
+  try {
+    const zip = await JSZip.loadAsync(buffer);
+    const docXml = await zip.file('word/document.xml')?.async('text');
+    if (!docXml) return null;
+
+    const withBreaks = docXml
+      .replace(/<w:tab[^>]*\/>/g, '\t')
+      .replace(/<w:br[^>]*\/>/g, '\n')
+      .replace(/<\/w:p>/g, '\n');
+
+    const withoutTags = withBreaks.replace(/<[^>]+>/g, ' ');
+    const decoded = decodeXmlEntities(withoutTags).replace(/[ \t]{2,}/g, ' ');
+    const normalized = normalizeExtractedText(decoded);
+
+    return normalized.length > 0 ? normalized : null;
+  } catch (error) {
+    console.error('DOCX extraction error:', error);
+    return null;
+  }
+}
+
 
 // ============= GIGACHAT OAUTH TOKEN CACHE =============
 let gigachatTokenCache: { token: string; expiresAt: number } | null = null;
@@ -1540,9 +1586,11 @@ ${goldenExamples.join('\n\n---\n\n')}
           }
           
           const buffer = await fileData.arrayBuffer();
-          const base64 = arrayBufferToBase64(buffer);
+          const fileExt = getFileExtension(attachment.file_name);
+          const isDocx = attachment.file_type === 'application/vnd.openxmlformats-officedocument.wordprocessingml.document' || fileExt === 'docx';
           
           if (attachment.file_type.startsWith('image/')) {
+            const base64 = arrayBufferToBase64(buffer);
             attachmentParts.push({
               type: 'image',
               source: {
@@ -1552,7 +1600,8 @@ ${goldenExamples.join('\n\n---\n\n')}
               },
             });
             console.log(`Added image: ${attachment.file_name}`);
-          } else if (attachment.file_type === 'application/pdf') {
+          } else if (attachment.file_type === 'application/pdf' || fileExt === 'pdf') {
+            const base64 = arrayBufferToBase64(buffer);
             attachmentParts.push({
               type: 'document',
               source: {
@@ -1563,28 +1612,41 @@ ${goldenExamples.join('\n\n---\n\n')}
             });
             console.log(`Added PDF: ${attachment.file_name}`);
           } else {
-            // Text-based files: extract text content and add as text part
-            // Covers: .md, .txt, .csv, .json, .xml, .html, .doc, .docx, .xls, .xlsx, etc.
-            const decoder = new TextDecoder('utf-8', { fatal: false });
-            const textContent = decoder.decode(new Uint8Array(buffer));
-            
-            // Check if content looks like valid text (not binary garbage)
-            const nonPrintableRatio = (textContent.match(/[\x00-\x08\x0E-\x1F]/g) || []).length / Math.max(textContent.length, 1);
-            
-            if (nonPrintableRatio < 0.1 && textContent.length > 0) {
-              // Valid text file — truncate to 50k chars to avoid context overflow
-              const truncated = textContent.slice(0, 50000);
-              const suffix = textContent.length > 50000 ? '\n\n[...файл обрезан, показаны первые 50000 символов...]' : '';
+            let extractedText: string | null = null;
+
+            if (isDocx) {
+              extractedText = await extractDocxText(buffer);
+              if (extractedText) {
+                console.log(`Added DOCX as extracted text: ${attachment.file_name} (${extractedText.length} chars)`);
+              }
+            }
+
+            if (!extractedText) {
+              // Generic text fallback for plain text files (.md, .txt, .csv, .json, .xml, .html, etc.)
+              const decoder = new TextDecoder('utf-8', { fatal: false });
+              const textContent = decoder.decode(new Uint8Array(buffer));
+              const nonPrintableRatio = (textContent.match(/[\x00-\x08\x0E-\x1F]/g) || []).length / Math.max(textContent.length, 1);
+
+              if (nonPrintableRatio < 0.1 && textContent.length > 0) {
+                extractedText = normalizeExtractedText(textContent);
+                if (extractedText.length > 0) {
+                  console.log(`Added text file: ${attachment.file_name} (${extractedText.length} chars)`);
+                }
+              }
+            }
+
+            if (extractedText && extractedText.length > 0) {
+              const truncated = extractedText.slice(0, 50000);
+              const suffix = extractedText.length > 50000 ? '\n\n[...файл обрезан, показаны первые 50000 символов...]' : '';
               attachmentParts.push({
                 type: 'text',
                 text: `--- СОДЕРЖИМОЕ ФАЙЛА: ${attachment.file_name} ---\n${truncated}${suffix}\n--- КОНЕЦ ФАЙЛА ---`,
               });
-              console.log(`Added text file: ${attachment.file_name} (${truncated.length} chars)`);
             } else {
               // Binary file that we can't extract text from — just note its presence
               attachmentParts.push({
                 type: 'text',
-                text: `[Прикреплён файл: ${attachment.file_name} (${attachment.file_type}, ${Math.round(attachment.file_size / 1024)}KB) — бинарный формат, содержимое недоступно для анализа]`,
+                text: `[Прикреплён файл: ${attachment.file_name} (${attachment.file_type || fileExt || 'unknown'}, ${Math.round(attachment.file_size / 1024)}KB) — бинарный формат, содержимое недоступно для анализа]`,
               });
               console.log(`Added binary file reference: ${attachment.file_name}`);
             }
