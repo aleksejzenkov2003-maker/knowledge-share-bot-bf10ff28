@@ -1817,6 +1817,9 @@ ${goldenExamples.join('\n\n---\n\n')}
                     data: att.data,
                   }
                 });
+              } else if (att.type === 'text') {
+                // Text-extracted files (md, docx, csv, etc.)
+                parts.unshift({ text: att.text });
               }
             }
           }
