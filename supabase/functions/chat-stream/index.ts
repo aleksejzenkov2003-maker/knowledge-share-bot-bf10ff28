@@ -1676,6 +1676,12 @@ ${goldenExamples.join('\n\n---\n\n')}
           const buffer = await fileData.arrayBuffer();
           const fileExt = getFileExtension(attachment.file_name);
           const isDocx = attachment.file_type === 'application/vnd.openxmlformats-officedocument.wordprocessingml.document' || fileExt === 'docx';
+          const isXlsx = attachment.file_type === 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' || fileExt === 'xlsx';
+          const isPptx = attachment.file_type === 'application/vnd.openxmlformats-officedocument.presentationml.presentation' || fileExt === 'pptx';
+          const isXls = attachment.file_type === 'application/vnd.ms-excel' || fileExt === 'xls';
+          const isDoc = attachment.file_type === 'application/msword' || fileExt === 'doc';
+          const isPpt = attachment.file_type === 'application/vnd.ms-powerpoint' || fileExt === 'ppt';
+          const isRtf = attachment.file_type === 'application/rtf' || fileExt === 'rtf';
           
           if (attachment.file_type.startsWith('image/')) {
             const base64 = arrayBufferToBase64(buffer);
@@ -1706,6 +1712,30 @@ ${goldenExamples.join('\n\n---\n\n')}
               extractedText = await extractDocxText(buffer);
               if (extractedText) {
                 console.log(`Added DOCX as extracted text: ${attachment.file_name} (${extractedText.length} chars)`);
+              }
+            } else if (isXlsx) {
+              extractedText = await extractXlsxText(buffer);
+              if (extractedText) {
+                console.log(`Added XLSX as extracted text: ${attachment.file_name} (${extractedText.length} chars)`);
+              }
+            } else if (isPptx) {
+              extractedText = await extractPptxText(buffer);
+              if (extractedText) {
+                console.log(`Added PPTX as extracted text: ${attachment.file_name} (${extractedText.length} chars)`);
+              }
+            } else if (isRtf) {
+              // RTF: strip RTF control words, extract plain text
+              const decoder = new TextDecoder('utf-8', { fatal: false });
+              const rtfContent = decoder.decode(new Uint8Array(buffer));
+              const plainText = rtfContent
+                .replace(/\{\\[^{}]*\}/g, '') // remove groups like {\fonttbl...}
+                .replace(/\\[a-z]+\d*\s?/gi, '') // remove control words
+                .replace(/[{}]/g, '')
+                .replace(/\\\'/[0-9a-f]{2}/gi, '') // remove hex escapes
+                .trim();
+              extractedText = normalizeExtractedText(plainText);
+              if (extractedText && extractedText.length > 0) {
+                console.log(`Added RTF as extracted text: ${attachment.file_name} (${extractedText.length} chars)`);
               }
             }
 
