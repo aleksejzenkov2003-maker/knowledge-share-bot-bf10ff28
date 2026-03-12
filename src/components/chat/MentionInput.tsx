@@ -284,7 +284,7 @@ export const MentionInput: React.FC<MentionInputProps> = ({
               ref={fileInputRef}
               type="file"
               multiple
-              accept={ALLOWED_TYPES.join(',')}
+              accept="*/*"
               className="hidden"
               onChange={handleFileChange}
             />
