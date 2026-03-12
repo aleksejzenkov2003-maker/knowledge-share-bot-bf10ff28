@@ -148,10 +148,6 @@ export const MentionInput: React.FC<MentionInputProps> = ({
         break;
       }
 
-      if (!ALLOWED_TYPES.includes(file.type)) {
-        toast.error(`Неподдерживаемый формат: ${file.name}. Разрешены: PDF, JPG, PNG, WEBP`);
-        continue;
-      }
 
       if (file.size > MAX_FILE_SIZE) {
         toast.error(`Файл слишком большой: ${file.name}. Максимум 10MB`);

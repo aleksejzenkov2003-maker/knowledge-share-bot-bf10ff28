@@ -506,14 +506,6 @@ export default function BitrixPersonalChat() {
         break;
       }
       
-      if (!ALLOWED_TYPES.includes(file.type)) {
-        toast({ 
-          title: "Неподдерживаемый формат", 
-          description: file.name,
-          variant: "destructive" 
-        });
-        continue;
-      }
       
       if (file.size > MAX_FILE_SIZE) {
         toast({ 

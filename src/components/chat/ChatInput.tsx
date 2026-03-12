@@ -56,15 +56,6 @@ export function ChatInput({
         break;
       }
 
-      // Check file extension for CSV/XLS which may have different MIME types
-      const ext = file.name.toLowerCase().split('.').pop();
-      const isAllowedByType = ALLOWED_TYPES.includes(file.type);
-      const isAllowedByExt = ['csv', 'xls', 'xlsx'].includes(ext || '');
-      
-      if (!isAllowedByType && !isAllowedByExt) {
-        toast.error(`Неподдерживаемый формат: ${file.name}. Разрешены: PDF, JPG, PNG, WEBP, CSV, XLS, XLSX`);
-        continue;
-      }
 
       if (file.size > MAX_FILE_SIZE) {
         toast.error(`Файл слишком большой: ${file.name}. Максимум 10MB`);
