@@ -136,15 +136,6 @@ export default function BitrixDepartmentChat() {
   // File upload constants
   const MAX_FILE_SIZE = 10 * 1024 * 1024; // 10MB
   const MAX_FILES = 5;
-  const ALLOWED_TYPES = [
-    'application/pdf',
-    'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
-    'text/markdown',
-    'text/plain',
-    'image/jpeg',
-    'image/png',
-    'image/webp'
-  ];
 
   const apiBaseUrl = import.meta.env.VITE_SUPABASE_URL + '/functions/v1/bitrix-chat-api';
 
