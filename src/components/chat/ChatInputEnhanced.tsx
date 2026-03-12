@@ -435,7 +435,7 @@ export function ChatInputEnhanced({
                 ref={fileInputRef}
                 type="file"
                 multiple
-                accept={`${ALLOWED_TYPES.join(',')},.csv,.xls,.xlsx`}
+                accept="*/*"
                 className="hidden"
                 onChange={handleFileChange}
               />
