@@ -1,5 +1,6 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
+import JSZip from "https://esm.sh/jszip@3.10.1";
 import { getActivePatterns, extractPiiTokens } from "../_shared/pii-patterns.ts";
 import { encryptAES256, decryptAES256 } from "../_shared/pii-crypto.ts";
 
@@ -77,6 +78,51 @@ function arrayBufferToBase64(buffer: ArrayBuffer): string {
   }
   return btoa(binary);
 }
+
+function getFileExtension(fileName: string): string {
+  const parts = fileName.toLowerCase().split('.');
+  return parts.length > 1 ? parts.pop() || '' : '';
+}
+
+function decodeXmlEntities(value: string): string {
+  return value
+    .replace(/&lt;/g, '<')
+    .replace(/&gt;/g, '>')
+    .replace(/&amp;/g, '&')
+    .replace(/&quot;/g, '"')
+    .replace(/&apos;/g, "'");
+}
+
+function normalizeExtractedText(value: string): string {
+  return value
+    .replace(/\r/g, '')
+    .replace(/[ \t]+\n/g, '\n')
+    .replace(/\n{3,}/g, '\n\n')
+    .trim();
+}
+
+async function extractDocxText(buffer: ArrayBuffer): Promise<string | null> {
+  try {
+    const zip = await JSZip.loadAsync(buffer);
+    const docXml = await zip.file('word/document.xml')?.async('text');
+    if (!docXml) return null;
+
+    const withBreaks = docXml
+      .replace(/<w:tab[^>]*\/>/g, '\t')
+      .replace(/<w:br[^>]*\/>/g, '\n')
+      .replace(/<\/w:p>/g, '\n');
+
+    const withoutTags = withBreaks.replace(/<[^>]+>/g, ' ');
+    const decoded = decodeXmlEntities(withoutTags).replace(/[ \t]{2,}/g, ' ');
+    const normalized = normalizeExtractedText(decoded);
+
+    return normalized.length > 0 ? normalized : null;
+  } catch (error) {
+    console.error('DOCX extraction error:', error);
+    return null;
+  }
+}
+
 
 // ============= GIGACHAT OAUTH TOKEN CACHE =============
 let gigachatTokenCache: { token: string; expiresAt: number } | null = null;
