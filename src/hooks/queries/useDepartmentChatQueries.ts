@@ -49,8 +49,7 @@ async function fetchAgentsData(): Promise<AgentMention[]> {
   const { data, error } = await supabase
     .from('chat_roles')
     .select('id, name, mention_trigger, slug')
-    .eq('is_active', true)
-    .not('mention_trigger', 'is', null);
+    .eq('is_active', true);
 
   if (error) throw error;
 
