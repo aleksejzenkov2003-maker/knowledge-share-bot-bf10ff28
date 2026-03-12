@@ -1731,7 +1731,7 @@ ${goldenExamples.join('\n\n---\n\n')}
                 .replace(/\{\\[^{}]*\}/g, '') // remove groups like {\fonttbl...}
                 .replace(/\\[a-z]+\d*\s?/gi, '') // remove control words
                 .replace(/[{}]/g, '')
-                .replace(/\\\'/[0-9a-f]{2}/gi, '') // remove hex escapes
+                .replace(/\\\'[0-9a-f]{2}/gi, '') // remove hex escapes
                 .trim();
               extractedText = normalizeExtractedText(plainText);
               if (extractedText && extractedText.length > 0) {
