@@ -9,13 +9,6 @@ import { cn } from '@/lib/utils';
 import { toast } from 'sonner';
 
 const MAX_FILE_SIZE = 10 * 1024 * 1024; // 10MB
-const ALLOWED_TYPES = [
-  'application/pdf',
-  'image/jpeg',
-  'image/jpg',
-  'image/png',
-  'image/webp',
-];
 const MAX_FILES = 5;
 
 interface MentionInputProps {
@@ -155,10 +148,6 @@ export const MentionInput: React.FC<MentionInputProps> = ({
         break;
       }
 
-      if (!ALLOWED_TYPES.includes(file.type)) {
-        toast.error(`Неподдерживаемый формат: ${file.name}. Разрешены: PDF, JPG, PNG, WEBP`);
-        continue;
-      }
 
       if (file.size > MAX_FILE_SIZE) {
         toast.error(`Файл слишком большой: ${file.name}. Максимум 10MB`);
@@ -291,7 +280,7 @@ export const MentionInput: React.FC<MentionInputProps> = ({
               ref={fileInputRef}
               type="file"
               multiple
-              accept={ALLOWED_TYPES.join(',')}
+              accept="*/*"
               className="hidden"
               onChange={handleFileChange}
             />
@@ -360,7 +349,7 @@ export const MentionInput: React.FC<MentionInputProps> = ({
         </span>
         {hasFileSupport && (
           <span className="text-muted-foreground/60">
-            PDF, JPG, PNG, WEBP (до 10MB)
+            Любые файлы до 10MB
           </span>
         )}
       </div>

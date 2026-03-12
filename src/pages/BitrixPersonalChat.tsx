@@ -112,15 +112,6 @@ export default function BitrixPersonalChat() {
   // File upload constants
   const MAX_FILE_SIZE = 10 * 1024 * 1024; // 10MB
   const MAX_FILES = 5;
-  const ALLOWED_TYPES = [
-    'application/pdf',
-    'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
-    'text/markdown',
-    'text/plain',
-    'image/jpeg',
-    'image/png',
-    'image/webp'
-  ];
 
   const apiBaseUrl = import.meta.env.VITE_SUPABASE_URL + '/functions/v1/bitrix-chat-api';
 
@@ -515,14 +506,6 @@ export default function BitrixPersonalChat() {
         break;
       }
       
-      if (!ALLOWED_TYPES.includes(file.type)) {
-        toast({ 
-          title: "Неподдерживаемый формат", 
-          description: file.name,
-          variant: "destructive" 
-        });
-        continue;
-      }
       
       if (file.size > MAX_FILE_SIZE) {
         toast({ 
@@ -1311,7 +1294,7 @@ export default function BitrixPersonalChat() {
               ref={fileInputRef}
               type="file"
               multiple
-              accept=".pdf,.docx,.md,.txt,image/jpeg,image/png,image/webp"
+              accept="*/*"
               className="hidden"
               onChange={(e) => {
                 handleFileSelect(Array.from(e.target.files || []));

@@ -20,16 +20,6 @@ import {
 import { cn } from "@/lib/utils";
 
 const MAX_FILE_SIZE = 10 * 1024 * 1024;
-const ALLOWED_TYPES = [
-  'application/pdf',
-  'image/jpeg',
-  'image/jpg',
-  'image/png',
-  'image/webp',
-  'text/csv',
-  'application/vnd.ms-excel',
-  'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
-];
 const MAX_FILES = 5;
 
 interface ChatRole {
@@ -248,15 +238,6 @@ export function ChatInputEnhanced({
         break;
       }
 
-      // Check file extension for CSV/XLS which may have different MIME types
-      const ext = file.name.toLowerCase().split('.').pop();
-      const isAllowedByType = ALLOWED_TYPES.includes(file.type);
-      const isAllowedByExt = ['csv', 'xls', 'xlsx'].includes(ext || '');
-      
-      if (!isAllowedByType && !isAllowedByExt) {
-        toast.error(`Неподдерживаемый формат: ${file.name}. Разрешены: PDF, JPG, PNG, WEBP, CSV, XLS, XLSX`);
-        continue;
-      }
 
       if (file.size > MAX_FILE_SIZE) {
         toast.error(`Файл слишком большой: ${file.name}. Максимум 10MB`);
@@ -445,7 +426,7 @@ export function ChatInputEnhanced({
                 ref={fileInputRef}
                 type="file"
                 multiple
-                accept={`${ALLOWED_TYPES.join(',')},.csv,.xls,.xlsx`}
+                accept="*/*"
                 className="hidden"
                 onChange={handleFileChange}
               />
@@ -561,8 +542,8 @@ export function ChatInputEnhanced({
       {/* Help text */}
       <p className="text-xs text-muted-foreground text-center mt-2">
         {hasMentionSupport 
-          ? "Начните с @ для выбора агента • PDF, JPG, PNG, WEBP, CSV, XLS, XLSX (до 10MB) • Enter для отправки"
-          : "PDF, JPG, PNG, WEBP, CSV, XLS, XLSX (до 10MB) • Enter для отправки • Shift+Enter для новой строки"
+          ? "Начните с @ для выбора агента • Любые файлы до 10MB • Enter для отправки"
+          : "Любые файлы до 10MB • Enter для отправки • Shift+Enter для новой строки"
         }
       </p>
 

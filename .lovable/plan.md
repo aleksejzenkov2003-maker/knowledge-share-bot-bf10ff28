@@ -1,38 +1,22 @@
 
 
-## Снять ограничения на типы файлов в чатах
+## План: Обновить цвета
 
-Сейчас в 4 компонентах ввода (`ChatInput`, `ChatInputEnhanced`, `MentionInput`, и частично в Bitrix-чатах) жёстко ограничены MIME-типы. Нужно убрать эти ограничения и принимать любые файлы, оставив только проверку размера (10MB) и количества (5 файлов).
+Пользователь хочет:
+- Фон страницы: `#F2F1EC` 
+- Поле ввода (белый): `#F9F8F4`
+- Цвет текста: `#2A2722`
 
-### Изменения
-
-**4 файла — одинаковая правка в каждом:**
-
-1. **`src/components/chat/ChatInput.tsx`**
-   - Убрать константу `ALLOWED_TYPES`
-   - В `validateFiles`: убрать проверку типа/расширения, оставить только size и count
-   - В `<input>` убрать `accept` атрибут (или поставить `accept="*/*"`)
-   - Обновить help text: "Любые файлы до 10MB"
-
-2. **`src/components/chat/ChatInputEnhanced.tsx`**
-   - Аналогично: убрать `ALLOWED_TYPES`, убрать проверку типа, убрать `accept`
-   - Обновить help text
-
-3. **`src/components/chat/MentionInput.tsx`**
-   - Аналогично: убрать `ALLOWED_TYPES`, убрать проверку типа, убрать `accept`
-   - Обновить help text
-
-4. **`src/hooks/useAttachmentTextExtractor.ts`**
-   - Добавить поддержку `.doc` (plain text fallback) и `.md` (как plain text)
-   - Расширить ветку plain text: добавить `'md', 'doc', 'json', 'xml', 'html'` и другие текстовые форматы
-
-Bitrix-чаты (`BitrixPersonalChat.tsx`, `BitrixDepartmentChat.tsx`) — тоже убрать ограничения типов аналогично.
+### HSL-конвертация
+- `#F2F1EC` → `50 15% 94%`
+- `#F9F8F4` → `48 28% 97%`
+- `#2A2722` → `37 10% 15%`
 
 ### Файлы
-- `src/components/chat/ChatInput.tsx`
-- `src/components/chat/ChatInputEnhanced.tsx`
-- `src/components/chat/MentionInput.tsx`
-- `src/hooks/useAttachmentTextExtractor.ts`
-- `src/pages/BitrixPersonalChat.tsx`
-- `src/pages/BitrixDepartmentChat.tsx`
+
+**`src/index.css`** — обновить переменные:
+- `--background` / `--chat-background`: `50 15% 94%` (#F2F1EC)
+- `--foreground` / `--card-foreground` / `--popover-foreground`: `37 10% 15%` (#2A2722)
+
+**`src/components/chat/ChatInputEnhanced.tsx`** — заменить `bg-white` на `bg-[#F9F8F4]` для поля ввода
 
