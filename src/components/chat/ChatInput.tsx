@@ -7,16 +7,6 @@ import { AttachmentPreview } from "./AttachmentPreview";
 import { toast } from "sonner";
 
 const MAX_FILE_SIZE = 10 * 1024 * 1024; // 10MB
-const ALLOWED_TYPES = [
-  'application/pdf',
-  'image/jpeg',
-  'image/jpg',
-  'image/png',
-  'image/webp',
-  'text/csv',
-  'application/vnd.ms-excel',
-  'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
-];
 const MAX_FILES = 5;
 
 interface ChatInputProps {
