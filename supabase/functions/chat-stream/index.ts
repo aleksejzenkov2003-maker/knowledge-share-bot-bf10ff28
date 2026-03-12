@@ -1868,15 +1868,15 @@ ${goldenExamples.join('\n\n---\n\n')}
               if (att.type === 'image') {
                 parts.unshift({
                   inline_data: {
-                    mime_type: att.media_type,
-                    data: att.data,
+                    mime_type: (att as any).source.media_type,
+                    data: (att as any).source.data,
                   }
                 });
-              } else if (att.type === 'document' && att.media_type === 'application/pdf') {
+              } else if (att.type === 'document' && (att as any).source?.media_type === 'application/pdf') {
                 parts.unshift({
                   inline_data: {
                     mime_type: 'application/pdf',
-                    data: att.data,
+                    data: (att as any).source.data,
                   }
                 });
               } else if (att.type === 'text') {
