@@ -310,7 +310,7 @@ const Providers = () => {
                       <SelectItem value="openai">OpenAI</SelectItem>
                       <SelectItem value="gemini">Google Gemini</SelectItem>
                       <SelectItem value="gigachat">GigaChat (Сбер)</SelectItem>
-                    </SelectContent>
+                      <SelectItem value="qwen">Qwen (Alibaba)</SelectItem>
                   </Select>
                 </div>
                 
