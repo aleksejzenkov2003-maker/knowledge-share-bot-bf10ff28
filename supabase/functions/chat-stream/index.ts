@@ -1972,6 +1972,7 @@ ${goldenExamples.join('\n\n---\n\n')}
           }),
         });
         break;
+      }
 
       case 'gemini': {
         const geminiApiKey = providerConfig.api_key || GEMINI_API_KEY || '';
