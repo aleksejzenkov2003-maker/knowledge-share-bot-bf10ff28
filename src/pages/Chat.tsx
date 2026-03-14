@@ -26,6 +26,7 @@ import { PiiPreviewDialog } from "@/components/documents/PiiPreviewDialog";
 import { useConversationRolesQuery } from "@/hooks/queries/useChatQueries";
 import { useAttachmentTextExtractor } from "@/hooks/useAttachmentTextExtractor";
 import { Attachment, ReputationSearchResult } from "@/types/chat";
+import { useRoleProviderLabels } from "@/hooks/useRoleProviderLabels";
 import { toast } from "sonner";
 
 export default function Chat() {
