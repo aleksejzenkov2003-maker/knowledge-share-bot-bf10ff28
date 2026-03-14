@@ -11,6 +11,7 @@ import { DepartmentChatMessage, AgentMention } from "@/types/departmentChat";
 import { Message } from "@/types/chat";
 import { toast } from "sonner";
 import { Badge } from "@/components/ui/badge";
+import { RoleProviderInfo } from "@/hooks/useRoleProviderLabels";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -57,6 +58,8 @@ interface ChatInputEnhancedProps {
   onClearReply?: () => void;
   // @-mention support for department chats
   availableAgents?: AgentMention[];
+  // Provider labels for roles
+  roleProviderLabels?: Map<string, RoleProviderInfo>;
 }
 
 export function ChatInputEnhanced({ 
@@ -87,6 +90,7 @@ export function ChatInputEnhanced({
   onClearReply,
   // Mentions
   availableAgents = [],
+  roleProviderLabels,
 }: ChatInputEnhancedProps) {
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -496,7 +500,17 @@ export function ChatInputEnhanced({
                           role.id === selectedRoleId && "bg-accent"
                         )}
                       >
-                        <span className="font-medium">{role.name}</span>
+                        <div className="flex items-center gap-2 w-full">
+                          <span className="font-medium">{role.name}</span>
+                          {roleProviderLabels?.get(role.id) && (
+                            <Badge variant="outline" className="text-[10px] px-1.5 py-0 h-4 font-normal text-muted-foreground border-muted shrink-0">
+                              {roleProviderLabels.get(role.id)!.providerName}
+                              {roleProviderLabels.get(role.id)!.model && (
+                                <span className="ml-1 opacity-70">{roleProviderLabels.get(role.id)!.model}</span>
+                              )}
+                            </Badge>
+                          )}
+                        </div>
                         {role.description && (
                           <span className="text-xs text-muted-foreground line-clamp-1">
                             {role.description}
