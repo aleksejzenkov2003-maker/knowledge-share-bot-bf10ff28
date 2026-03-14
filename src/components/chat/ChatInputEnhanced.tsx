@@ -90,6 +90,7 @@ export function ChatInputEnhanced({
   onClearReply,
   // Mentions
   availableAgents = [],
+  roleProviderLabels,
 }: ChatInputEnhancedProps) {
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
