@@ -311,6 +311,7 @@ const Providers = () => {
                       <SelectItem value="gemini">Google Gemini</SelectItem>
                       <SelectItem value="gigachat">GigaChat (Сбер)</SelectItem>
                       <SelectItem value="qwen">Qwen (Alibaba)</SelectItem>
+                    </SelectContent>
                   </Select>
                 </div>
                 
