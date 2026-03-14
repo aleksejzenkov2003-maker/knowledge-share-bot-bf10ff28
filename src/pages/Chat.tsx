@@ -278,7 +278,7 @@ export default function Chat() {
         selectedRoleId={selectedRoleId}
         onRoleChange={handleRoleChange}
         placeholder="Спросите что-нибудь..."
-      />
+        roleProviderLabels={roleProviderLabels}
     </div>
   );
 
