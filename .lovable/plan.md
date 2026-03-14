@@ -1,22 +1,21 @@
 
 
-## План: Обновить цвета
+# Fix: OpenAI and Qwen providers returning HTTP 500
 
-Пользователь хочет:
-- Фон страницы: `#F2F1EC` 
-- Поле ввода (белый): `#F9F8F4`
-- Цвет текста: `#2A2722`
+## Problem
+The `getEffectiveApiKey` helper in `chat-stream/index.ts` (line 336-351) has fallback cases for `perplexity`, `anthropic`, `gemini`, and `gigachat` but is **missing** `openai` and `qwen`. When the provider record in the DB has no `api_key` stored (because the keys are configured as environment secrets), the function returns an empty string, which causes the "No AI provider configured or API key missing" error.
 
-### HSL-конвертация
-- `#F2F1EC` → `50 15% 94%`
-- `#F9F8F4` → `48 28% 97%`
-- `#2A2722` → `37 10% 15%`
+## Fix
+Add two cases to the `getEffectiveApiKey` switch statement:
 
-### Файлы
+```typescript
+case 'openai':
+  return Deno.env.get('OPENAI_API_KEY') || '';
+case 'qwen':
+  return Deno.env.get('QWEN_API_KEY') || '';
+```
 
-**`src/index.css`** — обновить переменные:
-- `--background` / `--chat-background`: `50 15% 94%` (#F2F1EC)
-- `--foreground` / `--card-foreground` / `--popover-foreground`: `37 10% 15%` (#2A2722)
+**File:** `supabase/functions/chat-stream/index.ts` (lines 339-350)
 
-**`src/components/chat/ChatInputEnhanced.tsx`** — заменить `bg-white` на `bg-[#F9F8F4]` для поля ввода
+This is a one-line-per-case fix. After this, both providers will correctly fall back to the environment secrets `OPENAI_API_KEY` and `QWEN_API_KEY` that are already configured.
 
