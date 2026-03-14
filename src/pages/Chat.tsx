@@ -99,6 +99,7 @@ export default function Chat() {
   // Fetch roles used in messages for each conversation
   const conversationIds = useMemo(() => conversations.map(c => c.id), [conversations]);
   const { data: conversationRolesMap = new Map() } = useConversationRolesQuery(conversationIds);
+  const { data: roleProviderLabels } = useRoleProviderLabels();
 
   const selectedRole = useMemo(() => 
     roles.find((r) => r.id === selectedRoleId),
