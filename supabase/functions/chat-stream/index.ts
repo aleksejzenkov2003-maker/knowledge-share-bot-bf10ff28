@@ -345,6 +345,10 @@ serve(async (req) => {
           return GEMINI_API_KEY || '';
         case 'gigachat':
           return GIGACHAT_API_KEY || '';
+        case 'openai':
+          return Deno.env.get('OPENAI_API_KEY') || '';
+        case 'qwen':
+          return Deno.env.get('QWEN_API_KEY') || '';
         default:
           return '';
       }
