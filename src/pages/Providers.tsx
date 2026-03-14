@@ -342,13 +342,15 @@ const Providers = () => {
                         newProvider.provider_type === 'anthropic' 
                           ? 'sk-ant-... (опционально)' 
                           : newProvider.provider_type === 'openai'
-                          ? 'sk-...'
+                          ? 'sk-... (опционально)'
                           : newProvider.provider_type === 'perplexity'
                           ? 'pplx-... (опционально)'
                           : newProvider.provider_type === 'gemini'
                           ? 'AIza... (опционально)'
                           : newProvider.provider_type === 'gigachat'
                           ? 'Base64 ключ авторизации (опционально)'
+                          : newProvider.provider_type === 'qwen'
+                          ? 'sk-... (опционально)'
                           : 'Введите API ключ'
                       }
                       value={newProvider.api_key}
