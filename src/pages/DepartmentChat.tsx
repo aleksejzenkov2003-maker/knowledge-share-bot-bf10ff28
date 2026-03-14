@@ -415,6 +415,7 @@ const DepartmentChat: React.FC = () => {
         replyTo={replyToMessage}
         onClearReply={() => setReplyToMessage(null)}
         placeholder="Напишите @агент и ваш вопрос..."
+        roleProviderLabels={roleProviderLabels}
       />
     </div>
   );

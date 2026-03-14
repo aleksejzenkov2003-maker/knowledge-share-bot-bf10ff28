@@ -380,7 +380,17 @@ export function ChatInputEnhanced({
                     </span>
                   </div>
                   <div className="flex-1 min-w-0">
-                    <div className="font-medium truncate">{agent.name}</div>
+                    <div className="flex items-center gap-1.5">
+                      <span className="font-medium truncate">{agent.name}</span>
+                      {roleProviderLabels?.get(agent.id) && (
+                        <Badge variant="outline" className="text-[10px] px-1.5 py-0 h-4 font-normal text-muted-foreground border-muted shrink-0">
+                          {roleProviderLabels.get(agent.id)!.providerName}
+                          {roleProviderLabels.get(agent.id)!.model && (
+                            <span className="ml-1 opacity-70">{roleProviderLabels.get(agent.id)!.model}</span>
+                          )}
+                        </Badge>
+                      )}
+                    </div>
                     <div className="text-xs text-muted-foreground">
                       {agent.mention_trigger || `@${agent.slug}`}
                     </div>
