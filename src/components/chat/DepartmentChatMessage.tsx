@@ -33,6 +33,8 @@ import { ReputationCarousel } from './ReputationCarousel';
 import { ReputationCompanyCard } from './ReputationCompanyCard';
 import { ReputationSearchResult } from '@/types/chat';
 
+import { RoleProviderInfo } from '@/hooks/useRoleProviderLabels';
+
 interface AgentInfo {
   id: string;
   name: string;
@@ -50,6 +52,7 @@ interface DepartmentChatMessageProps {
   onReply?: (message: MessageType) => void;
   replyToMessage?: MessageType | null;
   onSelectReputationCompany?: (result: ReputationSearchResult) => void;
+  roleProviderLabels?: Map<string, RoleProviderInfo>;
 }
 
 function DepartmentChatMessageComponent({
