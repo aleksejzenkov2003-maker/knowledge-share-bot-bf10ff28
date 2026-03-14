@@ -375,6 +375,7 @@ const DepartmentChat: React.FC = () => {
                   onReply={handleReply}
                   replyToMessage={replyTo}
                   onSelectReputationCompany={handleSelectReputationCompany}
+                  roleProviderLabels={roleProviderLabels}
                 />
               );
             })}

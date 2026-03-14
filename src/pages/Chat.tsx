@@ -245,6 +245,7 @@ export default function Chat() {
                 onSelectReputationCompany={handleSelectReputationCompany}
                 availableRoles={roles}
                 currentRoleId={selectedRoleId}
+                roleProviderLabels={roleProviderLabels}
               />
             ))}
             {isLoading && (
