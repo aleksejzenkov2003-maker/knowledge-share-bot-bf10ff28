@@ -77,6 +77,14 @@ function ChatMessageComponent({ message, onEditMessage, onRegenerateResponse, on
             <span className="text-sm font-medium text-foreground">
               {roleName}
             </span>
+            {providerInfo && (
+              <Badge variant="outline" className="text-[10px] px-1.5 py-0 h-4 font-normal text-muted-foreground border-muted">
+                {providerInfo.providerName}
+                {providerInfo.model && (
+                  <span className="ml-1 opacity-70">{providerInfo.model}</span>
+                )}
+              </Badge>
+            )}
           </div>
           
           {/* Content */}

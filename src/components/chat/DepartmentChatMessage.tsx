@@ -175,6 +175,14 @@ function DepartmentChatMessageComponent({
             <span className="text-sm font-medium text-foreground">
               {agentName}
             </span>
+            {message.role_id && roleProviderLabels?.get(message.role_id) && (
+              <Badge variant="outline" className="text-[10px] px-1.5 py-0 h-4 font-normal text-muted-foreground border-muted">
+                {roleProviderLabels.get(message.role_id)!.providerName}
+                {roleProviderLabels.get(message.role_id)!.model && (
+                  <span className="ml-1 opacity-70">{roleProviderLabels.get(message.role_id)!.model}</span>
+                )}
+              </Badge>
+            )}
             <span className="text-xs text-muted-foreground">
               {new Date(message.created_at).toLocaleTimeString('ru-RU', {
                 hour: '2-digit',
