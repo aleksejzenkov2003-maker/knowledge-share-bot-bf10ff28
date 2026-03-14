@@ -279,6 +279,7 @@ export default function Chat() {
         onRoleChange={handleRoleChange}
         placeholder="Спросите что-нибудь..."
         roleProviderLabels={roleProviderLabels}
+      />
     </div>
   );
 
