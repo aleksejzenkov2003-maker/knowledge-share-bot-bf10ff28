@@ -44,6 +44,7 @@ const DepartmentChat: React.FC = () => {
   const [piiPreviewText, setPiiPreviewText] = useState("");
   const [piiPreviewFileName, setPiiPreviewFileName] = useState("");
   const { extractText } = useAttachmentTextExtractor();
+  const { data: roleProviderLabels } = useRoleProviderLabels();
 
   // For admins, allow selecting any department; for users, use their assigned department
   const activeDepartmentId = isAdmin ? selectedDepartmentId : userDepartmentId;
