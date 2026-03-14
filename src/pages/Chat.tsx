@@ -26,6 +26,7 @@ import { PiiPreviewDialog } from "@/components/documents/PiiPreviewDialog";
 import { useConversationRolesQuery } from "@/hooks/queries/useChatQueries";
 import { useAttachmentTextExtractor } from "@/hooks/useAttachmentTextExtractor";
 import { Attachment, ReputationSearchResult } from "@/types/chat";
+import { useRoleProviderLabels } from "@/hooks/useRoleProviderLabels";
 import { toast } from "sonner";
 
 export default function Chat() {
@@ -98,6 +99,7 @@ export default function Chat() {
   // Fetch roles used in messages for each conversation
   const conversationIds = useMemo(() => conversations.map(c => c.id), [conversations]);
   const { data: conversationRolesMap = new Map() } = useConversationRolesQuery(conversationIds);
+  const { data: roleProviderLabels } = useRoleProviderLabels();
 
   const selectedRole = useMemo(() => 
     roles.find((r) => r.id === selectedRoleId),
@@ -243,6 +245,7 @@ export default function Chat() {
                 onSelectReputationCompany={handleSelectReputationCompany}
                 availableRoles={roles}
                 currentRoleId={selectedRoleId}
+                roleProviderLabels={roleProviderLabels}
               />
             ))}
             {isLoading && (

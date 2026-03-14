@@ -28,6 +28,7 @@ import { useAuth } from "@/contexts/AuthContext";
 import { toast } from "sonner";
 
 import { ChatRole } from "@/types/chat";
+import { RoleProviderInfo } from "@/hooks/useRoleProviderLabels";
 
 interface ChatMessageProps {
   message: Message;
@@ -38,11 +39,13 @@ interface ChatMessageProps {
   onSelectReputationCompany?: (result: import("@/types/chat").ReputationSearchResult) => void;
   availableRoles?: ChatRole[];
   currentRoleId?: string;
+  roleProviderLabels?: Map<string, RoleProviderInfo>;
 }
 
-function ChatMessageComponent({ message, onEditMessage, onRegenerateResponse, onRetryMessage, onSaveAsGolden, onSelectReputationCompany, availableRoles, currentRoleId }: ChatMessageProps) {
+function ChatMessageComponent({ message, onEditMessage, onRegenerateResponse, onRetryMessage, onSaveAsGolden, onSelectReputationCompany, availableRoles, currentRoleId, roleProviderLabels }: ChatMessageProps) {
   // Get the role name for the agent
   const roleName = availableRoles?.find(r => r.id === currentRoleId)?.name || 'Ассистент';
+  const providerInfo = currentRoleId ? roleProviderLabels?.get(currentRoleId) : undefined;
   const { role } = useAuth();
   const [showUnmaskDialog, setShowUnmaskDialog] = useState(false);
   const [unmaskedContent, setUnmaskedContent] = useState<string | null>(null);
@@ -74,6 +77,14 @@ function ChatMessageComponent({ message, onEditMessage, onRegenerateResponse, on
             <span className="text-sm font-medium text-foreground">
               {roleName}
             </span>
+            {providerInfo && (
+              <Badge variant="outline" className="text-[10px] px-1.5 py-0 h-4 font-normal text-muted-foreground border-muted">
+                {providerInfo.providerName}
+                {providerInfo.model && (
+                  <span className="ml-1 opacity-70">{providerInfo.model}</span>
+                )}
+              </Badge>
+            )}
           </div>
           
           {/* Content */}

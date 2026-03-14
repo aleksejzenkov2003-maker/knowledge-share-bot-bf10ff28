@@ -18,6 +18,7 @@ import { cn } from '@/lib/utils';
 import { DepartmentChatMessage as DepartmentChatMessageType } from '@/types/departmentChat';
 import { Attachment, ReputationSearchResult } from '@/types/chat';
 import { useAttachmentTextExtractor } from '@/hooks/useAttachmentTextExtractor';
+import { useRoleProviderLabels } from '@/hooks/useRoleProviderLabels';
 import { toast } from 'sonner';
 
 interface Department {
@@ -43,6 +44,7 @@ const DepartmentChat: React.FC = () => {
   const [piiPreviewText, setPiiPreviewText] = useState("");
   const [piiPreviewFileName, setPiiPreviewFileName] = useState("");
   const { extractText } = useAttachmentTextExtractor();
+  const { data: roleProviderLabels } = useRoleProviderLabels();
 
   // For admins, allow selecting any department; for users, use their assigned department
   const activeDepartmentId = isAdmin ? selectedDepartmentId : userDepartmentId;
@@ -373,6 +375,7 @@ const DepartmentChat: React.FC = () => {
                   onReply={handleReply}
                   replyToMessage={replyTo}
                   onSelectReputationCompany={handleSelectReputationCompany}
+                  roleProviderLabels={roleProviderLabels}
                 />
               );
             })}
