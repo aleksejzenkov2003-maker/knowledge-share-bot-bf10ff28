@@ -58,6 +58,8 @@ interface ChatInputEnhancedProps {
   onClearReply?: () => void;
   // @-mention support for department chats
   availableAgents?: AgentMention[];
+  // Provider labels for roles
+  roleProviderLabels?: Map<string, RoleProviderInfo>;
 }
 
 export function ChatInputEnhanced({ 
