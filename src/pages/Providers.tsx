@@ -81,6 +81,7 @@ const providerLabels: Record<string, string> = {
   anthropic: 'Anthropic',
   gemini: 'Google Gemini',
   gigachat: 'GigaChat (Сбер)',
+  qwen: 'Qwen (Alibaba)',
 };
 
 const Providers = () => {
