@@ -11,6 +11,7 @@ import { DepartmentChatMessage, AgentMention } from "@/types/departmentChat";
 import { Message } from "@/types/chat";
 import { toast } from "sonner";
 import { Badge } from "@/components/ui/badge";
+import { RoleProviderInfo } from "@/hooks/useRoleProviderLabels";
 import {
   DropdownMenu,
   DropdownMenuContent,
