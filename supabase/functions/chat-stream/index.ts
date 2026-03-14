@@ -1955,12 +1955,13 @@ ${goldenExamples.join('\n\n---\n\n')}
         });
         break;
 
-      case 'openai':
+      case 'openai': {
+        const openaiApiKey = providerConfig.api_key || Deno.env.get('OPENAI_API_KEY') || '';
         streamResponse = await fetch(`${providerConfig.base_url || 'https://api.openai.com/v1'}/chat/completions`, {
           method: 'POST',
           signal: apiAbortController.signal,
           headers: {
-            'Authorization': `Bearer ${providerConfig.api_key}`,
+            'Authorization': `Bearer ${openaiApiKey}`,
             'Content-Type': 'application/json',
           },
            body: JSON.stringify({
