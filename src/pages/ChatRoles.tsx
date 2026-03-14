@@ -129,6 +129,13 @@ const providerModels: Record<string, { value: string; label: string }[]> = {
     { value: 'GigaChat-Pro', label: 'GigaChat Pro' },
     { value: 'GigaChat-Plus', label: 'GigaChat Plus' },
   ],
+  qwen: [
+    { value: 'qwen-plus', label: 'Qwen Plus (сбалансированный)' },
+    { value: 'qwen-max', label: 'Qwen Max (мощный)' },
+    { value: 'qwen-turbo', label: 'Qwen Turbo (быстрый)' },
+    { value: 'qwen-long', label: 'Qwen Long (длинный контекст)' },
+    { value: 'qwq-plus', label: 'QwQ Plus (рассуждения)' },
+  ],
 };
 
 export default function ChatRoles() {
