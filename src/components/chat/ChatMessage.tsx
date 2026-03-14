@@ -42,9 +42,10 @@ interface ChatMessageProps {
   roleProviderLabels?: Map<string, RoleProviderInfo>;
 }
 
-function ChatMessageComponent({ message, onEditMessage, onRegenerateResponse, onRetryMessage, onSaveAsGolden, onSelectReputationCompany, availableRoles, currentRoleId }: ChatMessageProps) {
+function ChatMessageComponent({ message, onEditMessage, onRegenerateResponse, onRetryMessage, onSaveAsGolden, onSelectReputationCompany, availableRoles, currentRoleId, roleProviderLabels }: ChatMessageProps) {
   // Get the role name for the agent
   const roleName = availableRoles?.find(r => r.id === currentRoleId)?.name || 'Ассистент';
+  const providerInfo = currentRoleId ? roleProviderLabels?.get(currentRoleId) : undefined;
   const { role } = useAuth();
   const [showUnmaskDialog, setShowUnmaskDialog] = useState(false);
   const [unmaskedContent, setUnmaskedContent] = useState<string | null>(null);
