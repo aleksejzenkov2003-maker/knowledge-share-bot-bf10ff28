@@ -28,6 +28,7 @@ import { useAuth } from "@/contexts/AuthContext";
 import { toast } from "sonner";
 
 import { ChatRole } from "@/types/chat";
+import { RoleProviderInfo } from "@/hooks/useRoleProviderLabels";
 
 interface ChatMessageProps {
   message: Message;
@@ -38,6 +39,7 @@ interface ChatMessageProps {
   onSelectReputationCompany?: (result: import("@/types/chat").ReputationSearchResult) => void;
   availableRoles?: ChatRole[];
   currentRoleId?: string;
+  roleProviderLabels?: Map<string, RoleProviderInfo>;
 }
 
 function ChatMessageComponent({ message, onEditMessage, onRegenerateResponse, onRetryMessage, onSaveAsGolden, onSelectReputationCompany, availableRoles, currentRoleId }: ChatMessageProps) {
