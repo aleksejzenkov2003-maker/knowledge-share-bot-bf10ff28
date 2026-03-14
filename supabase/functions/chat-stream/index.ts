@@ -1955,12 +1955,13 @@ ${goldenExamples.join('\n\n---\n\n')}
         });
         break;
 
-      case 'openai':
+      case 'openai': {
+        const openaiApiKey = providerConfig.api_key || Deno.env.get('OPENAI_API_KEY') || '';
         streamResponse = await fetch(`${providerConfig.base_url || 'https://api.openai.com/v1'}/chat/completions`, {
           method: 'POST',
           signal: apiAbortController.signal,
           headers: {
-            'Authorization': `Bearer ${providerConfig.api_key}`,
+            'Authorization': `Bearer ${openaiApiKey}`,
             'Content-Type': 'application/json',
           },
            body: JSON.stringify({
@@ -1971,6 +1972,7 @@ ${goldenExamples.join('\n\n---\n\n')}
           }),
         });
         break;
+      }
 
       case 'gemini': {
         const geminiApiKey = providerConfig.api_key || GEMINI_API_KEY || '';
@@ -2037,6 +2039,25 @@ ${goldenExamples.join('\n\n---\n\n')}
           signal: apiAbortController.signal,
           headers: {
             'Authorization': `Bearer ${gigachatAccessToken}`,
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({
+            model: finalModel,
+            messages: [{ role: 'system', content: enhancedSystemPrompt }, ...simpleMessages],
+            stream: true,
+            max_tokens: 16384,
+          }),
+        });
+        break;
+      }
+
+      case 'qwen': {
+        const qwenApiKey = providerConfig.api_key || Deno.env.get('QWEN_API_KEY') || '';
+        streamResponse = await fetch('https://dashscope-intl.aliyuncs.com/compatible-mode/v1/chat/completions', {
+          method: 'POST',
+          signal: apiAbortController.signal,
+          headers: {
+            'Authorization': `Bearer ${qwenApiKey}`,
             'Content-Type': 'application/json',
           },
           body: JSON.stringify({

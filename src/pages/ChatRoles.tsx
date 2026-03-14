@@ -96,7 +96,8 @@ const providerModels: Record<string, { value: string; label: string }[]> = {
     { value: 'gpt-4-turbo', label: 'GPT-4 Turbo' },
     { value: 'o1', label: 'O1 (рассуждения)' },
     { value: 'o1-mini', label: 'O1 Mini' },
-    { value: 'o3-mini', label: 'O3 Mini (новый)' },
+    { value: 'o3-mini', label: 'O3 Mini' },
+    { value: 'o4-mini', label: 'O4 Mini (новый)' },
   ],
   anthropic: [
     { value: 'claude-opus-4-6', label: 'Claude Opus 4.6 (топ)' },
@@ -127,6 +128,13 @@ const providerModels: Record<string, { value: string; label: string }[]> = {
     { value: 'GigaChat-Max', label: 'GigaChat Max' },
     { value: 'GigaChat-Pro', label: 'GigaChat Pro' },
     { value: 'GigaChat-Plus', label: 'GigaChat Plus' },
+  ],
+  qwen: [
+    { value: 'qwen-plus', label: 'Qwen Plus (сбалансированный)' },
+    { value: 'qwen-max', label: 'Qwen Max (мощный)' },
+    { value: 'qwen-turbo', label: 'Qwen Turbo (быстрый)' },
+    { value: 'qwen-long', label: 'Qwen Long (длинный контекст)' },
+    { value: 'qwq-plus', label: 'QwQ Plus (рассуждения)' },
   ],
 };
 

@@ -38,7 +38,8 @@ const providerModels: Record<string, { value: string; label: string }[]> = {
     { value: 'gpt-4-turbo', label: 'GPT-4 Turbo' },
     { value: 'o1', label: 'O1 (рассуждения)' },
     { value: 'o1-mini', label: 'O1 Mini' },
-    { value: 'o3-mini', label: 'O3 Mini (новый)' },
+    { value: 'o3-mini', label: 'O3 Mini' },
+    { value: 'o4-mini', label: 'O4 Mini (новый)' },
   ],
   anthropic: [
     { value: 'claude-opus-4-6', label: 'Claude Opus 4.6 (топ)' },
@@ -62,10 +63,17 @@ const providerModels: Record<string, { value: string; label: string }[]> = {
     { value: 'GigaChat-Pro', label: 'GigaChat Pro (мощный)' },
     { value: 'GigaChat-Max', label: 'GigaChat Max (максимальный)' },
   ],
+  qwen: [
+    { value: 'qwen-plus', label: 'Qwen Plus (сбалансированный)' },
+    { value: 'qwen-max', label: 'Qwen Max (мощный)' },
+    { value: 'qwen-turbo', label: 'Qwen Turbo (быстрый)' },
+    { value: 'qwen-long', label: 'Qwen Long (длинный контекст)' },
+    { value: 'qwq-plus', label: 'QwQ Plus (рассуждения)' },
+  ],
 };
 
 // Проверка наличия API ключей из env (для подсказок в UI)
-const envConfiguredProviders = ['perplexity', 'anthropic', 'gemini', 'gigachat'];
+const envConfiguredProviders = ['perplexity', 'anthropic', 'gemini', 'gigachat', 'openai', 'qwen'];
 
 const providerLabels: Record<string, string> = {
   perplexity: 'Perplexity',
@@ -73,6 +81,7 @@ const providerLabels: Record<string, string> = {
   anthropic: 'Anthropic',
   gemini: 'Google Gemini',
   gigachat: 'GigaChat (Сбер)',
+  qwen: 'Qwen (Alibaba)',
 };
 
 const Providers = () => {
@@ -301,6 +310,7 @@ const Providers = () => {
                       <SelectItem value="openai">OpenAI</SelectItem>
                       <SelectItem value="gemini">Google Gemini</SelectItem>
                       <SelectItem value="gigachat">GigaChat (Сбер)</SelectItem>
+                      <SelectItem value="qwen">Qwen (Alibaba)</SelectItem>
                     </SelectContent>
                   </Select>
                 </div>
@@ -332,13 +342,15 @@ const Providers = () => {
                         newProvider.provider_type === 'anthropic' 
                           ? 'sk-ant-... (опционально)' 
                           : newProvider.provider_type === 'openai'
-                          ? 'sk-...'
+                          ? 'sk-... (опционально)'
                           : newProvider.provider_type === 'perplexity'
                           ? 'pplx-... (опционально)'
                           : newProvider.provider_type === 'gemini'
                           ? 'AIza... (опционально)'
                           : newProvider.provider_type === 'gigachat'
                           ? 'Base64 ключ авторизации (опционально)'
+                          : newProvider.provider_type === 'qwen'
+                          ? 'sk-... (опционально)'
                           : 'Введите API ключ'
                       }
                       value={newProvider.api_key}
