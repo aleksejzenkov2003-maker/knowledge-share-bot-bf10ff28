@@ -18,6 +18,7 @@ import { cn } from '@/lib/utils';
 import { DepartmentChatMessage as DepartmentChatMessageType } from '@/types/departmentChat';
 import { Attachment, ReputationSearchResult } from '@/types/chat';
 import { useAttachmentTextExtractor } from '@/hooks/useAttachmentTextExtractor';
+import { useRoleProviderLabels } from '@/hooks/useRoleProviderLabels';
 import { toast } from 'sonner';
 
 interface Department {
