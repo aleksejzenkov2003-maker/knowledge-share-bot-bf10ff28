@@ -73,7 +73,7 @@ const providerModels: Record<string, { value: string; label: string }[]> = {
 };
 
 // Проверка наличия API ключей из env (для подсказок в UI)
-const envConfiguredProviders = ['perplexity', 'anthropic', 'gemini', 'gigachat'];
+const envConfiguredProviders = ['perplexity', 'anthropic', 'gemini', 'gigachat', 'openai', 'qwen'];
 
 const providerLabels: Record<string, string> = {
   perplexity: 'Perplexity',
