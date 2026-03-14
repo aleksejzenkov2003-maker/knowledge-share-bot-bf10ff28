@@ -2049,6 +2049,25 @@ ${goldenExamples.join('\n\n---\n\n')}
         break;
       }
 
+      case 'qwen': {
+        const qwenApiKey = providerConfig.api_key || Deno.env.get('QWEN_API_KEY') || '';
+        streamResponse = await fetch('https://dashscope-intl.aliyuncs.com/compatible-mode/v1/chat/completions', {
+          method: 'POST',
+          signal: apiAbortController.signal,
+          headers: {
+            'Authorization': `Bearer ${qwenApiKey}`,
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({
+            model: finalModel,
+            messages: [{ role: 'system', content: enhancedSystemPrompt }, ...simpleMessages],
+            stream: true,
+            max_tokens: 16384,
+          }),
+        });
+        break;
+      }
+
       case 'perplexity':
       default: {
         // Models that don't support streaming or need special handling
