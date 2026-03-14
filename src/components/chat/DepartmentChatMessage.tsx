@@ -63,7 +63,8 @@ function DepartmentChatMessageComponent({
   onRetryMessage,
   onReply,
   replyToMessage,
-  onSelectReputationCompany
+  onSelectReputationCompany,
+  roleProviderLabels,
 }: DepartmentChatMessageProps) {
   const [copied, setCopied] = useState(false);
   
