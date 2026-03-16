@@ -74,6 +74,7 @@ function getMimeType(fileName: string): string {
 /**
  * Extract files from an archive (ZIP, RAR, 7z, TAR).
  * Returns only supported document files, skipping junk.
+ * Uses getFilesArray() for a flat list, then .extract() on each CompressedFile.
  */
 export async function extractArchive(
   file: File,
@@ -91,35 +92,53 @@ export async function extractArchive(
   
   onProgress?.({ stage: 'extracting', message: 'Извлечение файлов...' });
 
-  // Use extractFiles() callback API to avoid circular reference issues with getFilesObject()
-  const extractedEntries: Array<{ file: File; path: string }> = [];
-  await archive.extractFiles((entry: { file: File; path: string }) => {
-    extractedEntries.push(entry);
-  });
+  // getFilesArray() returns a flat array of { file: CompressedFile, path: string }
+  // CompressedFile has .extract() method that returns the actual File
+  const filesArray = await archive.getFilesArray();
+  
+  console.log(`Archive contains ${filesArray.length} entries:`, 
+    filesArray.map((e: any) => `${e.path}${e.file?.name || ''} (size: ${e.file?.size || 0})`));
 
   const extractedFiles: ExtractedFile[] = [];
 
-  for (const entry of extractedEntries) {
-    const { path, file: extractedFile } = entry;
+  for (const entry of filesArray) {
+    const entryPath = entry.path || '';
+    const compressedFile = entry.file;
+    
+    if (!compressedFile) continue;
+    
+    const fullPath = entryPath ? `${entryPath}${compressedFile.name}` : compressedFile.name;
 
-    if (isJunkFile(path)) continue;
+    // Skip junk
+    if (isJunkFile(fullPath)) continue;
 
-    const fileName = flattenFileName(path);
+    const fileName = flattenFileName(fullPath);
 
+    // Skip unsupported types
     if (!isSupportedDocument(fileName)) continue;
-    if (extractedFile.size === 0) continue;
 
-    const properFile = new File(
-      [extractedFile],
-      fileName,
-      { type: getMimeType(fileName) }
-    );
+    // Extract the actual file data
+    try {
+      const extractedFile = await compressedFile.extract();
+      
+      if (!extractedFile || extractedFile.size === 0) continue;
 
-    extractedFiles.push({
-      name: fileName,
-      file: properFile,
-      size: properFile.size,
-    });
+      const properFile = new File(
+        [extractedFile],
+        fileName,
+        { type: getMimeType(fileName) }
+      );
+
+      extractedFiles.push({
+        name: fileName,
+        file: properFile,
+        size: properFile.size,
+      });
+      
+      console.log(`Extracted: ${fileName} (${(properFile.size / 1024).toFixed(1)} KB)`);
+    } catch (err) {
+      console.warn(`Failed to extract ${fileName}:`, err);
+    }
   }
 
   onProgress?.({
