@@ -47,7 +47,6 @@ function isSupportedDocument(fileName: string): boolean {
 }
 
 function flattenFileName(path: string): string {
-  // Get just the filename from nested path
   const parts = path.split('/').filter(Boolean);
   return parts[parts.length - 1] || path;
 }
@@ -73,29 +72,6 @@ function getMimeType(fileName: string): string {
 }
 
 /**
- * Recursively collect all File objects from the libarchive.js getFilesObject() result.
- * The result is a nested object where keys are folder/file names and values are
- * either File objects or nested objects (directories).
- */
-function collectFiles(obj: any, prefix: string = ''): Array<{ path: string; file: File }> {
-  const results: Array<{ path: string; file: File }> = [];
-
-  for (const key of Object.keys(obj)) {
-    const val = obj[key];
-    const currentPath = prefix ? `${prefix}/${key}` : key;
-
-    if (val instanceof File) {
-      results.push({ path: currentPath, file: val });
-    } else if (val && typeof val === 'object' && !(val instanceof Blob)) {
-      // It's a directory object — recurse
-      results.push(...collectFiles(val, currentPath));
-    }
-  }
-
-  return results;
-}
-
-/**
  * Extract files from an archive (ZIP, RAR, 7z, TAR).
  * Returns only supported document files, skipping junk.
  */
@@ -105,10 +81,8 @@ export async function extractArchive(
 ): Promise<ExtractedFile[]> {
   onProgress?.({ stage: 'opening', message: 'Открытие архива...' });
 
-  // Dynamic import to avoid bundling issues
   const { Archive } = await import('libarchive.js');
   
-  // Init with worker URL pointing to our public copy
   Archive.init({
     workerUrl: '/libarchive/worker-bundle.js',
   });
@@ -117,29 +91,24 @@ export async function extractArchive(
   
   onProgress?.({ stage: 'extracting', message: 'Извлечение файлов...' });
 
-  // Extract all files as a nested object
-  const filesObj = await archive.getFilesObject();
-  
-  // Recursively collect all File objects
-  const allEntries = collectFiles(filesObj);
+  // Use extractFiles() callback API to avoid circular reference issues with getFilesObject()
+  const extractedEntries: Array<{ file: File; path: string }> = [];
+  await archive.extractFiles((entry: { file: File; path: string }) => {
+    extractedEntries.push(entry);
+  });
 
   const extractedFiles: ExtractedFile[] = [];
 
-  for (const entry of allEntries) {
+  for (const entry of extractedEntries) {
     const { path, file: extractedFile } = entry;
 
-    // Skip junk
     if (isJunkFile(path)) continue;
 
     const fileName = flattenFileName(path);
 
-    // Skip unsupported types
     if (!isSupportedDocument(fileName)) continue;
-
-    // Skip empty files
     if (extractedFile.size === 0) continue;
 
-    // Create a proper File with correct name and MIME type
     const properFile = new File(
       [extractedFile],
       fileName,
