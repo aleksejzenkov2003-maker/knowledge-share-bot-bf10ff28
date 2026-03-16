@@ -349,6 +349,8 @@ serve(async (req) => {
           return Deno.env.get('OPENAI_API_KEY') || '';
         case 'qwen':
           return Deno.env.get('QWEN_API_KEY') || '';
+        case 'kimi':
+          return Deno.env.get('KIMI_API_KEY') || '';
         default:
           return '';
       }
