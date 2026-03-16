@@ -52,7 +52,7 @@ import {
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
 import { toast } from "sonner";
-import { Plus, Upload, FileText, Trash2, Eye, Loader2, RefreshCw, ImageIcon, X, Split, AlertTriangle, LayoutList, LayoutGrid, Shield } from "lucide-react";
+import { Plus, Upload, FileText, Trash2, Eye, Loader2, RefreshCw, ImageIcon, X, Split, AlertTriangle, LayoutList, LayoutGrid, Shield, Archive } from "lucide-react";
 import { MoveDocumentDialog } from "@/components/documents/MoveDocumentDialog";
 import { splitPdf, getPdfPageCount, generatePartFileName, SplitProgress, estimatePdfParts } from "@/components/documents/pdfSplitter";
 import { splitExcel, needsExcelSplit, estimateExcelParts, generateExcelPartFileName, ExcelSplitProgress } from "@/components/documents/excelSplitter";
