@@ -209,6 +209,7 @@ const Users = () => {
                 <TableHead>Отдел</TableHead>
                 <TableHead>Статус</TableHead>
                 <TableHead>Дата регистрации</TableHead>
+                {isAdmin && <TableHead>Действия</TableHead>}
               </TableRow>
             </TableHeader>
             <TableBody>
