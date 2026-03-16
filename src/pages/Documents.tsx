@@ -245,10 +245,17 @@ export default function Documents() {
     const file = e.target.files?.[0];
     if (!file) return;
 
-    setFormData((prev) => ({
-      ...prev,
-      name: prev.name || file.name.replace(/\.[^/.]+$/, ""),
-    }));
+    if (isArchiveFile(file)) {
+      setFormData((prev) => ({
+        ...prev,
+        name: prev.name || `Архив: ${file.name.replace(/\.[^/.]+$/, "")}`,
+      }));
+    } else {
+      setFormData((prev) => ({
+        ...prev,
+        name: prev.name || file.name.replace(/\.[^/.]+$/, ""),
+      }));
+    }
   };
 
   // Extract text from file for PII preview
