@@ -55,7 +55,6 @@ const App = () => (
             <Route path="/bitrix-department" element={<BitrixDepartmentChat />} />
             
             <Route path="/login" element={<Login />} />
-            <Route path="/register" element={<Register />} />
             <Route path="/unauthorized" element={<Unauthorized />} />
             <Route path="/" element={
               <ProtectedRoute>
