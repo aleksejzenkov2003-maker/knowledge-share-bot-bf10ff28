@@ -353,13 +353,15 @@ const Providers = () => {
                           : newProvider.provider_type === 'perplexity'
                           ? 'pplx-... (опционально)'
                           : newProvider.provider_type === 'gemini'
-                          ? 'AIza... (опционально)'
-                          : newProvider.provider_type === 'gigachat'
-                          ? 'Base64 ключ авторизации (опционально)'
-                          : newProvider.provider_type === 'qwen'
-                          ? 'sk-... (опционально)'
-                          : 'Введите API ключ'
-                      }
+                           ? 'AIza... (опционально)'
+                           : newProvider.provider_type === 'gigachat'
+                           ? 'Base64 ключ авторизации (опционально)'
+                           : newProvider.provider_type === 'qwen'
+                           ? 'sk-... (опционально)'
+                           : newProvider.provider_type === 'kimi'
+                           ? 'sk-... (опционально)'
+                           : 'Введите API ключ'
+                       }
                       value={newProvider.api_key}
                       onChange={(e) => setNewProvider({ ...newProvider, api_key: e.target.value })}
                       className="pr-10"

@@ -2074,6 +2074,25 @@ ${goldenExamples.join('\n\n---\n\n')}
         break;
       }
 
+      case 'kimi': {
+        const kimiApiKey = providerConfig.api_key || Deno.env.get('KIMI_API_KEY') || '';
+        streamResponse = await fetch('https://api.moonshot.cn/v1/chat/completions', {
+          method: 'POST',
+          signal: apiAbortController.signal,
+          headers: {
+            'Authorization': `Bearer ${kimiApiKey}`,
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({
+            model: finalModel,
+            messages: [{ role: 'system', content: enhancedSystemPrompt }, ...simpleMessages],
+            stream: true,
+            max_tokens: 16384,
+          }),
+        });
+        break;
+      }
+
       case 'perplexity':
       default: {
         // Models that don't support streaming or need special handling

@@ -89,7 +89,7 @@ async function callAnthropic(
 
   // Map Anthropic models to their correct max_tokens limits
   function getAnthropicMaxTokens(m: string): number {
-    if (m.includes('claude-3-opus')) return 4096;
+    if (m.includes('claude-3-haiku-2024') || m.includes('claude-3-opus')) return 4096;
     if (m.includes('claude-3-5-sonnet') || m.includes('claude-3-5-haiku')) return 8192;
     return 16384;
   }
