@@ -56,6 +56,8 @@ const Users = () => {
   const [roles, setRoles] = useState<Record<string, string>>({});
   const [departments, setDepartments] = useState<Department[]>([]);
   const [isLoading, setIsLoading] = useState(true);
+  const [passwordDialog, setPasswordDialog] = useState<{ open: boolean; userId: string; userName: string }>({ open: false, userId: '', userName: '' });
+  const [deleteDialog, setDeleteDialog] = useState<{ open: boolean; userId: string; userName: string }>({ open: false, userId: '', userName: '' });
   const { isAdmin } = useAuth();
   const { toast } = useToast();
 
