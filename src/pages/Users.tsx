@@ -289,9 +289,28 @@ const Users = () => {
                   <TableCell className="text-sm text-muted-foreground">
                     {new Date(profile.created_at).toLocaleDateString('ru-RU')}
                   </TableCell>
-                </TableRow>
-              ))}
-            </TableBody>
+                  {isAdmin && (
+                    <TableCell>
+                      <div className="flex items-center gap-1">
+                        <Button
+                          variant="ghost"
+                          size="icon"
+                          title="Сменить пароль"
+                          onClick={() => setPasswordDialog({ open: true, userId: profile.id, userName: profile.full_name || profile.email || '' })}
+                        >
+                          <KeyRound className="h-4 w-4" />
+                        </Button>
+                        <Button
+                          variant="ghost"
+                          size="icon"
+                          title="Удалить"
+                          onClick={() => setDeleteDialog({ open: true, userId: profile.id, userName: profile.full_name || profile.email || '' })}
+                        >
+                          <Trash2 className="h-4 w-4 text-destructive" />
+                        </Button>
+                      </div>
+                    </TableCell>
+                  )}
           </Table>
         </CardContent>
       </Card>
