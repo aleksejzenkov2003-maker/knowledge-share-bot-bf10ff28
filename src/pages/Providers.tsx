@@ -33,10 +33,11 @@ const providerModels: Record<string, { value: string; label: string }[]> = {
     { value: 'sonar-deep-research', label: 'Sonar Deep Research (глубокий анализ)' },
   ],
   openai: [
-    { value: 'gpt-4o', label: 'GPT-4o' },
-    { value: 'gpt-4o-mini', label: 'GPT-4o Mini' },
-    { value: 'gpt-4-turbo', label: 'GPT-4 Turbo' },
-    { value: 'o1', label: 'O1 (рассуждения)' },
+    { value: 'gpt-5-mini', label: 'GPT-5 Mini' },
+    { value: 'gpt-5.4', label: 'GPT-5.4' },
+    { value: 'gpt-4.1', label: 'GPT-4.1' },
+    { value: 'gpt-4.1-mini', label: 'GPT-4.1 Mini' },
+    { value: 'gpt-4.1-nano', label: 'GPT-4.1 Nano' },
     { value: 'o1-mini', label: 'O1 Mini' },
     { value: 'o3-mini', label: 'O3 Mini' },
     { value: 'o4-mini', label: 'O4 Mini (новый)' },
@@ -45,17 +46,14 @@ const providerModels: Record<string, { value: string; label: string }[]> = {
     { value: 'claude-opus-4-6', label: 'Claude Opus 4.6 (топ)' },
     { value: 'claude-sonnet-4-6', label: 'Claude Sonnet 4.6 (новейший)' },
     { value: 'claude-haiku-4-5', label: 'Claude Haiku 4.5 (быстрый)' },
-    { value: 'claude-sonnet-4-5-20250929', label: 'Claude Sonnet 4.5' },
-    { value: 'claude-opus-4-5-20251101', label: 'Claude Opus 4.5' },
-    { value: 'claude-sonnet-4-20250514', label: 'Claude Sonnet 4' },
-    { value: 'claude-3-5-sonnet-20241022', label: 'Claude 3.5 Sonnet' },
     { value: 'claude-3-5-haiku-20241022', label: 'Claude 3.5 Haiku' },
+    { value: 'claude-3-haiku-20240307', label: 'Claude Haiku 3' },
   ],
   gemini: [
     { value: 'gemini-2.5-flash', label: 'Gemini 2.5 Flash (быстрый, дешёвый)' },
     { value: 'gemini-2.5-pro', label: 'Gemini 2.5 Pro (мощный)' },
     { value: 'gemini-2.5-flash-lite', label: 'Gemini 2.5 Flash Lite (самый дешёвый)' },
-    { value: 'gemini-2.0-flash', label: 'Gemini 2.0 Flash (предыдущее поколение)' },
+    { value: 'gemini-2.5-flash-thinking', label: 'Gemini 2.5 Flash Thinking (рассуждения)' },
   ],
   gigachat: [
     { value: 'GigaChat', label: 'GigaChat (стандартный)' },
@@ -69,11 +67,18 @@ const providerModels: Record<string, { value: string; label: string }[]> = {
     { value: 'qwen-turbo', label: 'Qwen Turbo (быстрый)' },
     { value: 'qwen-long', label: 'Qwen Long (длинный контекст)' },
     { value: 'qwq-plus', label: 'QwQ Plus (рассуждения)' },
+    { value: 'qwen3.5-plus', label: 'Qwen3.5 Plus (новый)' },
+  ],
+  kimi: [
+    { value: 'kimi-k2.5', label: 'Kimi K2.5' },
+    { value: 'kimi-k2.5-agent', label: 'Kimi K2.5 (нативный agentic)' },
+    { value: 'kimi-k2.5-vision', label: 'Kimi K2.5 (vision-native)' },
+    { value: 'kimi-k2-thinking', label: 'Kimi K2 Thinking' },
   ],
 };
 
 // Проверка наличия API ключей из env (для подсказок в UI)
-const envConfiguredProviders = ['perplexity', 'anthropic', 'gemini', 'gigachat', 'openai', 'qwen'];
+const envConfiguredProviders = ['perplexity', 'anthropic', 'gemini', 'gigachat', 'openai', 'qwen', 'kimi'];
 
 const providerLabels: Record<string, string> = {
   perplexity: 'Perplexity',
@@ -82,6 +87,7 @@ const providerLabels: Record<string, string> = {
   gemini: 'Google Gemini',
   gigachat: 'GigaChat (Сбер)',
   qwen: 'Qwen (Alibaba)',
+  kimi: 'Kimi (Moonshot)',
 };
 
 const Providers = () => {
@@ -311,6 +317,7 @@ const Providers = () => {
                       <SelectItem value="gemini">Google Gemini</SelectItem>
                       <SelectItem value="gigachat">GigaChat (Сбер)</SelectItem>
                       <SelectItem value="qwen">Qwen (Alibaba)</SelectItem>
+                      <SelectItem value="kimi">Kimi (Moonshot)</SelectItem>
                     </SelectContent>
                   </Select>
                 </div>
@@ -346,13 +353,15 @@ const Providers = () => {
                           : newProvider.provider_type === 'perplexity'
                           ? 'pplx-... (опционально)'
                           : newProvider.provider_type === 'gemini'
-                          ? 'AIza... (опционально)'
-                          : newProvider.provider_type === 'gigachat'
-                          ? 'Base64 ключ авторизации (опционально)'
-                          : newProvider.provider_type === 'qwen'
-                          ? 'sk-... (опционально)'
-                          : 'Введите API ключ'
-                      }
+                           ? 'AIza... (опционально)'
+                           : newProvider.provider_type === 'gigachat'
+                           ? 'Base64 ключ авторизации (опционально)'
+                           : newProvider.provider_type === 'qwen'
+                           ? 'sk-... (опционально)'
+                           : newProvider.provider_type === 'kimi'
+                           ? 'sk-... (опционально)'
+                           : 'Введите API ключ'
+                       }
                       value={newProvider.api_key}
                       onChange={(e) => setNewProvider({ ...newProvider, api_key: e.target.value })}
                       className="pr-10"

@@ -91,10 +91,11 @@ const providerModels: Record<string, { value: string; label: string }[]> = {
     { value: 'sonar-deep-research', label: 'Sonar Deep Research (глубокий анализ)' },
   ],
   openai: [
-    { value: 'gpt-4o', label: 'GPT-4o' },
-    { value: 'gpt-4o-mini', label: 'GPT-4o Mini' },
-    { value: 'gpt-4-turbo', label: 'GPT-4 Turbo' },
-    { value: 'o1', label: 'O1 (рассуждения)' },
+    { value: 'gpt-5-mini', label: 'GPT-5 Mini' },
+    { value: 'gpt-5.4', label: 'GPT-5.4' },
+    { value: 'gpt-4.1', label: 'GPT-4.1' },
+    { value: 'gpt-4.1-mini', label: 'GPT-4.1 Mini' },
+    { value: 'gpt-4.1-nano', label: 'GPT-4.1 Nano' },
     { value: 'o1-mini', label: 'O1 Mini' },
     { value: 'o3-mini', label: 'O3 Mini' },
     { value: 'o4-mini', label: 'O4 Mini (новый)' },
@@ -103,11 +104,8 @@ const providerModels: Record<string, { value: string; label: string }[]> = {
     { value: 'claude-opus-4-6', label: 'Claude Opus 4.6 (топ)' },
     { value: 'claude-sonnet-4-6', label: 'Claude Sonnet 4.6 (новейший)' },
     { value: 'claude-haiku-4-5', label: 'Claude Haiku 4.5 (быстрый)' },
-    { value: 'claude-sonnet-4-5-20250929', label: 'Claude Sonnet 4.5' },
-    { value: 'claude-opus-4-5-20251101', label: 'Claude Opus 4.5' },
-    { value: 'claude-sonnet-4-20250514', label: 'Claude Sonnet 4' },
-    { value: 'claude-3-5-sonnet-20241022', label: 'Claude 3.5 Sonnet' },
     { value: 'claude-3-5-haiku-20241022', label: 'Claude 3.5 Haiku' },
+    { value: 'claude-3-haiku-20240307', label: 'Claude Haiku 3' },
   ],
   lovable: [
     { value: 'google/gemini-2.5-flash', label: 'Gemini 2.5 Flash' },
@@ -123,6 +121,7 @@ const providerModels: Record<string, { value: string; label: string }[]> = {
     { value: 'gemini-2.5-flash', label: 'Gemini 2.5 Flash' },
     { value: 'gemini-2.5-flash-lite', label: 'Gemini 2.5 Flash Lite' },
     { value: 'gemini-2.5-pro', label: 'Gemini 2.5 Pro' },
+    { value: 'gemini-2.5-flash-thinking', label: 'Gemini 2.5 Flash Thinking' },
   ],
   gigachat: [
     { value: 'GigaChat-Max', label: 'GigaChat Max' },
@@ -135,6 +134,13 @@ const providerModels: Record<string, { value: string; label: string }[]> = {
     { value: 'qwen-turbo', label: 'Qwen Turbo (быстрый)' },
     { value: 'qwen-long', label: 'Qwen Long (длинный контекст)' },
     { value: 'qwq-plus', label: 'QwQ Plus (рассуждения)' },
+    { value: 'qwen3.5-plus', label: 'Qwen3.5 Plus (новый)' },
+  ],
+  kimi: [
+    { value: 'kimi-k2.5', label: 'Kimi K2.5' },
+    { value: 'kimi-k2.5-agent', label: 'Kimi K2.5 (нативный agentic)' },
+    { value: 'kimi-k2.5-vision', label: 'Kimi K2.5 (vision-native)' },
+    { value: 'kimi-k2-thinking', label: 'Kimi K2 Thinking' },
   ],
 };
 
