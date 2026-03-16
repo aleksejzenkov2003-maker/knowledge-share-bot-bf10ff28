@@ -1355,7 +1355,7 @@ export default function Documents() {
                   id="file"
                   type="file"
                   ref={fileInputRef}
-                  accept=".pdf,.doc,.docx,.txt,.md,.csv,.xls,.xlsx"
+                  accept=".pdf,.doc,.docx,.txt,.md,.csv,.xls,.xlsx,.zip,.rar,.7z,.tar,.tar.gz,.tgz"
                   onChange={handleFileSelect}
                   required
                 />
