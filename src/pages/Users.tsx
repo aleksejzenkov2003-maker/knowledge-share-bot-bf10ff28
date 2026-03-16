@@ -311,9 +311,26 @@ const Users = () => {
                       </div>
                     </TableCell>
                   )}
+                </TableRow>
+              ))}
+            </TableBody>
           </Table>
         </CardContent>
       </Card>
+
+      <ChangePasswordDialog
+        userId={passwordDialog.userId}
+        userName={passwordDialog.userName}
+        open={passwordDialog.open}
+        onOpenChange={(open) => setPasswordDialog(prev => ({ ...prev, open }))}
+      />
+      <DeleteUserDialog
+        userId={deleteDialog.userId}
+        userName={deleteDialog.userName}
+        open={deleteDialog.open}
+        onOpenChange={(open) => setDeleteDialog(prev => ({ ...prev, open }))}
+        onDeleted={fetchData}
+      />
     </div>
   );
 };
