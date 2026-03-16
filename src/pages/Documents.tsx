@@ -56,6 +56,7 @@ import { Plus, Upload, FileText, Trash2, Eye, Loader2, RefreshCw, ImageIcon, X, 
 import { MoveDocumentDialog } from "@/components/documents/MoveDocumentDialog";
 import { splitPdf, getPdfPageCount, generatePartFileName, SplitProgress, estimatePdfParts } from "@/components/documents/pdfSplitter";
 import { splitExcel, needsExcelSplit, estimateExcelParts, generateExcelPartFileName, ExcelSplitProgress } from "@/components/documents/excelSplitter";
+import { isArchiveFile, extractArchive } from "@/components/documents/archiveExtractor";
 import { DocumentTree, Document as TreeDocument, DocumentFolder as TreeFolder, MissingPartsInfo, DocumentGroup } from "@/components/documents/DocumentTree";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { PiiPreviewDialog } from "@/components/documents/PiiPreviewDialog";
