@@ -7,7 +7,10 @@ import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { useToast } from '@/hooks/use-toast';
-import { Loader2, UserCog } from 'lucide-react';
+import { Loader2, UserCog, KeyRound, Trash2 } from 'lucide-react';
+import { CreateUserDialog } from '@/components/users/CreateUserDialog';
+import { ChangePasswordDialog } from '@/components/users/ChangePasswordDialog';
+import { DeleteUserDialog } from '@/components/users/DeleteUserDialog';
 
 interface Profile {
   id: string;
