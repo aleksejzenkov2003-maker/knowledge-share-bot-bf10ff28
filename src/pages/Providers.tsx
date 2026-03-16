@@ -78,7 +78,7 @@ const providerModels: Record<string, { value: string; label: string }[]> = {
 };
 
 // Проверка наличия API ключей из env (для подсказок в UI)
-const envConfiguredProviders = ['perplexity', 'anthropic', 'gemini', 'gigachat', 'openai', 'qwen'];
+const envConfiguredProviders = ['perplexity', 'anthropic', 'gemini', 'gigachat', 'openai', 'qwen', 'kimi'];
 
 const providerLabels: Record<string, string> = {
   perplexity: 'Perplexity',
@@ -87,6 +87,7 @@ const providerLabels: Record<string, string> = {
   gemini: 'Google Gemini',
   gigachat: 'GigaChat (Сбер)',
   qwen: 'Qwen (Alibaba)',
+  kimi: 'Kimi (Moonshot)',
 };
 
 const Providers = () => {
