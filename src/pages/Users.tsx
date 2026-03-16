@@ -180,11 +180,14 @@ const Users = () => {
 
   return (
     <div className="space-y-6">
-      <div>
-        <h1 className="text-3xl font-bold tracking-tight">Пользователи</h1>
-        <p className="text-muted-foreground">
-          Управление пользователями системы
-        </p>
+      <div className="flex items-center justify-between">
+        <div>
+          <h1 className="text-3xl font-bold tracking-tight">Пользователи</h1>
+          <p className="text-muted-foreground">
+            Управление пользователями системы
+          </p>
+        </div>
+        {isAdmin && <CreateUserDialog departments={departments} onCreated={fetchData} />}
       </div>
 
       <Card>
