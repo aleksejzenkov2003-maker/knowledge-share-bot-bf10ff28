@@ -81,12 +81,6 @@ const Login = () => {
               {isLoading && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
               Войти
             </Button>
-            <p className="text-center text-sm text-muted-foreground">
-              Нет аккаунта?{' '}
-              <Link to="/register" className="text-primary hover:underline">
-                Регистрация
-              </Link>
-            </p>
           </CardFooter>
         </form>
       </Card>

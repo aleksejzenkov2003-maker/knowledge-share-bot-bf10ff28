@@ -1,40 +1,22 @@
 
 
-# Admin-Only User Management
+## План: Обновить цвета
 
-## Problem
-Currently there's a public `/register` route allowing anyone to sign up. Need to lock down registration so only admins can create users, change passwords, and assign roles.
+Пользователь хочет:
+- Фон страницы: `#F2F1EC` 
+- Поле ввода (белый): `#F9F8F4`
+- Цвет текста: `#2A2722`
 
-## Plan
+### HSL-конвертация
+- `#F2F1EC` → `50 15% 94%`
+- `#F9F8F4` → `48 28% 97%`
+- `#2A2722` → `37 10% 15%`
 
-### 1. Remove public registration
-- Remove `/register` route from `App.tsx`
-- Remove the "Регистрация" link from `Login.tsx`
-- Keep `Register.tsx` file but it will be unreachable (or delete it)
+### Файлы
 
-### 2. Create edge function `admin-manage-users`
-A single edge function that handles admin operations using the Supabase Admin API (service role key):
+**`src/index.css`** — обновить переменные:
+- `--background` / `--chat-background`: `50 15% 94%` (#F2F1EC)
+- `--foreground` / `--card-foreground` / `--popover-foreground`: `37 10% 15%` (#2A2722)
 
-- **POST /create** -- `supabase.auth.admin.createUser({ email, password, email_confirm: true, user_metadata: { full_name } })` -- creates user with confirmed email, then profile + role are auto-created by the existing `handle_new_user` trigger
-- **POST /change-password** -- `supabase.auth.admin.updateUserById(userId, { password })` -- admin resets password for any user
-- **POST /delete** -- `supabase.auth.admin.deleteUser(userId)` -- deletes user (cascade cleans profile + role)
-
-All endpoints verify the caller is an admin via their JWT + `user_roles` table check.
-
-### 3. Update Users.tsx page
-Add UI elements to the existing Users page:
-
-- **"Создать пользователя" button** -- opens a dialog with fields: full name, email, password, role, department. Calls the edge function to create the user.
-- **"Сменить пароль" button** per user row -- opens a dialog to enter new password. Calls the edge function.
-- **"Удалить" button** per user row -- confirmation dialog, then calls edge function to delete.
-
-### 4. Disable auto-confirm workaround
-Since admin creates users via `auth.admin.createUser` with `email_confirm: true`, users are immediately active without needing email verification. This is correct for admin-managed flow.
-
-### Files to create/modify
-- **New**: `supabase/functions/admin-manage-users/index.ts`
-- **Edit**: `supabase/config.toml` -- add `[functions.admin-manage-users]` with `verify_jwt = false`
-- **Edit**: `src/App.tsx` -- remove `/register` route
-- **Edit**: `src/pages/Login.tsx` -- remove registration link
-- **Edit**: `src/pages/Users.tsx` -- add create user dialog, change password dialog, delete user button
+**`src/components/chat/ChatInputEnhanced.tsx`** — заменить `bg-white` на `bg-[#F9F8F4]` для поля ввода
 

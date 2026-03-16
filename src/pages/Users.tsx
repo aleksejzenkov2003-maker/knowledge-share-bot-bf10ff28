@@ -7,7 +7,10 @@ import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { useToast } from '@/hooks/use-toast';
-import { Loader2, UserCog } from 'lucide-react';
+import { Loader2, UserCog, KeyRound, Trash2 } from 'lucide-react';
+import { CreateUserDialog } from '@/components/users/CreateUserDialog';
+import { ChangePasswordDialog } from '@/components/users/ChangePasswordDialog';
+import { DeleteUserDialog } from '@/components/users/DeleteUserDialog';
 
 interface Profile {
   id: string;
@@ -53,6 +56,8 @@ const Users = () => {
   const [roles, setRoles] = useState<Record<string, string>>({});
   const [departments, setDepartments] = useState<Department[]>([]);
   const [isLoading, setIsLoading] = useState(true);
+  const [passwordDialog, setPasswordDialog] = useState<{ open: boolean; userId: string; userName: string }>({ open: false, userId: '', userName: '' });
+  const [deleteDialog, setDeleteDialog] = useState<{ open: boolean; userId: string; userName: string }>({ open: false, userId: '', userName: '' });
   const { isAdmin } = useAuth();
   const { toast } = useToast();
 
@@ -175,11 +180,14 @@ const Users = () => {
 
   return (
     <div className="space-y-6">
-      <div>
-        <h1 className="text-3xl font-bold tracking-tight">Пользователи</h1>
-        <p className="text-muted-foreground">
-          Управление пользователями системы
-        </p>
+      <div className="flex items-center justify-between">
+        <div>
+          <h1 className="text-3xl font-bold tracking-tight">Пользователи</h1>
+          <p className="text-muted-foreground">
+            Управление пользователями системы
+          </p>
+        </div>
+        {isAdmin && <CreateUserDialog departments={departments} onCreated={fetchData} />}
       </div>
 
       <Card>
@@ -201,6 +209,7 @@ const Users = () => {
                 <TableHead>Отдел</TableHead>
                 <TableHead>Статус</TableHead>
                 <TableHead>Дата регистрации</TableHead>
+                {isAdmin && <TableHead>Действия</TableHead>}
               </TableRow>
             </TableHeader>
             <TableBody>
@@ -280,12 +289,48 @@ const Users = () => {
                   <TableCell className="text-sm text-muted-foreground">
                     {new Date(profile.created_at).toLocaleDateString('ru-RU')}
                   </TableCell>
+                  {isAdmin && (
+                    <TableCell>
+                      <div className="flex items-center gap-1">
+                        <Button
+                          variant="ghost"
+                          size="icon"
+                          title="Сменить пароль"
+                          onClick={() => setPasswordDialog({ open: true, userId: profile.id, userName: profile.full_name || profile.email || '' })}
+                        >
+                          <KeyRound className="h-4 w-4" />
+                        </Button>
+                        <Button
+                          variant="ghost"
+                          size="icon"
+                          title="Удалить"
+                          onClick={() => setDeleteDialog({ open: true, userId: profile.id, userName: profile.full_name || profile.email || '' })}
+                        >
+                          <Trash2 className="h-4 w-4 text-destructive" />
+                        </Button>
+                      </div>
+                    </TableCell>
+                  )}
                 </TableRow>
               ))}
             </TableBody>
           </Table>
         </CardContent>
       </Card>
+
+      <ChangePasswordDialog
+        userId={passwordDialog.userId}
+        userName={passwordDialog.userName}
+        open={passwordDialog.open}
+        onOpenChange={(open) => setPasswordDialog(prev => ({ ...prev, open }))}
+      />
+      <DeleteUserDialog
+        userId={deleteDialog.userId}
+        userName={deleteDialog.userName}
+        open={deleteDialog.open}
+        onOpenChange={(open) => setDeleteDialog(prev => ({ ...prev, open }))}
+        onDeleted={fetchData}
+      />
     </div>
   );
 };
