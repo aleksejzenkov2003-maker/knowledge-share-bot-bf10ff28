@@ -506,6 +506,12 @@ export default function Documents() {
       return;
     }
 
+    // Handle archive files
+    if (isArchiveFile(file)) {
+      await performArchiveUpload(file);
+      return;
+    }
+
     // Check maximum file size
     if (file.size > MAX_FILE_SIZE) {
       toast.error(`Файл слишком большой. Максимальный размер: ${MAX_FILE_SIZE_MB} MB. Ваш файл: ${(file.size / (1024 * 1024)).toFixed(1)} MB`);
@@ -532,6 +538,175 @@ export default function Documents() {
 
     // Regular upload for small files
     await performUpload(file, false);
+  };
+
+  const performArchiveUpload = async (archiveFile: File) => {
+    setUploading(true);
+
+    try {
+      // Extract files from archive
+      setUploadProgress({ stage: 'analyzing', message: 'Распаковка архива...', percent: 5 });
+
+      const extractedFiles = await extractArchive(archiveFile, (progress) => {
+        setUploadProgress({
+          stage: 'analyzing',
+          message: progress.message,
+          percent: progress.stage === 'complete' ? 15 : 10,
+        });
+      });
+
+      if (extractedFiles.length === 0) {
+        toast.error("Архив не содержит поддерживаемых документов (pdf, docx, txt, csv, xlsx и др.)");
+        return;
+      }
+
+      toast.info(`Найдено ${extractedFiles.length} документов в архиве. Начинаем загрузку...`);
+
+      let successCount = 0;
+      let errorCount = 0;
+
+      for (let i = 0; i < extractedFiles.length; i++) {
+        const extracted = extractedFiles[i];
+        const fileIndex = i + 1;
+
+        setUploadProgress({
+          stage: 'uploading',
+          currentPart: fileIndex,
+          totalParts: extractedFiles.length,
+          message: `Загрузка ${fileIndex}/${extractedFiles.length}: ${extracted.name}`,
+          percent: 15 + (fileIndex / extractedFiles.length) * 40,
+        });
+
+        try {
+          const currentFile = extracted.file;
+
+          // Check file size limit
+          if (currentFile.size > MAX_FILE_SIZE) {
+            console.warn(`Skipping ${extracted.name}: too large (${(currentFile.size / 1024 / 1024).toFixed(1)} MB)`);
+            errorCount++;
+            continue;
+          }
+
+          // Check if PDF needs splitting
+          if (currentFile.size > SPLIT_THRESHOLD && currentFile.type === 'application/pdf') {
+            const parts = await splitPdf(currentFile, PAGES_PER_PART);
+            const partEntries = parts.map(p => ({
+              blob: p.blob,
+              fileName: generatePartFileName(currentFile.name, p.partNumber, p.totalParts),
+              docName: `${extracted.name.replace(/\.[^/.]+$/, '')} (часть ${p.partNumber}/${p.totalParts}, стр. ${p.pageStart}-${p.pageEnd})`,
+              partNumber: p.partNumber,
+              totalParts: p.totalParts,
+            }));
+
+            // Upload and process split parts
+            const docIds: string[] = [];
+            let parentDocId: string | undefined;
+
+            for (let j = 0; j < partEntries.length; j++) {
+              const part = partEntries[j];
+              const docId = await uploadSingleFile(
+                part.blob, part.fileName, part.docName,
+                j === 0 ? undefined : parentDocId,
+                part.partNumber, part.totalParts
+              );
+              if (docId) {
+                docIds.push(docId);
+                if (j === 0) parentDocId = docId;
+              }
+            }
+
+            for (const docId of docIds) {
+              await processDocument(docId);
+            }
+            successCount++;
+            continue;
+          }
+
+          // Check if Excel needs splitting
+          if (needsExcelSplit(currentFile)) {
+            const parts = await splitExcel(currentFile);
+            const partEntries = parts.map(p => ({
+              blob: p.blob,
+              fileName: generateExcelPartFileName(currentFile.name, p.partNumber, p.totalParts),
+              docName: `${extracted.name.replace(/\.[^/.]+$/, '')} (часть ${p.partNumber}/${p.totalParts}, строки ${p.rowStart}-${p.rowEnd})`,
+              partNumber: p.partNumber,
+              totalParts: p.totalParts,
+              fileType: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+            }));
+
+            const docIds: string[] = [];
+            let parentDocId: string | undefined;
+
+            for (let j = 0; j < partEntries.length; j++) {
+              const part = partEntries[j];
+              const docId = await uploadSingleFile(
+                part.blob, part.fileName, part.docName,
+                j === 0 ? undefined : parentDocId,
+                part.partNumber, part.totalParts, part.fileType
+              );
+              if (docId) {
+                docIds.push(docId);
+                if (j === 0) parentDocId = docId;
+              }
+            }
+
+            for (const docId of docIds) {
+              await processDocument(docId);
+            }
+            successCount++;
+            continue;
+          }
+
+          // Regular file upload
+          const docName = extracted.name.replace(/\.[^/.]+$/, '');
+          const docId = await uploadSingleFile(currentFile, extracted.name, docName);
+          
+          if (docId) {
+            setUploadProgress({
+              stage: 'processing',
+              currentPart: fileIndex,
+              totalParts: extractedFiles.length,
+              message: `Обработка ${fileIndex}/${extractedFiles.length}: ${extracted.name}`,
+              percent: 55 + (fileIndex / extractedFiles.length) * 40,
+            });
+
+            const success = await processDocument(docId);
+            if (success) successCount++;
+            else errorCount++;
+          } else {
+            errorCount++;
+          }
+        } catch (err) {
+          console.error(`Error processing ${extracted.name}:`, err);
+          errorCount++;
+        }
+      }
+
+      setUploadProgress({ stage: 'complete', message: 'Готово!', percent: 100 });
+
+      if (errorCount === 0) {
+        toast.success(`Все ${successCount} документов из архива загружены и обработаны`);
+      } else {
+        toast.warning(`Загружено ${successCount} из ${extractedFiles.length} документов. Ошибок: ${errorCount}`);
+      }
+
+      // Reset form
+      setUploadDialogOpen(false);
+      setFormData({ name: "", folder_id: "", document_type: "auto", has_trademark: false, contains_pii: false });
+      setTrademarkFile(null);
+      setTrademarkPreview(null);
+      if (fileInputRef.current) fileInputRef.current.value = "";
+      if (trademarkInputRef.current) trademarkInputRef.current.value = "";
+      fetchData();
+    } catch (error: any) {
+      console.error("Error extracting archive:", error);
+      toast.error(error.message || "Ошибка распаковки архива");
+    } finally {
+      setUploading(false);
+      setTimeout(() => {
+        setUploadProgress({ stage: 'idle', message: '', percent: 0 });
+      }, 2000);
+    }
   };
 
   const performUpload = async (file: File, needsSplit: boolean) => {
