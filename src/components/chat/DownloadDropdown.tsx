@@ -299,7 +299,7 @@ export function DownloadDropdown({
     }
   };
 
-  const date = new Date().toISOString().slice(0, 10);
+  
 
   const handleDownloadPDF = async () => {
     setIsGenerating('pdf');
