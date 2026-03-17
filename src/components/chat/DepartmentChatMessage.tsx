@@ -567,6 +567,7 @@ export const DepartmentChatMessage = React.memo(DepartmentChatMessageComponent, 
     prevProps.replyToMessage?.id === nextProps.replyToMessage?.id &&
     prevProps.onSelectReputationCompany === nextProps.onSelectReputationCompany &&
     prev.metadata?.reputation_results?.length === next.metadata?.reputation_results?.length &&
-    prev.metadata?.reputation_company_data === next.metadata?.reputation_company_data
+    prev.metadata?.reputation_company_data === next.metadata?.reputation_company_data &&
+    prevProps.userQuestion === nextProps.userQuestion
   );
 });
