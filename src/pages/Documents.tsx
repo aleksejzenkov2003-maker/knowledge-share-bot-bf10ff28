@@ -1241,16 +1241,30 @@ export default function Documents() {
         }
       } else {
         // Copy
-        const docsToCopy = moveTargetGroup
-          ? moveTargetGroup.documents
-          : moveTargetDoc
-          ? [moveTargetDoc]
-          : [];
-
-        for (const srcDoc of docsToCopy) {
-          await copyDocumentToFolder(srcDoc, targetFolderId);
+        if (moveTargetGroup) {
+          // Copy entire group with new parent chain
+          const parentDoc = moveTargetGroup.parentDocument;
+          const childDocs = moveTargetGroup.documents;
+          
+          let newParentId: string | null = null;
+          
+          // Copy parent document first if it exists
+          if (parentDoc) {
+            newParentId = await copyDocumentToFolder(parentDoc, targetFolderId, null);
+          }
+          
+          // Copy child documents, pointing to new parent
+          for (const srcDoc of childDocs) {
+            // If this doc was pointing to old parent, point to new parent
+            const overrideParentId = srcDoc.parent_document_id ? newParentId : null;
+            await copyDocumentToFolder(srcDoc, targetFolderId, overrideParentId);
+          }
+          
+          toast.success(`Скопировано ${childDocs.length + (parentDoc ? 1 : 0)} документ(ов)`);
+        } else if (moveTargetDoc) {
+          await copyDocumentToFolder(moveTargetDoc, targetFolderId, null);
+          toast.success("Документ скопирован");
         }
-        toast.success(`Скопировано ${docsToCopy.length} документ(ов)`);
       }
 
       setMoveDialogOpen(false);
