@@ -40,6 +40,7 @@ interface ChatMessageProps {
   availableRoles?: ChatRole[];
   currentRoleId?: string;
   roleProviderLabels?: Map<string, RoleProviderInfo>;
+  userQuestion?: string;
 }
 
 function ChatMessageComponent({ message, onEditMessage, onRegenerateResponse, onRetryMessage, onSaveAsGolden, onSelectReputationCompany, availableRoles, currentRoleId, roleProviderLabels }: ChatMessageProps) {
