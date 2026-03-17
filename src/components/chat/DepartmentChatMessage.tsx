@@ -66,6 +66,7 @@ function DepartmentChatMessageComponent({
   replyToMessage,
   onSelectReputationCompany,
   roleProviderLabels,
+  userQuestion,
 }: DepartmentChatMessageProps) {
   const [copied, setCopied] = useState(false);
   
