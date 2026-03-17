@@ -1,31 +1,22 @@
 
 
-# Чёрный цвет заголовков в DOCX
+## План: Обновить цвета
 
-## Проблема
-При скачивании ответа в DOCX заголовки (H1, H2, H3) используют стандартные стили Word — синий цвет. Нужно сделать весь текст чёрным для удобной вставки в документы.
+Пользователь хочет:
+- Фон страницы: `#F2F1EC` 
+- Поле ввода (белый): `#F9F8F4`
+- Цвет текста: `#2A2722`
 
-## Решение
+### HSL-конвертация
+- `#F2F1EC` → `50 15% 94%`
+- `#F9F8F4` → `48 28% 97%`
+- `#2A2722` → `37 10% 15%`
 
-В `src/components/chat/DownloadDropdown.tsx` в `handleDownloadDOCX`:
+### Файлы
 
-1. **Добавить кастомные стили заголовков** в объект `Document` — переопределить встроенные стили `Heading1`, `Heading2`, `Heading3` с `color: "000000"`:
+**`src/index.css`** — обновить переменные:
+- `--background` / `--chat-background`: `50 15% 94%` (#F2F1EC)
+- `--foreground` / `--card-foreground` / `--popover-foreground`: `37 10% 15%` (#2A2722)
 
-```typescript
-const doc = new Document({
-  styles: {
-    paragraphStyles: [
-      { id: "Heading1", name: "Heading 1", run: { bold: true, size: 32, color: "000000", font: "Arial" } },
-      { id: "Heading2", name: "Heading 2", run: { bold: true, size: 28, color: "000000", font: "Arial" } },
-      { id: "Heading3", name: "Heading 3", run: { bold: true, size: 24, color: "000000", font: "Arial" } },
-    ]
-  },
-  sections: [{ children: docChildren }],
-});
-```
-
-2. **Заголовки в разделе "Источники"** — тоже используют `HeadingLevel`, поэтому стили применятся автоматически.
-
-### Файл для изменения
-- `src/components/chat/DownloadDropdown.tsx` — добавить `styles` в конструктор `Document` (~строка 240)
+**`src/components/chat/ChatInputEnhanced.tsx`** — заменить `bg-white` на `bg-[#F9F8F4]` для поля ввода
 
