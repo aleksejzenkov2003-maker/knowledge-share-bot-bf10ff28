@@ -894,9 +894,17 @@ export default function Documents() {
     if (!confirm(`Удалить документ "${doc.name}"?`)) return;
 
     try {
-      // Delete from storage if exists
+      // Safe delete: only remove from storage if no other docs reference the same path
       if (doc.storage_path) {
-        await supabase.storage.from("rag-documents").remove([doc.storage_path]);
+        const { data: others } = await supabase
+          .from("documents")
+          .select("id")
+          .eq("storage_path", doc.storage_path)
+          .neq("id", doc.id);
+        
+        if (!others || others.length === 0) {
+          await supabase.storage.from("rag-documents").remove([doc.storage_path]);
+        }
       }
 
       // Delete document record (cascades to chunks)
