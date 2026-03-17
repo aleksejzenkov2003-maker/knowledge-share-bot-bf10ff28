@@ -953,15 +953,26 @@ export default function Documents() {
         docIds.push(parentDoc.id);
       }
       
-      // Delete files from storage
+      // Safe delete from storage: only remove paths not shared with other documents
       if (storagePaths.length > 0) {
-        const { error: storageError } = await supabase.storage
-          .from("rag-documents")
-          .remove(storagePaths);
-        
-        if (storageError) {
-          console.error("Storage delete error:", storageError);
-          // Continue anyway - DB records are more important
+        const safeToDelete: string[] = [];
+        for (const sp of storagePaths) {
+          const { data: others } = await supabase
+            .from("documents")
+            .select("id")
+            .eq("storage_path", sp)
+            .not("id", "in", `(${docIds.join(",")})`);
+          if (!others || others.length === 0) {
+            safeToDelete.push(sp);
+          }
+        }
+        if (safeToDelete.length > 0) {
+          const { error: storageError } = await supabase.storage
+            .from("rag-documents")
+            .remove(safeToDelete);
+          if (storageError) {
+            console.error("Storage delete error:", storageError);
+          }
         }
       }
       
