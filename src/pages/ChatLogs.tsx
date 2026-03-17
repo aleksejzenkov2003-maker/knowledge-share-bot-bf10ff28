@@ -98,6 +98,13 @@ export default function ChatLogs() {
     setDepartments(data || []);
   };
 
+  const fetchChatRoles = async () => {
+    const { data } = await supabase.from("chat_roles").select("id, name");
+    const rolesMap = new Map<string, ChatRole>();
+    (data || []).forEach((r) => rolesMap.set(r.id, r));
+    setChatRoles(rolesMap);
+  };
+
   const fetchLogs = async () => {
     setLoading(true);
     try {
