@@ -369,7 +369,7 @@ export function DownloadDropdown({
         heightLeft -= pdfHeight - 20;
       }
       
-      pdf.save(`response-${date}.pdf`);
+      pdf.save(generateFileName(userQuestion, 'pdf'));
       
       toast({
         title: "Скачано",
