@@ -914,6 +914,7 @@ export default function Trademarks() {
                       >
                         {fipsLoading === tm.id ? <Loader2 className="h-4 w-4 animate-spin" /> : <Download className="h-4 w-4" />}
                       </Button>
+                      {isAdmin && (
                       <Button
                         variant="ghost"
                         size="icon"
@@ -922,6 +923,7 @@ export default function Trademarks() {
                       >
                         <Trash2 className="h-4 w-4" />
                       </Button>
+                      )}
                     </div>
                   </TableCell>
                 </TableRow>
