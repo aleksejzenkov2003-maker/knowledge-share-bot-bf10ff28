@@ -391,6 +391,8 @@ export default function ChatLogs() {
           </DialogHeader>
           {selectedLog && (() => {
             const selectedProfile = selectedLog.user_id ? profiles.get(selectedLog.user_id) : null;
+            const selectedRoleId = selectedLog.metadata?.role_id;
+            const selectedRoleName = selectedRoleId ? chatRoles.get(selectedRoleId)?.name : null;
             return (
             <div className="space-y-4">
               <div className="grid grid-cols-2 gap-4 text-sm">
@@ -401,6 +403,10 @@ export default function ChatLogs() {
                 <div>
                   <span className="font-medium">Пользователь:</span>{" "}
                   {selectedProfile?.full_name || selectedProfile?.email || "-"}
+                </div>
+                <div>
+                  <span className="font-medium">Роль (агент):</span>{" "}
+                  {selectedRoleName || "-"}
                 </div>
                 <div>
                   <span className="font-medium">Отдел:</span>{" "}
