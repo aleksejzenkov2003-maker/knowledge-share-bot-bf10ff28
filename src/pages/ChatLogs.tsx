@@ -52,6 +52,11 @@ interface ChatLog {
   provider?: { name: string } | null;
 }
 
+interface ChatRole {
+  id: string;
+  name: string;
+}
+
 interface Profile {
   id: string;
   full_name: string | null;
