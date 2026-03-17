@@ -309,6 +309,13 @@ export default function ChatLogs() {
                               <span className="text-muted-foreground">-</span>
                             )}
                           </TableCell>
+                          <TableCell>
+                            {roleName ? (
+                              <Badge variant="secondary">{roleName}</Badge>
+                            ) : (
+                              <span className="text-muted-foreground">-</span>
+                            )}
+                          </TableCell>
                         <TableCell>
                           {log.department ? (
                             <Badge variant="outline">{log.department.name}</Badge>
