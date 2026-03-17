@@ -334,6 +334,7 @@ export const BitrixChatMessage = React.memo(BitrixChatMessageComponent, (prevPro
     prevProps.availableRoles?.length === nextProps.availableRoles?.length &&
     prevProps.currentRoleId === nextProps.currentRoleId &&
     prevProps.bitrixApiBaseUrl === nextProps.bitrixApiBaseUrl &&
-    prevProps.bitrixToken === nextProps.bitrixToken
+    prevProps.bitrixToken === nextProps.bitrixToken &&
+    prevProps.userQuestion === nextProps.userQuestion
   );
 });
