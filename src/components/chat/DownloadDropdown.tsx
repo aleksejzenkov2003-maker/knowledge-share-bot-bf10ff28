@@ -16,11 +16,25 @@ import { saveAs } from "file-saver";
 import jsPDF from "jspdf";
 import html2canvas from "html2canvas";
 
+function generateFileName(userQuestion: string | undefined, extension: string): string {
+  if (!userQuestion || !userQuestion.trim()) {
+    return `response-${new Date().toISOString().slice(0, 10)}.${extension}`;
+  }
+  const cleaned = userQuestion
+    .replace(/[<>:"/\\|?*\x00-\x1F]/g, '')
+    .replace(/\s+/g, ' ')
+    .trim();
+  const words = cleaned.split(' ').slice(0, 6).join(' ');
+  const truncated = words.length > 50 ? words.slice(0, 50).trim() : words;
+  return `${truncated || 'response'}.${extension}`;
+}
+
 interface DownloadDropdownProps {
   content: string;
   ragContext?: string[];
   citations?: Citation[];
   webSearchCitations?: string[];
+  userQuestion?: string;
 }
 
 export function DownloadDropdown({
@@ -28,6 +42,7 @@ export function DownloadDropdown({
   ragContext,
   citations,
   webSearchCitations,
+  userQuestion,
 }: DownloadDropdownProps) {
   const [isGenerating, setIsGenerating] = useState<string | null>(null);
 
