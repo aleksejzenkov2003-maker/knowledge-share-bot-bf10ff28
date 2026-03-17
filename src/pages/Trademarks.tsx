@@ -226,6 +226,7 @@ const DATE_FIELDS = new Set(['registration_date', 'well_known_trademark_date']);
 export default function Trademarks() {
   const { toast } = useToast();
   const queryClient = useQueryClient();
+  const { isAdmin, user } = useAuth();
   const [search, setSearch] = useState('');
   const [debouncedSearch, setDebouncedSearch] = useState('');
   const [statusFilter, setStatusFilter] = useState<string>('all');
@@ -253,6 +254,78 @@ export default function Trademarks() {
   const [fipsLoading, setFipsLoading] = useState<string | null>(null);
   const [fipsPreviewOpen, setFipsPreviewOpen] = useState(false);
   const [fipsTargetId, setFipsTargetId] = useState<string | null>(null);
+  const [historyOpen, setHistoryOpen] = useState(true);
+
+  // Search history query
+  const { data: searchHistory } = useQuery({
+    queryKey: ['trademark-searches', user?.id],
+    queryFn: async () => {
+      if (!user?.id) return [];
+      const { data, error } = await supabase
+        .from('trademark_searches')
+        .select('*')
+        .eq('user_id', user.id)
+        .order('created_at', { ascending: false })
+        .limit(30);
+      if (error) throw error;
+      return data;
+    },
+    enabled: !!user?.id,
+  });
+
+  const saveSearchMutation = useMutation({
+    mutationFn: async (params: { query: string; search_type: string; search_params: Record<string, any>; results_count: number }) => {
+      if (!user?.id) return;
+      const { error } = await supabase.from('trademark_searches').insert({
+        user_id: user.id,
+        query: params.query,
+        search_type: params.search_type,
+        search_params: params.search_params,
+        results_count: params.results_count,
+      });
+      if (error) throw error;
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['trademark-searches'] });
+    },
+  });
+
+  const deleteSearchMutation = useMutation({
+    mutationFn: async (id: string) => {
+      const { error } = await supabase.from('trademark_searches').delete().eq('id', id);
+      if (error) throw error;
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['trademark-searches'] });
+    },
+  });
+
+  const applySearchFromHistory = (item: any) => {
+    const params = item.search_params || {};
+    if (item.search_type === 'quick') {
+      setSearch(item.query || '');
+      setAdvancedOpen(false);
+      handleAdvancedReset();
+    } else {
+      setSearch('');
+      setAdvSearchRegNum(params.regNum || '');
+      setAdvSearchName(params.name || '');
+      setAdvSearchForeignName(params.foreignName || '');
+      setAdvSearchAddress(params.address || '');
+      setAdvSearchCorrAddress(params.corrAddress || '');
+      setAdvSearchInn(params.inn || '');
+      setAdvSearchOgrn(params.ogrn || '');
+      setAdvSearchWellKnownDate(params.wellKnownDate || '');
+      setAppliedAdvSearch({
+        name: params.name || '', address: params.address || '',
+        inn: params.inn || '', ogrn: params.ogrn || '',
+        regNum: params.regNum || '', foreignName: params.foreignName || '',
+        corrAddress: params.corrAddress || '', wellKnownDate: params.wellKnownDate || '',
+      });
+      setAdvancedOpen(true);
+    }
+    setPage(0);
+  };
 
   useEffect(() => {
     const t = setTimeout(() => {
