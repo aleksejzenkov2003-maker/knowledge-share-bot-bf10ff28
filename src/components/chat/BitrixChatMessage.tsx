@@ -93,6 +93,7 @@ function BitrixChatMessageComponent({
   currentRoleId,
   bitrixApiBaseUrl,
   bitrixToken,
+  userQuestion,
 }: BitrixChatMessageProps) {
   // Determine if we're in Bitrix context (have both URL and token)
   const isBitrixContext = Boolean(bitrixApiBaseUrl && bitrixToken);
