@@ -86,6 +86,7 @@ export default function ChatLogs() {
 
   useEffect(() => {
     fetchDepartments();
+    fetchChatRoles();
   }, []);
 
   useEffect(() => {
