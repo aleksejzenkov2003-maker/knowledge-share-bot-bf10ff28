@@ -1536,6 +1536,36 @@ export type Database = {
           },
         ]
       }
+      trademark_searches: {
+        Row: {
+          created_at: string | null
+          id: string
+          query: string | null
+          results_count: number | null
+          search_params: Json | null
+          search_type: string | null
+          user_id: string
+        }
+        Insert: {
+          created_at?: string | null
+          id?: string
+          query?: string | null
+          results_count?: number | null
+          search_params?: Json | null
+          search_type?: string | null
+          user_id: string
+        }
+        Update: {
+          created_at?: string | null
+          id?: string
+          query?: string | null
+          results_count?: number | null
+          search_params?: Json | null
+          search_type?: string | null
+          user_id?: string
+        }
+        Relationships: []
+      }
       trademarks: {
         Row: {
           actual: boolean | null

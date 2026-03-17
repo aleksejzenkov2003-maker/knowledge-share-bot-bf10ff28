@@ -1,6 +1,7 @@
 import { useState, useCallback, useEffect } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { supabase } from '@/integrations/supabase/client';
+import { useAuth } from '@/contexts/AuthContext';
 import { Button } from '@/components/ui/button';
 import { Progress } from '@/components/ui/progress';
 import { Input } from '@/components/ui/input';
@@ -13,7 +14,7 @@ import {
 import { Badge } from '@/components/ui/badge';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { useToast } from '@/hooks/use-toast';
-import { Upload, Search, Trash2, ChevronLeft, ChevronRight, FileSpreadsheet, X, Eraser, ExternalLink, ChevronDown, Download, Loader2, SlidersHorizontal } from 'lucide-react';
+import { Upload, Search, Trash2, ChevronLeft, ChevronRight, FileSpreadsheet, X, Eraser, ExternalLink, ChevronDown, Download, Loader2, SlidersHorizontal, History, Clock } from 'lucide-react';
 import { Separator } from '@/components/ui/separator';
 import {
   Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter,
@@ -25,6 +26,7 @@ import {
 import {
   Collapsible, CollapsibleContent, CollapsibleTrigger,
 } from '@/components/ui/collapsible';
+import { ScrollArea } from '@/components/ui/scroll-area';
 
 interface Trademark {
   id: string;
@@ -224,6 +226,7 @@ const DATE_FIELDS = new Set(['registration_date', 'well_known_trademark_date']);
 export default function Trademarks() {
   const { toast } = useToast();
   const queryClient = useQueryClient();
+  const { isAdmin, user } = useAuth();
   const [search, setSearch] = useState('');
   const [debouncedSearch, setDebouncedSearch] = useState('');
   const [statusFilter, setStatusFilter] = useState<string>('all');
@@ -251,6 +254,78 @@ export default function Trademarks() {
   const [fipsLoading, setFipsLoading] = useState<string | null>(null);
   const [fipsPreviewOpen, setFipsPreviewOpen] = useState(false);
   const [fipsTargetId, setFipsTargetId] = useState<string | null>(null);
+  const [historyOpen, setHistoryOpen] = useState(true);
+
+  // Search history query
+  const { data: searchHistory } = useQuery({
+    queryKey: ['trademark-searches', user?.id],
+    queryFn: async () => {
+      if (!user?.id) return [];
+      const { data, error } = await supabase
+        .from('trademark_searches')
+        .select('*')
+        .eq('user_id', user.id)
+        .order('created_at', { ascending: false })
+        .limit(30);
+      if (error) throw error;
+      return data;
+    },
+    enabled: !!user?.id,
+  });
+
+  const saveSearchMutation = useMutation({
+    mutationFn: async (params: { query: string; search_type: string; search_params: Record<string, any>; results_count: number }) => {
+      if (!user?.id) return;
+      const { error } = await supabase.from('trademark_searches').insert({
+        user_id: user.id,
+        query: params.query,
+        search_type: params.search_type,
+        search_params: params.search_params,
+        results_count: params.results_count,
+      });
+      if (error) throw error;
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['trademark-searches'] });
+    },
+  });
+
+  const deleteSearchMutation = useMutation({
+    mutationFn: async (id: string) => {
+      const { error } = await supabase.from('trademark_searches').delete().eq('id', id);
+      if (error) throw error;
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['trademark-searches'] });
+    },
+  });
+
+  const applySearchFromHistory = (item: any) => {
+    const params = item.search_params || {};
+    if (item.search_type === 'quick') {
+      setSearch(item.query || '');
+      setAdvancedOpen(false);
+      handleAdvancedReset();
+    } else {
+      setSearch('');
+      setAdvSearchRegNum(params.regNum || '');
+      setAdvSearchName(params.name || '');
+      setAdvSearchForeignName(params.foreignName || '');
+      setAdvSearchAddress(params.address || '');
+      setAdvSearchCorrAddress(params.corrAddress || '');
+      setAdvSearchInn(params.inn || '');
+      setAdvSearchOgrn(params.ogrn || '');
+      setAdvSearchWellKnownDate(params.wellKnownDate || '');
+      setAppliedAdvSearch({
+        name: params.name || '', address: params.address || '',
+        inn: params.inn || '', ogrn: params.ogrn || '',
+        regNum: params.regNum || '', foreignName: params.foreignName || '',
+        corrAddress: params.corrAddress || '', wellKnownDate: params.wellKnownDate || '',
+      });
+      setAdvancedOpen(true);
+    }
+    setPage(0);
+  };
 
   useEffect(() => {
     const t = setTimeout(() => {
@@ -263,8 +338,13 @@ export default function Trademarks() {
   const hasAdvancedFilters = !!(appliedAdvSearch.name || appliedAdvSearch.address || appliedAdvSearch.inn || appliedAdvSearch.ogrn || appliedAdvSearch.regNum || appliedAdvSearch.foreignName || appliedAdvSearch.corrAddress || appliedAdvSearch.wellKnownDate);
 
   const handleAdvancedSearch = () => {
-    setAppliedAdvSearch({ name: advSearchName.trim(), address: advSearchAddress.trim(), inn: advSearchInn.trim(), ogrn: advSearchOgrn.trim(), regNum: advSearchRegNum.trim(), foreignName: advSearchForeignName.trim(), corrAddress: advSearchCorrAddress.trim(), wellKnownDate: advSearchWellKnownDate.trim() });
+    const params = { name: advSearchName.trim(), address: advSearchAddress.trim(), inn: advSearchInn.trim(), ogrn: advSearchOgrn.trim(), regNum: advSearchRegNum.trim(), foreignName: advSearchForeignName.trim(), corrAddress: advSearchCorrAddress.trim(), wellKnownDate: advSearchWellKnownDate.trim() };
+    setAppliedAdvSearch(params);
     setPage(0);
+    // Build display query from advanced params
+    const displayParts = [params.regNum, params.name, params.foreignName, params.inn, params.ogrn].filter(Boolean);
+    const displayQuery = displayParts.join(' / ') || 'Расширенный поиск';
+    saveSearchMutation.mutate({ query: displayQuery, search_type: 'advanced', search_params: params, results_count: 0 });
   };
 
   const handleAdvancedReset = () => {
@@ -579,8 +659,69 @@ export default function Trademarks() {
 
   const totalPages = Math.ceil((totalCount ?? 0) / PAGE_SIZE);
 
+  // Save quick search when results come back (only on page 0 with a query)
+  useEffect(() => {
+    if (debouncedSearch && page === 0 && queryResult && !hasAdvancedFilters) {
+      saveSearchMutation.mutate({
+        query: debouncedSearch,
+        search_type: 'quick',
+        search_params: {},
+        results_count: queryResult.count,
+      });
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [debouncedSearch, queryResult?.count]);
+
   return (
-    <div className="space-y-6">
+    <div className="flex gap-6">
+      {/* Search History Sidebar */}
+      <div className="hidden lg:block w-64 flex-shrink-0">
+        <Card className="sticky top-4">
+          <CardHeader className="pb-2 flex flex-row items-center justify-between">
+            <CardTitle className="text-sm flex items-center gap-2">
+              <History className="h-4 w-4" />
+              История поисков
+            </CardTitle>
+          </CardHeader>
+          <CardContent className="p-0">
+            <ScrollArea className="h-[calc(100vh-220px)]">
+              {!searchHistory?.length ? (
+                <p className="text-xs text-muted-foreground px-4 py-3">Нет истории поисков</p>
+              ) : (
+                <div className="space-y-0.5 px-2 pb-2">
+                  {searchHistory.map((item: any) => (
+                    <div
+                      key={item.id}
+                      className="group flex items-start gap-2 rounded-md px-2 py-1.5 hover:bg-muted cursor-pointer text-xs"
+                      onClick={() => applySearchFromHistory(item)}
+                    >
+                      <Clock className="h-3 w-3 text-muted-foreground mt-0.5 flex-shrink-0" />
+                      <div className="flex-1 min-w-0">
+                        <p className="font-medium truncate">{item.query || 'Поиск'}</p>
+                        <p className="text-muted-foreground">
+                          {item.results_count > 0 && `${item.results_count} рез. · `}
+                          {new Date(item.created_at).toLocaleDateString('ru-RU', { day: '2-digit', month: '2-digit' })}
+                        </p>
+                      </div>
+                      <Button
+                        variant="ghost"
+                        size="icon"
+                        className="h-5 w-5 opacity-0 group-hover:opacity-100 flex-shrink-0"
+                        onClick={(e) => { e.stopPropagation(); deleteSearchMutation.mutate(item.id); }}
+                      >
+                        <X className="h-3 w-3" />
+                      </Button>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </ScrollArea>
+          </CardContent>
+        </Card>
+      </div>
+
+      {/* Main Content */}
+      <div className="flex-1 min-w-0 space-y-6">
       <div className="flex items-center justify-between">
         <div>
           <h1 className="text-2xl font-bold">База товарных знаков</h1>
@@ -588,6 +729,7 @@ export default function Trademarks() {
             {totalCount !== undefined ? `${totalCount} записей` : 'Загрузка...'}
           </p>
         </div>
+        {isAdmin && (
         <div className="flex gap-2">
           {(totalCount ?? 0) > 0 && (
             <Button variant="outline" onClick={() => setClearAllOpen(true)} className="gap-2 text-destructive">
@@ -600,6 +742,7 @@ export default function Trademarks() {
             Импорт CSV
           </Button>
         </div>
+        )}
       </div>
 
       {/* Filters */}
@@ -771,6 +914,7 @@ export default function Trademarks() {
                       >
                         {fipsLoading === tm.id ? <Loader2 className="h-4 w-4 animate-spin" /> : <Download className="h-4 w-4" />}
                       </Button>
+                      {isAdmin && (
                       <Button
                         variant="ghost"
                         size="icon"
@@ -779,6 +923,7 @@ export default function Trademarks() {
                       >
                         <Trash2 className="h-4 w-4" />
                       </Button>
+                      )}
                     </div>
                   </TableCell>
                 </TableRow>
@@ -1190,6 +1335,7 @@ export default function Trademarks() {
           </DialogFooter>
         </DialogContent>
       </Dialog>
+    </div>
     </div>
   );
 }

@@ -43,13 +43,14 @@ const mainMenuItems = [
   { title: 'Чат отдела', url: '/department-chat', icon: MessagesSquare, tourId: 'sidebar-department-chat' },
   { title: 'Проекты', url: '/projects', icon: FolderKanban, tourId: 'sidebar-projects' },
   { title: 'Reputation', url: '/reputation', icon: Search, tourId: 'sidebar-reputation' },
+  { title: 'База ТЗ', url: '/trademarks', icon: Stamp, tourId: 'sidebar-trademarks' },
 ];
 
 const managementItems = [
   { title: 'Роли чатов', url: '/chat-roles', icon: UserCircle, roles: ['admin'], tourId: 'sidebar-chat-roles' },
   { title: 'Эталоны', url: '/golden-responses', icon: Star, roles: ['admin'], tourId: 'sidebar-golden' },
   
-  { title: 'База ТЗ', url: '/trademarks', icon: Stamp, roles: ['admin'], tourId: 'sidebar-trademarks' },
+  
   { title: 'СБИС', url: '/sbis', icon: Building2, roles: ['admin'], tourId: 'sidebar-sbis' },
   { title: 'Папки', url: '/folders', icon: FolderTree, roles: ['admin'], tourId: 'sidebar-folders' },
   { title: 'Документы', url: '/documents', icon: FileText, roles: ['admin'], tourId: 'sidebar-documents' },
