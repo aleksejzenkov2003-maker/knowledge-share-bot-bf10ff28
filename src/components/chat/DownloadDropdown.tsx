@@ -274,6 +274,22 @@ export function DownloadDropdown({
       }
       
       const doc = new Document({
+        styles: {
+          default: {
+            document: { run: { font: "Arial", size: 24, color: "000000" } },
+          },
+          paragraphStyles: [
+            { id: "Heading1", name: "Heading 1", basedOn: "Normal", next: "Normal", quickFormat: true,
+              run: { bold: true, size: 32, color: "000000", font: "Arial" },
+              paragraph: { spacing: { before: 400, after: 200 } } },
+            { id: "Heading2", name: "Heading 2", basedOn: "Normal", next: "Normal", quickFormat: true,
+              run: { bold: true, size: 28, color: "000000", font: "Arial" },
+              paragraph: { spacing: { before: 300, after: 150 } } },
+            { id: "Heading3", name: "Heading 3", basedOn: "Normal", next: "Normal", quickFormat: true,
+              run: { bold: true, size: 24, color: "000000", font: "Arial" },
+              paragraph: { spacing: { before: 200, after: 100 } } },
+          ],
+        },
         sections: [{
           properties: {},
           children: docChildren,
