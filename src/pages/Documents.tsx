@@ -1277,8 +1277,36 @@ export default function Documents() {
     }
   };
 
-  const copyDocumentToFolder = async (srcDoc: Document, targetFolderId: string) => {
-    // 1. Create new document record
+  // Returns the new document ID
+  const copyDocumentToFolder = async (
+    srcDoc: Document, 
+    targetFolderId: string, 
+    overrideParentId: string | null
+  ): Promise<string> => {
+    // 1. Copy the actual file in Storage (if exists)
+    let newStoragePath = srcDoc.storage_path;
+    if (srcDoc.storage_path) {
+      try {
+        const { data: fileBlob, error: dlErr } = await supabase.storage
+          .from("rag-documents")
+          .download(srcDoc.storage_path);
+        if (dlErr) throw dlErr;
+        
+        const safeName = srcDoc.storage_path.replace(/.*\//, '');
+        newStoragePath = `${Date.now()}-copy-${safeName}`;
+        
+        const { error: upErr } = await supabase.storage
+          .from("rag-documents")
+          .upload(newStoragePath, fileBlob);
+        if (upErr) throw upErr;
+      } catch (storageErr) {
+        console.error("Storage copy error, reusing path:", storageErr);
+        // Fallback: reuse original path (better than failing entirely)
+        newStoragePath = srcDoc.storage_path;
+      }
+    }
+
+    // 2. Create new document record with independent storage_path and parent
     const { data: newDoc, error: docErr } = await supabase
       .from("documents")
       .insert({
@@ -1286,14 +1314,14 @@ export default function Documents() {
         file_name: srcDoc.file_name,
         file_type: srcDoc.file_type,
         file_size: srcDoc.file_size,
-        storage_path: srcDoc.storage_path,
+        storage_path: newStoragePath,
         folder_id: targetFolderId,
         document_type: srcDoc.document_type,
         status: srcDoc.status,
         chunk_count: srcDoc.chunk_count,
         has_trademark: srcDoc.has_trademark,
         trademark_image_path: srcDoc.trademark_image_path,
-        parent_document_id: srcDoc.parent_document_id,
+        parent_document_id: overrideParentId,
         part_number: srcDoc.part_number,
         total_parts: srcDoc.total_parts,
       })
@@ -1302,7 +1330,7 @@ export default function Documents() {
 
     if (docErr) throw docErr;
 
-    // 2. Copy chunks in batches
+    // 3. Copy chunks in batches
     let offset = 0;
     const batchSize = 500;
     while (true) {
@@ -1338,6 +1366,8 @@ export default function Documents() {
       if (chunks.length < batchSize) break;
       offset += batchSize;
     }
+
+    return newDoc.id;
   };
 
   if (loading) {
