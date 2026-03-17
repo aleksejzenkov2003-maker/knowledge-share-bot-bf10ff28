@@ -53,6 +53,7 @@ interface DepartmentChatMessageProps {
   replyToMessage?: MessageType | null;
   onSelectReputationCompany?: (result: ReputationSearchResult) => void;
   roleProviderLabels?: Map<string, RoleProviderInfo>;
+  userQuestion?: string;
 }
 
 function DepartmentChatMessageComponent({
