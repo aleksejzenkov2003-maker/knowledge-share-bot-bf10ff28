@@ -2076,7 +2076,8 @@ ${goldenExamples.join('\n\n---\n\n')}
 
       case 'kimi': {
         const kimiApiKey = providerConfig.api_key || Deno.env.get('KIMI_API_KEY') || '';
-        streamResponse = await fetch('https://api.moonshot.cn/v1/chat/completions', {
+        // Use api.moonshot.ai (international) endpoint
+        streamResponse = await fetch('https://api.moonshot.ai/v1/chat/completions', {
           method: 'POST',
           signal: apiAbortController.signal,
           headers: {
@@ -2087,7 +2088,7 @@ ${goldenExamples.join('\n\n---\n\n')}
             model: finalModel,
             messages: [{ role: 'system', content: enhancedSystemPrompt }, ...simpleMessages],
             stream: true,
-            max_tokens: 16384,
+            max_tokens: finalModel.startsWith('moonshot-v1') ? 8192 : 16384,
           }),
         });
         break;

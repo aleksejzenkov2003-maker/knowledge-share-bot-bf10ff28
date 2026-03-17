@@ -137,10 +137,16 @@ const providerModels: Record<string, { value: string; label: string }[]> = {
     { value: 'qwen3.5-plus', label: 'Qwen3.5 Plus (новый)' },
   ],
   kimi: [
-    { value: 'kimi-k2.5', label: 'Kimi K2.5' },
-    { value: 'kimi-k2.5-agent', label: 'Kimi K2.5 (нативный agentic)' },
-    { value: 'kimi-k2.5-vision', label: 'Kimi K2.5 (vision-native)' },
-    { value: 'kimi-k2-thinking', label: 'Kimi K2 Thinking' },
+    { value: 'kimi-k2.5', label: 'Kimi K2.5 (reasoning + vision)' },
+    { value: 'kimi-k2.5-agent', label: 'Kimi K2.5 Agent (нативный agentic)' },
+    { value: 'kimi-k2.5-vision', label: 'Kimi K2.5 Vision (vision-native)' },
+    { value: 'kimi-k2-thinking', label: 'Kimi K2 Thinking (глубокое размышление)' },
+    { value: 'kimi-k2-thinking-turbo', label: 'Kimi K2 Thinking Turbo (быстрое размышление)' },
+    { value: 'kimi-k2-turbo-preview', label: 'Kimi K2 Turbo Preview (быстрый)' },
+    { value: 'kimi-k2-0905-Preview', label: 'Kimi K2 0905 Preview' },
+    { value: 'moonshot-v1-128k', label: 'Moonshot V1 128K (legacy)' },
+    { value: 'moonshot-v1-32k', label: 'Moonshot V1 32K (legacy)' },
+    { value: 'moonshot-v1-8k', label: 'Moonshot V1 8K (legacy)' },
   ],
 };
 
