@@ -1210,19 +1210,31 @@ export default function BitrixPersonalChat() {
               </div>
             ) : (
               <div className="space-y-4">
-                {messages.map((message) => (
-                  <BitrixChatMessage 
-                    key={message.id} 
-                    message={message}
-                    onDeleteMessage={handleDeleteMessage}
-                    onRegenerateResponse={handleRegenerate}
-                    onStopGeneration={message.isStreaming ? handleStopGeneration : undefined}
-                    availableRoles={user?.available_roles}
-                    currentRoleId={selectedRoleId}
-                    bitrixApiBaseUrl={apiBaseUrl}
-                    bitrixToken={token || undefined}
-                  />
-                ))}
+                {messages.map((message, idx) => {
+                  let userQuestion: string | undefined;
+                  if (message.role === 'assistant') {
+                    for (let i = idx - 1; i >= 0; i--) {
+                      if (messages[i].role === 'user') {
+                        userQuestion = messages[i].content;
+                        break;
+                      }
+                    }
+                  }
+                  return (
+                    <BitrixChatMessage 
+                      key={message.id} 
+                      message={message}
+                      onDeleteMessage={handleDeleteMessage}
+                      onRegenerateResponse={handleRegenerate}
+                      onStopGeneration={message.isStreaming ? handleStopGeneration : undefined}
+                      availableRoles={user?.available_roles}
+                      currentRoleId={selectedRoleId}
+                      bitrixApiBaseUrl={apiBaseUrl}
+                      bitrixToken={token || undefined}
+                      userQuestion={userQuestion}
+                    />
+                  );
+                })}
                 <div ref={messagesEndRef} />
               </div>
             )}
