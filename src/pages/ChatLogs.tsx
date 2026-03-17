@@ -271,9 +271,10 @@ export default function ChatLogs() {
             <>
               <Table>
                 <TableHeader>
-                  <TableRow>
+                   <TableRow>
                     <TableHead>Дата</TableHead>
                     <TableHead>Пользователь</TableHead>
+                    <TableHead>Роль (агент)</TableHead>
                     <TableHead>Отдел</TableHead>
                     <TableHead>Промпт</TableHead>
                     <TableHead>Токены</TableHead>
