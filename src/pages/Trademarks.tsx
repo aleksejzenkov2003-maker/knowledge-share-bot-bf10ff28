@@ -338,8 +338,13 @@ export default function Trademarks() {
   const hasAdvancedFilters = !!(appliedAdvSearch.name || appliedAdvSearch.address || appliedAdvSearch.inn || appliedAdvSearch.ogrn || appliedAdvSearch.regNum || appliedAdvSearch.foreignName || appliedAdvSearch.corrAddress || appliedAdvSearch.wellKnownDate);
 
   const handleAdvancedSearch = () => {
-    setAppliedAdvSearch({ name: advSearchName.trim(), address: advSearchAddress.trim(), inn: advSearchInn.trim(), ogrn: advSearchOgrn.trim(), regNum: advSearchRegNum.trim(), foreignName: advSearchForeignName.trim(), corrAddress: advSearchCorrAddress.trim(), wellKnownDate: advSearchWellKnownDate.trim() });
+    const params = { name: advSearchName.trim(), address: advSearchAddress.trim(), inn: advSearchInn.trim(), ogrn: advSearchOgrn.trim(), regNum: advSearchRegNum.trim(), foreignName: advSearchForeignName.trim(), corrAddress: advSearchCorrAddress.trim(), wellKnownDate: advSearchWellKnownDate.trim() };
+    setAppliedAdvSearch(params);
     setPage(0);
+    // Build display query from advanced params
+    const displayParts = [params.regNum, params.name, params.foreignName, params.inn, params.ogrn].filter(Boolean);
+    const displayQuery = displayParts.join(' / ') || 'Расширенный поиск';
+    saveSearchMutation.mutate({ query: displayQuery, search_type: 'advanced', search_params: params, results_count: 0 });
   };
 
   const handleAdvancedReset = () => {
