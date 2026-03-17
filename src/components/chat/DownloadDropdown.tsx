@@ -16,11 +16,25 @@ import { saveAs } from "file-saver";
 import jsPDF from "jspdf";
 import html2canvas from "html2canvas";
 
+function generateFileName(userQuestion: string | undefined, extension: string): string {
+  if (!userQuestion || !userQuestion.trim()) {
+    return `response-${new Date().toISOString().slice(0, 10)}.${extension}`;
+  }
+  const cleaned = userQuestion
+    .replace(/[<>:"/\\|?*\x00-\x1F]/g, '')
+    .replace(/\s+/g, ' ')
+    .trim();
+  const words = cleaned.split(' ').slice(0, 6).join(' ');
+  const truncated = words.length > 50 ? words.slice(0, 50).trim() : words;
+  return `${truncated || 'response'}.${extension}`;
+}
+
 interface DownloadDropdownProps {
   content: string;
   ragContext?: string[];
   citations?: Citation[];
   webSearchCitations?: string[];
+  userQuestion?: string;
 }
 
 export function DownloadDropdown({
@@ -28,6 +42,7 @@ export function DownloadDropdown({
   ragContext,
   citations,
   webSearchCitations,
+  userQuestion,
 }: DownloadDropdownProps) {
   const [isGenerating, setIsGenerating] = useState<string | null>(null);
 
@@ -69,7 +84,7 @@ export function DownloadDropdown({
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
     a.href = url;
-    a.download = `response-${new Date().toISOString().slice(0, 10)}.md`;
+    a.download = generateFileName(userQuestion, 'md');
     document.body.appendChild(a);
     a.click();
     document.body.removeChild(a);
@@ -266,7 +281,7 @@ export function DownloadDropdown({
       });
       
       const blob = await Packer.toBlob(doc);
-      saveAs(blob, `response-${new Date().toISOString().slice(0, 10)}.docx`);
+      saveAs(blob, generateFileName(userQuestion, 'docx'));
       
       toast({
         title: "Скачано",
@@ -284,7 +299,7 @@ export function DownloadDropdown({
     }
   };
 
-  const date = new Date().toISOString().slice(0, 10);
+  
 
   const handleDownloadPDF = async () => {
     setIsGenerating('pdf');
@@ -354,7 +369,7 @@ export function DownloadDropdown({
         heightLeft -= pdfHeight - 20;
       }
       
-      pdf.save(`response-${date}.pdf`);
+      pdf.save(generateFileName(userQuestion, 'pdf'));
       
       toast({
         title: "Скачано",

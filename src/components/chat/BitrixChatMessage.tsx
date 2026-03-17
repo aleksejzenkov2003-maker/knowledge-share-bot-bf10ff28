@@ -47,9 +47,9 @@ interface BitrixChatMessageProps {
   onStopGeneration?: () => void;
   availableRoles?: ChatRole[];
   currentRoleId?: string;
-  // Bitrix context for document access
   bitrixApiBaseUrl?: string;
   bitrixToken?: string;
+  userQuestion?: string;
 }
 
 // Normalize malformed ASCII tables to valid GFM format
@@ -93,6 +93,7 @@ function BitrixChatMessageComponent({
   currentRoleId,
   bitrixApiBaseUrl,
   bitrixToken,
+  userQuestion,
 }: BitrixChatMessageProps) {
   // Determine if we're in Bitrix context (have both URL and token)
   const isBitrixContext = Boolean(bitrixApiBaseUrl && bitrixToken);
@@ -277,6 +278,7 @@ function BitrixChatMessageComponent({
             ragContext={message.ragContext}
             citations={message.citations}
             webSearchCitations={message.webSearchCitations}
+            userQuestion={userQuestion}
           />
         </div>
       ) : (
@@ -332,6 +334,7 @@ export const BitrixChatMessage = React.memo(BitrixChatMessageComponent, (prevPro
     prevProps.availableRoles?.length === nextProps.availableRoles?.length &&
     prevProps.currentRoleId === nextProps.currentRoleId &&
     prevProps.bitrixApiBaseUrl === nextProps.bitrixApiBaseUrl &&
-    prevProps.bitrixToken === nextProps.bitrixToken
+    prevProps.bitrixToken === nextProps.bitrixToken &&
+    prevProps.userQuestion === nextProps.userQuestion
   );
 });

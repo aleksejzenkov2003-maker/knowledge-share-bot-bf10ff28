@@ -29,6 +29,7 @@ interface MessageActionsProps {
   ragContext?: string[];
   citations?: Citation[];
   webSearchCitations?: string[];
+  userQuestion?: string;
 }
 
 export function MessageActions({
@@ -45,6 +46,7 @@ export function MessageActions({
   ragContext,
   citations,
   webSearchCitations,
+  userQuestion,
 }: MessageActionsProps) {
   const [isEditing, setIsEditing] = useState(false);
   const [editContent, setEditContent] = useState(content);
@@ -156,6 +158,7 @@ export function MessageActions({
           ragContext={ragContext}
           citations={citations}
           webSearchCitations={webSearchCitations}
+          userQuestion={userQuestion}
         />
       )}
 

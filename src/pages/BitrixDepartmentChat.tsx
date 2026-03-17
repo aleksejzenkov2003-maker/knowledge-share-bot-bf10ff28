@@ -1226,24 +1226,36 @@ export default function BitrixDepartmentChat() {
               </div>
             ) : (
               <div className="space-y-4">
-                {messages.map((message) => (
-                  <div key={message.id} id={`msg-${message.id}`}>
-                    <BitrixChatMessage
-                      message={convertToMessage(message)}
-                      onDeleteMessage={handleDeleteMessage}
-                      onRegenerateResponse={handleRegenerate}
-                      availableRoles={agents.map(a => ({
-                        id: a.id,
-                        name: a.name,
-                        slug: a.slug,
-                        description: a.description,
-                      }))}
-                      currentRoleId={message.role_id || message.metadata?.role_id || undefined}
-                      bitrixApiBaseUrl={apiBaseUrl}
-                      bitrixToken={token || undefined}
-                    />
-                  </div>
-                ))}
+                {messages.map((message, idx) => {
+                  let userQuestion: string | undefined;
+                  if (message.message_role === 'assistant') {
+                    for (let i = idx - 1; i >= 0; i--) {
+                      if (messages[i].message_role === 'user') {
+                        userQuestion = messages[i].content;
+                        break;
+                      }
+                    }
+                  }
+                  return (
+                    <div key={message.id} id={`msg-${message.id}`}>
+                      <BitrixChatMessage
+                        message={convertToMessage(message)}
+                        onDeleteMessage={handleDeleteMessage}
+                        onRegenerateResponse={handleRegenerate}
+                        availableRoles={agents.map(a => ({
+                          id: a.id,
+                          name: a.name,
+                          slug: a.slug,
+                          description: a.description,
+                        }))}
+                        currentRoleId={message.role_id || message.metadata?.role_id || undefined}
+                        bitrixApiBaseUrl={apiBaseUrl}
+                        bitrixToken={token || undefined}
+                        userQuestion={userQuestion}
+                      />
+                    </div>
+                  );
+                })}
                 {streamingMessage && (
                   <BitrixChatMessage
                     message={streamingMessage}

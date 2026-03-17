@@ -40,9 +40,10 @@ interface ChatMessageProps {
   availableRoles?: ChatRole[];
   currentRoleId?: string;
   roleProviderLabels?: Map<string, RoleProviderInfo>;
+  userQuestion?: string;
 }
 
-function ChatMessageComponent({ message, onEditMessage, onRegenerateResponse, onRetryMessage, onSaveAsGolden, onSelectReputationCompany, availableRoles, currentRoleId, roleProviderLabels }: ChatMessageProps) {
+function ChatMessageComponent({ message, onEditMessage, onRegenerateResponse, onRetryMessage, onSaveAsGolden, onSelectReputationCompany, availableRoles, currentRoleId, roleProviderLabels, userQuestion }: ChatMessageProps) {
   // Get the role name for the agent
   const roleName = availableRoles?.find(r => r.id === currentRoleId)?.name || 'Ассистент';
   const providerInfo = currentRoleId ? roleProviderLabels?.get(currentRoleId) : undefined;
@@ -254,6 +255,7 @@ function ChatMessageComponent({ message, onEditMessage, onRegenerateResponse, on
             ragContext={message.ragContext}
             citations={message.citations}
             webSearchCitations={message.webSearchCitations}
+            userQuestion={userQuestion}
           />
           
           {/* PII Unmask Dialog */}
@@ -331,6 +333,7 @@ export const ChatMessage = React.memo(ChatMessageComponent, (prevProps, nextProp
     prevProps.onSaveAsGolden === nextProps.onSaveAsGolden &&
     prevProps.onSelectReputationCompany === nextProps.onSelectReputationCompany &&
     prevProps.availableRoles?.length === nextProps.availableRoles?.length &&
-    prevProps.currentRoleId === nextProps.currentRoleId
+    prevProps.currentRoleId === nextProps.currentRoleId &&
+    prevProps.userQuestion === nextProps.userQuestion
   );
 });

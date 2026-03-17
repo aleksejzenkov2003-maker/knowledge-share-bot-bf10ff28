@@ -53,6 +53,7 @@ interface DepartmentChatMessageProps {
   replyToMessage?: MessageType | null;
   onSelectReputationCompany?: (result: ReputationSearchResult) => void;
   roleProviderLabels?: Map<string, RoleProviderInfo>;
+  userQuestion?: string;
 }
 
 function DepartmentChatMessageComponent({
@@ -65,6 +66,7 @@ function DepartmentChatMessageComponent({
   replyToMessage,
   onSelectReputationCompany,
   roleProviderLabels,
+  userQuestion,
 }: DepartmentChatMessageProps) {
   const [copied, setCopied] = useState(false);
   
@@ -394,6 +396,7 @@ function DepartmentChatMessageComponent({
                 ragContext={message.metadata?.rag_context}
                 citations={message.metadata?.citations}
                 webSearchCitations={message.metadata?.perplexity_citations || message.metadata?.web_search_citations}
+                userQuestion={userQuestion}
               />
 
               {/* Regenerate */}
@@ -564,6 +567,7 @@ export const DepartmentChatMessage = React.memo(DepartmentChatMessageComponent, 
     prevProps.replyToMessage?.id === nextProps.replyToMessage?.id &&
     prevProps.onSelectReputationCompany === nextProps.onSelectReputationCompany &&
     prev.metadata?.reputation_results?.length === next.metadata?.reputation_results?.length &&
-    prev.metadata?.reputation_company_data === next.metadata?.reputation_company_data
+    prev.metadata?.reputation_company_data === next.metadata?.reputation_company_data &&
+    prevProps.userQuestion === nextProps.userQuestion
   );
 });

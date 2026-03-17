@@ -360,10 +360,19 @@ const DepartmentChat: React.FC = () => {
           </div>
         ) : (
           <div className="space-y-4">
-            {filteredMessages.map(message => {
+            {filteredMessages.map((message, idx) => {
               const replyTo = message.reply_to_message_id 
                 ? messages.find(m => m.id === message.reply_to_message_id) 
                 : undefined;
+              let userQuestion: string | undefined;
+              if (message.message_role === 'assistant') {
+                for (let i = idx - 1; i >= 0; i--) {
+                  if (filteredMessages[i]?.message_role === 'user') {
+                    userQuestion = filteredMessages[i].content;
+                    break;
+                  }
+                }
+              }
               return (
                 <DepartmentChatMessage
                   key={message.id}
@@ -376,6 +385,7 @@ const DepartmentChat: React.FC = () => {
                   replyToMessage={replyTo}
                   onSelectReputationCompany={handleSelectReputationCompany}
                   roleProviderLabels={roleProviderLabels}
+                  userQuestion={userQuestion}
                 />
               );
             })}

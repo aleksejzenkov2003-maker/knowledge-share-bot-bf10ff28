@@ -58,6 +58,7 @@ interface BitrixMessageActionsProps {
   ragContext?: string[];
   citations?: Citation[];
   webSearchCitations?: string[];
+  userQuestion?: string;
 }
 
 export function BitrixMessageActions({
@@ -74,6 +75,7 @@ export function BitrixMessageActions({
   ragContext,
   citations,
   webSearchCitations,
+  userQuestion,
 }: BitrixMessageActionsProps) {
   const [isEditing, setIsEditing] = useState(false);
   const [editContent, setEditContent] = useState(content);
@@ -197,6 +199,7 @@ export function BitrixMessageActions({
           ragContext={ragContext}
           citations={citations}
           webSearchCitations={webSearchCitations}
+          userQuestion={userQuestion}
         />
       )}
 

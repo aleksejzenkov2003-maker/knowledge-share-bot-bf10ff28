@@ -234,20 +234,32 @@ export default function Chat() {
           </div>
         ) : (
           <div className="space-y-4">
-            {messages.map((message) => (
-              <ChatMessage 
-                key={message.id} 
-                message={message}
-                onEditMessage={editMessage}
-                onRegenerateResponse={regenerateResponse}
-                onRetryMessage={retryMessage}
-                onSaveAsGolden={handleSaveAsGolden}
-                onSelectReputationCompany={handleSelectReputationCompany}
-                availableRoles={roles}
-                currentRoleId={selectedRoleId}
-                roleProviderLabels={roleProviderLabels}
-              />
-            ))}
+            {messages.map((message, idx) => {
+              let userQuestion: string | undefined;
+              if (message.role === 'assistant') {
+                for (let i = idx - 1; i >= 0; i--) {
+                  if (messages[i].role === 'user') {
+                    userQuestion = messages[i].content;
+                    break;
+                  }
+                }
+              }
+              return (
+                <ChatMessage 
+                  key={message.id} 
+                  message={message}
+                  onEditMessage={editMessage}
+                  onRegenerateResponse={regenerateResponse}
+                  onRetryMessage={retryMessage}
+                  onSaveAsGolden={handleSaveAsGolden}
+                  onSelectReputationCompany={handleSelectReputationCompany}
+                  availableRoles={roles}
+                  currentRoleId={selectedRoleId}
+                  roleProviderLabels={roleProviderLabels}
+                  userQuestion={userQuestion}
+                />
+              );
+            })}
             {isLoading && (
               <div className="flex items-center gap-2 text-muted-foreground">
                 <Loader2 className="h-4 w-4 animate-spin" />
