@@ -45,6 +45,7 @@ export function MessageActions({
   ragContext,
   citations,
   webSearchCitations,
+  userQuestion,
 }: MessageActionsProps) {
   const [isEditing, setIsEditing] = useState(false);
   const [editContent, setEditContent] = useState(content);
