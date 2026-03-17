@@ -333,6 +333,7 @@ export const ChatMessage = React.memo(ChatMessageComponent, (prevProps, nextProp
     prevProps.onSaveAsGolden === nextProps.onSaveAsGolden &&
     prevProps.onSelectReputationCompany === nextProps.onSelectReputationCompany &&
     prevProps.availableRoles?.length === nextProps.availableRoles?.length &&
-    prevProps.currentRoleId === nextProps.currentRoleId
+    prevProps.currentRoleId === nextProps.currentRoleId &&
+    prevProps.userQuestion === nextProps.userQuestion
   );
 });

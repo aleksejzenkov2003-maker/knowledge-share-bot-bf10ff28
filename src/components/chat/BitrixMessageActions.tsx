@@ -199,6 +199,7 @@ export function BitrixMessageActions({
           ragContext={ragContext}
           citations={citations}
           webSearchCitations={webSearchCitations}
+          userQuestion={userQuestion}
         />
       )}
 

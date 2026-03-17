@@ -157,6 +157,7 @@ export function MessageActions({
           ragContext={ragContext}
           citations={citations}
           webSearchCitations={webSearchCitations}
+          userQuestion={userQuestion}
         />
       )}
 
