@@ -255,6 +255,7 @@ function ChatMessageComponent({ message, onEditMessage, onRegenerateResponse, on
             ragContext={message.ragContext}
             citations={message.citations}
             webSearchCitations={message.webSearchCitations}
+            userQuestion={userQuestion}
           />
           
           {/* PII Unmask Dialog */}
