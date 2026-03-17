@@ -659,8 +659,21 @@ export default function Trademarks() {
 
   const totalPages = Math.ceil((totalCount ?? 0) / PAGE_SIZE);
 
+  // Save quick search when results come back (only on page 0 with a query)
+  useEffect(() => {
+    if (debouncedSearch && page === 0 && queryResult && !hasAdvancedFilters) {
+      saveSearchMutation.mutate({
+        query: debouncedSearch,
+        search_type: 'quick',
+        search_params: {},
+        results_count: queryResult.count,
+      });
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [debouncedSearch, queryResult?.count]);
+
   return (
-    <div className="space-y-6">
+    <div className="flex gap-6">
       <div className="flex items-center justify-between">
         <div>
           <h1 className="text-2xl font-bold">База товарных знаков</h1>
