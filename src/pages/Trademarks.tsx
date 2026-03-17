@@ -1332,6 +1332,7 @@ export default function Trademarks() {
         </DialogContent>
       </Dialog>
     </div>
+    </div>
   );
 }
 
