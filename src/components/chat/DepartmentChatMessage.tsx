@@ -396,6 +396,7 @@ function DepartmentChatMessageComponent({
                 ragContext={message.metadata?.rag_context}
                 citations={message.metadata?.citations}
                 webSearchCitations={message.metadata?.perplexity_citations || message.metadata?.web_search_citations}
+                userQuestion={userQuestion}
               />
 
               {/* Regenerate */}
