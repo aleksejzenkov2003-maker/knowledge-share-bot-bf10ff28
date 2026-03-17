@@ -75,6 +75,7 @@ export function BitrixMessageActions({
   ragContext,
   citations,
   webSearchCitations,
+  userQuestion,
 }: BitrixMessageActionsProps) {
   const [isEditing, setIsEditing] = useState(false);
   const [editContent, setEditContent] = useState(content);
