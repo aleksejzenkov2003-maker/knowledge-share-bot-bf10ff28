@@ -729,6 +729,7 @@ export default function Trademarks() {
             {totalCount !== undefined ? `${totalCount} записей` : 'Загрузка...'}
           </p>
         </div>
+        {isAdmin && (
         <div className="flex gap-2">
           {(totalCount ?? 0) > 0 && (
             <Button variant="outline" onClick={() => setClearAllOpen(true)} className="gap-2 text-destructive">
@@ -741,6 +742,7 @@ export default function Trademarks() {
             Импорт CSV
           </Button>
         </div>
+        )}
       </div>
 
       {/* Filters */}
