@@ -73,6 +73,7 @@ const PAGE_SIZE = 20;
 export default function ChatLogs() {
   const [logs, setLogs] = useState<ChatLog[]>([]);
   const [profiles, setProfiles] = useState<Map<string, Profile>>(new Map());
+  const [chatRoles, setChatRoles] = useState<Map<string, ChatRole>>(new Map());
   const [departments, setDepartments] = useState<Department[]>([]);
   const [loading, setLoading] = useState(true);
   const [page, setPage] = useState(0);
