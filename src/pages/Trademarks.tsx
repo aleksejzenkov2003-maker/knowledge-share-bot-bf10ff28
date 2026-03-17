@@ -674,6 +674,54 @@ export default function Trademarks() {
 
   return (
     <div className="flex gap-6">
+      {/* Search History Sidebar */}
+      <div className="hidden lg:block w-64 flex-shrink-0">
+        <Card className="sticky top-4">
+          <CardHeader className="pb-2 flex flex-row items-center justify-between">
+            <CardTitle className="text-sm flex items-center gap-2">
+              <History className="h-4 w-4" />
+              История поисков
+            </CardTitle>
+          </CardHeader>
+          <CardContent className="p-0">
+            <ScrollArea className="h-[calc(100vh-220px)]">
+              {!searchHistory?.length ? (
+                <p className="text-xs text-muted-foreground px-4 py-3">Нет истории поисков</p>
+              ) : (
+                <div className="space-y-0.5 px-2 pb-2">
+                  {searchHistory.map((item: any) => (
+                    <div
+                      key={item.id}
+                      className="group flex items-start gap-2 rounded-md px-2 py-1.5 hover:bg-muted cursor-pointer text-xs"
+                      onClick={() => applySearchFromHistory(item)}
+                    >
+                      <Clock className="h-3 w-3 text-muted-foreground mt-0.5 flex-shrink-0" />
+                      <div className="flex-1 min-w-0">
+                        <p className="font-medium truncate">{item.query || 'Поиск'}</p>
+                        <p className="text-muted-foreground">
+                          {item.results_count > 0 && `${item.results_count} рез. · `}
+                          {new Date(item.created_at).toLocaleDateString('ru-RU', { day: '2-digit', month: '2-digit' })}
+                        </p>
+                      </div>
+                      <Button
+                        variant="ghost"
+                        size="icon"
+                        className="h-5 w-5 opacity-0 group-hover:opacity-100 flex-shrink-0"
+                        onClick={(e) => { e.stopPropagation(); deleteSearchMutation.mutate(item.id); }}
+                      >
+                        <X className="h-3 w-3" />
+                      </Button>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </ScrollArea>
+          </CardContent>
+        </Card>
+      </div>
+
+      {/* Main Content */}
+      <div className="flex-1 min-w-0 space-y-6">
       <div className="flex items-center justify-between">
         <div>
           <h1 className="text-2xl font-bold">База товарных знаков</h1>
