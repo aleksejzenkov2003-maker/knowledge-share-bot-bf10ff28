@@ -47,9 +47,9 @@ interface BitrixChatMessageProps {
   onStopGeneration?: () => void;
   availableRoles?: ChatRole[];
   currentRoleId?: string;
-  // Bitrix context for document access
   bitrixApiBaseUrl?: string;
   bitrixToken?: string;
+  userQuestion?: string;
 }
 
 // Normalize malformed ASCII tables to valid GFM format
