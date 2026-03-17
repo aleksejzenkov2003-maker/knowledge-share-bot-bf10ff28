@@ -58,6 +58,7 @@ interface BitrixMessageActionsProps {
   ragContext?: string[];
   citations?: Citation[];
   webSearchCitations?: string[];
+  userQuestion?: string;
 }
 
 export function BitrixMessageActions({
