@@ -29,6 +29,7 @@ interface MessageActionsProps {
   ragContext?: string[];
   citations?: Citation[];
   webSearchCitations?: string[];
+  userQuestion?: string;
 }
 
 export function MessageActions({
