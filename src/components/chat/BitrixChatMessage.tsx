@@ -278,6 +278,7 @@ function BitrixChatMessageComponent({
             ragContext={message.ragContext}
             citations={message.citations}
             webSearchCitations={message.webSearchCitations}
+            userQuestion={userQuestion}
           />
         </div>
       ) : (
