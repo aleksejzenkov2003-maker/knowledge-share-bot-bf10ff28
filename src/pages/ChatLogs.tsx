@@ -52,6 +52,11 @@ interface ChatLog {
   provider?: { name: string } | null;
 }
 
+interface ChatRole {
+  id: string;
+  name: string;
+}
+
 interface Profile {
   id: string;
   full_name: string | null;
@@ -68,6 +73,7 @@ const PAGE_SIZE = 20;
 export default function ChatLogs() {
   const [logs, setLogs] = useState<ChatLog[]>([]);
   const [profiles, setProfiles] = useState<Map<string, Profile>>(new Map());
+  const [chatRoles, setChatRoles] = useState<Map<string, ChatRole>>(new Map());
   const [departments, setDepartments] = useState<Department[]>([]);
   const [loading, setLoading] = useState(true);
   const [page, setPage] = useState(0);
@@ -80,6 +86,7 @@ export default function ChatLogs() {
 
   useEffect(() => {
     fetchDepartments();
+    fetchChatRoles();
   }, []);
 
   useEffect(() => {
@@ -89,6 +96,13 @@ export default function ChatLogs() {
   const fetchDepartments = async () => {
     const { data } = await supabase.from("departments").select("id, name").order("name");
     setDepartments(data || []);
+  };
+
+  const fetchChatRoles = async () => {
+    const { data } = await supabase.from("chat_roles").select("id, name");
+    const rolesMap = new Map<string, ChatRole>();
+    (data || []).forEach((r) => rolesMap.set(r.id, r));
+    setChatRoles(rolesMap);
   };
 
   const fetchLogs = async () => {
@@ -257,9 +271,10 @@ export default function ChatLogs() {
             <>
               <Table>
                 <TableHeader>
-                  <TableRow>
+                   <TableRow>
                     <TableHead>Дата</TableHead>
                     <TableHead>Пользователь</TableHead>
+                    <TableHead>Роль (агент)</TableHead>
                     <TableHead>Отдел</TableHead>
                     <TableHead>Промпт</TableHead>
                     <TableHead>Токены</TableHead>
@@ -282,6 +297,8 @@ export default function ChatLogs() {
                     })
                     .map((log) => {
                       const profile = log.user_id ? profiles.get(log.user_id) : null;
+                      const roleId = log.metadata?.role_id;
+                      const roleName = roleId ? chatRoles.get(roleId)?.name : null;
                       return (
                         <TableRow key={log.id}>
                           <TableCell className="text-sm text-muted-foreground whitespace-nowrap">
@@ -289,6 +306,13 @@ export default function ChatLogs() {
                           </TableCell>
                           <TableCell>
                             {profile?.full_name || profile?.email || (
+                              <span className="text-muted-foreground">-</span>
+                            )}
+                          </TableCell>
+                          <TableCell>
+                            {roleName ? (
+                              <Badge variant="secondary">{roleName}</Badge>
+                            ) : (
                               <span className="text-muted-foreground">-</span>
                             )}
                           </TableCell>
@@ -367,6 +391,8 @@ export default function ChatLogs() {
           </DialogHeader>
           {selectedLog && (() => {
             const selectedProfile = selectedLog.user_id ? profiles.get(selectedLog.user_id) : null;
+            const selectedRoleId = selectedLog.metadata?.role_id;
+            const selectedRoleName = selectedRoleId ? chatRoles.get(selectedRoleId)?.name : null;
             return (
             <div className="space-y-4">
               <div className="grid grid-cols-2 gap-4 text-sm">
@@ -377,6 +403,10 @@ export default function ChatLogs() {
                 <div>
                   <span className="font-medium">Пользователь:</span>{" "}
                   {selectedProfile?.full_name || selectedProfile?.email || "-"}
+                </div>
+                <div>
+                  <span className="font-medium">Роль (агент):</span>{" "}
+                  {selectedRoleName || "-"}
                 </div>
                 <div>
                   <span className="font-medium">Отдел:</span>{" "}
