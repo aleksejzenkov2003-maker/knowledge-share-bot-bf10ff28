@@ -297,6 +297,8 @@ export default function ChatLogs() {
                     })
                     .map((log) => {
                       const profile = log.user_id ? profiles.get(log.user_id) : null;
+                      const roleId = log.metadata?.role_id;
+                      const roleName = roleId ? chatRoles.get(roleId)?.name : null;
                       return (
                         <TableRow key={log.id}>
                           <TableCell className="text-sm text-muted-foreground whitespace-nowrap">
