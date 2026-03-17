@@ -281,7 +281,7 @@ export function DownloadDropdown({
       });
       
       const blob = await Packer.toBlob(doc);
-      saveAs(blob, `response-${new Date().toISOString().slice(0, 10)}.docx`);
+      saveAs(blob, generateFileName(userQuestion, 'docx'));
       
       toast({
         title: "Скачано",
