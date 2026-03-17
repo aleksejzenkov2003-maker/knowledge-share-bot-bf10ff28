@@ -36,15 +36,27 @@ export function useFolderOperations(onComplete?: () => void) {
         .map(d => d.storage_path)
         .filter((p): p is string => Boolean(p));
 
-      // 3. Delete files from Storage
+      // 3. Safe delete from Storage: only remove paths not used by other documents
       if (storagePaths.length > 0) {
-        const { error: storageError } = await supabase.storage
-          .from("rag-documents")
-          .remove(storagePaths);
-        
-        if (storageError) {
-          console.error("Storage delete error:", storageError);
-          // Continue anyway - DB records are more important
+        const docIds = docs.map(d => d.id);
+        const safeToDelete: string[] = [];
+        for (const sp of storagePaths) {
+          const { data: others } = await supabase
+            .from("documents")
+            .select("id")
+            .eq("storage_path", sp)
+            .not("id", "in", `(${docIds.join(",")})`);
+          if (!others || others.length === 0) {
+            safeToDelete.push(sp);
+          }
+        }
+        if (safeToDelete.length > 0) {
+          const { error: storageError } = await supabase.storage
+            .from("rag-documents")
+            .remove(safeToDelete);
+          if (storageError) {
+            console.error("Storage delete error:", storageError);
+          }
         }
       }
 
@@ -197,15 +209,29 @@ export function useFolderOperations(onComplete?: () => void) {
         return true;
       }
 
-      // Delete from storage
+      // Safe delete from storage: only remove paths not used by other documents
       const storagePaths = docs
         .map(d => d.storage_path)
         .filter((p): p is string => Boolean(p));
 
       if (storagePaths.length > 0) {
-        await supabase.storage
-          .from("rag-documents")
-          .remove(storagePaths);
+        const docIds = docs.map(d => d.id);
+        const safeToDelete: string[] = [];
+        for (const sp of storagePaths) {
+          const { data: others } = await supabase
+            .from("documents")
+            .select("id")
+            .eq("storage_path", sp)
+            .not("id", "in", `(${docIds.join(",")})`);
+          if (!others || others.length === 0) {
+            safeToDelete.push(sp);
+          }
+        }
+        if (safeToDelete.length > 0) {
+          await supabase.storage
+            .from("rag-documents")
+            .remove(safeToDelete);
+        }
       }
 
       // Delete records

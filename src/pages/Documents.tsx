@@ -894,9 +894,17 @@ export default function Documents() {
     if (!confirm(`Удалить документ "${doc.name}"?`)) return;
 
     try {
-      // Delete from storage if exists
+      // Safe delete: only remove from storage if no other docs reference the same path
       if (doc.storage_path) {
-        await supabase.storage.from("rag-documents").remove([doc.storage_path]);
+        const { data: others } = await supabase
+          .from("documents")
+          .select("id")
+          .eq("storage_path", doc.storage_path)
+          .neq("id", doc.id);
+        
+        if (!others || others.length === 0) {
+          await supabase.storage.from("rag-documents").remove([doc.storage_path]);
+        }
       }
 
       // Delete document record (cascades to chunks)
@@ -945,15 +953,26 @@ export default function Documents() {
         docIds.push(parentDoc.id);
       }
       
-      // Delete files from storage
+      // Safe delete from storage: only remove paths not shared with other documents
       if (storagePaths.length > 0) {
-        const { error: storageError } = await supabase.storage
-          .from("rag-documents")
-          .remove(storagePaths);
-        
-        if (storageError) {
-          console.error("Storage delete error:", storageError);
-          // Continue anyway - DB records are more important
+        const safeToDelete: string[] = [];
+        for (const sp of storagePaths) {
+          const { data: others } = await supabase
+            .from("documents")
+            .select("id")
+            .eq("storage_path", sp)
+            .not("id", "in", `(${docIds.join(",")})`);
+          if (!others || others.length === 0) {
+            safeToDelete.push(sp);
+          }
+        }
+        if (safeToDelete.length > 0) {
+          const { error: storageError } = await supabase.storage
+            .from("rag-documents")
+            .remove(safeToDelete);
+          if (storageError) {
+            console.error("Storage delete error:", storageError);
+          }
         }
       }
       
@@ -1241,16 +1260,30 @@ export default function Documents() {
         }
       } else {
         // Copy
-        const docsToCopy = moveTargetGroup
-          ? moveTargetGroup.documents
-          : moveTargetDoc
-          ? [moveTargetDoc]
-          : [];
-
-        for (const srcDoc of docsToCopy) {
-          await copyDocumentToFolder(srcDoc, targetFolderId);
+        if (moveTargetGroup) {
+          // Copy entire group with new parent chain
+          const parentDoc = moveTargetGroup.parentDocument;
+          const childDocs = moveTargetGroup.documents;
+          
+          let newParentId: string | null = null;
+          
+          // Copy parent document first if it exists
+          if (parentDoc) {
+            newParentId = await copyDocumentToFolder(parentDoc, targetFolderId, null);
+          }
+          
+          // Copy child documents, pointing to new parent
+          for (const srcDoc of childDocs) {
+            // If this doc was pointing to old parent, point to new parent
+            const overrideParentId = srcDoc.parent_document_id ? newParentId : null;
+            await copyDocumentToFolder(srcDoc, targetFolderId, overrideParentId);
+          }
+          
+          toast.success(`Скопировано ${childDocs.length + (parentDoc ? 1 : 0)} документ(ов)`);
+        } else if (moveTargetDoc) {
+          await copyDocumentToFolder(moveTargetDoc, targetFolderId, null);
+          toast.success("Документ скопирован");
         }
-        toast.success(`Скопировано ${docsToCopy.length} документ(ов)`);
       }
 
       setMoveDialogOpen(false);
@@ -1263,8 +1296,36 @@ export default function Documents() {
     }
   };
 
-  const copyDocumentToFolder = async (srcDoc: Document, targetFolderId: string) => {
-    // 1. Create new document record
+  // Returns the new document ID
+  const copyDocumentToFolder = async (
+    srcDoc: Document, 
+    targetFolderId: string, 
+    overrideParentId: string | null
+  ): Promise<string> => {
+    // 1. Copy the actual file in Storage (if exists)
+    let newStoragePath = srcDoc.storage_path;
+    if (srcDoc.storage_path) {
+      try {
+        const { data: fileBlob, error: dlErr } = await supabase.storage
+          .from("rag-documents")
+          .download(srcDoc.storage_path);
+        if (dlErr) throw dlErr;
+        
+        const safeName = srcDoc.storage_path.replace(/.*\//, '');
+        newStoragePath = `${Date.now()}-copy-${safeName}`;
+        
+        const { error: upErr } = await supabase.storage
+          .from("rag-documents")
+          .upload(newStoragePath, fileBlob);
+        if (upErr) throw upErr;
+      } catch (storageErr) {
+        console.error("Storage copy error, reusing path:", storageErr);
+        // Fallback: reuse original path (better than failing entirely)
+        newStoragePath = srcDoc.storage_path;
+      }
+    }
+
+    // 2. Create new document record with independent storage_path and parent
     const { data: newDoc, error: docErr } = await supabase
       .from("documents")
       .insert({
@@ -1272,14 +1333,14 @@ export default function Documents() {
         file_name: srcDoc.file_name,
         file_type: srcDoc.file_type,
         file_size: srcDoc.file_size,
-        storage_path: srcDoc.storage_path,
+        storage_path: newStoragePath,
         folder_id: targetFolderId,
         document_type: srcDoc.document_type,
         status: srcDoc.status,
         chunk_count: srcDoc.chunk_count,
         has_trademark: srcDoc.has_trademark,
         trademark_image_path: srcDoc.trademark_image_path,
-        parent_document_id: srcDoc.parent_document_id,
+        parent_document_id: overrideParentId,
         part_number: srcDoc.part_number,
         total_parts: srcDoc.total_parts,
       })
@@ -1288,7 +1349,7 @@ export default function Documents() {
 
     if (docErr) throw docErr;
 
-    // 2. Copy chunks in batches
+    // 3. Copy chunks in batches
     let offset = 0;
     const batchSize = 500;
     while (true) {
@@ -1324,6 +1385,8 @@ export default function Documents() {
       if (chunks.length < batchSize) break;
       offset += batchSize;
     }
+
+    return newDoc.id;
   };
 
   if (loading) {
