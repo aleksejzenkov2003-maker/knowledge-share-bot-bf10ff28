@@ -1915,6 +1915,9 @@ ${goldenExamples.join('\n\n---\n\n')}
       'claude-haiku-4-5-20251001',
       'claude-3-5-haiku-20241022',
       'claude-3-haiku-20240307',
+      'claude-sonnet-4-20250514',
+      'claude-3-5-sonnet-20241022',
+      'claude-3-opus-20240229',
     ];
     
     if (providerConfig.provider_type === 'anthropic' && !validAnthropicModels.includes(finalModel)) {
@@ -2117,7 +2120,12 @@ ${goldenExamples.join('\n\n---\n\n')}
           }),
         });
         
-        console.log(`Perplexity response status: ${streamResponse.status}`);
+        if (!streamResponse.ok) {
+          const errBody = await streamResponse.text();
+          console.error(`Perplexity API error: status=${streamResponse.status}, model=${finalModel}, body=${errBody}`);
+        } else {
+          console.log(`Perplexity response status: ${streamResponse.status}`);
+        }
         break;
       }
     }
@@ -2137,7 +2145,7 @@ ${goldenExamples.join('\n\n---\n\n')}
         // Try Gemini first, then Anthropic
         const fallbackProviders = [
           { type: 'gemini', key: GEMINI_API_KEY, model: 'gemini-2.5-flash' },
-          { type: 'anthropic', key: ANTHROPIC_API_KEY, model: 'claude-sonnet-4-20250514' },
+          { type: 'anthropic', key: ANTHROPIC_API_KEY, model: 'claude-sonnet-4-6' },
         ];
         
         for (const fallback of fallbackProviders) {
