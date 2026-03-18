@@ -2120,7 +2120,12 @@ ${goldenExamples.join('\n\n---\n\n')}
           }),
         });
         
-        console.log(`Perplexity response status: ${streamResponse.status}`);
+        if (!streamResponse.ok) {
+          const errBody = await streamResponse.text();
+          console.error(`Perplexity API error: status=${streamResponse.status}, model=${finalModel}, body=${errBody}`);
+        } else {
+          console.log(`Perplexity response status: ${streamResponse.status}`);
+        }
         break;
       }
     }
