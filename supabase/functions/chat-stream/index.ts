@@ -2145,7 +2145,7 @@ ${goldenExamples.join('\n\n---\n\n')}
         // Try Gemini first, then Anthropic
         const fallbackProviders = [
           { type: 'gemini', key: GEMINI_API_KEY, model: 'gemini-2.5-flash' },
-          { type: 'anthropic', key: ANTHROPIC_API_KEY, model: 'claude-sonnet-4-20250514' },
+          { type: 'anthropic', key: ANTHROPIC_API_KEY, model: 'claude-sonnet-4-6' },
         ];
         
         for (const fallback of fallbackProviders) {
