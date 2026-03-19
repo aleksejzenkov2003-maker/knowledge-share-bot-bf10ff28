@@ -1,4 +1,5 @@
 import React, { useState } from 'react';
+import { useAuth } from '@/contexts/AuthContext';
 import { DepartmentChatMessage as MessageType } from '@/types/departmentChat';
 import { Bot, User, FileText, Image, Clock, BookOpen, Globe, AlertTriangle, Copy, CheckCheck, RefreshCw, ChevronDown, Reply } from 'lucide-react';
 import { cn } from '@/lib/utils';
