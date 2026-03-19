@@ -70,6 +70,7 @@ function DepartmentChatMessageComponent({
   userQuestion,
 }: DepartmentChatMessageProps) {
   const [copied, setCopied] = useState(false);
+  const { role: userRole } = useAuth();
   
   const isAssistant = message.message_role === 'assistant';
   const isOwnMessage = message.user_id === currentUserId;
