@@ -1,4 +1,5 @@
 import React, { useState } from 'react';
+import { useAuth } from '@/contexts/AuthContext';
 import { DepartmentChatMessage as MessageType } from '@/types/departmentChat';
 import { Bot, User, FileText, Image, Clock, BookOpen, Globe, AlertTriangle, Copy, CheckCheck, RefreshCw, ChevronDown, Reply } from 'lucide-react';
 import { cn } from '@/lib/utils';
@@ -69,6 +70,7 @@ function DepartmentChatMessageComponent({
   userQuestion,
 }: DepartmentChatMessageProps) {
   const [copied, setCopied] = useState(false);
+  const { role: userRole } = useAuth();
   
   const isAssistant = message.message_role === 'assistant';
   const isOwnMessage = message.user_id === currentUserId;
@@ -177,7 +179,7 @@ function DepartmentChatMessageComponent({
             <span className="text-sm font-medium text-foreground">
               {agentName}
             </span>
-            {message.role_id && roleProviderLabels?.get(message.role_id) && (
+            {message.role_id && (userRole === 'admin' || userRole === 'moderator') && roleProviderLabels?.get(message.role_id) && (
               <Badge variant="outline" className="text-[10px] px-1.5 py-0 h-4 font-normal text-muted-foreground border-muted">
                 {roleProviderLabels.get(message.role_id)!.providerName}
                 {roleProviderLabels.get(message.role_id)!.model && (

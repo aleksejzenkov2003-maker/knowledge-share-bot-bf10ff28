@@ -1,4 +1,5 @@
 import { useRef, useEffect, useCallback, useState, useMemo } from "react";
+import { useAuth } from "@/contexts/AuthContext";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { Send, Loader2, Paperclip, ChevronDown, Bot, X, StopCircle, BookOpen, AtSign } from "lucide-react";
@@ -92,6 +93,7 @@ export function ChatInputEnhanced({
   availableAgents = [],
   roleProviderLabels,
 }: ChatInputEnhancedProps) {
+  const { role: userRole } = useAuth();
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const suggestionsRef = useRef<HTMLDivElement>(null);
@@ -382,7 +384,7 @@ export function ChatInputEnhanced({
                   <div className="flex-1 min-w-0">
                     <div className="flex items-center gap-1.5">
                       <span className="font-medium truncate">{agent.name}</span>
-                      {roleProviderLabels?.get(agent.id) && (
+                      {(userRole === 'admin' || userRole === 'moderator') && roleProviderLabels?.get(agent.id) && (
                         <Badge variant="outline" className="text-[10px] px-1.5 py-0 h-4 font-normal text-muted-foreground border-muted shrink-0">
                           {roleProviderLabels.get(agent.id)!.providerName}
                           {roleProviderLabels.get(agent.id)!.model && (
@@ -512,7 +514,7 @@ export function ChatInputEnhanced({
                       >
                         <div className="flex items-center gap-2 w-full">
                           <span className="font-medium">{role.name}</span>
-                          {roleProviderLabels?.get(role.id) && (
+                          {(userRole === 'admin' || userRole === 'moderator') && roleProviderLabels?.get(role.id) && (
                             <Badge variant="outline" className="text-[10px] px-1.5 py-0 h-4 font-normal text-muted-foreground border-muted shrink-0">
                               {roleProviderLabels.get(role.id)!.providerName}
                               {roleProviderLabels.get(role.id)!.model && (
