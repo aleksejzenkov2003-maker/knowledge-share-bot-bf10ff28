@@ -93,6 +93,7 @@ export function ChatInputEnhanced({
   availableAgents = [],
   roleProviderLabels,
 }: ChatInputEnhancedProps) {
+  const { role: userRole } = useAuth();
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const suggestionsRef = useRef<HTMLDivElement>(null);
