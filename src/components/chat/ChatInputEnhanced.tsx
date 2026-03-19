@@ -1,4 +1,5 @@
 import { useRef, useEffect, useCallback, useState, useMemo } from "react";
+import { useAuth } from "@/contexts/AuthContext";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { Send, Loader2, Paperclip, ChevronDown, Bot, X, StopCircle, BookOpen, AtSign } from "lucide-react";

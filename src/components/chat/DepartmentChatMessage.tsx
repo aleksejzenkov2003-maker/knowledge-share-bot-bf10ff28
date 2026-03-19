@@ -179,7 +179,7 @@ function DepartmentChatMessageComponent({
             <span className="text-sm font-medium text-foreground">
               {agentName}
             </span>
-            {message.role_id && roleProviderLabels?.get(message.role_id) && (
+            {message.role_id && (userRole === 'admin' || userRole === 'moderator') && roleProviderLabels?.get(message.role_id) && (
               <Badge variant="outline" className="text-[10px] px-1.5 py-0 h-4 font-normal text-muted-foreground border-muted">
                 {roleProviderLabels.get(message.role_id)!.providerName}
                 {roleProviderLabels.get(message.role_id)!.model && (
