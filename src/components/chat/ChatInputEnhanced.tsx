@@ -514,7 +514,7 @@ export function ChatInputEnhanced({
                       >
                         <div className="flex items-center gap-2 w-full">
                           <span className="font-medium">{role.name}</span>
-                          {roleProviderLabels?.get(role.id) && (
+                          {(userRole === 'admin' || userRole === 'moderator') && roleProviderLabels?.get(role.id) && (
                             <Badge variant="outline" className="text-[10px] px-1.5 py-0 h-4 font-normal text-muted-foreground border-muted shrink-0">
                               {roleProviderLabels.get(role.id)!.providerName}
                               {roleProviderLabels.get(role.id)!.model && (
