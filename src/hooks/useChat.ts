@@ -412,11 +412,35 @@ export function useChat(userId: string | undefined) {
       const { data: sessionData } = await supabase.auth.getSession();
       const token = sessionData.session?.access_token;
 
-      // Use streaming endpoint
+      // Check if selected role uses deep-research model
+      let isDeepResearch = false;
+      if (selectedRoleId) {
+        const { data: roleConfig } = await supabase
+          .from('chat_roles')
+          .select('model_config')
+          .eq('id', selectedRoleId)
+          .single();
+        const mc = roleConfig?.model_config as { model?: string } | null;
+        isDeepResearch = mc?.model?.includes('deep-research') === true;
+      }
+
+      const endpoint = isDeepResearch ? 'deep-research' : 'chat-stream';
+      
       abortControllerRef.current = new AbortController();
+      // Deep research can take up to 5 minutes
+      if (isDeepResearch) {
+        setTimeout(() => abortControllerRef.current?.abort(), 360000);
+        setMessages((prev) =>
+          prev.map((m) =>
+            m.id === assistantMessageId
+              ? { ...m, content: '🔍 _Выполняется глубокое исследование. Это может занять до 5 минут..._' }
+              : m
+          )
+        );
+      }
       
       const response = await fetch(
-        `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/chat-stream`,
+        `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/${endpoint}`,
         {
           method: 'POST',
           headers: {

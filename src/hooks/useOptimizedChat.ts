@@ -292,10 +292,39 @@ export function useOptimizedChat(userId: string | undefined, departmentId: strin
       const { data: sessionData } = await supabase.auth.getSession();
       const token = sessionData.session?.access_token;
 
+      // Check if selected role uses deep-research model
+      const effectiveRoleId = overrideRoleId || selectedRoleId;
+      let isDeepResearch = false;
+      if (effectiveRoleId) {
+        const { data: roleConfig } = await supabase
+          .from('chat_roles')
+          .select('model_config')
+          .eq('id', effectiveRoleId)
+          .single();
+        const mc = roleConfig?.model_config as { model?: string } | null;
+        isDeepResearch = mc?.model?.includes('deep-research') === true;
+      }
+
+      const endpoint = isDeepResearch ? 'deep-research' : 'chat-stream';
+      // Deep research can take up to 5 minutes
+      const clientTimeout = isDeepResearch ? 360000 : undefined;
+
       abortControllerRef.current = new AbortController();
+      if (clientTimeout) {
+        setTimeout(() => abortControllerRef.current?.abort(), clientTimeout);
+      }
+
+      // Show extended loading indicator for deep research
+      if (isDeepResearch) {
+        setLocalMessages(prev => prev.map(m =>
+          m.id === assistantMessageId
+            ? { ...m, content: '🔍 _Выполняется глубокое исследование. Это может занять до 5 минут..._' }
+            : m
+        ));
+      }
       
       const response = await fetch(
-        `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/chat-stream`,
+        `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/${endpoint}`,
         {
           method: 'POST',
           headers: {
@@ -304,7 +333,7 @@ export function useOptimizedChat(userId: string | undefined, departmentId: strin
           },
           body: JSON.stringify({
             message: trimmedInput,
-            role_id: overrideRoleId || selectedRoleId || undefined,
+            role_id: effectiveRoleId || undefined,
             conversation_id: conversationId,
             message_history: messageHistory,
             attachments: uploadedAttachments.length > 0 ? uploadedAttachments.map((ua, i) => ({
