@@ -677,9 +677,9 @@ serve(async (req) => {
           
           // STEP 2: Re-ranking with Claude Sonnet 4.5
           // Changed: use >= instead of > to trigger rerank more consistently
-          if (ANTHROPIC_API_KEY && ftsResults.length >= TOP_K_FINAL) {
+          if (ANTHROPIC_API_KEY && mergedCandidates.length >= TOP_K_FINAL) {
             try {
-              const chunksForRerank = ftsResults.map((chunk: {
+              const chunksForRerank = mergedCandidates.map((chunk: {
                 id: string;
                 content: string;
                 document_name: string;
@@ -735,9 +735,9 @@ serve(async (req) => {
             }
           }
 
-          // Fallback: Use FTS results directly if re-ranking failed
+          // Fallback: Use merged results directly if re-ranking failed
           if (rankedChunks.length === 0) {
-            rankedChunks = ftsResults.slice(0, TOP_K_FINAL).map((chunk: {
+            rankedChunks = mergedCandidates.slice(0, TOP_K_FINAL).map((chunk: {
               id: string;
               content: string;
               document_name: string;
@@ -761,7 +761,7 @@ serve(async (req) => {
               part_number: chunk.part_number,
               total_parts: chunk.total_parts,
             }));
-            console.log(`RAG: Using FTS results directly (${rankedChunks.length} chunks)`);
+            console.log(`RAG: Using merged results directly (${rankedChunks.length} chunks)`);
           }
         }
       } catch (ftsErr) {
