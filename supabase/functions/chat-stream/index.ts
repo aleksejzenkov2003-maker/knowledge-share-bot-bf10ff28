@@ -558,6 +558,70 @@ serve(async (req) => {
         console.log(`RAG: Query expanded with terms: ${expansionTerms.join(', ')}`);
       }
       
+      // STEP 0.5: LLM Query Expansion for МКТУ (semantic bridge)
+      // Detects if context is МКТУ-related and uses Gemini Flash to generate domain-specific terms
+      let llmExpandedKeywords: string[] = [];
+      const isMktuContext = systemPrompt.toLowerCase().includes('мкту') || 
+                            systemPrompt.toLowerCase().includes('mktu') ||
+                            systemPrompt.toLowerCase().includes('международн') && systemPrompt.toLowerCase().includes('классифик') ||
+                            messageLower.includes('мкту') || messageLower.includes('mktu') ||
+                            messageLower.includes('класс') && (messageLower.includes('товар') || messageLower.includes('услуг'));
+      
+      if (isMktuContext && folderIds.length > 0) {
+        const LOVABLE_API_KEY = Deno.env.get('LOVABLE_API_KEY');
+        if (LOVABLE_API_KEY) {
+          try {
+            console.log('RAG: МКТУ context detected, running LLM query expansion...');
+            const expansionResponse = await fetch('https://ai.gateway.lovable.dev/v1/chat/completions', {
+              method: 'POST',
+              headers: {
+                'Authorization': `Bearer ${LOVABLE_API_KEY}`,
+                'Content-Type': 'application/json',
+              },
+              body: JSON.stringify({
+                model: 'google/gemini-2.5-flash-lite',
+                messages: [
+                  {
+                    role: 'system',
+                    content: `Ты эксперт по Международной классификации товаров и услуг (МКТУ / Ниццкая классификация). 
+Твоя задача — перевести бытовое описание деятельности пользователя на формальный язык МКТУ.
+
+ПРАВИЛА:
+- Выдай 15-25 конкретных терминов, которые встречаются в описаниях классов МКТУ
+- Используй формальные формулировки МКТУ (например, "аппараты торговые автоматические" вместо "вендинг")
+- Включи как товары, так и услуги, связанные с деятельностью
+- Каждый термин на отдельной строке
+- ТОЛЬКО термины, без номеров классов, без пояснений, без нумерации`
+                  },
+                  {
+                    role: 'user',
+                    content: `Пользователь описал деятельность: "${message}"\n\nСгенерируй термины МКТУ:`
+                  }
+                ],
+                max_tokens: 1000,
+                temperature: 0.3,
+              }),
+              signal: AbortSignal.timeout(8000), // 8s timeout for expansion
+            });
+
+            if (expansionResponse.ok) {
+              const expansionData = await expansionResponse.json();
+              const expandedText = expansionData.choices?.[0]?.message?.content || '';
+              llmExpandedKeywords = expandedText
+                .split('\n')
+                .map((line: string) => line.replace(/^[-•*\d.)\s]+/, '').trim().toLowerCase())
+                .filter((term: string) => term.length > 2 && term.length < 80);
+              
+              console.log(`RAG: LLM expansion generated ${llmExpandedKeywords.length} МКТУ terms: ${llmExpandedKeywords.slice(0, 5).join(', ')}...`);
+            } else {
+              console.error('RAG: LLM expansion failed:', expansionResponse.status);
+            }
+          } catch (llmError) {
+            console.error('RAG: LLM expansion error (timeout or network):', llmError);
+          }
+        }
+      }
+      
       // STEP 1: Full-Text Search (PostgreSQL) - Get candidates
       try {
         const { data: ftsResults, error: ftsError } = await supabase.rpc('smart_fts_search', {
@@ -570,14 +634,52 @@ serve(async (req) => {
           console.error('FTS search error:', ftsError);
         }
 
-        if (ftsResults && ftsResults.length > 0) {
-          console.log(`RAG: FTS found ${ftsResults.length} candidates, TOP_K_FINAL=${TOP_K_FINAL}, has ANTHROPIC_KEY=${!!ANTHROPIC_API_KEY}`);
+        // STEP 1.5: Merge LLM-expanded keyword results into FTS candidates
+        let mergedCandidates = ftsResults ? [...ftsResults] : [];
+        
+        if (llmExpandedKeywords.length > 0) {
+          try {
+            console.log(`RAG: Running keyword search with ${llmExpandedKeywords.length} LLM-expanded terms...`);
+            const { data: llmKeywordResults } = await supabase.rpc('keyword_search', {
+              keywords: llmExpandedKeywords.slice(0, 20), // Limit to 20 terms
+              p_folder_ids: folderIds,
+              match_count: FTS_CANDIDATES,
+            });
+            
+            if (llmKeywordResults && llmKeywordResults.length > 0) {
+              console.log(`RAG: LLM keyword search found ${llmKeywordResults.length} additional chunks`);
+              
+              // Merge: add LLM keyword results that aren't already in FTS results
+              const existingIds = new Set(mergedCandidates.map((c: { id: string }) => c.id));
+              const newChunks = llmKeywordResults.filter((c: { id: string }) => !existingIds.has(c.id));
+              
+              // Convert keyword results to FTS-like format with lower rank
+              const convertedChunks = newChunks.map((chunk: {
+                id: string; content: string; document_name: string;
+                section_title?: string; article_number?: string;
+                keyword_matches: number; parent_document_id?: string;
+                original_document_name?: string; part_number?: number; total_parts?: number;
+              }) => ({
+                ...chunk,
+                fts_rank: (chunk.keyword_matches / llmExpandedKeywords.length) * 0.3, // Normalize to 0-0.3 range
+              }));
+              
+              mergedCandidates = [...mergedCandidates, ...convertedChunks];
+              console.log(`RAG: Merged total candidates: ${mergedCandidates.length} (${ftsResults?.length || 0} FTS + ${newChunks.length} LLM-expanded)`);
+            }
+          } catch (llmKwErr) {
+            console.error('RAG: LLM keyword search error:', llmKwErr);
+          }
+        }
+
+        if (mergedCandidates.length > 0) {
+          console.log(`RAG: ${mergedCandidates.length} total candidates for re-ranking, TOP_K_FINAL=${TOP_K_FINAL}, has ANTHROPIC_KEY=${!!ANTHROPIC_API_KEY}`);
           
           // STEP 2: Re-ranking with Claude Sonnet 4.5
           // Changed: use >= instead of > to trigger rerank more consistently
-          if (ANTHROPIC_API_KEY && ftsResults.length >= TOP_K_FINAL) {
+          if (ANTHROPIC_API_KEY && mergedCandidates.length >= TOP_K_FINAL) {
             try {
-              const chunksForRerank = ftsResults.map((chunk: {
+              const chunksForRerank = mergedCandidates.map((chunk: {
                 id: string;
                 content: string;
                 document_name: string;
@@ -633,9 +735,9 @@ serve(async (req) => {
             }
           }
 
-          // Fallback: Use FTS results directly if re-ranking failed
+          // Fallback: Use merged results directly if re-ranking failed
           if (rankedChunks.length === 0) {
-            rankedChunks = ftsResults.slice(0, TOP_K_FINAL).map((chunk: {
+            rankedChunks = mergedCandidates.slice(0, TOP_K_FINAL).map((chunk: {
               id: string;
               content: string;
               document_name: string;
@@ -659,7 +761,7 @@ serve(async (req) => {
               part_number: chunk.part_number,
               total_parts: chunk.total_parts,
             }));
-            console.log(`RAG: Using FTS results directly (${rankedChunks.length} chunks)`);
+            console.log(`RAG: Using merged results directly (${rankedChunks.length} chunks)`);
           }
         }
       } catch (ftsErr) {
