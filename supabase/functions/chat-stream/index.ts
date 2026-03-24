@@ -634,8 +634,46 @@ serve(async (req) => {
           console.error('FTS search error:', ftsError);
         }
 
-        if (ftsResults && ftsResults.length > 0) {
-          console.log(`RAG: FTS found ${ftsResults.length} candidates, TOP_K_FINAL=${TOP_K_FINAL}, has ANTHROPIC_KEY=${!!ANTHROPIC_API_KEY}`);
+        // STEP 1.5: Merge LLM-expanded keyword results into FTS candidates
+        let mergedCandidates = ftsResults ? [...ftsResults] : [];
+        
+        if (llmExpandedKeywords.length > 0) {
+          try {
+            console.log(`RAG: Running keyword search with ${llmExpandedKeywords.length} LLM-expanded terms...`);
+            const { data: llmKeywordResults } = await supabase.rpc('keyword_search', {
+              keywords: llmExpandedKeywords.slice(0, 20), // Limit to 20 terms
+              p_folder_ids: folderIds,
+              match_count: FTS_CANDIDATES,
+            });
+            
+            if (llmKeywordResults && llmKeywordResults.length > 0) {
+              console.log(`RAG: LLM keyword search found ${llmKeywordResults.length} additional chunks`);
+              
+              // Merge: add LLM keyword results that aren't already in FTS results
+              const existingIds = new Set(mergedCandidates.map((c: { id: string }) => c.id));
+              const newChunks = llmKeywordResults.filter((c: { id: string }) => !existingIds.has(c.id));
+              
+              // Convert keyword results to FTS-like format with lower rank
+              const convertedChunks = newChunks.map((chunk: {
+                id: string; content: string; document_name: string;
+                section_title?: string; article_number?: string;
+                keyword_matches: number; parent_document_id?: string;
+                original_document_name?: string; part_number?: number; total_parts?: number;
+              }) => ({
+                ...chunk,
+                fts_rank: (chunk.keyword_matches / llmExpandedKeywords.length) * 0.3, // Normalize to 0-0.3 range
+              }));
+              
+              mergedCandidates = [...mergedCandidates, ...convertedChunks];
+              console.log(`RAG: Merged total candidates: ${mergedCandidates.length} (${ftsResults?.length || 0} FTS + ${newChunks.length} LLM-expanded)`);
+            }
+          } catch (llmKwErr) {
+            console.error('RAG: LLM keyword search error:', llmKwErr);
+          }
+        }
+
+        if (mergedCandidates.length > 0) {
+          console.log(`RAG: ${mergedCandidates.length} total candidates for re-ranking, TOP_K_FINAL=${TOP_K_FINAL}, has ANTHROPIC_KEY=${!!ANTHROPIC_API_KEY}`);
           
           // STEP 2: Re-ranking with Claude Sonnet 4.5
           // Changed: use >= instead of > to trigger rerank more consistently
