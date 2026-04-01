@@ -34,6 +34,7 @@ import {
   FolderKanban,
   Search,
   Stamp,
+  Mic,
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 
