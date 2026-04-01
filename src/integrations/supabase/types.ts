@@ -56,6 +56,90 @@ export type Database = {
         }
         Relationships: []
       }
+      audio_session_messages: {
+        Row: {
+          content: string
+          created_at: string
+          id: string
+          message_role: string
+          metadata: Json | null
+          role_id: string | null
+          session_id: string
+          user_id: string
+        }
+        Insert: {
+          content: string
+          created_at?: string
+          id?: string
+          message_role: string
+          metadata?: Json | null
+          role_id?: string | null
+          session_id: string
+          user_id: string
+        }
+        Update: {
+          content?: string
+          created_at?: string
+          id?: string
+          message_role?: string
+          metadata?: Json | null
+          role_id?: string | null
+          session_id?: string
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "audio_session_messages_role_id_fkey"
+            columns: ["role_id"]
+            isOneToOne: false
+            referencedRelation: "chat_roles"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "audio_session_messages_session_id_fkey"
+            columns: ["session_id"]
+            isOneToOne: false
+            referencedRelation: "audio_sessions"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      audio_sessions: {
+        Row: {
+          audio_file_name: string | null
+          audio_file_path: string | null
+          created_at: string
+          id: string
+          status: string
+          title: string
+          transcript: string | null
+          updated_at: string
+          user_id: string
+        }
+        Insert: {
+          audio_file_name?: string | null
+          audio_file_path?: string | null
+          created_at?: string
+          id?: string
+          status?: string
+          title?: string
+          transcript?: string | null
+          updated_at?: string
+          user_id: string
+        }
+        Update: {
+          audio_file_name?: string | null
+          audio_file_path?: string | null
+          created_at?: string
+          id?: string
+          status?: string
+          title?: string
+          transcript?: string | null
+          updated_at?: string
+          user_id?: string
+        }
+        Relationships: []
+      }
       bitrix_sessions: {
         Row: {
           bitrix_user_id: string
