@@ -45,6 +45,7 @@ const mainMenuItems = [
   { title: 'Проекты', url: '/projects', icon: FolderKanban, tourId: 'sidebar-projects' },
   { title: 'Reputation', url: '/reputation', icon: Search, tourId: 'sidebar-reputation' },
   { title: 'База ТЗ', url: '/trademarks', icon: Stamp, tourId: 'sidebar-trademarks' },
+  { title: 'Анализ аудио', url: '/audio-analysis', icon: Mic, tourId: 'sidebar-audio' },
 ];
 
 const managementItems = [

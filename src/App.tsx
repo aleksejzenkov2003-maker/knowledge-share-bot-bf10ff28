@@ -172,6 +172,11 @@ const App = () => (
                 <AdminLayout><Trademarks /></AdminLayout>
               </ProtectedRoute>
             } />
+            <Route path="/audio-analysis" element={
+              <ProtectedRoute>
+                <AdminLayout><AudioAnalysis /></AdminLayout>
+              </ProtectedRoute>
+            } />
             <Route path="*" element={<NotFound />} />
           </Routes>
           </TourProvider>
