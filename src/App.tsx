@@ -36,6 +36,7 @@ import ProjectChat from "./pages/ProjectChat";
 import Reputation from "./pages/Reputation";
 import SbisReport from "./pages/SbisReport";
 import Trademarks from "./pages/Trademarks";
+import AudioAnalysis from "./pages/AudioAnalysis";
 import NotFound from "./pages/NotFound";
 
 const queryClient = new QueryClient();
@@ -169,6 +170,11 @@ const App = () => (
             <Route path="/trademarks" element={
               <ProtectedRoute>
                 <AdminLayout><Trademarks /></AdminLayout>
+              </ProtectedRoute>
+            } />
+            <Route path="/audio-analysis" element={
+              <ProtectedRoute>
+                <AdminLayout><AudioAnalysis /></AdminLayout>
               </ProtectedRoute>
             } />
             <Route path="*" element={<NotFound />} />
