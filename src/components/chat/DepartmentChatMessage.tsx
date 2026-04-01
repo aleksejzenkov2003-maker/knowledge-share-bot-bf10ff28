@@ -222,14 +222,17 @@ function DepartmentChatMessageComponent({
             <div className="mt-2 flex flex-wrap gap-2">
               {message.metadata.attachments.map((att, idx) => {
                 const isImage = att.file_type.startsWith('image/');
-                const { data } = supabase.storage.from('chat-attachments').getPublicUrl(att.file_path);
+                const handleClick = async (e: React.MouseEvent) => {
+                  e.preventDefault();
+                  const { data, error } = await supabase.storage.from('chat-attachments').createSignedUrl(att.file_path, 3600);
+                  if (data?.signedUrl) window.open(data.signedUrl, '_blank');
+                };
                 
                 return (
                   <a
                     key={idx}
-                    href={data.publicUrl}
-                    target="_blank"
-                    rel="noopener noreferrer"
+                    href="#"
+                    onClick={handleClick}
                     className={cn(
                       "flex items-center gap-2 px-2 py-1.5 rounded-md border bg-background",
                       "hover:bg-muted transition-colors text-sm"
