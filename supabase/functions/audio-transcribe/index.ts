@@ -62,8 +62,9 @@ serve(async (req) => {
     // Update session status to transcribing
     await supabase.from('audio_sessions').update({ status: 'transcribing' }).eq('id', sessionId);
 
-    // Upload to storage
-    const filePath = `${user.id}/${sessionId}/${audioFile.name}`;
+    // Upload to storage - use sanitized filename (Storage rejects non-ASCII chars)
+    const safeFileName = `audio_${Date.now()}${ext}`;
+    const filePath = `${user.id}/${sessionId}/${safeFileName}`;
     const { error: uploadError } = await supabase.storage
       .from('audio-files')
       .upload(filePath, audioFile, { contentType: audioFile.type, upsert: true });
