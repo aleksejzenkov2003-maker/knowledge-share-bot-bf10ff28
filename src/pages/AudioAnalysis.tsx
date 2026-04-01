@@ -214,6 +214,16 @@ export default function AudioAnalysis() {
                         </Card>
                       </div>
                     ))}
+                    {isSendingMessage && !streamingContent && (
+                      <div className="flex justify-start">
+                        <Card className="p-3 max-w-[80%] bg-muted">
+                          <div className="flex items-center gap-2 text-sm text-muted-foreground">
+                            <Loader2 className="h-4 w-4 animate-spin" />
+                            <span>Обработка запроса...</span>
+                          </div>
+                        </Card>
+                      </div>
+                    )}
                     {streamingContent && (
                       <div className="flex justify-start">
                         <Card className="p-3 max-w-[80%] bg-muted">
