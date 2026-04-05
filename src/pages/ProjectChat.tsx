@@ -204,30 +204,52 @@ import { ProjectChatMessage as MessageType, ProjectMemoryType } from '@/types/pr
              </div>
            </div>
  
-           <div className="flex items-center gap-2">
-             {/* Agent badges */}
-             <div className="hidden lg:flex items-center gap-1">
-               {agentMembers.slice(0, 3).map(m => (
-                 <Badge key={m.id} variant="secondary" className="text-xs">
-                   <Bot className="h-3 w-3 mr-1" />
-                   @{m.agent?.mention_trigger || m.agent?.slug}
-                 </Badge>
-               ))}
-               {agentMembers.length > 3 && (
-                 <Badge variant="outline" className="text-xs">
-                   +{agentMembers.length - 3}
-                 </Badge>
-               )}
-             </div>
- 
-             <Button
-               variant="outline"
-               size="sm"
-               onClick={() => setAddMemberDialogOpen(true)}
-             >
-               <UserPlus className="h-4 w-4 mr-1" />
-               Добавить
-             </Button>
+            <div className="flex items-center gap-2">
+              {/* Mode toggle */}
+              <div className="hidden md:flex items-center border rounded-md overflow-hidden">
+                <Button
+                  variant={mode === 'chat' ? 'default' : 'ghost'}
+                  size="sm"
+                  onClick={() => setMode('chat')}
+                  className="rounded-none h-8"
+                >
+                  <MessageSquare className="h-4 w-4 mr-1" />
+                  Чат
+                </Button>
+                <Button
+                  variant={mode === 'workflow' ? 'default' : 'ghost'}
+                  size="sm"
+                  onClick={() => setMode('workflow')}
+                  className="rounded-none h-8"
+                >
+                  <GitBranch className="h-4 w-4 mr-1" />
+                  Workflow
+                </Button>
+              </div>
+
+              {/* Agent badges */}
+              <div className="hidden lg:flex items-center gap-1">
+                {agentMembers.slice(0, 3).map(m => (
+                  <Badge key={m.id} variant="secondary" className="text-xs">
+                    <Bot className="h-3 w-3 mr-1" />
+                    @{m.agent?.mention_trigger || m.agent?.slug}
+                  </Badge>
+                ))}
+                {agentMembers.length > 3 && (
+                  <Badge variant="outline" className="text-xs">
+                    +{agentMembers.length - 3}
+                  </Badge>
+                )}
+              </div>
+
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => setAddMemberDialogOpen(true)}
+              >
+                <UserPlus className="h-4 w-4 mr-1" />
+                Добавить
+              </Button>
  
              <DropdownMenu>
                <DropdownMenuTrigger asChild>
