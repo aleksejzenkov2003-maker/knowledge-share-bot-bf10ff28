@@ -186,6 +186,37 @@ export const WorkflowNodeConfigPanel: React.FC<WorkflowNodeConfigPanelProps> = (
             </>
           )}
 
+          {/* Script config */}
+          {nodeType === 'script' && (
+            <div className="space-y-1.5">
+              <Label className="text-xs">Конфигурация скрипта (JSON)</Label>
+              <Textarea
+                value={scriptConfigStr}
+                onChange={e => { setScriptConfigStr(e.target.value); markDirty(); }}
+                className="text-xs min-h-[100px] font-mono"
+                rows={5}
+                placeholder='{"function_name": "process-document", "params": {}}'
+              />
+              <p className="text-[10px] text-muted-foreground">
+                Доступные функции: process-document, fips-parse, reputation-api, reputation-web-search, sbis-api
+              </p>
+            </div>
+          )}
+
+          {/* Prompt override for output nodes too */}
+          {nodeType === 'output' && (
+            <div className="space-y-1.5">
+              <Label className="text-xs">Промпт сборки итога</Label>
+              <Textarea
+                value={promptOverride}
+                onChange={e => { setPromptOverride(e.target.value); markDirty(); }}
+                className="text-xs min-h-[100px] font-mono"
+                rows={5}
+                placeholder="Инструкции для сборки финального документа..."
+              />
+            </div>
+          )}
+
           <Separator />
 
           {/* Toggles */}
