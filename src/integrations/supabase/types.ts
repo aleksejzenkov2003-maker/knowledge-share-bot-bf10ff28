@@ -1489,6 +1489,170 @@ export type Database = {
           },
         ]
       }
+      project_step_messages: {
+        Row: {
+          content: string
+          created_at: string
+          id: string
+          message_role: string
+          metadata: Json | null
+          step_id: string
+          user_id: string
+        }
+        Insert: {
+          content: string
+          created_at?: string
+          id?: string
+          message_role: string
+          metadata?: Json | null
+          step_id: string
+          user_id: string
+        }
+        Update: {
+          content?: string
+          created_at?: string
+          id?: string
+          message_role?: string
+          metadata?: Json | null
+          step_id?: string
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "project_step_messages_step_id_fkey"
+            columns: ["step_id"]
+            isOneToOne: false
+            referencedRelation: "project_workflow_steps"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "project_step_messages_user_id_fkey"
+            columns: ["user_id"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      project_workflow_steps: {
+        Row: {
+          agent_id: string | null
+          completed_at: string | null
+          error_message: string | null
+          id: string
+          input_data: Json | null
+          output_data: Json | null
+          started_at: string | null
+          status: Database["public"]["Enums"]["workflow_step_status"]
+          step_order: number
+          template_step_id: string | null
+          user_edits: Json | null
+          workflow_id: string
+        }
+        Insert: {
+          agent_id?: string | null
+          completed_at?: string | null
+          error_message?: string | null
+          id?: string
+          input_data?: Json | null
+          output_data?: Json | null
+          started_at?: string | null
+          status?: Database["public"]["Enums"]["workflow_step_status"]
+          step_order: number
+          template_step_id?: string | null
+          user_edits?: Json | null
+          workflow_id: string
+        }
+        Update: {
+          agent_id?: string | null
+          completed_at?: string | null
+          error_message?: string | null
+          id?: string
+          input_data?: Json | null
+          output_data?: Json | null
+          started_at?: string | null
+          status?: Database["public"]["Enums"]["workflow_step_status"]
+          step_order?: number
+          template_step_id?: string | null
+          user_edits?: Json | null
+          workflow_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "project_workflow_steps_agent_id_fkey"
+            columns: ["agent_id"]
+            isOneToOne: false
+            referencedRelation: "chat_roles"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "project_workflow_steps_template_step_id_fkey"
+            columns: ["template_step_id"]
+            isOneToOne: false
+            referencedRelation: "workflow_template_steps"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "project_workflow_steps_workflow_id_fkey"
+            columns: ["workflow_id"]
+            isOneToOne: false
+            referencedRelation: "project_workflows"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      project_workflows: {
+        Row: {
+          completed_at: string | null
+          created_at: string
+          created_by: string | null
+          id: string
+          project_id: string
+          status: Database["public"]["Enums"]["workflow_status"]
+          template_id: string
+        }
+        Insert: {
+          completed_at?: string | null
+          created_at?: string
+          created_by?: string | null
+          id?: string
+          project_id: string
+          status?: Database["public"]["Enums"]["workflow_status"]
+          template_id: string
+        }
+        Update: {
+          completed_at?: string | null
+          created_at?: string
+          created_by?: string | null
+          id?: string
+          project_id?: string
+          status?: Database["public"]["Enums"]["workflow_status"]
+          template_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "project_workflows_created_by_fkey"
+            columns: ["created_by"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "project_workflows_project_id_fkey"
+            columns: ["project_id"]
+            isOneToOne: false
+            referencedRelation: "projects"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "project_workflows_template_id_fkey"
+            columns: ["template_id"]
+            isOneToOne: false
+            referencedRelation: "workflow_templates"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       projects: {
         Row: {
           created_at: string
@@ -1851,6 +2015,101 @@ export type Database = {
         }
         Relationships: []
       }
+      workflow_template_steps: {
+        Row: {
+          agent_id: string | null
+          auto_run: boolean
+          created_at: string
+          description: string | null
+          id: string
+          input_schema: Json | null
+          is_user_editable: boolean
+          name: string
+          output_schema: Json | null
+          step_order: number
+          template_id: string
+        }
+        Insert: {
+          agent_id?: string | null
+          auto_run?: boolean
+          created_at?: string
+          description?: string | null
+          id?: string
+          input_schema?: Json | null
+          is_user_editable?: boolean
+          name: string
+          output_schema?: Json | null
+          step_order: number
+          template_id: string
+        }
+        Update: {
+          agent_id?: string | null
+          auto_run?: boolean
+          created_at?: string
+          description?: string | null
+          id?: string
+          input_schema?: Json | null
+          is_user_editable?: boolean
+          name?: string
+          output_schema?: Json | null
+          step_order?: number
+          template_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "workflow_template_steps_agent_id_fkey"
+            columns: ["agent_id"]
+            isOneToOne: false
+            referencedRelation: "chat_roles"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "workflow_template_steps_template_id_fkey"
+            columns: ["template_id"]
+            isOneToOne: false
+            referencedRelation: "workflow_templates"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      workflow_templates: {
+        Row: {
+          created_at: string
+          created_by: string | null
+          description: string | null
+          id: string
+          is_active: boolean
+          name: string
+          updated_at: string
+        }
+        Insert: {
+          created_at?: string
+          created_by?: string | null
+          description?: string | null
+          id?: string
+          is_active?: boolean
+          name: string
+          updated_at?: string
+        }
+        Update: {
+          created_at?: string
+          created_by?: string | null
+          description?: string | null
+          id?: string
+          is_active?: boolean
+          name?: string
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "workflow_templates_created_by_fkey"
+            columns: ["created_by"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
     }
     Views: {
       safe_ai_providers: {
@@ -1999,6 +2258,13 @@ export type Database = {
       project_memory_type: "fact" | "decision" | "requirement" | "todo"
       project_status: "active" | "archived" | "completed"
       user_status: "active" | "trial" | "limited" | "blocked"
+      workflow_status: "draft" | "running" | "paused" | "completed"
+      workflow_step_status:
+        | "pending"
+        | "running"
+        | "completed"
+        | "error"
+        | "skipped"
     }
     CompositeTypes: {
       [_ in never]: never
@@ -2131,6 +2397,14 @@ export const Constants = {
       project_memory_type: ["fact", "decision", "requirement", "todo"],
       project_status: ["active", "archived", "completed"],
       user_status: ["active", "trial", "limited", "blocked"],
+      workflow_status: ["draft", "running", "paused", "completed"],
+      workflow_step_status: [
+        "pending",
+        "running",
+        "completed",
+        "error",
+        "skipped",
+      ],
     },
   },
 } as const
