@@ -1,35 +1,38 @@
- import React, { useEffect, useRef, useState, useCallback } from 'react';
- import { useParams, useNavigate } from 'react-router-dom';
- import { useAuth } from '@/contexts/AuthContext';
- import { useProjectChat } from '@/hooks/useProjectChat';
- import { useAddProjectMember, useRemoveProjectMember } from '@/hooks/queries/useProjectQueries';
- import { ProjectSidebar } from '@/components/project/ProjectSidebar';
- import { ProjectChatMessage } from '@/components/project/ProjectChatMessage';
- import { AddMemberDialog } from '@/components/project/AddMemberDialog';
- import { ChatInputEnhanced } from '@/components/chat/ChatInputEnhanced';
- import { ScrollArea } from '@/components/ui/scroll-area';
- import { Button } from '@/components/ui/button';
- import { Badge } from '@/components/ui/badge';
- import { Input } from '@/components/ui/input';
- import {
-   DropdownMenu,
-   DropdownMenuContent,
-   DropdownMenuItem,
-   DropdownMenuTrigger,
- } from '@/components/ui/dropdown-menu';
- import { 
-   Loader2, 
-   FolderKanban, 
-   Settings,
-   UserPlus,
-   PanelLeftClose,
-   PanelLeft,
-   MoreHorizontal,
-   ArrowLeft,
-   Bot,
- } from 'lucide-react';
- import { cn } from '@/lib/utils';
- import { ProjectChatMessage as MessageType, ProjectMemoryType } from '@/types/project';
+import React, { useEffect, useRef, useState, useCallback } from 'react';
+import { useParams, useNavigate } from 'react-router-dom';
+import { useAuth } from '@/contexts/AuthContext';
+import { useProjectChat } from '@/hooks/useProjectChat';
+import { useAddProjectMember, useRemoveProjectMember } from '@/hooks/queries/useProjectQueries';
+import { ProjectSidebar } from '@/components/project/ProjectSidebar';
+import { ProjectChatMessage } from '@/components/project/ProjectChatMessage';
+import { AddMemberDialog } from '@/components/project/AddMemberDialog';
+import { ChatInputEnhanced } from '@/components/chat/ChatInputEnhanced';
+import { WorkflowPanel } from '@/components/workflow/WorkflowPanel';
+import { ScrollArea } from '@/components/ui/scroll-area';
+import { Button } from '@/components/ui/button';
+import { Badge } from '@/components/ui/badge';
+import { Input } from '@/components/ui/input';
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from '@/components/ui/dropdown-menu';
+import { 
+  Loader2, 
+  FolderKanban, 
+  Settings,
+  UserPlus,
+  PanelLeftClose,
+  PanelLeft,
+  MoreHorizontal,
+  ArrowLeft,
+  Bot,
+  GitBranch,
+  MessageSquare,
+} from 'lucide-react';
+import { cn } from '@/lib/utils';
+import { ProjectChatMessage as MessageType, ProjectMemoryType } from '@/types/project';
  
  const ProjectChatPage: React.FC = () => {
    const { id: projectId } = useParams<{ id: string }>();
