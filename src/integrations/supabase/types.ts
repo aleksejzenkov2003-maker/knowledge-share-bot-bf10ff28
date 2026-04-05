@@ -2025,7 +2025,11 @@ export type Database = {
           input_schema: Json | null
           is_user_editable: boolean
           name: string
+          node_type: string
           output_schema: Json | null
+          position_x: number
+          position_y: number
+          prompt_override: string | null
           step_order: number
           template_id: string
         }
@@ -2038,7 +2042,11 @@ export type Database = {
           input_schema?: Json | null
           is_user_editable?: boolean
           name: string
+          node_type?: string
           output_schema?: Json | null
+          position_x?: number
+          position_y?: number
+          prompt_override?: string | null
           step_order: number
           template_id: string
         }
@@ -2051,7 +2059,11 @@ export type Database = {
           input_schema?: Json | null
           is_user_editable?: boolean
           name?: string
+          node_type?: string
           output_schema?: Json | null
+          position_x?: number
+          position_y?: number
+          prompt_override?: string | null
           step_order?: number
           template_id?: string
         }
