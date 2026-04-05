@@ -329,6 +329,11 @@ serve(async (req) => {
       }
     }
 
+    // Append system_prompt_append if provided (used by workflow engine)
+    if (system_prompt_append) {
+      systemPrompt += '\n\n' + system_prompt_append;
+    }
+
     // Get provider configuration
     let providerConfig: ProviderConfig | null = null;
     
