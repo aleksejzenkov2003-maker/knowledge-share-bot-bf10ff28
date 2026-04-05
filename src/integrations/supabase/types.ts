@@ -1537,43 +1537,58 @@ export type Database = {
       project_workflow_steps: {
         Row: {
           agent_id: string | null
+          approved_output: Json | null
+          attempt: number
           completed_at: string | null
           error_message: string | null
+          human_readable_output: Json | null
           id: string
           input_data: Json | null
           output_data: Json | null
+          raw_output: Json | null
           started_at: string | null
           status: Database["public"]["Enums"]["workflow_step_status"]
           step_order: number
           template_step_id: string | null
+          user_edited_output: Json | null
           user_edits: Json | null
           workflow_id: string
         }
         Insert: {
           agent_id?: string | null
+          approved_output?: Json | null
+          attempt?: number
           completed_at?: string | null
           error_message?: string | null
+          human_readable_output?: Json | null
           id?: string
           input_data?: Json | null
           output_data?: Json | null
+          raw_output?: Json | null
           started_at?: string | null
           status?: Database["public"]["Enums"]["workflow_step_status"]
           step_order: number
           template_step_id?: string | null
+          user_edited_output?: Json | null
           user_edits?: Json | null
           workflow_id: string
         }
         Update: {
           agent_id?: string | null
+          approved_output?: Json | null
+          attempt?: number
           completed_at?: string | null
           error_message?: string | null
+          human_readable_output?: Json | null
           id?: string
           input_data?: Json | null
           output_data?: Json | null
+          raw_output?: Json | null
           started_at?: string | null
           status?: Database["public"]["Enums"]["workflow_step_status"]
           step_order?: number
           template_step_id?: string | null
+          user_edited_output?: Json | null
           user_edits?: Json | null
           workflow_id?: string
         }
@@ -1610,6 +1625,7 @@ export type Database = {
           project_id: string
           status: Database["public"]["Enums"]["workflow_status"]
           template_id: string
+          template_version_snapshot: number | null
         }
         Insert: {
           completed_at?: string | null
@@ -1619,6 +1635,7 @@ export type Database = {
           project_id: string
           status?: Database["public"]["Enums"]["workflow_status"]
           template_id: string
+          template_version_snapshot?: number | null
         }
         Update: {
           completed_at?: string | null
@@ -1628,6 +1645,7 @@ export type Database = {
           project_id?: string
           status?: Database["public"]["Enums"]["workflow_status"]
           template_id?: string
+          template_version_snapshot?: number | null
         }
         Relationships: [
           {
@@ -1743,6 +1761,51 @@ export type Database = {
           report_data?: Json
           selected_sections?: string[] | null
           user_id?: string
+        }
+        Relationships: []
+      }
+      script_definitions: {
+        Row: {
+          created_at: string
+          default_retries: number
+          default_timeout_sec: number
+          description: string | null
+          entrypoint: string
+          id: string
+          input_schema: Json
+          name: string
+          output_schema: Json
+          runtime: string
+          script_key: string
+          updated_at: string
+        }
+        Insert: {
+          created_at?: string
+          default_retries?: number
+          default_timeout_sec?: number
+          description?: string | null
+          entrypoint: string
+          id?: string
+          input_schema?: Json
+          name: string
+          output_schema?: Json
+          runtime?: string
+          script_key: string
+          updated_at?: string
+        }
+        Update: {
+          created_at?: string
+          default_retries?: number
+          default_timeout_sec?: number
+          description?: string | null
+          entrypoint?: string
+          id?: string
+          input_schema?: Json
+          name?: string
+          output_schema?: Json
+          runtime?: string
+          script_key?: string
+          updated_at?: string
         }
         Relationships: []
       }
@@ -2015,60 +2078,200 @@ export type Database = {
         }
         Relationships: []
       }
+      workflow_event_logs: {
+        Row: {
+          created_at: string
+          created_by: string | null
+          event_type: string
+          id: string
+          payload: Json
+          project_id: string
+          project_workflow_step_id: string | null
+          workflow_run_id: string
+        }
+        Insert: {
+          created_at?: string
+          created_by?: string | null
+          event_type: string
+          id?: string
+          payload?: Json
+          project_id: string
+          project_workflow_step_id?: string | null
+          workflow_run_id: string
+        }
+        Update: {
+          created_at?: string
+          created_by?: string | null
+          event_type?: string
+          id?: string
+          payload?: Json
+          project_id?: string
+          project_workflow_step_id?: string | null
+          workflow_run_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "workflow_event_logs_project_id_fkey"
+            columns: ["project_id"]
+            isOneToOne: false
+            referencedRelation: "projects"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "workflow_event_logs_project_workflow_step_id_fkey"
+            columns: ["project_workflow_step_id"]
+            isOneToOne: false
+            referencedRelation: "project_workflow_steps"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "workflow_event_logs_workflow_run_id_fkey"
+            columns: ["workflow_run_id"]
+            isOneToOne: false
+            referencedRelation: "project_workflows"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      workflow_template_edges: {
+        Row: {
+          conditions: Json
+          created_at: string
+          id: string
+          mapping: Json
+          source_handle: string | null
+          source_node_id: string
+          target_handle: string | null
+          target_node_id: string
+          template_id: string
+        }
+        Insert: {
+          conditions?: Json
+          created_at?: string
+          id?: string
+          mapping?: Json
+          source_handle?: string | null
+          source_node_id: string
+          target_handle?: string | null
+          target_node_id: string
+          template_id: string
+        }
+        Update: {
+          conditions?: Json
+          created_at?: string
+          id?: string
+          mapping?: Json
+          source_handle?: string | null
+          source_node_id?: string
+          target_handle?: string | null
+          target_node_id?: string
+          template_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "workflow_template_edges_source_node_id_fkey"
+            columns: ["source_node_id"]
+            isOneToOne: false
+            referencedRelation: "workflow_template_steps"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "workflow_template_edges_target_node_id_fkey"
+            columns: ["target_node_id"]
+            isOneToOne: false
+            referencedRelation: "workflow_template_steps"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "workflow_template_edges_template_id_fkey"
+            columns: ["template_id"]
+            isOneToOne: false
+            referencedRelation: "workflow_templates"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       workflow_template_steps: {
         Row: {
           agent_id: string | null
           auto_run: boolean
           created_at: string
           description: string | null
+          form_config: Json
           id: string
           input_schema: Json | null
           is_user_editable: boolean
+          model: string | null
           name: string
+          node_key: string | null
           node_type: string
+          output_mode: string
           output_schema: Json | null
           position_x: number
           position_y: number
           prompt_override: string | null
+          require_approval: boolean
+          result_assembly_mode: string | null
+          result_template_id: string | null
           script_config: Json | null
           step_order: number
+          temperature: number | null
           template_id: string
+          tools: Json
         }
         Insert: {
           agent_id?: string | null
           auto_run?: boolean
           created_at?: string
           description?: string | null
+          form_config?: Json
           id?: string
           input_schema?: Json | null
           is_user_editable?: boolean
+          model?: string | null
           name: string
+          node_key?: string | null
           node_type?: string
+          output_mode?: string
           output_schema?: Json | null
           position_x?: number
           position_y?: number
           prompt_override?: string | null
+          require_approval?: boolean
+          result_assembly_mode?: string | null
+          result_template_id?: string | null
           script_config?: Json | null
           step_order: number
+          temperature?: number | null
           template_id: string
+          tools?: Json
         }
         Update: {
           agent_id?: string | null
           auto_run?: boolean
           created_at?: string
           description?: string | null
+          form_config?: Json
           id?: string
           input_schema?: Json | null
           is_user_editable?: boolean
+          model?: string | null
           name?: string
+          node_key?: string | null
           node_type?: string
+          output_mode?: string
           output_schema?: Json | null
           position_x?: number
           position_y?: number
           prompt_override?: string | null
+          require_approval?: boolean
+          result_assembly_mode?: string | null
+          result_template_id?: string | null
           script_config?: Json | null
           step_order?: number
+          temperature?: number | null
           template_id?: string
+          tools?: Json
         }
         Relationships: [
           {
@@ -2095,7 +2298,10 @@ export type Database = {
           id: string
           is_active: boolean
           name: string
+          schema: Json
+          template_status: string
           updated_at: string
+          version: number
         }
         Insert: {
           created_at?: string
@@ -2104,7 +2310,10 @@ export type Database = {
           id?: string
           is_active?: boolean
           name: string
+          schema?: Json
+          template_status?: string
           updated_at?: string
+          version?: number
         }
         Update: {
           created_at?: string
@@ -2113,7 +2322,10 @@ export type Database = {
           id?: string
           is_active?: boolean
           name?: string
+          schema?: Json
+          template_status?: string
           updated_at?: string
+          version?: number
         }
         Relationships: [
           {
