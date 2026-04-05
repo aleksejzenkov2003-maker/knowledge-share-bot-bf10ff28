@@ -18,7 +18,7 @@ import { X, Trash2, Plus, Save } from 'lucide-react';
 function schemaKeys(schema: Record<string, unknown>): string[] {
   const p = schema?.properties;
   if (p && typeof p === 'object') return Object.keys(p as Record<string, unknown>);
-  return ['content', 'result', ''];
+  return ['content', 'result'];
 }
 
 interface EdgeConfigPanelProps {
@@ -123,9 +123,9 @@ export const EdgeConfigPanel: React.FC<EdgeConfigPanelProps> = ({
                   </SelectTrigger>
                   <SelectContent>
                     <SelectItem value="__empty__">(весь объект)</SelectItem>
-                    {sourceKeys.map((k) => (
+                    {sourceKeys.filter(Boolean).map((k) => (
                       <SelectItem key={k} value={k}>
-                        {k || '—'}
+                        {k}
                       </SelectItem>
                     ))}
                   </SelectContent>
@@ -146,9 +146,9 @@ export const EdgeConfigPanel: React.FC<EdgeConfigPanelProps> = ({
                   </SelectTrigger>
                   <SelectContent>
                     <SelectItem value="__empty__">(корень)</SelectItem>
-                    {targetKeys.map((k) => (
+                    {targetKeys.filter(Boolean).map((k) => (
                       <SelectItem key={k} value={k}>
-                        {k || '—'}
+                        {k}
                       </SelectItem>
                     ))}
                   </SelectContent>
