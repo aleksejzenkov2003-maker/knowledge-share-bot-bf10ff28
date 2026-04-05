@@ -39,10 +39,11 @@ import { ProjectChatMessage as MessageType, ProjectMemoryType } from '@/types/pr
    const navigate = useNavigate();
    const { user, isLoading: authLoading } = useAuth();
    
-   const [sidebarOpen, setSidebarOpen] = useState(true);
-   const [inputValue, setInputValue] = useState('');
-   const [addMemberDialogOpen, setAddMemberDialogOpen] = useState(false);
-   const messagesEndRef = useRef<HTMLDivElement>(null);
+    const [sidebarOpen, setSidebarOpen] = useState(true);
+    const [inputValue, setInputValue] = useState('');
+    const [addMemberDialogOpen, setAddMemberDialogOpen] = useState(false);
+    const [mode, setMode] = useState<'chat' | 'workflow'>('chat');
+    const messagesEndRef = useRef<HTMLDivElement>(null);
  
    const {
      project,
