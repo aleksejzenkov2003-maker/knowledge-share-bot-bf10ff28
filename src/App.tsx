@@ -37,6 +37,7 @@ import Reputation from "./pages/Reputation";
 import SbisReport from "./pages/SbisReport";
 import Trademarks from "./pages/Trademarks";
 import AudioAnalysis from "./pages/AudioAnalysis";
+import WorkflowTemplates from "./pages/WorkflowTemplates";
 import NotFound from "./pages/NotFound";
 
 const queryClient = new QueryClient();
@@ -175,6 +176,11 @@ const App = () => (
             <Route path="/audio-analysis" element={
               <ProtectedRoute>
                 <AdminLayout><AudioAnalysis /></AdminLayout>
+              </ProtectedRoute>
+            } />
+            <Route path="/workflow-templates" element={
+              <ProtectedRoute allowedRoles={['admin']}>
+                <AdminLayout><WorkflowTemplates /></AdminLayout>
               </ProtectedRoute>
             } />
             <Route path="*" element={<NotFound />} />
