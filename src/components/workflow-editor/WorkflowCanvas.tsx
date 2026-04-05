@@ -9,7 +9,6 @@ import {
   type Node,
   type Edge,
   type OnNodesChange,
-  type OnNodeDragStop,
   type NodeMouseHandler,
   BackgroundVariant,
 } from '@xyflow/react';
@@ -52,8 +51,8 @@ export const WorkflowCanvas: React.FC<WorkflowCanvasProps> = ({
     onNodeClick(node.id);
   }, [onNodeClick]);
 
-  const handleNodeDragStop: OnNodeDragStop<Node<WorkflowNodeData>> = useCallback((_event, _node, nodes) => {
-    onNodeDragStop(nodes as Node<WorkflowNodeData>[]);
+  const handleNodeDragStop = useCallback((_event: React.MouseEvent, _node: Node<WorkflowNodeData>, allNodes: Node<WorkflowNodeData>[]) => {
+    onNodeDragStop(allNodes);
   }, [onNodeDragStop]);
 
   return (

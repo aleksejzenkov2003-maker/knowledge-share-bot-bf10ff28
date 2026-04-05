@@ -35,6 +35,7 @@ import {
   Search,
   Stamp,
   Mic,
+  GitBranch,
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 
@@ -49,10 +50,9 @@ const mainMenuItems = [
 ];
 
 const managementItems = [
+  { title: 'Workflow шаблоны', url: '/workflow-templates', icon: GitBranch, roles: ['admin'], tourId: 'sidebar-workflow-templates' },
   { title: 'Роли чатов', url: '/chat-roles', icon: UserCircle, roles: ['admin'], tourId: 'sidebar-chat-roles' },
   { title: 'Эталоны', url: '/golden-responses', icon: Star, roles: ['admin'], tourId: 'sidebar-golden' },
-  
-  
   { title: 'СБИС', url: '/sbis', icon: Building2, roles: ['admin'], tourId: 'sidebar-sbis' },
   { title: 'Папки', url: '/folders', icon: FolderTree, roles: ['admin'], tourId: 'sidebar-folders' },
   { title: 'Документы', url: '/documents', icon: FileText, roles: ['admin'], tourId: 'sidebar-documents' },
