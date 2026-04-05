@@ -56,59 +56,6 @@ export type Database = {
         }
         Relationships: []
       }
-      agent_definitions: {
-        Row: {
-          agent_key: string
-          created_at: string
-          created_by: string | null
-          default_model: string | null
-          description: string | null
-          id: string
-          input_schema: Json
-          name: string
-          output_schema: Json
-          system_prompt: string | null
-          tools: Json
-          updated_at: string
-        }
-        Insert: {
-          agent_key: string
-          created_at?: string
-          created_by?: string | null
-          default_model?: string | null
-          description?: string | null
-          id?: string
-          input_schema?: Json
-          name: string
-          output_schema?: Json
-          system_prompt?: string | null
-          tools?: Json
-          updated_at?: string
-        }
-        Update: {
-          agent_key?: string
-          created_at?: string
-          created_by?: string | null
-          default_model?: string | null
-          description?: string | null
-          id?: string
-          input_schema?: Json
-          name?: string
-          output_schema?: Json
-          system_prompt?: string | null
-          tools?: Json
-          updated_at?: string
-        }
-        Relationships: [
-          {
-            foreignKeyName: "agent_definitions_created_by_fkey"
-            columns: ["created_by"]
-            isOneToOne: false
-            referencedRelation: "profiles"
-            referencedColumns: ["id"]
-          },
-        ]
-      }
       audio_session_messages: {
         Row: {
           content: string
@@ -2131,94 +2078,36 @@ export type Database = {
         }
         Relationships: []
       }
-      workflow_artifacts: {
-        Row: {
-          artifact_type: string
-          bucket: string
-          created_at: string
-          id: string
-          metadata: Json
-          mime: string | null
-          path: string
-          project_id: string
-          project_workflow_step_id: string | null
-          workflow_run_id: string | null
-        }
-        Insert: {
-          artifact_type?: string
-          bucket: string
-          created_at?: string
-          id?: string
-          metadata?: Json
-          mime?: string | null
-          path: string
-          project_id: string
-          project_workflow_step_id?: string | null
-          workflow_run_id?: string | null
-        }
-        Update: {
-          artifact_type?: string
-          bucket?: string
-          created_at?: string
-          id?: string
-          metadata?: Json
-          mime?: string | null
-          path?: string
-          project_id?: string
-          project_workflow_step_id?: string | null
-          workflow_run_id?: string | null
-        }
-        Relationships: [
-          {
-            foreignKeyName: "workflow_artifacts_project_id_fkey"
-            columns: ["project_id"]
-            isOneToOne: false
-            referencedRelation: "projects"
-            referencedColumns: ["id"]
-          },
-          {
-            foreignKeyName: "workflow_artifacts_project_workflow_step_id_fkey"
-            columns: ["project_workflow_step_id"]
-            isOneToOne: false
-            referencedRelation: "project_workflow_steps"
-            referencedColumns: ["id"]
-          },
-          {
-            foreignKeyName: "workflow_artifacts_workflow_run_id_fkey"
-            columns: ["workflow_run_id"]
-            isOneToOne: false
-            referencedRelation: "project_workflows"
-            referencedColumns: ["id"]
-          },
-        ]
-      }
       workflow_event_logs: {
         Row: {
           created_at: string
+          created_by: string | null
           event_type: string
           id: string
           payload: Json
-          project_id: string | null
+          project_id: string
           project_workflow_step_id: string | null
-          workflow_run_id: string | null
+          workflow_run_id: string
         }
         Insert: {
           created_at?: string
+          created_by?: string | null
           event_type: string
           id?: string
           payload?: Json
-          project_id?: string | null
+          project_id: string
           project_workflow_step_id?: string | null
-          workflow_run_id?: string | null
+          workflow_run_id: string
         }
         Update: {
           created_at?: string
+          created_by?: string | null
           event_type?: string
           id?: string
           payload?: Json
-          project_id?: string | null
+          project_id?: string
           project_workflow_step_id?: string | null
-          workflow_run_id?: string | null
+          workflow_run_id?: string
         }
         Relationships: [
           {
@@ -2603,7 +2492,6 @@ export type Database = {
         | "completed"
         | "error"
         | "skipped"
-        | "waiting_for_user"
     }
     CompositeTypes: {
       [_ in never]: never
@@ -2743,7 +2631,6 @@ export const Constants = {
         "completed",
         "error",
         "skipped",
-        "waiting_for_user",
       ],
     },
   },

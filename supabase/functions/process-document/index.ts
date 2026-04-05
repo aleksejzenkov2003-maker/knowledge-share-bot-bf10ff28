@@ -373,7 +373,7 @@ async function tryGeminiOcrChunked(pdfData: Uint8Array, numPages: number): Promi
           const chunkResult = await tryGeminiOcrWithGlobalPages(
             new Uint8Array(subPdfBytes), globalStartPage, chunkPages, 30000
           );
-          return { chunkIndex, text: chunkResult.text || '', success: chunkResult.success, pages: chunkResult.pages };
+          return { chunkIndex, text: chunkResult.text || '', success: chunkResult.success, pages: chunkResult.pages || [] };
         } catch (err) {
           console.error(`Chunk ${chunkIndex + 1} failed:`, err);
           return { chunkIndex, text: '', success: false, pages: [] as { pageNum: number; offset: number }[] };

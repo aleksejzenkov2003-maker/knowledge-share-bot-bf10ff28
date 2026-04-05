@@ -20,6 +20,7 @@ const stepStatusConfig: Record<WorkflowStepStatus, {
   completed: { icon: Check, color: 'text-green-600', bgColor: 'bg-green-100 dark:bg-green-900/30', borderColor: 'border-green-500' },
   error: { icon: AlertCircle, color: 'text-destructive', bgColor: 'bg-destructive/10', borderColor: 'border-destructive' },
   skipped: { icon: SkipForward, color: 'text-muted-foreground', bgColor: 'bg-muted/50', borderColor: 'border-muted' },
+  waiting_for_user: { icon: Clock, color: 'text-amber-600', bgColor: 'bg-amber-100 dark:bg-amber-900/30', borderColor: 'border-amber-500' },
 };
 
 export const WorkflowStepper: React.FC<WorkflowStepperProps> = ({
