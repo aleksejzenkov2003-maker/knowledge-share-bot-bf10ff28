@@ -357,7 +357,15 @@ export function useProjectWorkflow(projectId: string | null, userId: string | un
 
     queryClient.invalidateQueries({ queryKey: workflowQueryKeys.workflowSteps(activeWorkflowId || '') });
     toast.success('Этап подтверждён');
-  }, [steps, activeWorkflowId, queryClient]);
+
+    // Auto-run next step if auto_run is set on the template step
+    if (nextStep && nextStep.template_step?.auto_run) {
+      // Small delay to let invalidation settle
+      setTimeout(() => {
+        executeStep(nextStep.id);
+      }, 500);
+    }
+  }, [steps, activeWorkflowId, queryClient, executeStep]);
 
   // Set input data for a step (e.g., first step user input)
   const setStepInputData = useCallback(async (stepId: string, inputData: Record<string, unknown>) => {

@@ -6,7 +6,7 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
-import { Plus, FileInput, Bot, FileOutput } from 'lucide-react';
+import { Plus, FileInput, Bot, FileOutput, Code } from 'lucide-react';
 
 interface AddNodeMenuProps {
   onAdd: (nodeType: string) => void;
@@ -28,6 +28,14 @@ export const AddNodeMenu: React.FC<AddNodeMenuProps> = ({ onAdd }) => (
       <DropdownMenuItem onClick={() => onAdd('agent')}>
         <Bot className="h-4 w-4 mr-2 text-primary" />
         AI Агент
+      </DropdownMenuItem>
+      <DropdownMenuItem onClick={() => onAdd('script')}>
+        <Code className="h-4 w-4 mr-2 text-violet-600" />
+        Скрипт
+      </DropdownMenuItem>
+      <DropdownMenuItem onClick={() => onAdd('output')}>
+        <FileOutput className="h-4 w-4 mr-2 text-amber-600" />
+        Итог
       </DropdownMenuItem>
       <DropdownMenuItem onClick={() => onAdd('output')}>
         <FileOutput className="h-4 w-4 mr-2 text-amber-600" />

@@ -9,6 +9,8 @@ const corsHeaders = {
   'Connection': 'keep-alive',
 };
 
+const jsonHeaders = { ...corsHeaders, 'Content-Type': 'application/json' };
+
 serve(async (req) => {
   if (req.method === 'OPTIONS') {
     return new Response('ok', { headers: corsHeaders });
@@ -18,37 +20,33 @@ serve(async (req) => {
     const authHeader = req.headers.get('Authorization');
     if (!authHeader) {
       return new Response(JSON.stringify({ error: 'No authorization header' }), {
-        status: 401,
-        headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+        status: 401, headers: jsonHeaders,
       });
     }
 
     const supabaseUrl = Deno.env.get('SUPABASE_URL')!;
     const supabaseServiceKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!;
 
-    // Auth check
     const supabaseAuth = createClient(supabaseUrl, Deno.env.get('SUPABASE_ANON_KEY')!, {
       global: { headers: { Authorization: authHeader } },
     });
     const { data: { user }, error: authError } = await supabaseAuth.auth.getUser();
     if (authError || !user) {
       return new Response(JSON.stringify({ error: 'Unauthorized' }), {
-        status: 401,
-        headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+        status: 401, headers: jsonHeaders,
       });
     }
 
     const supabase = createClient(supabaseUrl, supabaseServiceKey);
-
     const { step_id, message, additional_context } = await req.json();
+
     if (!step_id) {
       return new Response(JSON.stringify({ error: 'step_id is required' }), {
-        status: 400,
-        headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+        status: 400, headers: jsonHeaders,
       });
     }
 
-    // Load step with relations
+    // Load step with workflow
     const { data: step, error: stepError } = await supabase
       .from('project_workflow_steps')
       .select('*, project_workflows!inner(project_id, template_id)')
@@ -57,8 +55,7 @@ serve(async (req) => {
 
     if (stepError || !step) {
       return new Response(JSON.stringify({ error: 'Step not found' }), {
-        status: 404,
-        headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+        status: 404, headers: jsonHeaders,
       });
     }
 
@@ -74,10 +71,26 @@ serve(async (req) => {
 
     if (!membership) {
       return new Response(JSON.stringify({ error: 'Not a project member' }), {
-        status: 403,
-        headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+        status: 403, headers: jsonHeaders,
       });
     }
+
+    // Load template step for node_type, prompt_override, script_config, schemas
+    let templateStep: Record<string, any> | null = null;
+    if (step.template_step_id) {
+      const { data } = await supabase
+        .from('workflow_template_steps')
+        .select('*')
+        .eq('id', step.template_step_id)
+        .single();
+      templateStep = data;
+    }
+
+    const nodeType = templateStep?.node_type || 'agent';
+    const promptOverride = templateStep?.prompt_override || null;
+    const scriptConfig = templateStep?.script_config || {};
+    const outputSchema = templateStep?.output_schema || {};
+    const inputSchema = templateStep?.input_schema || {};
 
     // Update step status to running
     await supabase
@@ -91,15 +104,97 @@ serve(async (req) => {
       .update({ status: 'running' })
       .eq('id', step.workflow_id);
 
-    // Load agent (chat_role)
+    // ============ INPUT NODE ============
+    if (nodeType === 'input') {
+      // Input nodes just pass input_data as output_data
+      const outputData = step.input_data && Object.keys(step.input_data).length > 0
+        ? step.input_data
+        : { content: message || '' };
+
+      await supabase
+        .from('project_workflow_steps')
+        .update({
+          status: 'completed',
+          output_data: outputData,
+          completed_at: new Date().toISOString(),
+        })
+        .eq('id', step_id);
+
+      await checkWorkflowCompletion(supabase, step.workflow_id);
+
+      const encoder = new TextEncoder();
+      const body = encoder.encode(
+        `data: ${JSON.stringify({ type: 'content', content: typeof outputData === 'object' && 'content' in outputData ? outputData.content : JSON.stringify(outputData) })}\n\ndata: [DONE]\n\n`
+      );
+      return new Response(body, { headers: corsHeaders });
+    }
+
+    // ============ SCRIPT NODE ============
+    if (nodeType === 'script') {
+      const functionName = scriptConfig.function_name;
+      if (!functionName) {
+        await supabase.from('project_workflow_steps').update({
+          status: 'error', error_message: 'No function_name in script_config',
+        }).eq('id', step_id);
+        return new Response(JSON.stringify({ error: 'No function_name in script_config' }), {
+          status: 400, headers: jsonHeaders,
+        });
+      }
+
+      try {
+        // Build params from input_data and script_config.params
+        const params = { ...scriptConfig.params, ...step.input_data };
+        const scriptUrl = `${supabaseUrl}/functions/v1/${functionName}`;
+        const scriptResponse = await fetch(scriptUrl, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', 'Authorization': authHeader },
+          body: JSON.stringify(params),
+        });
+
+        const resultText = await scriptResponse.text();
+        let resultData: Record<string, unknown>;
+        try {
+          resultData = JSON.parse(resultText);
+        } catch {
+          resultData = { content: resultText };
+        }
+
+        await supabase.from('project_workflow_steps').update({
+          status: 'completed',
+          output_data: resultData,
+          completed_at: new Date().toISOString(),
+        }).eq('id', step_id);
+
+        await supabase.from('project_step_messages').insert({
+          step_id, user_id: user.id, message_role: 'assistant',
+          content: typeof resultData === 'object' && 'content' in resultData
+            ? String(resultData.content)
+            : JSON.stringify(resultData),
+        });
+
+        await checkWorkflowCompletion(supabase, step.workflow_id);
+
+        const encoder = new TextEncoder();
+        const body = encoder.encode(
+          `data: ${JSON.stringify({ type: 'content', content: JSON.stringify(resultData) })}\n\ndata: [DONE]\n\n`
+        );
+        return new Response(body, { headers: corsHeaders });
+      } catch (err) {
+        const errorMsg = err instanceof Error ? err.message : 'Script execution failed';
+        await supabase.from('project_workflow_steps').update({
+          status: 'error', error_message: errorMsg,
+        }).eq('id', step_id);
+        return new Response(JSON.stringify({ error: errorMsg }), {
+          status: 500, headers: jsonHeaders,
+        });
+      }
+    }
+
+    // ============ AGENT & OUTPUT NODES ============
+    // Load agent
     let agentRoleId = step.agent_id;
-    if (!agentRoleId && step.template_step_id) {
-      const { data: templateStep } = await supabase
-        .from('workflow_template_steps')
-        .select('agent_id')
-        .eq('id', step.template_step_id)
-        .single();
-      agentRoleId = templateStep?.agent_id;
+    if (!agentRoleId && templateStep?.agent_id) {
+      agentRoleId = templateStep.agent_id;
     }
 
     // Load previous steps' output for context
@@ -118,7 +213,7 @@ serve(async (req) => {
       .eq('project_id', projectId)
       .eq('is_active', true);
 
-    // Load step messages for chat history within this step
+    // Load step messages for chat history
     const { data: stepMessages } = await supabase
       .from('project_step_messages')
       .select('message_role, content')
@@ -128,7 +223,6 @@ serve(async (req) => {
     // Build context message
     let contextMessage = '';
 
-    // Previous steps results
     if (prevSteps && prevSteps.length > 0) {
       contextMessage += '## Результаты предыдущих этапов\n\n';
       for (const ps of prevSteps) {
@@ -140,7 +234,6 @@ serve(async (req) => {
       }
     }
 
-    // Input data for this step
     if (step.input_data && Object.keys(step.input_data).length > 0) {
       contextMessage += '## Входные данные текущего этапа\n\n';
       const inputContent = typeof step.input_data === 'object' && 'content' in step.input_data
@@ -149,7 +242,6 @@ serve(async (req) => {
       contextMessage += `${inputContent}\n\n`;
     }
 
-    // Project memory
     if (projectMemory && projectMemory.length > 0) {
       contextMessage += '## Память проекта\n\n';
       for (const mem of projectMemory) {
@@ -158,9 +250,23 @@ serve(async (req) => {
       contextMessage += '\n';
     }
 
-    // Additional context from user
     if (additional_context) {
       contextMessage += `## Дополнительный контекст\n\n${additional_context}\n\n`;
+    }
+
+    // Build system_prompt_append from prompt_override + output_schema
+    let systemPromptAppend = '';
+
+    if (promptOverride) {
+      systemPromptAppend += promptOverride;
+    }
+
+    if (nodeType === 'output') {
+      systemPromptAppend += '\n\nТвоя задача — собрать и структурировать результаты всех предыдущих этапов в финальный документ. Объедини все данные в единый связный текст.';
+    }
+
+    if (outputSchema && Object.keys(outputSchema).length > 0) {
+      systemPromptAppend += `\n\nВерни результат в формате JSON со следующей структурой:\n\`\`\`json\n${JSON.stringify(outputSchema, null, 2)}\n\`\`\``;
     }
 
     // Build message history
@@ -171,17 +277,15 @@ serve(async (req) => {
       messageHistory.push({ role: 'assistant', content: 'Понял контекст. Готов выполнить задачу этого этапа.' });
     }
 
-    // Add step chat history
     if (stepMessages && stepMessages.length > 0) {
       for (const msg of stepMessages) {
         messageHistory.push({ role: msg.message_role, content: msg.content });
       }
     }
 
-    // The actual message for this step
     const userMessage = message || 'Выполни задачу этого этапа на основе предоставленного контекста.';
 
-    // Load context packs for the project
+    // Load context packs
     const { data: contextPacks } = await supabase
       .from('project_context_packs')
       .select('context_pack_id, context_packs!inner(folder_ids)')
@@ -192,7 +296,7 @@ serve(async (req) => {
       (p: any) => p.context_packs?.folder_ids || []
     ) || [];
 
-    // Call chat-stream internally
+    // Call chat-stream
     const chatStreamUrl = `${supabaseUrl}/functions/v1/chat-stream`;
     const chatBody: Record<string, unknown> = {
       message: userMessage,
@@ -200,47 +304,36 @@ serve(async (req) => {
       project_id: projectId,
     };
 
-    if (agentRoleId) {
-      chatBody.role_id = agentRoleId;
-    }
-    if (contextFolderIds.length > 0) {
-      chatBody.context_folder_ids = contextFolderIds;
-    }
+    if (agentRoleId) chatBody.role_id = agentRoleId;
+    if (contextFolderIds.length > 0) chatBody.context_folder_ids = contextFolderIds;
+    if (systemPromptAppend.trim()) chatBody.system_prompt_append = systemPromptAppend.trim();
 
     const chatResponse = await fetch(chatStreamUrl, {
       method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'Authorization': authHeader,
-      },
+      headers: { 'Content-Type': 'application/json', 'Authorization': authHeader },
       body: JSON.stringify(chatBody),
     });
 
     if (!chatResponse.ok) {
       const errText = await chatResponse.text();
-      await supabase
-        .from('project_workflow_steps')
-        .update({ status: 'error', error_message: `Chat stream error: ${errText}` })
-        .eq('id', step_id);
-
+      await supabase.from('project_workflow_steps').update({
+        status: 'error', error_message: `Chat stream error: ${errText}`,
+      }).eq('id', step_id);
       return new Response(JSON.stringify({ error: 'Chat stream failed' }), {
-        status: 500,
-        headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+        status: 500, headers: jsonHeaders,
       });
     }
 
-    // Stream through the response, accumulate content
+    // Stream through, accumulate content
     const reader = chatResponse.body?.getReader();
     if (!reader) {
       return new Response(JSON.stringify({ error: 'No stream reader' }), {
-        status: 500,
-        headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+        status: 500, headers: jsonHeaders,
       });
     }
 
     let fullContent = '';
     let metadata: Record<string, unknown> = {};
-
     const encoder = new TextEncoder();
     const decoder = new TextDecoder();
 
@@ -251,14 +344,10 @@ serve(async (req) => {
           while (true) {
             const { done, value } = await reader.read();
             if (done) break;
-
             const chunk = decoder.decode(value, { stream: true });
             buffer += chunk;
-
-            // Forward raw SSE to client
             controller.enqueue(value);
 
-            // Parse for accumulation
             const lines = buffer.split('\n');
             buffer = lines.pop() || '';
 
@@ -274,56 +363,31 @@ serve(async (req) => {
                   if (parsed.type === 'metadata') {
                     metadata = parsed;
                   }
-                } catch {
-                  // skip
-                }
+                } catch { /* skip */ }
               }
             }
           }
 
-          // Save result
-          await supabase
-            .from('project_workflow_steps')
-            .update({
-              status: 'completed',
-              output_data: { content: fullContent, metadata },
-              completed_at: new Date().toISOString(),
-            })
-            .eq('id', step_id);
+          await supabase.from('project_workflow_steps').update({
+            status: 'completed',
+            output_data: { content: fullContent, metadata },
+            completed_at: new Date().toISOString(),
+          }).eq('id', step_id);
 
-          // Save assistant message in step chat
-          await supabase
-            .from('project_step_messages')
-            .insert({
-              step_id,
-              user_id: user.id,
-              message_role: 'assistant',
-              content: fullContent,
-              metadata: metadata as any,
-            });
+          await supabase.from('project_step_messages').insert({
+            step_id, user_id: user.id, message_role: 'assistant',
+            content: fullContent, metadata: metadata as any,
+          });
 
-          // Check if all steps completed
-          const { data: allSteps } = await supabase
-            .from('project_workflow_steps')
-            .select('status')
-            .eq('workflow_id', step.workflow_id);
-
-          const allCompleted = allSteps?.every(s => s.status === 'completed' || s.status === 'skipped');
-          if (allCompleted) {
-            await supabase
-              .from('project_workflows')
-              .update({ status: 'completed', completed_at: new Date().toISOString() })
-              .eq('id', step.workflow_id);
-          }
+          await checkWorkflowCompletion(supabase, step.workflow_id);
 
           controller.enqueue(encoder.encode('data: [DONE]\n\n'));
           controller.close();
         } catch (err) {
           const errorMsg = err instanceof Error ? err.message : 'Unknown error';
-          await supabase
-            .from('project_workflow_steps')
-            .update({ status: 'error', error_message: errorMsg })
-            .eq('id', step_id);
+          await supabase.from('project_workflow_steps').update({
+            status: 'error', error_message: errorMsg,
+          }).eq('id', step_id);
           controller.error(err);
         }
       },
@@ -333,8 +397,20 @@ serve(async (req) => {
   } catch (error) {
     console.error('workflow-step-execute error:', error);
     return new Response(JSON.stringify({ error: (error as Error).message }), {
-      status: 500,
-      headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+      status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' },
     });
   }
 });
+
+async function checkWorkflowCompletion(supabase: any, workflowId: string) {
+  const { data: allSteps } = await supabase
+    .from('project_workflow_steps')
+    .select('status')
+    .eq('workflow_id', workflowId);
+  const allCompleted = allSteps?.every((s: any) => s.status === 'completed' || s.status === 'skipped');
+  if (allCompleted) {
+    await supabase.from('project_workflows').update({
+      status: 'completed', completed_at: new Date().toISOString(),
+    }).eq('id', workflowId);
+  }
+}

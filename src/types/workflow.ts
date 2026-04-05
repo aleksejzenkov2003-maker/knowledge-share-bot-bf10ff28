@@ -32,6 +32,12 @@ export interface WorkflowTemplateStep {
   is_user_editable: boolean;
   auto_run: boolean;
   created_at: string;
+  // Поля визуального редактора
+  prompt_override: string | null;
+  node_type: string; // 'input' | 'agent' | 'output' | 'script'
+  position_x: number;
+  position_y: number;
+  script_config: Record<string, unknown>;
   // Связанные данные
   agent?: {
     id: string;

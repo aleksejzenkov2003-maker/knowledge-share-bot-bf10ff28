@@ -8,7 +8,7 @@ import { Switch } from '@/components/ui/switch';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { Separator } from '@/components/ui/separator';
-import { X, Trash2, Bot, FileInput, FileOutput, Save } from 'lucide-react';
+import { X, Trash2, Bot, FileInput, FileOutput, Save, Code } from 'lucide-react';
 import { cn } from '@/lib/utils';
 
 interface Agent {
@@ -38,24 +38,26 @@ export const WorkflowNodeConfigPanel: React.FC<WorkflowNodeConfigPanelProps> = (
   const [name, setName] = useState(step.name);
   const [description, setDescription] = useState(step.description || '');
   const [agentId, setAgentId] = useState(step.agent_id || '');
-  const [promptOverride, setPromptOverride] = useState((step as any).prompt_override || '');
-  const [nodeType, setNodeType] = useState((step as any).node_type || 'agent');
+  const [promptOverride, setPromptOverride] = useState(step.prompt_override || '');
+  const [nodeType, setNodeType] = useState(step.node_type || 'agent');
   const [isUserEditable, setIsUserEditable] = useState(step.is_user_editable);
   const [autoRun, setAutoRun] = useState(step.auto_run);
   const [inputSchemaStr, setInputSchemaStr] = useState(JSON.stringify(step.input_schema || {}, null, 2));
   const [outputSchemaStr, setOutputSchemaStr] = useState(JSON.stringify(step.output_schema || {}, null, 2));
+  const [scriptConfigStr, setScriptConfigStr] = useState(JSON.stringify(step.script_config || {}, null, 2));
   const [dirty, setDirty] = useState(false);
 
   useEffect(() => {
     setName(step.name);
     setDescription(step.description || '');
     setAgentId(step.agent_id || '');
-    setPromptOverride((step as any).prompt_override || '');
-    setNodeType((step as any).node_type || 'agent');
+    setPromptOverride(step.prompt_override || '');
+    setNodeType(step.node_type || 'agent');
     setIsUserEditable(step.is_user_editable);
     setAutoRun(step.auto_run);
     setInputSchemaStr(JSON.stringify(step.input_schema || {}, null, 2));
     setOutputSchemaStr(JSON.stringify(step.output_schema || {}, null, 2));
+    setScriptConfigStr(JSON.stringify(step.script_config || {}, null, 2));
     setDirty(false);
   }, [step]);
 
@@ -64,8 +66,10 @@ export const WorkflowNodeConfigPanel: React.FC<WorkflowNodeConfigPanelProps> = (
   const handleSave = () => {
     let inputSchema = {};
     let outputSchema = {};
+    let scriptConfig = {};
     try { inputSchema = JSON.parse(inputSchemaStr); } catch { /* keep empty */ }
     try { outputSchema = JSON.parse(outputSchemaStr); } catch { /* keep empty */ }
+    try { scriptConfig = JSON.parse(scriptConfigStr); } catch { /* keep empty */ }
 
     onUpdate(step.id, {
       name,
@@ -77,6 +81,7 @@ export const WorkflowNodeConfigPanel: React.FC<WorkflowNodeConfigPanelProps> = (
       auto_run: autoRun,
       input_schema: inputSchema,
       output_schema: outputSchema,
+      script_config: scriptConfig,
     });
     setDirty(false);
   };
@@ -84,6 +89,7 @@ export const WorkflowNodeConfigPanel: React.FC<WorkflowNodeConfigPanelProps> = (
   const nodeTypeIcon = {
     input: <FileInput className="h-4 w-4 text-emerald-600" />,
     agent: <Bot className="h-4 w-4 text-primary" />,
+    script: <Code className="h-4 w-4 text-violet-600" />,
     output: <FileOutput className="h-4 w-4 text-amber-600" />,
   };
 
@@ -112,6 +118,7 @@ export const WorkflowNodeConfigPanel: React.FC<WorkflowNodeConfigPanelProps> = (
               <SelectContent>
                 <SelectItem value="input">📥 Ввод данных</SelectItem>
                 <SelectItem value="agent">🤖 AI Агент</SelectItem>
+                <SelectItem value="script">⚙️ Скрипт</SelectItem>
                 <SelectItem value="output">📤 Итог</SelectItem>
               </SelectContent>
             </Select>
@@ -177,6 +184,37 @@ export const WorkflowNodeConfigPanel: React.FC<WorkflowNodeConfigPanelProps> = (
                 />
               </div>
             </>
+          )}
+
+          {/* Script config */}
+          {nodeType === 'script' && (
+            <div className="space-y-1.5">
+              <Label className="text-xs">Конфигурация скрипта (JSON)</Label>
+              <Textarea
+                value={scriptConfigStr}
+                onChange={e => { setScriptConfigStr(e.target.value); markDirty(); }}
+                className="text-xs min-h-[100px] font-mono"
+                rows={5}
+                placeholder='{"function_name": "process-document", "params": {}}'
+              />
+              <p className="text-[10px] text-muted-foreground">
+                Доступные функции: process-document, fips-parse, reputation-api, reputation-web-search, sbis-api
+              </p>
+            </div>
+          )}
+
+          {/* Prompt override for output nodes too */}
+          {nodeType === 'output' && (
+            <div className="space-y-1.5">
+              <Label className="text-xs">Промпт сборки итога</Label>
+              <Textarea
+                value={promptOverride}
+                onChange={e => { setPromptOverride(e.target.value); markDirty(); }}
+                className="text-xs min-h-[100px] font-mono"
+                rows={5}
+                placeholder="Инструкции для сборки финального документа..."
+              />
+            </div>
           )}
 
           <Separator />

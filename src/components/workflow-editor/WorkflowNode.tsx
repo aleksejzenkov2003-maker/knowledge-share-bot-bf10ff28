@@ -1,6 +1,6 @@
 import React, { memo } from 'react';
 import { Handle, Position, type NodeProps, type Node } from '@xyflow/react';
-import { Bot, FileInput, FileOutput } from 'lucide-react';
+import { Bot, FileInput, FileOutput, Code } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import type { WorkflowNodeData } from '@/hooks/useWorkflowEditor';
 
@@ -9,18 +9,21 @@ type WorkflowNodeType = Node<WorkflowNodeData, 'workflowNode'>;
 const nodeIcons: Record<string, React.ElementType> = {
   input: FileInput,
   agent: Bot,
+  script: Code,
   output: FileOutput,
 };
 
 const nodeColors: Record<string, string> = {
   input: 'border-emerald-500/50 bg-emerald-50 dark:bg-emerald-950/30',
   agent: 'border-primary/50 bg-primary/5',
+  script: 'border-violet-500/50 bg-violet-50 dark:bg-violet-950/30',
   output: 'border-amber-500/50 bg-amber-50 dark:bg-amber-950/30',
 };
 
 const iconColors: Record<string, string> = {
   input: 'text-emerald-600',
   agent: 'text-primary',
+  script: 'text-violet-600',
   output: 'text-amber-600',
 };
 
