@@ -1,0 +1,40 @@
+project_id = "eidesurdreoxroarympm"
+
+[functions.chat]
+verify_jwt = false
+
+[functions.chat-stream]
+verify_jwt = false
+
+[functions.process-document]
+verify_jwt = false
+
+[functions.init-system]
+verify_jwt = false
+
+[functions.rerank-chunks]
+verify_jwt = false
+
+[functions.bitrix-chat-api]
+verify_jwt = false
+
+[functions.pii-mask]
+verify_jwt = false
+
+[functions.pii-unmask]
+verify_jwt = false
+
+[functions.reputation-api]
+verify_jwt = false
+
+[functions.reputation-web-search]
+verify_jwt = false
+
+[functions.fips-parse]
+verify_jwt = false
+
+[functions.admin-manage-users]
+verify_jwt = false
+
+[functions.deep-research]
+verify_jwt = false

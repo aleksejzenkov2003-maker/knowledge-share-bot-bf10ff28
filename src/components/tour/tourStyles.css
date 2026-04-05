@@ -1,0 +1,73 @@
+/* driver.js custom theme */
+.driver-popover {
+  background-color: hsl(var(--popover)) !important;
+  color: hsl(var(--popover-foreground)) !important;
+  border: 1px solid hsl(var(--border)) !important;
+  border-radius: 12px !important;
+  box-shadow: 0 20px 60px -15px hsl(var(--foreground) / 0.15) !important;
+  max-width: 360px !important;
+  padding: 20px !important;
+}
+
+.driver-popover .driver-popover-title {
+  font-size: 16px !important;
+  font-weight: 600 !important;
+  color: hsl(var(--foreground)) !important;
+  margin-bottom: 6px !important;
+}
+
+.driver-popover .driver-popover-description {
+  font-size: 13px !important;
+  color: hsl(var(--muted-foreground)) !important;
+  line-height: 1.5 !important;
+}
+
+.driver-popover .driver-popover-progress-text {
+  font-size: 11px !important;
+  color: hsl(var(--muted-foreground)) !important;
+}
+
+.driver-popover .driver-popover-footer {
+  margin-top: 16px !important;
+}
+
+.driver-popover .driver-popover-footer button {
+  border-radius: 8px !important;
+  font-size: 13px !important;
+  font-weight: 500 !important;
+  padding: 6px 16px !important;
+  transition: all 0.15s ease !important;
+}
+
+.driver-popover .driver-popover-prev-btn {
+  background-color: hsl(var(--secondary)) !important;
+  color: hsl(var(--secondary-foreground)) !important;
+  border: none !important;
+}
+
+.driver-popover .driver-popover-prev-btn:hover {
+  opacity: 0.9 !important;
+}
+
+.driver-popover .driver-popover-next-btn,
+.driver-popover .driver-popover-close-btn {
+  background-color: hsl(var(--primary)) !important;
+  color: hsl(var(--primary-foreground)) !important;
+  border: none !important;
+}
+
+.driver-popover .driver-popover-next-btn:hover,
+.driver-popover .driver-popover-close-btn:hover {
+  opacity: 0.9 !important;
+}
+
+.driver-popover-arrow-side-left .driver-popover-arrow,
+.driver-popover-arrow-side-right .driver-popover-arrow,
+.driver-popover-arrow-side-top .driver-popover-arrow,
+.driver-popover-arrow-side-bottom .driver-popover-arrow {
+  border-color: hsl(var(--border)) !important;
+}
+
+.driver-overlay {
+  background-color: hsl(var(--foreground) / 0.5) !important;
+}
