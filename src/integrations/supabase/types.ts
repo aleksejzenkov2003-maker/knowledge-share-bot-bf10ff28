@@ -2030,6 +2030,7 @@ export type Database = {
           position_x: number
           position_y: number
           prompt_override: string | null
+          script_config: Json | null
           step_order: number
           template_id: string
         }
@@ -2047,6 +2048,7 @@ export type Database = {
           position_x?: number
           position_y?: number
           prompt_override?: string | null
+          script_config?: Json | null
           step_order: number
           template_id: string
         }
@@ -2064,6 +2066,7 @@ export type Database = {
           position_x?: number
           position_y?: number
           prompt_override?: string | null
+          script_config?: Json | null
           step_order?: number
           template_id?: string
         }
