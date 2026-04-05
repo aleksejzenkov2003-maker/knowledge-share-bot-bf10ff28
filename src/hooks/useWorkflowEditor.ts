@@ -18,6 +18,7 @@ export interface WorkflowNodeData {
   autoRun: boolean;
   inputSchema: Record<string, unknown>;
   outputSchema: Record<string, unknown>;
+  scriptConfig: Record<string, unknown>;
   stepOrder: number;
   stepId: string;
   [key: string]: unknown;
@@ -82,20 +83,21 @@ export function useWorkflowEditor(templateId: string | null) {
     return steps.map((step) => ({
       id: step.id,
       type: 'workflowNode',
-      position: { x: (step as any).position_x || 0, y: (step as any).position_y || 0 },
+      position: { x: step.position_x || 0, y: step.position_y || 0 },
       data: {
         label: step.name,
         description: step.description,
-        nodeType: (step as any).node_type || 'agent',
+        nodeType: step.node_type || 'agent',
         agentId: step.agent_id,
         agentName: step.agent?.name || null,
-        promptOverride: (step as any).prompt_override || null,
+        promptOverride: step.prompt_override || null,
         isUserEditable: step.is_user_editable,
         autoRun: step.auto_run,
         inputSchema: step.input_schema,
         outputSchema: step.output_schema,
         stepOrder: step.step_order,
         stepId: step.id,
+        scriptConfig: step.script_config || {},
       },
     }));
   }, []);
