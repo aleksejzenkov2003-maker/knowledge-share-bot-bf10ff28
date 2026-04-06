@@ -1,5 +1,6 @@
 import React from 'react';
 import { useWorkflowEditor, type WorkflowNodeData } from '@/hooks/useWorkflowEditor';
+import { useWorkflowTemplateTestRun } from '@/hooks/useWorkflowTemplateTestRun';
 import { WorkflowCanvas } from '@/components/workflow-editor/WorkflowCanvas';
 import { WorkflowNodeConfigPanel } from '@/components/workflow-editor/WorkflowNodeConfigPanel';
 import { EdgeConfigPanel } from '@/components/workflow-editor/EdgeConfigPanel';
@@ -40,7 +41,10 @@ const WorkflowTemplateEditor: React.FC<WorkflowTemplateEditorProps> = ({ templat
     deleteEdge,
     updateEdge,
     validationIssues,
+    graphEdges,
   } = useWorkflowEditor(templateId);
+
+  const templateTestRun = useWorkflowTemplateTestRun(steps, graphEdges);
 
   const [templateName, setTemplateName] = React.useState('');
 
@@ -167,6 +171,7 @@ const WorkflowTemplateEditor: React.FC<WorkflowTemplateEditorProps> = ({ templat
             onUpdate={updateStep}
             onDelete={deleteStep}
             onClose={() => setSelectedNodeId(null)}
+            templateTestRun={templateTestRun}
           />
         )}
       </div>

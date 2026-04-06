@@ -15,6 +15,8 @@ import { ScriptNodeConfig } from './ScriptNodeConfig';
 import { ResultNodeConfig } from './ResultNodeConfig';
 import { ConditionNodeConfig } from './ConditionNodeConfig';
 import { QualityCheckNodeConfig } from './QualityCheckNodeConfig';
+import { WorkflowTemplateTestSection } from './WorkflowTemplateTestSection';
+import type { WorkflowTemplateTestRunApi } from '@/hooks/useWorkflowTemplateTestRun';
 
 interface Agent {
   id: string;
@@ -31,6 +33,8 @@ interface WorkflowNodeConfigPanelProps {
   onUpdate: (stepId: string, updates: Record<string, unknown>) => void;
   onDelete: (stepId: string) => void;
   onClose: () => void;
+  /** Тестовый прогон в редакторе шаблона (n8n-style) */
+  templateTestRun?: WorkflowTemplateTestRunApi | null;
 }
 
 export const WorkflowNodeConfigPanel: React.FC<WorkflowNodeConfigPanelProps> = ({
@@ -39,6 +43,7 @@ export const WorkflowNodeConfigPanel: React.FC<WorkflowNodeConfigPanelProps> = (
   onUpdate,
   onDelete,
   onClose,
+  templateTestRun = null,
 }) => {
   const [name, setName] = useState(step.name);
   const [description, setDescription] = useState(step.description || '');
@@ -369,6 +374,13 @@ export const WorkflowNodeConfigPanel: React.FC<WorkflowNodeConfigPanelProps> = (
             </div>
           )}
         </div>
+
+        {templateTestRun && (
+          <>
+            <Separator />
+            <WorkflowTemplateTestSection step={step} testRun={templateTestRun} />
+          </>
+        )}
       </ScrollArea>
 
       <div className="p-3 border-t flex items-center justify-between gap-2">
