@@ -2,7 +2,7 @@ import { memo } from 'react';
 import { BaseEdge, EdgeLabelRenderer, getBezierPath, type EdgeProps } from '@xyflow/react';
 import { cn } from '@/lib/utils';
 
-type EdgeData = { mappingCount?: number; hasConditions?: boolean };
+type EdgeData = { mappingCount?: number; hasConditions?: boolean; branchLabel?: string };
 
 export const WorkflowMappingEdge = memo((props: EdgeProps) => {
   const {
@@ -50,6 +50,7 @@ export const WorkflowMappingEdge = memo((props: EdgeProps) => {
             transform: `translate(-50%, -50%) translate(${labelX}px, ${labelY}px)`,
           }}
         >
+          {d.branchLabel ? `${d.branchLabel} · ` : ''}
           {n > 0 ? `${n} полей` : 'маппинг'}
         </div>
       </EdgeLabelRenderer>

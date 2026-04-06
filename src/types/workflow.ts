@@ -64,7 +64,7 @@ export interface WorkflowTemplateStep {
   created_at: string;
   // Поля визуального редактора
   prompt_override: string | null;
-  node_type: string; // 'input' | 'agent' | 'output' | 'script'
+  node_type: string; // 'input' | 'agent' | 'output' | 'script' | 'condition' | 'quality_check'
   position_x: number;
   position_y: number;
   script_config: Record<string, unknown>;

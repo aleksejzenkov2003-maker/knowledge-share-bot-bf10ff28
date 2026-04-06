@@ -76,6 +76,7 @@ export const WorkflowStepView: React.FC<WorkflowStepViewProps> = ({
   const name = step.template_step?.name || `Этап ${step.step_order}`;
   const description = step.template_step?.description || '';
   const agentName = step.agent?.name || 'Агент';
+  const nodeType = step.template_step?.node_type || '';
 
   const hr = step.human_readable_output as { title?: string; summary?: string; sections?: unknown[] } | null;
   const rawOut = step.raw_output ?? step.output_data;
@@ -163,6 +164,32 @@ export const WorkflowStepView: React.FC<WorkflowStepViewProps> = ({
               {agentName}
             </Badge>
           )}
+
+          {nodeType === 'condition' &&
+            step.status === 'completed' &&
+            rawOut &&
+            typeof rawOut === 'object' && (
+              <Badge variant="outline" className="text-xs">
+                {(rawOut as Record<string, unknown>)._branch === true ||
+                (rawOut as Record<string, unknown>)._branch === 'true'
+                  ? 'Итог условия: Да'
+                  : 'Итог условия: Нет'}
+              </Badge>
+            )}
+
+          {nodeType === 'quality_check' &&
+            step.status === 'completed' &&
+            rawOut &&
+            typeof rawOut === 'object' && (
+              <Badge
+                variant={(rawOut as Record<string, unknown>).quality_passed === true ? 'secondary' : 'destructive'}
+                className="text-xs"
+              >
+                {(rawOut as Record<string, unknown>).quality_passed === true
+                  ? 'Проверка пройдена'
+                  : 'Проверка не пройдена'}
+              </Badge>
+            )}
 
           {step.status === 'pending' && !isFirstStep && (
             <Button size="sm" onClick={() => onExecute(step.id)}>

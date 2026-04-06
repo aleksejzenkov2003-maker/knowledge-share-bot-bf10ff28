@@ -8,11 +8,13 @@ import { Switch } from '@/components/ui/switch';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { Separator } from '@/components/ui/separator';
-import { X, Trash2, Bot, FileInput, FileOutput, Save, Code } from 'lucide-react';
+import { X, Trash2, Bot, FileInput, FileOutput, Save, Code, GitBranch, ShieldCheck } from 'lucide-react';
 import { InputNodeConfig, parseFormConfig, buildFormConfigObject } from './InputNodeConfig';
 import { AgentNodeConfig } from './AgentNodeConfig';
 import { ScriptNodeConfig } from './ScriptNodeConfig';
 import { ResultNodeConfig } from './ResultNodeConfig';
+import { ConditionNodeConfig } from './ConditionNodeConfig';
+import { QualityCheckNodeConfig } from './QualityCheckNodeConfig';
 
 interface Agent {
   id: string;
@@ -117,6 +119,8 @@ export const WorkflowNodeConfigPanel: React.FC<WorkflowNodeConfigPanelProps> = (
     agent: <Bot className="h-4 w-4 text-primary" />,
     script: <Code className="h-4 w-4 text-violet-600" />,
     output: <FileOutput className="h-4 w-4 text-amber-600" />,
+    condition: <GitBranch className="h-4 w-4 text-sky-600" />,
+    quality_check: <ShieldCheck className="h-4 w-4 text-rose-600" />,
   };
 
   return (
@@ -148,6 +152,8 @@ export const WorkflowNodeConfigPanel: React.FC<WorkflowNodeConfigPanelProps> = (
               <SelectContent>
                 <SelectItem value="input">Ввод данных</SelectItem>
                 <SelectItem value="agent">AI Агент</SelectItem>
+                <SelectItem value="condition">Условие (IF / ELSE)</SelectItem>
+                <SelectItem value="quality_check">Проверка результата</SelectItem>
                 <SelectItem value="script">Скрипт</SelectItem>
                 <SelectItem value="output">Итог</SelectItem>
               </SelectContent>
@@ -266,6 +272,26 @@ export const WorkflowNodeConfigPanel: React.FC<WorkflowNodeConfigPanelProps> = (
             />
           )}
 
+          {nodeType === 'condition' && (
+            <ConditionNodeConfig
+              scriptConfig={scriptConfig}
+              onChange={(c) => {
+                setScriptConfig(c);
+                markDirty();
+              }}
+            />
+          )}
+
+          {nodeType === 'quality_check' && (
+            <QualityCheckNodeConfig
+              scriptConfig={scriptConfig}
+              onChange={(c) => {
+                setScriptConfig(c);
+                markDirty();
+              }}
+            />
+          )}
+
           {nodeType === 'output' && (
             <ResultNodeConfig
               stepId={step.id}
@@ -307,9 +333,32 @@ export const WorkflowNodeConfigPanel: React.FC<WorkflowNodeConfigPanelProps> = (
             />
           </div>
 
-          {nodeType !== 'agent' && nodeType !== 'output' && (
+          {nodeType !== 'agent' &&
+            nodeType !== 'output' &&
+            nodeType !== 'condition' &&
+            nodeType !== 'quality_check' && (
             <div className="flex items-center justify-between">
               <Label className="text-xs">Подтверждение перед передачей</Label>
+              <Switch
+                checked={requireApproval}
+                onCheckedChange={(v) => {
+                  setRequireApproval(v);
+                  markDirty();
+                }}
+              />
+            </div>
+          )}
+
+          {(nodeType === 'condition' || nodeType === 'quality_check') && (
+            <p className="text-[10px] text-muted-foreground">
+              По умолчанию шаг подтверждается автоматически и передаёт данные по выбранной ветке. Включите «Подтверждение»
+              ниже только если нужна ручная пауза.
+            </p>
+          )}
+
+          {(nodeType === 'condition' || nodeType === 'quality_check') && (
+            <div className="flex items-center justify-between">
+              <Label className="text-xs">Ручное подтверждение</Label>
               <Switch
                 checked={requireApproval}
                 onCheckedChange={(v) => {

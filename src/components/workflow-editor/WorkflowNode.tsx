@@ -1,6 +1,6 @@
 import React, { memo } from 'react';
 import { Handle, Position, type NodeProps, type Node } from '@xyflow/react';
-import { Bot, FileInput, FileOutput, Code } from 'lucide-react';
+import { Bot, FileInput, FileOutput, Code, GitBranch, ShieldCheck } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import type { WorkflowNodeData } from '@/hooks/useWorkflowEditor';
 
@@ -11,6 +11,8 @@ const nodeIcons: Record<string, React.ElementType> = {
   agent: Bot,
   script: Code,
   output: FileOutput,
+  condition: GitBranch,
+  quality_check: ShieldCheck,
 };
 
 const nodeColors: Record<string, string> = {
@@ -18,6 +20,8 @@ const nodeColors: Record<string, string> = {
   agent: 'border-primary/50 bg-primary/5',
   script: 'border-violet-500/50 bg-violet-50 dark:bg-violet-950/30',
   output: 'border-amber-500/50 bg-amber-50 dark:bg-amber-950/30',
+  condition: 'border-sky-500/50 bg-sky-50 dark:bg-sky-950/30',
+  quality_check: 'border-rose-500/40 bg-rose-50 dark:bg-rose-950/25',
 };
 
 const iconColors: Record<string, string> = {
@@ -25,6 +29,8 @@ const iconColors: Record<string, string> = {
   agent: 'text-primary',
   script: 'text-violet-600',
   output: 'text-amber-600',
+  condition: 'text-sky-600',
+  quality_check: 'text-rose-600',
 };
 
 export const WorkflowNode = memo(({ data, selected }: NodeProps<WorkflowNodeType>) => {
@@ -35,7 +41,7 @@ export const WorkflowNode = memo(({ data, selected }: NodeProps<WorkflowNodeType
   return (
     <div
       className={cn(
-        'px-4 py-3 rounded-xl border-2 shadow-sm min-w-[180px] max-w-[220px] transition-all',
+        'relative px-4 py-3 rounded-xl border-2 shadow-sm min-w-[180px] max-w-[220px] transition-all',
         colorClass,
         selected && 'ring-2 ring-primary ring-offset-2 shadow-md'
       )}
@@ -78,9 +84,62 @@ export const WorkflowNode = memo(({ data, selected }: NodeProps<WorkflowNodeType
             approve
           </span>
         )}
+        {(data.nodeType === 'condition' || data.nodeType === 'quality_check') && (
+          <span className="text-[9px] px-1.5 py-0.5 rounded-full bg-slate-200/80 text-slate-800 font-medium dark:bg-slate-800 dark:text-slate-200">
+            оркестрация
+          </span>
+        )}
       </div>
-      
-      <Handle type="source" position={Position.Right} className="!w-3 !h-3 !bg-muted-foreground !border-2 !border-background" />
+
+      {data.nodeType === 'condition' ? (
+        <>
+          <Handle
+            type="source"
+            position={Position.Right}
+            id="branch_true"
+            className="!w-3 !h-3 !bg-emerald-500 !border-2 !border-background"
+            style={{ top: '38%' }}
+          />
+          <Handle
+            type="source"
+            position={Position.Right}
+            id="branch_false"
+            className="!w-3 !h-3 !bg-slate-400 !border-2 !border-background"
+            style={{ top: '72%' }}
+          />
+          <div className="absolute right-0 top-[32%] translate-x-full pl-1 text-[8px] text-muted-foreground whitespace-nowrap pointer-events-none">
+            Да
+          </div>
+          <div className="absolute right-0 top-[66%] translate-x-full pl-1 text-[8px] text-muted-foreground whitespace-nowrap pointer-events-none">
+            Нет
+          </div>
+        </>
+      ) : data.nodeType === 'quality_check' ? (
+        <>
+          <Handle
+            type="source"
+            position={Position.Right}
+            id="branch_pass"
+            className="!w-3 !h-3 !bg-emerald-500 !border-2 !border-background"
+            style={{ top: '38%' }}
+          />
+          <Handle
+            type="source"
+            position={Position.Right}
+            id="branch_fail"
+            className="!w-3 !h-3 !bg-destructive/80 !border-2 !border-background"
+            style={{ top: '72%' }}
+          />
+          <div className="absolute right-0 top-[32%] translate-x-full pl-1 text-[8px] text-muted-foreground whitespace-nowrap pointer-events-none">
+            Ок
+          </div>
+          <div className="absolute right-0 top-[66%] translate-x-full pl-1 text-[8px] text-muted-foreground whitespace-nowrap pointer-events-none">
+            Не ок
+          </div>
+        </>
+      ) : (
+        <Handle type="source" position={Position.Right} className="!w-3 !h-3 !bg-muted-foreground !border-2 !border-background" />
+      )}
     </div>
   );
 });

@@ -12,11 +12,7 @@ import {
   WorkflowStepStatus,
 } from '@/types/workflow';
 import type { Json } from '@/integrations/supabase/types';
-import {
-  buildInputPayloadFromEdges,
-  type ProjectStepRow,
-  type TemplateEdgeRow,
-} from '@/lib/workflowGraphRuntime';
+import { confirmProjectWorkflowStep } from '@/lib/projectWorkflowConfirm';
 
 const STREAM_UPDATE_INTERVAL = 50;
 
@@ -322,7 +318,63 @@ export function useProjectWorkflow(projectId: string | null, userId: string | un
       if (projectId) {
         queryClient.invalidateQueries({ queryKey: workflowQueryKeys.projectWorkflows(projectId) });
       }
-      
+
+      const { data: stepFresh } = await supabase
+        .from('project_workflow_steps')
+        .select('workflow_id, template_step_id')
+        .eq('id', stepId)
+        .single();
+      if (stepFresh?.template_step_id && stepFresh.workflow_id) {
+        const { data: tmpl } = await supabase
+          .from('workflow_template_steps')
+          .select('node_type, require_approval')
+          .eq('id', stepFresh.template_step_id)
+          .single();
+        const nt = tmpl?.node_type as string | undefined;
+        const needApprove = tmpl?.require_approval !== false;
+        if ((nt === 'condition' || nt === 'quality_check') && !needApprove) {
+          const { data: row } = await supabase
+            .from('project_workflow_steps')
+            .select('user_edited_output, user_edits, approved_output, output_data')
+            .eq('id', stepId)
+            .single();
+          const approved =
+            (row?.approved_output as Record<string, unknown> | null) ||
+            (row?.user_edited_output as Record<string, unknown> | null) ||
+            (row?.user_edits as Record<string, unknown> | null) ||
+            (row?.output_data as Record<string, unknown>) ||
+            {};
+          const r = await confirmProjectWorkflowStep(supabase, {
+            workflowId: stepFresh.workflow_id as string,
+            stepId,
+            approvedPayload: approved,
+          });
+          if (!('error' in r)) {
+            queryClient.invalidateQueries({ queryKey: workflowQueryKeys.workflowSteps(stepFresh.workflow_id as string) });
+            const { data: allSteps } = await supabase
+              .from('project_workflow_steps')
+              .select('id, template_step_id')
+              .eq('workflow_id', stepFresh.workflow_id);
+            const candidate = (allSteps || []).find(
+              (s: { template_step_id?: string | null }) =>
+                s.template_step_id && r.targetTemplateIds.includes(s.template_step_id as string)
+            );
+            if (candidate?.template_step_id) {
+              const { data: trow } = await supabase
+                .from('workflow_template_steps')
+                .select('auto_run')
+                .eq('id', candidate.template_step_id)
+                .maybeSingle();
+              if (trow?.auto_run) {
+                setTimeout(() => executeStep(candidate.id as string), 400);
+              }
+            }
+            toast.success('Этап выполнен, ветка передана дальше');
+            return;
+          }
+        }
+      }
+
       toast.success('Этап выполнен');
     } catch (error) {
       if ((error as Error).name !== 'AbortError') {
@@ -364,116 +416,33 @@ export function useProjectWorkflow(projectId: string | null, userId: string | un
     }
   }, [activeWorkflowId, queryClient]);
 
-  // Confirm step and pass data to next (через рёбра и маппинг или линейно)
   const confirmStep = useCallback(async (stepId: string) => {
     const step = steps.find((s) => s.id === stepId);
     if (!step || !activeWorkflowId) return;
 
-    const wf = workflows.find((w) => w.id === activeWorkflowId);
-    if (!wf) return;
-
     const approved =
-      step.user_edited_output ||
-      step.user_edits ||
-      step.approved_output ||
-      step.output_data;
+      (step.user_edited_output ||
+        step.user_edits ||
+        step.approved_output ||
+        step.output_data) as Record<string, unknown>;
 
-    await supabase
-      .from('project_workflow_steps')
-      .update({
-        approved_output: approved as unknown as Json,
-        raw_output: (step.raw_output ?? step.output_data) as unknown as Json,
-      } as never)
-      .eq('id', stepId);
+    const r = await confirmProjectWorkflowStep(supabase, {
+      workflowId: activeWorkflowId,
+      stepId,
+      approvedPayload: approved,
+    });
 
-    const { data: edgeRows, error: edgeErr } = await supabase
-      .from('workflow_template_edges')
-      .select('*')
-      .eq('template_id', wf.template_id);
-
-    const templateEdges: TemplateEdgeRow[] =
-      !edgeErr && edgeRows
-        ? edgeRows.map((e) => ({
-            source_node_id: e.source_node_id as string,
-            target_node_id: e.target_node_id as string,
-            mapping: (e.mapping as TemplateEdgeRow['mapping']) || [],
-          }))
-        : [];
-
-    const stepsMap = new Map<string, ProjectStepRow>();
-    for (const s of steps) {
-      if (s.template_step_id) {
-        stepsMap.set(s.template_step_id, {
-          template_step_id: s.template_step_id,
-          output_data: s.output_data,
-          user_edits: s.user_edits,
-          user_edited_output: s.user_edited_output,
-          approved_output: s.approved_output,
-        });
-      }
-    }
-    if (step.template_step_id) {
-      const cur = stepsMap.get(step.template_step_id);
-      if (cur) {
-        stepsMap.set(step.template_step_id, {
-          ...cur,
-          approved_output: approved as Record<string, unknown>,
-          user_edited_output: (step.user_edited_output ?? step.user_edits) as Record<string, unknown> | null,
-        });
-      }
-    }
-
-    const targets = new Set<string>();
-    if (templateEdges.length > 0 && step.template_step_id) {
-      for (const e of templateEdges) {
-        if (e.source_node_id === step.template_step_id) {
-          targets.add(e.target_node_id);
-        }
-      }
-    }
-
-    if (targets.size > 0) {
-      for (const tid of targets) {
-        const targetStep = steps.find((s) => s.template_step_id === tid);
-        if (!targetStep) continue;
-        const payload = buildInputPayloadFromEdges(templateEdges, stepsMap, tid);
-        await supabase
-          .from('project_workflow_steps')
-          .update({ input_data: payload as unknown as Json })
-          .eq('id', targetStep.id);
-      }
-    } else {
-      const nextStep = steps.find((s) => s.step_order === step.step_order + 1);
-      if (nextStep) {
-        await supabase
-          .from('project_workflow_steps')
-          .update({ input_data: approved as unknown as Json })
-          .eq('id', nextStep.id);
-      }
-    }
-
-    try {
-      await supabase.from('workflow_event_logs').insert({
-        project_id: wf.project_id,
-        workflow_run_id: activeWorkflowId,
-        project_workflow_step_id: stepId,
-        event_type: 'step_confirmed',
-        payload: { step_id: stepId } as unknown as Json,
-      } as never);
-    } catch {
-      /* RLS / таблица */
+    if ('error' in r) {
+      toast.error('Не удалось подтвердить этап');
+      return;
     }
 
     queryClient.invalidateQueries({ queryKey: workflowQueryKeys.workflowSteps(activeWorkflowId || '') });
     toast.success('Этап подтверждён');
 
-    let autoCandidates: typeof steps = [];
-    if (targets.size > 0) {
-      autoCandidates = steps.filter((s) => s.template_step_id && targets.has(s.template_step_id));
-    } else {
-      const linear = steps.find((s) => s.step_order === step.step_order + 1);
-      if (linear) autoCandidates = [linear];
-    }
+    const autoCandidates = steps.filter(
+      (s) => s.template_step_id && r.targetTemplateIds.includes(s.template_step_id)
+    );
     const nextForAuto = autoCandidates.find((s) => s.template_step?.auto_run);
 
     if (nextForAuto) {
@@ -481,7 +450,7 @@ export function useProjectWorkflow(projectId: string | null, userId: string | un
         executeStep(nextForAuto.id);
       }, 500);
     }
-  }, [steps, workflows, activeWorkflowId, queryClient, executeStep]);
+  }, [steps, activeWorkflowId, queryClient, executeStep]);
 
   const retryStep = useCallback(
     async (stepId: string) => {

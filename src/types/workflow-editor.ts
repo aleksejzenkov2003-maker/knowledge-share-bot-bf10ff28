@@ -9,7 +9,21 @@ export type EdgeMapping = {
   transform?: 'passthrough' | 'json_stringify';
 };
 
-export type EdgeConditionOperator = 'eq' | 'neq' | 'exists' | 'truthy';
+export type EdgeConditionOperator =
+  | 'eq'
+  | 'neq'
+  | 'exists'
+  | 'not_exists'
+  | 'truthy'
+  | 'falsy'
+  | 'empty'
+  | 'not_empty'
+  | 'contains'
+  | 'not_contains'
+  | 'gt'
+  | 'gte'
+  | 'lt'
+  | 'lte';
 
 export type EdgeCondition = {
   field: string;

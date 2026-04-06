@@ -6,7 +6,7 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
-import { Plus, FileInput, Bot, FileOutput, Code } from 'lucide-react';
+import { Plus, FileInput, Bot, FileOutput, Code, GitBranch, ShieldCheck } from 'lucide-react';
 
 interface AddNodeMenuProps {
   onAdd: (nodeType: string) => void;
@@ -33,6 +33,20 @@ export const AddNodeMenu: React.FC<AddNodeMenuProps> = ({ onAdd }) => (
         <div>
           <div className="font-medium">AI Агент</div>
           <div className="text-[10px] text-muted-foreground">LLM, схемы, инструменты</div>
+        </div>
+      </DropdownMenuItem>
+      <DropdownMenuItem onClick={() => onAdd('condition')}>
+        <GitBranch className="h-4 w-4 mr-2 text-sky-600" />
+        <div>
+          <div className="font-medium">Условие IF / ELSE</div>
+          <div className="text-[10px] text-muted-foreground">Разветвление без программирования</div>
+        </div>
+      </DropdownMenuItem>
+      <DropdownMenuItem onClick={() => onAdd('quality_check')}>
+        <ShieldCheck className="h-4 w-4 mr-2 text-rose-600" />
+        <div>
+          <div className="font-medium">Проверка результата</div>
+          <div className="text-[10px] text-muted-foreground">Соответствие ожиданиям</div>
         </div>
       </DropdownMenuItem>
       <DropdownMenuItem onClick={() => onAdd('script')}>

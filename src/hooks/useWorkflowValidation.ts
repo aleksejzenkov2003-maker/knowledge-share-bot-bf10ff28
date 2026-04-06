@@ -1,5 +1,6 @@
 import type { WorkflowTemplateStep, WorkflowGraphEdge } from '@/types/workflow';
 import type { EditorValidationIssue } from '@/types/workflow-editor';
+import { parseOrchestration } from '@/lib/workflowOrchestration';
 
 function hasCycle(
   nodeIds: string[],
@@ -138,6 +139,74 @@ export function validateWorkflowGraph(
           severity: 'error',
           code: 'script_no_key',
           message: `Скрипт «${s.name}»: укажите scriptKey или function_name`,
+          nodeId: s.id,
+        });
+      }
+    }
+
+    if (s.node_type === 'condition') {
+      const orch = parseOrchestration(s.script_config);
+      if (!orch || orch.kind !== 'if_else' || !orch.rules?.length) {
+        issues.push({
+          severity: 'error',
+          code: 'condition_no_rules',
+          message: `Условие «${s.name}»: добавьте хотя бы одно правило`,
+          nodeId: s.id,
+        });
+      } else {
+        for (const r of orch.rules) {
+          if (!(r.field || '').trim()) {
+            issues.push({
+              severity: 'warning',
+              code: 'condition_empty_field',
+              message: `Условие «${s.name}»: в правиле не указано поле данных`,
+              nodeId: s.id,
+            });
+          }
+        }
+      }
+      const out = edges.filter((e) => e.source_node_id === s.id);
+      const hasTrue = out.some((e) => e.source_handle === 'branch_true');
+      const hasFalse = out.some((e) => e.source_handle === 'branch_false');
+      if (!hasTrue || !hasFalse) {
+        issues.push({
+          severity: 'warning',
+          code: 'condition_branches',
+          message: `Условие «${s.name}»: создайте две связи от зелёной (Да) и серой (Нет) точек`,
+          nodeId: s.id,
+        });
+      }
+    }
+
+    if (s.node_type === 'quality_check') {
+      const orch = parseOrchestration(s.script_config);
+      if (!orch || orch.kind !== 'quality_check' || !orch.rules?.length) {
+        issues.push({
+          severity: 'error',
+          code: 'quality_no_rules',
+          message: `Проверка «${s.name}»: добавьте требования к полям`,
+          nodeId: s.id,
+        });
+      } else {
+        for (const r of orch.rules) {
+          if (!(r.field || '').trim()) {
+            issues.push({
+              severity: 'warning',
+              code: 'quality_empty_field',
+              message: `Проверка «${s.name}»: укажите поле в каждом требовании`,
+              nodeId: s.id,
+            });
+          }
+        }
+      }
+      const out = edges.filter((e) => e.source_node_id === s.id);
+      const hasPass = out.some((e) => e.source_handle === 'branch_pass');
+      const hasFail = out.some((e) => e.source_handle === 'branch_fail');
+      if (!hasPass || !hasFail) {
+        issues.push({
+          severity: 'warning',
+          code: 'quality_branches',
+          message: `Проверка «${s.name}»: добавьте связи «Ок» и «Не ок»`,
           nodeId: s.id,
         });
       }

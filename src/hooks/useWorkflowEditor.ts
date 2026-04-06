@@ -253,18 +253,29 @@ export function useWorkflowEditor(templateId: string | null) {
 
   const graphEdgesToFlowEdges = useCallback(
     (ge: WorkflowGraphEdge[]): Edge[] =>
-      ge.map((e) => ({
-        id: e.id,
-        source: e.source_node_id,
-        target: e.target_node_id,
-        type: 'workflowEdge',
-        animated: true,
-        style: { strokeWidth: 2 },
-        data: {
-          mappingCount: e.mapping?.length ?? 0,
-          hasConditions: (e.conditions?.length ?? 0) > 0,
-        },
-      })),
+      ge.map((e) => {
+        const sh = e.source_handle || '';
+        let branchLabel: string | undefined;
+        if (sh === 'branch_true') branchLabel = 'Да';
+        else if (sh === 'branch_false') branchLabel = 'Нет';
+        else if (sh === 'branch_pass') branchLabel = 'Ок';
+        else if (sh === 'branch_fail') branchLabel = 'Не ок';
+        return {
+          id: e.id,
+          source: e.source_node_id,
+          target: e.target_node_id,
+          sourceHandle: e.source_handle || undefined,
+          targetHandle: e.target_handle || undefined,
+          type: 'workflowEdge',
+          animated: true,
+          style: { strokeWidth: 2 },
+          data: {
+            mappingCount: e.mapping?.length ?? 0,
+            hasConditions: (e.conditions?.length ?? 0) > 0,
+            branchLabel,
+          },
+        };
+      }),
     []
   );
 
@@ -344,7 +355,30 @@ export function useWorkflowEditor(templateId: string | null) {
           ? 'Ввод данных'
           : nodeType === 'output'
             ? 'Итог'
-            : `Шаг ${maxOrder + 1}`;
+            : nodeType === 'condition'
+              ? 'Условие (IF)'
+              : nodeType === 'quality_check'
+                ? 'Проверка результата'
+                : `Шаг ${maxOrder + 1}`;
+
+      const orchestrationDefaults =
+        nodeType === 'condition'
+          ? ({
+              orchestration: {
+                kind: 'if_else',
+                combine: 'all',
+                rules: [{ field: 'content', operator: 'not_empty' as const, value: undefined }],
+              },
+            } as Record<string, unknown>)
+          : nodeType === 'quality_check'
+            ? ({
+                orchestration: {
+                  kind: 'quality_check',
+                  combine: 'all',
+                  rules: [{ field: 'content', operator: 'not_empty' as const, value: undefined }],
+                },
+              } as Record<string, unknown>)
+            : {};
 
       const { data, error } = await supabase
         .from('workflow_template_steps')
@@ -358,8 +392,10 @@ export function useWorkflowEditor(templateId: string | null) {
           input_schema: {} as Json,
           output_schema: {} as Json,
           form_config: {} as Json,
+          script_config: { ...orchestrationDefaults } as Json,
           tools: [] as unknown as Json,
-          require_approval: true,
+          require_approval: nodeType === 'condition' || nodeType === 'quality_check' ? false : true,
+          auto_run: nodeType === 'condition' || nodeType === 'quality_check',
           output_mode: 'structured_json',
         } as never)
         .select()
@@ -427,7 +463,11 @@ export function useWorkflowEditor(templateId: string | null) {
     async (connection: Connection) => {
       if (!templateId || !connection.source || !connection.target) return;
       const exists = graphEdges.some(
-        (e) => e.source_node_id === connection.source && e.target_node_id === connection.target
+        (e) =>
+          e.source_node_id === connection.source &&
+          e.target_node_id === connection.target &&
+          (e.source_handle || null) === (connection.sourceHandle || null) &&
+          (e.target_handle || null) === (connection.targetHandle || null)
       );
       if (exists) {
         toast.message('Такая связь уже есть');

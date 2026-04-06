@@ -130,6 +130,8 @@ export const WorkflowCanvas: React.FC<WorkflowCanvasProps> = ({
             const data = node.data as WorkflowNodeData;
             if (data.nodeType === 'input') return 'hsl(var(--chart-2))';
             if (data.nodeType === 'output') return 'hsl(var(--chart-4))';
+            if (data.nodeType === 'condition') return 'hsl(200 80% 45%)';
+            if (data.nodeType === 'quality_check') return 'hsl(350 70% 45%)';
             return 'hsl(var(--primary))';
           }}
           maskColor="hsl(var(--background) / 0.7)"

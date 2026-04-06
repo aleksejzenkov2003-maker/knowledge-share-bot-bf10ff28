@@ -79,6 +79,99 @@ function buildInputFromEdges(
   return result;
 }
 
+function compareValues(a: unknown, b: unknown): boolean {
+  if (typeof a === 'number' && typeof b === 'string' && b.trim() !== '' && !Number.isNaN(Number(b))) {
+    return a === Number(b);
+  }
+  if (typeof b === 'number' && typeof a === 'string' && a.trim() !== '' && !Number.isNaN(Number(a))) {
+    return Number(a) === b;
+  }
+  return a === b;
+}
+
+function evaluateOrchestrationRule(
+  rule: { field: string; operator: string; value?: unknown },
+  payload: Record<string, unknown>,
+): boolean {
+  const v = rule.field ? getAtPath(payload, rule.field) : payload;
+  const op = rule.operator;
+  switch (op) {
+    case 'exists':
+      return v !== undefined && v !== null;
+    case 'not_exists':
+      return v === undefined || v === null;
+    case 'empty':
+      return v == null || v === '' || (Array.isArray(v) && v.length === 0);
+    case 'not_empty':
+      return !(v == null || v === '' || (Array.isArray(v) && v.length === 0));
+    case 'truthy':
+      return Boolean(v);
+    case 'falsy':
+      return !v;
+    case 'eq':
+      return compareValues(v, rule.value);
+    case 'neq':
+      return !compareValues(v, rule.value);
+    case 'contains': {
+      const sub = rule.value != null ? String(rule.value) : '';
+      if (sub === '') return false;
+      if (typeof v === 'string') return v.includes(sub);
+      if (Array.isArray(v)) return v.map(String).some((s) => s.includes(sub));
+      return String(v ?? '').includes(sub);
+    }
+    case 'not_contains': {
+      const sub = rule.value != null ? String(rule.value) : '';
+      if (sub === '') return true;
+      if (typeof v === 'string') return !v.includes(sub);
+      if (Array.isArray(v)) return !v.map(String).some((s) => s.includes(sub));
+      return !String(v ?? '').includes(sub);
+    }
+    case 'gt':
+      return Number(v) > Number(rule.value);
+    case 'gte':
+      return Number(v) >= Number(rule.value);
+    case 'lt':
+      return Number(v) < Number(rule.value);
+    case 'lte':
+      return Number(v) <= Number(rule.value);
+    default:
+      return true;
+  }
+}
+
+function evaluateIfElseOrchestration(
+  orch: { kind?: string; combine?: string; rules?: unknown[] } | null | undefined,
+  payload: Record<string, unknown>,
+): boolean {
+  if (!orch || orch.kind !== 'if_else' || !Array.isArray(orch.rules) || orch.rules.length === 0) {
+    return false;
+  }
+  const combine = orch.combine === 'any' ? 'any' : 'all';
+  const results = (orch.rules as { field: string; operator: string; value?: unknown }[]).map((r) =>
+    evaluateOrchestrationRule(r, payload)
+  );
+  return combine === 'any' ? results.some(Boolean) : results.every(Boolean);
+}
+
+function evaluateQualityOrchestration(
+  orch: { kind?: string; combine?: string; rules?: unknown[] } | null | undefined,
+  payload: Record<string, unknown>,
+): { passed: boolean; errors: string[] } {
+  if (!orch || orch.kind !== 'quality_check' || !Array.isArray(orch.rules)) {
+    return { passed: true, errors: [] };
+  }
+  const combine = orch.combine === 'any' ? 'any' : 'all';
+  const errors: string[] = [];
+  const rules = orch.rules as { field: string; operator: string; value?: unknown }[];
+  const results = rules.map((r, i) => {
+    const ok = evaluateOrchestrationRule(r, payload);
+    if (!ok) errors.push(`Правило ${i + 1} (${r.field}): не выполнено`);
+    return ok;
+  });
+  const passed = combine === 'any' ? results.some(Boolean) : results.every(Boolean);
+  return { passed, errors };
+}
+
 serve(async (req) => {
   if (req.method === 'OPTIONS') {
     return new Response('ok', { headers: corsHeaders });
@@ -234,6 +327,75 @@ serve(async (req) => {
       const encoder = new TextEncoder();
       const body = encoder.encode(
         `data: ${JSON.stringify({ type: 'content', content: typeof outputData === 'object' && 'content' in outputData ? outputData.content : JSON.stringify(outputData) })}\n\ndata: [DONE]\n\n`
+      );
+      return new Response(body, { headers: corsHeaders });
+    }
+
+    // ============ CONDITION (ветвление if / else) ============
+    if (nodeType === 'condition') {
+      const orch = (scriptConfig as Record<string, unknown>)?.orchestration as
+        | { kind?: string; combine?: string; rules?: unknown[] }
+        | undefined;
+      const ok = evaluateIfElseOrchestration(orch, workingInput);
+      const outputData = {
+        ...workingInput,
+        _branch: ok ? 'true' : 'false',
+        _condition_met: ok,
+      } as Record<string, unknown>;
+      const summary = ok ? 'Условие выполнено — пойдёт ветка «Да»' : 'Условие не выполнено — пойдёт ветка «Нет»';
+
+      await supabase.from('project_workflow_steps').update({
+        status: 'completed',
+        output_data: outputData,
+        raw_output: outputData,
+        human_readable_output: { title: 'Условие (IF)', summary },
+        completed_at: new Date().toISOString(),
+      }).eq('id', step_id);
+
+      await checkWorkflowCompletion(supabase, step.workflow_id);
+
+      const encoder = new TextEncoder();
+      const body = encoder.encode(
+        `data: ${JSON.stringify({ type: 'content', content: summary })}\n\ndata: [DONE]\n\n`,
+      );
+      return new Response(body, { headers: corsHeaders });
+    }
+
+    // ============ QUALITY CHECK (проверка результата) ============
+    if (nodeType === 'quality_check') {
+      const orch = (scriptConfig as Record<string, unknown>)?.orchestration as
+        | { kind?: string; combine?: string; rules?: unknown[] }
+        | undefined;
+      const { passed, errors } = evaluateQualityOrchestration(orch, workingInput);
+      const outputData = {
+        ...workingInput,
+        quality_passed: passed,
+        quality_errors: errors,
+      } as Record<string, unknown>;
+      const summary = passed
+        ? 'Проверка пройдена'
+        : `Проверка не пройдена: ${errors.slice(0, 5).join('; ')}`;
+
+      await supabase.from('project_workflow_steps').update({
+        status: 'completed',
+        output_data: outputData,
+        raw_output: outputData,
+        human_readable_output: { title: 'Проверка данных', summary },
+        completed_at: new Date().toISOString(),
+      }).eq('id', step_id);
+
+      await supabase.from('project_step_messages').insert({
+        step_id,
+        user_id: user.id,
+        message_role: 'assistant',
+        content: summary,
+      });
+
+      await checkWorkflowCompletion(supabase, step.workflow_id);
+
+      const encoder = new TextEncoder();
+      const body = encoder.encode(
+        `data: ${JSON.stringify({ type: 'content', content: summary })}\n\ndata: [DONE]\n\n`,
       );
       return new Response(body, { headers: corsHeaders });
     }

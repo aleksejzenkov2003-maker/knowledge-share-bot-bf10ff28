@@ -193,6 +193,11 @@ export const EdgeConfigPanel: React.FC<EdgeConfigPanelProps> = ({
 
         <Separator className="my-3" />
 
+        <p className="text-[10px] text-muted-foreground mb-2">
+          Условия на ребре (дополнительно к ветке IF/Проверка): переход только если все ниже выполняются над данными
+          предыдущего шага после подтверждения.
+        </p>
+
         <div className="flex items-center justify-between mb-2">
           <Label className="text-xs">Условия ребра</Label>
           <Button type="button" variant="outline" size="sm" className="h-7 text-xs" onClick={addCondition}>
@@ -227,10 +232,20 @@ export const EdgeConfigPanel: React.FC<EdgeConfigPanelProps> = ({
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent>
-                  <SelectItem value="eq">eq</SelectItem>
-                  <SelectItem value="neq">neq</SelectItem>
-                  <SelectItem value="exists">exists</SelectItem>
-                  <SelectItem value="truthy">truthy</SelectItem>
+                  <SelectItem value="eq">Равно</SelectItem>
+                  <SelectItem value="neq">Не равно</SelectItem>
+                  <SelectItem value="exists">Есть поле</SelectItem>
+                  <SelectItem value="not_exists">Нет поля</SelectItem>
+                  <SelectItem value="truthy">ИСТИНА</SelectItem>
+                  <SelectItem value="falsy">ЛОЖЬ</SelectItem>
+                  <SelectItem value="empty">Пусто</SelectItem>
+                  <SelectItem value="not_empty">Заполнено</SelectItem>
+                  <SelectItem value="contains">Содержит текст</SelectItem>
+                  <SelectItem value="not_contains">Не содержит</SelectItem>
+                  <SelectItem value="gt">Число &gt;</SelectItem>
+                  <SelectItem value="gte">Число ≥</SelectItem>
+                  <SelectItem value="lt">Число &lt;</SelectItem>
+                  <SelectItem value="lte">Число ≤</SelectItem>
                 </SelectContent>
               </Select>
               <Input

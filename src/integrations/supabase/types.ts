@@ -2492,6 +2492,7 @@ export type Database = {
         | "completed"
         | "error"
         | "skipped"
+        | "waiting_for_user"
     }
     CompositeTypes: {
       [_ in never]: never
@@ -2631,6 +2632,7 @@ export const Constants = {
         "completed",
         "error",
         "skipped",
+        "waiting_for_user",
       ],
     },
   },
