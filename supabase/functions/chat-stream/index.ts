@@ -274,8 +274,8 @@ serve(async (req) => {
       userId = user?.id || null;
     }
 
-    const reqBody: ChatRequest & { system_prompt_append?: string } = await req.json();
-    const { role_id, department_id, model, provider_id, message_history, attachments, is_department_chat, reply_to, system_prompt_append } = reqBody;
+    const reqBody: ChatRequest & { system_prompt_append?: string; context_folder_ids?: string[] } = await req.json();
+    const { role_id, department_id, model, provider_id, message_history, attachments, is_department_chat, reply_to, system_prompt_append, context_folder_ids } = reqBody;
     let message = reqBody.message;
 
     if (!message && (!attachments || attachments.length === 0)) {
