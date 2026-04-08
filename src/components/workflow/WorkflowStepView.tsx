@@ -22,6 +22,8 @@ import {
   FileSignature,
   Image as ImageIcon,
   ExternalLink,
+  Users,
+  Download,
 } from 'lucide-react';
 interface WorkflowStepViewProps {
   step: ProjectWorkflowStep;
