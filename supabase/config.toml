@@ -38,3 +38,9 @@ verify_jwt = false
 
 [functions.deep-research]
 verify_jwt = false
+
+[functions.workflow-step-execute]
+verify_jwt = false
+
+[functions.spy-market-scan]
+verify_jwt = false
