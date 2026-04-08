@@ -582,7 +582,20 @@ serve(async (req) => {
       }
     }
 
-    const userMessage = message || 'Выполни задачу этого этапа на основе предоставленного контекста.';
+    // Build a meaningful RAG query from working input so search finds relevant docs
+    let userMessage = message || '';
+    if (!userMessage) {
+      // Extract content from workingInput to use as RAG search query
+      const inputContent = typeof workingInput === 'object' && workingInput !== null && 'content' in workingInput
+        ? String(workingInput.content)
+        : '';
+      if (inputContent && inputContent.length > 10) {
+        // Use first 500 chars of input content as the search query for better RAG relevance
+        userMessage = inputContent.slice(0, 500);
+      } else {
+        userMessage = 'Выполни задачу этого этапа на основе предоставленного контекста.';
+      }
+    }
 
     // Load context packs
     const { data: contextPacks } = await supabase
