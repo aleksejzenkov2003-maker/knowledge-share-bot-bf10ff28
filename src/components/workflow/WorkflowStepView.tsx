@@ -144,6 +144,44 @@ export const WorkflowStepView: React.FC<WorkflowStepViewProps> = ({
     (step.template_step?.name || '').toLowerCase().includes('кп') ||
     step.template_step?.node_type === 'output';
 
+  // Detect two-document split (client KP + employee report)
+  const clientKp = useMemo(() => {
+    const out = rawOut as Record<string, unknown> | null;
+    if (out?.client_kp && typeof out.client_kp === 'string') return out.client_kp;
+    return null;
+  }, [rawOut]);
+
+  const internalReport = useMemo(() => {
+    const out = rawOut as Record<string, unknown> | null;
+    if (out?.internal_report && typeof out.internal_report === 'string') return out.internal_report;
+    return null;
+  }, [rawOut]);
+
+  const hasTwoDocs = clientKp !== null && internalReport !== null;
+
+  const handleDownloadDocx = useCallback(async () => {
+    if (!clientKp) return;
+    try {
+      const projectId_ = projectId;
+      const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
+      const resp = await fetch(`${supabaseUrl}/functions/v1/generate-kp-docx`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ markdown: clientKp, trademark_name: step.template_step?.name || 'KP' }),
+      });
+      if (!resp.ok) throw new Error('Ошибка генерации DOCX');
+      const blob = await resp.blob();
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = 'КП.docx';
+      a.click();
+      URL.revokeObjectURL(url);
+    } catch (e) {
+      console.error(e);
+    }
+  }, [clientKp, projectId, step.template_step?.name]);
+
   const handleSaveEdits = () => {
     if (editedContent !== null) {
       try {
