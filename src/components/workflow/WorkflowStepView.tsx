@@ -323,6 +323,12 @@ export const WorkflowStepView: React.FC<WorkflowStepViewProps> = ({
               <MessageSquare className="h-4 w-4 mr-1" />
               Чат с агентом
             </TabsTrigger>
+            {screenshotArtifacts.length > 0 && (
+              <TabsTrigger value="screenshots">
+                <ImageIcon className="h-4 w-4 mr-1" />
+                Скриншоты ({screenshotArtifacts.length})
+              </TabsTrigger>
+            )}
           </TabsList>
 
           <TabsContent value="result" className="flex-1 overflow-auto px-4 pb-4">
