@@ -174,3 +174,16 @@ export interface ScriptDefinitionRow {
   created_at: string;
   updated_at: string;
 }
+
+export interface WorkflowArtifact {
+  id: string;
+  project_id: string;
+  workflow_run_id: string | null;
+  project_workflow_step_id: string | null;
+  artifact_type: string;
+  bucket: string;
+  path: string;
+  mime: string | null;
+  metadata: Record<string, unknown>;
+  created_at: string;
+}

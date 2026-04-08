@@ -8,6 +8,7 @@ import {
   ProjectWorkflow,
   ProjectWorkflowStep,
   ProjectStepMessage,
+  WorkflowArtifact,
   WorkflowStatus,
   WorkflowStepStatus,
 } from '@/types/workflow';
@@ -23,6 +24,7 @@ export const workflowQueryKeys = {
   projectWorkflows: (projectId: string) => ['project-workflows', projectId] as const,
   workflowSteps: (workflowId: string) => ['workflow-steps', workflowId] as const,
   stepMessages: (stepId: string) => ['step-messages', stepId] as const,
+  workflowArtifacts: (workflowId: string) => ['workflow-artifacts', workflowId] as const,
 };
 
 // ========================
@@ -135,6 +137,23 @@ export function useStepMessagesQuery(stepId: string | null) {
   });
 }
 
+export function useWorkflowArtifactsQuery(workflowId: string | null) {
+  return useQuery({
+    queryKey: workflowQueryKeys.workflowArtifacts(workflowId || ''),
+    queryFn: async () => {
+      if (!workflowId) return [];
+      const { data, error } = await supabase
+        .from('workflow_artifacts')
+        .select('*')
+        .eq('workflow_run_id', workflowId)
+        .order('created_at', { ascending: false });
+      if (error) return [];
+      return (data || []) as unknown as WorkflowArtifact[];
+    },
+    enabled: !!workflowId,
+  });
+}
+
 // ========================
 // Main hook
 // ========================
@@ -155,6 +174,7 @@ export function useProjectWorkflow(projectId: string | null, userId: string | un
   const { data: workflows = [], isLoading: isLoadingWorkflows } = useProjectWorkflowsQuery(projectId);
   const { data: steps = [], isLoading: isLoadingSteps } = useWorkflowStepsQuery(activeWorkflowId);
   const { data: stepMessages = [] } = useStepMessagesQuery(activeStepId);
+  const { data: artifacts = [] } = useWorkflowArtifactsQuery(activeWorkflowId);
 
   // Auto-select first workflow
   useEffect(() => {
@@ -567,5 +587,8 @@ export function useProjectWorkflow(projectId: string | null, userId: string | un
 
     // Step messages
     stepMessages,
+
+    // Artifacts
+    artifacts,
   };
 }

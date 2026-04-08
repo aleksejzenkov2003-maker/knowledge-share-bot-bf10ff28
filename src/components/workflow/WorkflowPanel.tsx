@@ -46,6 +46,7 @@ export const WorkflowPanel: React.FC<WorkflowPanelProps> = ({ projectId, userId 
     stepMessages,
     retryStep,
     retryFromStep,
+    artifacts,
   } = useProjectWorkflow(projectId, userId);
 
   const handleCreateWorkflow = async () => {
@@ -106,7 +107,7 @@ export const WorkflowPanel: React.FC<WorkflowPanelProps> = ({ projectId, userId 
   if (!activeWorkflow) return null;
 
   return (
-    <div className="flex flex-col h-full">
+    <div className="flex flex-col flex-1 min-h-0">
       {/* Progress bar */}
       <WorkflowProgress workflow={activeWorkflow} steps={steps} />
 
@@ -126,6 +127,8 @@ export const WorkflowPanel: React.FC<WorkflowPanelProps> = ({ projectId, userId 
         <WorkflowStepView
           step={activeStep}
           stepMessages={stepMessages}
+          artifacts={artifacts}
+          projectId={projectId}
           isExecuting={isExecuting}
           streamingContent={streamingContent}
           onExecute={executeStep}

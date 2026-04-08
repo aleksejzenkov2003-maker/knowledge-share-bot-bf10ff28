@@ -414,7 +414,18 @@ serve(async (req) => {
 
       try {
         // Build params from input_data and script_config.params
-        const params = { ...scriptConfig.params, ...workingInput };
+        const params = {
+          ...scriptConfig.params,
+          ...workingInput,
+          __workflow: {
+            project_id: projectId,
+            workflow_id: step.workflow_id,
+            step_id,
+            template_id: templateIdForEdges,
+            template_step_id: templateStep?.id ?? null,
+            step_order: step.step_order,
+          },
+        };
         const scriptUrl = `${supabaseUrl}/functions/v1/${functionName}`;
         const scriptResponse = await fetch(scriptUrl, {
           method: 'POST',

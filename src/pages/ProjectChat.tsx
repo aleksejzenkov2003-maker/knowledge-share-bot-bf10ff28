@@ -146,7 +146,9 @@ const ProjectChatPage: React.FC = () => {
       </div>
 
       {/* Workflow content */}
-      <WorkflowPanel projectId={projectId!} userId={user?.id} />
+      <div className="flex-1 min-h-0 overflow-hidden">
+        <WorkflowPanel projectId={projectId!} userId={user?.id} />
+      </div>
 
       {/* Add Member Dialog */}
       <AddMemberDialog

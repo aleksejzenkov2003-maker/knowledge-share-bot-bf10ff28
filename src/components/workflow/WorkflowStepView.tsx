@@ -1,11 +1,12 @@
 import React, { useState } from 'react';
-import { ProjectWorkflowStep, ProjectStepMessage } from '@/types/workflow';
+import { ProjectWorkflowStep, ProjectStepMessage, WorkflowArtifact } from '@/types/workflow';
 import { WorkflowResultEditor } from './WorkflowResultEditor';
 import { WorkflowStepChat } from './WorkflowStepChat';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Card } from '@/components/ui/card';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
+import { KpRenderEditorDialog } from './KpRenderEditorDialog';
 import {
   Play,
   RotateCcw,
@@ -17,10 +18,13 @@ import {
   Bot,
   GitCompareArrows,
   Braces,
+  FileSignature,
 } from 'lucide-react';
 interface WorkflowStepViewProps {
   step: ProjectWorkflowStep;
   stepMessages: ProjectStepMessage[];
+  artifacts: WorkflowArtifact[];
+  projectId: string;
   isExecuting: boolean;
   streamingContent: string;
   onExecute: (stepId: string, message?: string) => void;
@@ -58,6 +62,8 @@ function stringifyPayload(data: unknown): string {
 export const WorkflowStepView: React.FC<WorkflowStepViewProps> = ({
   step,
   stepMessages,
+  artifacts,
+  projectId,
   isExecuting,
   streamingContent,
   onExecute,
@@ -96,6 +102,9 @@ export const WorkflowStepView: React.FC<WorkflowStepViewProps> = ({
 
   const statusInfo = statusLabels[step.status] || statusLabels.pending;
   const isEditable = step.template_step?.is_user_editable !== false;
+  const isKpFinal =
+    (step.template_step?.name || '').toLowerCase().includes('кп') ||
+    step.template_step?.node_type === 'output';
 
   const handleSaveEdits = () => {
     if (editedContent !== null) {
@@ -222,6 +231,22 @@ export const WorkflowStepView: React.FC<WorkflowStepViewProps> = ({
                 Подтвердить
               </Button>
             </>
+          )}
+
+          {step.status === 'completed' && isKpFinal && (
+            <KpRenderEditorDialog
+              projectId={projectId}
+              workflowId={step.workflow_id}
+              stepId={step.id}
+              initialMarkdown={stringifyPayload(userEdited ?? rawOut)}
+              artifacts={artifacts}
+              trigger={
+                <Button size="sm" variant="outline">
+                  <FileSignature className="h-4 w-4 mr-1" />
+                  Редактор КП
+                </Button>
+              }
+            />
           )}
 
           {step.status === 'error' && (
