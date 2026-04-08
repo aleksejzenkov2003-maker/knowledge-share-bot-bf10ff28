@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useMemo } from 'react';
 import { ProjectWorkflowStep, ProjectStepMessage, WorkflowArtifact } from '@/types/workflow';
 import { WorkflowResultEditor } from './WorkflowResultEditor';
 import { WorkflowStepChat } from './WorkflowStepChat';
@@ -7,6 +7,7 @@ import { Badge } from '@/components/ui/badge';
 import { Card } from '@/components/ui/card';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { KpRenderEditorDialog } from './KpRenderEditorDialog';
+import { supabase } from '@/integrations/supabase/client';
 import {
   Play,
   RotateCcw,
@@ -19,6 +20,8 @@ import {
   GitCompareArrows,
   Braces,
   FileSignature,
+  Image as ImageIcon,
+  ExternalLink,
 } from 'lucide-react';
 interface WorkflowStepViewProps {
   step: ProjectWorkflowStep;
@@ -78,6 +81,39 @@ export const WorkflowStepView: React.FC<WorkflowStepViewProps> = ({
   const [editedContent, setEditedContent] = useState<string | null>(null);
   const [inputText, setInputText] = useState('');
   const [compareRaw, setCompareRaw] = useState(false);
+  const [expandedScreenshot, setExpandedScreenshot] = useState<string | null>(null);
+
+  // Filter screenshot artifacts for this step
+  const screenshotArtifacts = useMemo(() => {
+    return artifacts.filter(
+      (a) =>
+        a.project_workflow_step_id === step.id &&
+        a.artifact_type === 'screenshot' &&
+        a.bucket === 'node-artifacts',
+    );
+  }, [artifacts, step.id]);
+
+  // Use signed URLs for private bucket - store them in state
+  const [signedUrls, setSignedUrls] = useState<Record<string, string>>({});
+
+  React.useEffect(() => {
+    if (screenshotArtifacts.length === 0) return;
+    let cancelled = false;
+    const load = async () => {
+      const urls: Record<string, string> = {};
+      for (const a of screenshotArtifacts) {
+        const { data, error } = await supabase.storage
+          .from(a.bucket)
+          .createSignedUrl(a.path, 3600);
+        if (!error && data?.signedUrl) {
+          urls[a.id] = data.signedUrl;
+        }
+      }
+      if (!cancelled) setSignedUrls(urls);
+    };
+    load();
+    return () => { cancelled = true; };
+  }, [screenshotArtifacts]);
 
   const name = step.template_step?.name || `Этап ${step.step_order}`;
   const description = step.template_step?.description || '';
@@ -287,6 +323,12 @@ export const WorkflowStepView: React.FC<WorkflowStepViewProps> = ({
               <MessageSquare className="h-4 w-4 mr-1" />
               Чат с агентом
             </TabsTrigger>
+            {screenshotArtifacts.length > 0 && (
+              <TabsTrigger value="screenshots">
+                <ImageIcon className="h-4 w-4 mr-1" />
+                Скриншоты ({screenshotArtifacts.length})
+              </TabsTrigger>
+            )}
           </TabsList>
 
           <TabsContent value="result" className="flex-1 overflow-auto px-4 pb-4">
@@ -330,6 +372,65 @@ export const WorkflowStepView: React.FC<WorkflowStepViewProps> = ({
               streamingContent={streamingContent}
             />
           </TabsContent>
+
+          {screenshotArtifacts.length > 0 && (
+            <TabsContent value="screenshots" className="flex-1 overflow-auto px-4 pb-4">
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mt-3">
+                {screenshotArtifacts.map((artifact) => {
+                  const meta = artifact.metadata as Record<string, unknown> | null;
+                  const url = meta?.url as string | undefined;
+                  const title = meta?.title as string | undefined;
+                  const signedUrl = signedUrls[artifact.id];
+
+                  return (
+                    <Card key={artifact.id} className="overflow-hidden">
+                      {signedUrl ? (
+                        <div
+                          className="cursor-pointer"
+                          onClick={() =>
+                            setExpandedScreenshot(
+                              expandedScreenshot === artifact.id ? null : artifact.id,
+                            )
+                          }
+                        >
+                          <img
+                            src={signedUrl}
+                            alt={title || url || 'Screenshot'}
+                            className={`w-full object-cover transition-all ${
+                              expandedScreenshot === artifact.id
+                                ? 'max-h-none'
+                                : 'max-h-64'
+                            }`}
+                          />
+                        </div>
+                      ) : (
+                        <div className="h-40 flex items-center justify-center bg-muted text-muted-foreground text-sm">
+                          <Loader2 className="h-5 w-5 animate-spin mr-2" />
+                          Загрузка...
+                        </div>
+                      )}
+                      <div className="p-3 border-t">
+                        <p className="text-sm font-medium truncate">
+                          {title || url || artifact.path}
+                        </p>
+                        {url && (
+                          <a
+                            href={url}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="text-xs text-primary hover:underline flex items-center gap-1 mt-1"
+                          >
+                            <ExternalLink className="h-3 w-3" />
+                            {new URL(url).hostname}
+                          </a>
+                        )}
+                      </div>
+                    </Card>
+                  );
+                })}
+              </div>
+            </TabsContent>
+          )}
         </Tabs>
       ) : (
         <div className="flex-1 flex items-center justify-center text-muted-foreground">
