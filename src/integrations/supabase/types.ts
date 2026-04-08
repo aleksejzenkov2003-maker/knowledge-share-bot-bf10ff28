@@ -2078,6 +2078,67 @@ export type Database = {
         }
         Relationships: []
       }
+      workflow_artifacts: {
+        Row: {
+          artifact_type: string
+          bucket: string
+          created_at: string
+          id: string
+          metadata: Json | null
+          mime: string | null
+          path: string
+          project_id: string
+          project_workflow_step_id: string | null
+          workflow_run_id: string | null
+        }
+        Insert: {
+          artifact_type?: string
+          bucket: string
+          created_at?: string
+          id?: string
+          metadata?: Json | null
+          mime?: string | null
+          path: string
+          project_id: string
+          project_workflow_step_id?: string | null
+          workflow_run_id?: string | null
+        }
+        Update: {
+          artifact_type?: string
+          bucket?: string
+          created_at?: string
+          id?: string
+          metadata?: Json | null
+          mime?: string | null
+          path?: string
+          project_id?: string
+          project_workflow_step_id?: string | null
+          workflow_run_id?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "workflow_artifacts_project_id_fkey"
+            columns: ["project_id"]
+            isOneToOne: false
+            referencedRelation: "projects"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "workflow_artifacts_project_workflow_step_id_fkey"
+            columns: ["project_workflow_step_id"]
+            isOneToOne: false
+            referencedRelation: "project_workflow_steps"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "workflow_artifacts_workflow_run_id_fkey"
+            columns: ["workflow_run_id"]
+            isOneToOne: false
+            referencedRelation: "project_workflows"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       workflow_event_logs: {
         Row: {
           created_at: string
