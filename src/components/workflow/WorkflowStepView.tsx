@@ -349,12 +349,25 @@ export const WorkflowStepView: React.FC<WorkflowStepViewProps> = ({
       )}
 
       {displayContent || isExecuting ? (
-        <Tabs defaultValue="result" className="flex-1 flex flex-col min-h-0">
+        <Tabs defaultValue={hasTwoDocs ? 'client_kp' : 'result'} className="flex-1 flex flex-col min-h-0">
           <TabsList className="mx-4 mt-3 w-fit flex-wrap h-auto gap-1">
-            <TabsTrigger value="result">
-              <FileText className="h-4 w-4 mr-1" />
-              Результат
-            </TabsTrigger>
+            {hasTwoDocs ? (
+              <>
+                <TabsTrigger value="client_kp">
+                  <FileText className="h-4 w-4 mr-1" />
+                  КП для клиента
+                </TabsTrigger>
+                <TabsTrigger value="employee_report">
+                  <Users className="h-4 w-4 mr-1" />
+                  Отчёт для сотрудника
+                </TabsTrigger>
+              </>
+            ) : (
+              <TabsTrigger value="result">
+                <FileText className="h-4 w-4 mr-1" />
+                Результат
+              </TabsTrigger>
+            )}
             <TabsTrigger value="structured">
               <Braces className="h-4 w-4 mr-1" />
               JSON
@@ -371,29 +384,62 @@ export const WorkflowStepView: React.FC<WorkflowStepViewProps> = ({
             )}
           </TabsList>
 
-          <TabsContent value="result" className="flex-1 overflow-auto px-4 pb-4">
-            {userEdited && rawOut && (
-              <div className="flex justify-end mb-2">
-                <Button
-                  size="sm"
-                  variant="outline"
-                  className="text-xs"
-                  onClick={() => setCompareRaw((v) => !v)}
-                >
-                  <GitCompareArrows className="h-3.5 w-3.5 mr-1" />
-                  {compareRaw ? 'Показать правки' : 'Сравнить с сырым'}
-                </Button>
-              </div>
-            )}
-            <WorkflowResultEditor
-              content={displayContent}
-              isEditable={isEditable && step.status === 'completed'}
-              isStreaming={isExecuting}
-              onChange={setEditedContent}
-              onSave={handleSaveEdits}
-              hasUnsavedChanges={editedContent !== null}
-            />
-          </TabsContent>
+          {hasTwoDocs && (
+            <>
+              <TabsContent value="client_kp" className="flex-1 overflow-auto px-4 pb-4">
+                <div className="flex items-center gap-2 mb-2">
+                  <Button size="sm" variant="outline" onClick={handleDownloadDocx}>
+                    <Download className="h-4 w-4 mr-1" />
+                    Скачать DOCX
+                  </Button>
+                </div>
+                <WorkflowResultEditor
+                  content={clientKp!}
+                  isEditable={isEditable && step.status === 'completed'}
+                  isStreaming={false}
+                  onChange={setEditedContent}
+                  onSave={handleSaveEdits}
+                  hasUnsavedChanges={editedContent !== null}
+                />
+              </TabsContent>
+              <TabsContent value="employee_report" className="flex-1 overflow-auto px-4 pb-4">
+                <WorkflowResultEditor
+                  content={internalReport!}
+                  isEditable={false}
+                  isStreaming={false}
+                  onChange={() => {}}
+                  onSave={() => {}}
+                  hasUnsavedChanges={false}
+                />
+              </TabsContent>
+            </>
+          )}
+
+          {!hasTwoDocs && (
+            <TabsContent value="result" className="flex-1 overflow-auto px-4 pb-4">
+              {userEdited && rawOut && (
+                <div className="flex justify-end mb-2">
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    className="text-xs"
+                    onClick={() => setCompareRaw((v) => !v)}
+                  >
+                    <GitCompareArrows className="h-3.5 w-3.5 mr-1" />
+                    {compareRaw ? 'Показать правки' : 'Сравнить с сырым'}
+                  </Button>
+                </div>
+              )}
+              <WorkflowResultEditor
+                content={displayContent}
+                isEditable={isEditable && step.status === 'completed'}
+                isStreaming={isExecuting}
+                onChange={setEditedContent}
+                onSave={handleSaveEdits}
+                hasUnsavedChanges={editedContent !== null}
+              />
+            </TabsContent>
+          )}
 
           <TabsContent value="structured" className="flex-1 overflow-auto px-4 pb-4">
             <Card className="p-3 mt-3">
