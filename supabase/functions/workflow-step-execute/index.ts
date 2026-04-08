@@ -491,11 +491,8 @@ serve(async (req) => {
     }
 
     // ============ AGENT & OUTPUT NODES ============
-    // Load agent
-    let agentRoleId = step.agent_id;
-    if (!agentRoleId && templateStep?.agent_id) {
-      agentRoleId = templateStep.agent_id;
-    }
+    // Load agent: prefer template config (fresh source of truth), fallback to snapshot in project step
+    let agentRoleId = templateStep?.agent_id || step.agent_id;
 
     // Load previous steps' output for context
     const { data: prevSteps } = await supabase
@@ -583,19 +580,32 @@ serve(async (req) => {
       }
     }
 
-    // Build a meaningful RAG query from working input so search finds relevant docs
+    // Build a meaningful step-specific query.
+    // Important: do not default to workingInput.content because it can copy previous step output
+    // and cause all downstream agents to answer the same task.
     let userMessage = message || '';
     if (!userMessage) {
-      // Extract content from workingInput to use as RAG search query
-      const inputContent = typeof workingInput === 'object' && workingInput !== null && 'content' in workingInput
-        ? String(workingInput.content)
-        : '';
-      if (inputContent && inputContent.length > 10) {
-        // Use first 500 chars of input content as the search query for better RAG relevance
-        userMessage = inputContent.slice(0, 500);
-      } else {
-        userMessage = 'Выполни задачу этого этапа на основе предоставленного контекста.';
-      }
+      const stepName = String(templateStep?.name || `Этап ${step.step_order}`);
+      const stepDescription = String(templateStep?.description || '');
+      const wi = (workingInput || {}) as Record<string, unknown>;
+      const hints: string[] = [];
+      const pushHint = (v: unknown) => {
+        if (typeof v === 'string' && v.trim()) hints.push(v.trim());
+      };
+      pushHint(wi.trademark);
+      pushHint(wi.designation);
+      pushHint(wi.company_name);
+      pushHint(wi.applicant);
+      pushHint(wi.inn);
+      pushHint(wi.goods_services);
+      pushHint(wi.designation_type);
+      const hintText = hints.join(' | ').slice(0, 700);
+      userMessage = [
+        `Выполни этап workflow: "${stepName}".`,
+        stepDescription ? `Описание этапа: ${stepDescription}` : '',
+        hintText ? `Ключевые данные: ${hintText}` : '',
+        'Используй контекст предыдущих этапов и документы RAG проекта.',
+      ].filter(Boolean).join('\n');
     }
 
     // Load context packs
@@ -605,9 +615,26 @@ serve(async (req) => {
       .eq('project_id', projectId)
       .eq('is_enabled', true);
 
-    const contextFolderIds = contextPacks?.flatMap(
+    let contextFolderIds = contextPacks?.flatMap(
       (p: any) => p.context_packs?.folder_ids || []
     ) || [];
+
+    // Fallback: if no context packs are enabled, include all folders of documents
+    // attached to this project so agents can see project RAG (e.g., full МКТУ file).
+    if (contextFolderIds.length === 0) {
+      const { data: projectDocs } = await supabase
+        .from('project_documents')
+        .select('documents!inner(folder_id)')
+        .eq('project_id', projectId);
+
+      const fallbackFolderIds = (projectDocs || [])
+        .map((row: any) => row?.documents?.folder_id as string | null)
+        .filter((v: string | null): v is string => !!v);
+
+      if (fallbackFolderIds.length > 0) {
+        contextFolderIds = Array.from(new Set(fallbackFolderIds));
+      }
+    }
 
     // Call chat-stream
     const chatStreamUrl = `${supabaseUrl}/functions/v1/chat-stream`;
