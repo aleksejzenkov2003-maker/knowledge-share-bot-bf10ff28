@@ -461,9 +461,10 @@ serve(async (req) => {
                 spacing: { after: 180 },
                 children: [
                   new ImageRun({
+                    type: "jpg",
                     data: logoBytes,
                     transformation: { width: 220, height: 70 },
-                  }),
+                  } as any),
                 ],
               }),
             ]
@@ -527,7 +528,7 @@ serve(async (req) => {
                 new Paragraph({
                   alignment: AlignmentType.CENTER,
                   spacing: { after: 180 },
-                  children: [new ImageRun({ data: bytes, transformation: { width: 500, height: 300 } })],
+                  children: [new ImageRun({ type: "jpg", data: bytes, transformation: { width: 500, height: 300 } } as any)],
                 }),
               );
             }
