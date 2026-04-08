@@ -79,7 +79,7 @@ const ProjectChatPage: React.FC = () => {
   };
 
   return (
-    <div className="flex flex-col h-[calc(100vh-120px)]">
+    <div className="flex flex-col min-h-[calc(100vh-120px)]">
       {/* Header */}
       <div className="flex items-center justify-between p-3 border-b bg-background">
         <div className="flex items-center gap-3">
@@ -146,7 +146,7 @@ const ProjectChatPage: React.FC = () => {
       </div>
 
       {/* Workflow content */}
-      <div className="flex-1 min-h-0 overflow-hidden">
+      <div className="flex-1 min-h-0 overflow-visible">
         <WorkflowPanel projectId={projectId!} userId={user?.id} />
       </div>
 
