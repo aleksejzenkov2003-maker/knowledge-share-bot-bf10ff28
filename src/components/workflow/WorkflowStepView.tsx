@@ -93,13 +93,27 @@ export const WorkflowStepView: React.FC<WorkflowStepViewProps> = ({
     );
   }, [artifacts, step.id]);
 
-  const getScreenshotUrl = (artifact: WorkflowArtifact) => {
-    const { data } = supabase.storage
-      .from(artifact.bucket)
-      .getPublicUrl(artifact.path);
-    // For private buckets, use createSignedUrl instead
-    return data.publicUrl;
-  };
+  // Use signed URLs for private bucket - store them in state
+  const [signedUrls, setSignedUrls] = useState<Record<string, string>>({});
+
+  React.useEffect(() => {
+    if (screenshotArtifacts.length === 0) return;
+    let cancelled = false;
+    const load = async () => {
+      const urls: Record<string, string> = {};
+      for (const a of screenshotArtifacts) {
+        const { data, error } = await supabase.storage
+          .from(a.bucket)
+          .createSignedUrl(a.path, 3600);
+        if (!error && data?.signedUrl) {
+          urls[a.id] = data.signedUrl;
+        }
+      }
+      if (!cancelled) setSignedUrls(urls);
+    };
+    load();
+    return () => { cancelled = true; };
+  }, [screenshotArtifacts]);
 
   const name = step.template_step?.name || `Этап ${step.step_order}`;
   const description = step.template_step?.description || '';
