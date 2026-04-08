@@ -182,16 +182,24 @@ serve(async (req) => {
     const supabaseUrl = Deno.env.get("SUPABASE_URL")!;
     const supabaseServiceKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
 
-    // Auth user (RLS / membership validation)
+    // Validate JWT via claims (does not require a live session on the server)
     const supabaseAuth = createClient(supabaseUrl, Deno.env.get("SUPABASE_ANON_KEY")!, {
       global: { headers: { Authorization: authHeader } },
     });
-    const { data: { user }, error: authError } = await supabaseAuth.auth.getUser();
-    if (authError || !user) {
-      return new Response(JSON.stringify({ error: "Unauthorized" }), {
-        status: 401,
-        headers: { ...corsHeaders, "Content-Type": "application/json" },
-      });
+    const token = authHeader.replace("Bearer ", "");
+    const { data: claimsData, error: claimsError } = await supabaseAuth.auth.getClaims(token);
+    let user: { id: string; email?: string };
+    if (claimsError || !claimsData?.claims?.sub) {
+      const { data: { user: fallbackUser }, error: fallbackErr } = await supabaseAuth.auth.getUser();
+      if (fallbackErr || !fallbackUser) {
+        return new Response(JSON.stringify({ error: "Unauthorized" }), {
+          status: 401,
+          headers: { ...corsHeaders, "Content-Type": "application/json" },
+        });
+      }
+      user = fallbackUser;
+    } else {
+      user = { id: claimsData.claims.sub as string, email: (claimsData.claims.email as string) || "" };
     }
 
     const supabase = createClient(supabaseUrl, supabaseServiceKey);

@@ -188,14 +188,24 @@ serve(async (req) => {
     const supabaseUrl = Deno.env.get('SUPABASE_URL')!;
     const supabaseServiceKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!;
 
+    // Validate JWT via claims (does not require a live session on the server)
     const supabaseAuth = createClient(supabaseUrl, Deno.env.get('SUPABASE_ANON_KEY')!, {
       global: { headers: { Authorization: authHeader } },
     });
-    const { data: { user }, error: authError } = await supabaseAuth.auth.getUser();
-    if (authError || !user) {
-      return new Response(JSON.stringify({ error: 'Unauthorized' }), {
-        status: 401, headers: jsonHeaders,
-      });
+    const token = authHeader.replace('Bearer ', '');
+    const { data: claimsData, error: claimsError } = await supabaseAuth.auth.getClaims(token);
+    if (claimsError || !claimsData?.claims?.sub) {
+      // Fallback to getUser if getClaims is unavailable
+      const { data: { user: fallbackUser }, error: fallbackErr } = await supabaseAuth.auth.getUser();
+      if (fallbackErr || !fallbackUser) {
+        return new Response(JSON.stringify({ error: 'Unauthorized' }), {
+          status: 401, headers: jsonHeaders,
+        });
+      }
+      var user = fallbackUser;
+    } else {
+      // Build a minimal user object from claims
+      var user = { id: claimsData.claims.sub as string, email: (claimsData.claims.email as string) || '' } as any;
     }
 
     const supabase = createClient(supabaseUrl, supabaseServiceKey);
