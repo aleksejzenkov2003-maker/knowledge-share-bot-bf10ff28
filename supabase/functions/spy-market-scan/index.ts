@@ -23,6 +23,11 @@ type SearchResult = {
   marketplace?: "wb" | "ozon" | "yandex_market" | "site" | "other";
 };
 
+type SearchResultWithScreenshot = SearchResult & {
+  screenshot?: { bucket: string; path: string };
+  screenshot_error?: string;
+};
+
 function normalizeUrl(u: string): string | null {
   try {
     const url = new URL(u);
@@ -40,6 +45,41 @@ function guessMarketplace(url: string): SearchResult["marketplace"] {
   if (u.includes("market.yandex.") || u.includes("yandex.ru/market")) return "yandex_market";
   if (u.startsWith("http")) return "site";
   return "other";
+}
+
+async function fetchWithTimeout(url: string, init: RequestInit, timeoutMs: number): Promise<Response> {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), timeoutMs);
+
+  try {
+    return await fetch(url, { ...init, signal: controller.signal });
+  } catch (error) {
+    if (controller.signal.aborted) {
+      throw new Error(`Request timed out after ${timeoutMs}ms`);
+    }
+    throw error;
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+async function mapWithConcurrency<T>(
+  items: T[],
+  concurrency: number,
+  worker: (item: T, index: number) => Promise<void>,
+): Promise<void> {
+  if (items.length === 0) return;
+
+  let nextIndex = 0;
+  const runners = Array.from({ length: Math.min(concurrency, items.length) }, async () => {
+    while (nextIndex < items.length) {
+      const currentIndex = nextIndex;
+      nextIndex += 1;
+      await worker(items[currentIndex], currentIndex);
+    }
+  });
+
+  await Promise.all(runners);
 }
 
 async function perplexitySearchLinks(args: {
@@ -113,7 +153,6 @@ async function perplexitySearchLinks(args: {
     })
     .filter(Boolean) as SearchResult[];
 
-  // If perplexity returned nothing structured, fallback to citations
   if (normalized.length === 0 && citations.length > 0) {
     for (const c of citations) {
       const url = normalizeUrl(String(c));
@@ -122,7 +161,6 @@ async function perplexitySearchLinks(args: {
     }
   }
 
-  // Deduplicate
   const seen = new Set<string>();
   const out: SearchResult[] = [];
   for (const r of normalized) {
@@ -137,8 +175,9 @@ async function perplexitySearchLinks(args: {
 
 async function fetchScreenshotPng(args: {
   url: string;
+  timeoutMs: number;
+  fullPage: boolean;
 }): Promise<{ bytes: Uint8Array; provider: string }> {
-  // Provider 1: screenshotone (recommended)
   const screenshotOneKey = Deno.env.get("SCREENSHOTONE_API_KEY");
   if (screenshotOneKey) {
     const api = new URL("https://api.screenshotone.com/take");
@@ -151,19 +190,21 @@ async function fetchScreenshotPng(args: {
     api.searchParams.set("cache", "false");
     api.searchParams.set("block_ads", "true");
     api.searchParams.set("block_cookie_banners", "true");
-    api.searchParams.set("full_page", "true");
+    api.searchParams.set("full_page", args.fullPage ? "true" : "false");
 
-    const r = await fetch(api.toString());
+    const startedAt = Date.now();
+    const r = await fetchWithTimeout(api.toString(), {}, args.timeoutMs);
     if (!r.ok) {
       const t = await r.text();
       throw new Error(`ScreenshotOne error [${r.status}]: ${t}`);
     }
     const ab = await r.arrayBuffer();
+    console.log(`Screenshot captured in ${Date.now() - startedAt}ms for ${args.url}`);
     return { bytes: new Uint8Array(ab), provider: "screenshotone" };
   }
 
   throw new Error(
-    "No screenshot provider configured. Set SCREENSHOTONE_API_KEY in Edge Function env."
+    "No screenshot provider configured. Set SCREENSHOTONE_API_KEY in Edge Function env.",
   );
 }
 
@@ -182,7 +223,6 @@ serve(async (req) => {
     const supabaseUrl = Deno.env.get("SUPABASE_URL")!;
     const supabaseServiceKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
 
-    // Validate JWT via claims (does not require a live session on the server)
     const supabaseAuth = createClient(supabaseUrl, Deno.env.get("SUPABASE_ANON_KEY")!, {
       global: { headers: { Authorization: authHeader } },
     });
@@ -209,13 +249,24 @@ serve(async (req) => {
 
     let trademark = String(body.trademark || body.designation || body.name || "");
     const goodsServices = body.goods_services ? String(body.goods_services) : undefined;
-    const maxLinks = Number(body.max_links || 12);
+    const requestedMaxLinks = Number(body.max_links || 12);
+    const maxLinks = Math.min(Math.max(requestedMaxLinks, 1), 30);
     const takeScreenshots = body.take_screenshots !== false;
+    const maxScreenshots = takeScreenshots
+      ? Math.min(Math.max(Number(body.max_screenshots || 4), 0), 8)
+      : 0;
+    const screenshotTimeoutMs = Math.min(
+      Math.max(Number(body.screenshot_timeout_ms || 15000), 5000),
+      30000,
+    );
+    const screenshotConcurrency = Math.min(
+      Math.max(Number(body.screenshot_concurrency || 3), 1),
+      4,
+    );
+    const screenshotFullPage = body.screenshot_full_page === true;
 
-    // If no explicit trademark field, try to extract from content (workflow passes previous step output as content)
-    if (!trademark.trim() && body.content && typeof body.content === 'string') {
+    if (!trademark.trim() && body.content && typeof body.content === "string") {
       const content = body.content as string;
-      // Try common patterns: «Name», "Name", ТЗ "Name", обозначения «Name»
       const patterns = [
         /(?:товарн\w+\s+знак\w*|ТЗ|обозначени\w+)\s+[«"«]([^»"»]+)[»"»]/i,
         /[«"«]([^»"»]{2,40})[»"»]/,
@@ -237,7 +288,6 @@ serve(async (req) => {
       throw new Error("trademark/designation is required");
     }
 
-    // Membership check
     const { data: membership } = await supabase
       .from("project_members")
       .select("role")
@@ -254,65 +304,84 @@ serve(async (req) => {
     const pplxKey = Deno.env.get("PERPLEXITY_API_KEY");
     if (!pplxKey) throw new Error("PERPLEXITY_API_KEY is not configured");
 
+    console.log(`Starting spy scan for \"${trademark}\" with up to ${maxLinks} links`);
     const search = await perplexitySearchLinks({
       apiKey: pplxKey,
       trademark,
       goodsServices,
-      maxLinks: Math.min(Math.max(maxLinks, 1), 30),
+      maxLinks,
     });
+    console.log(`Found ${search.results.length} links for \"${trademark}\"`);
 
-    const resultsWithShots: Array<SearchResult & { screenshot?: { bucket: string; path: string } }> = [];
-    const createdArtifacts: Array<{ bucket: string; path: string; url: string }> = [];
+    const resultsWithShots: SearchResultWithScreenshot[] = search.results.map((r) => ({ ...r }));
 
-    for (let i = 0; i < search.results.length; i++) {
-      const r = search.results[i];
-      const item: SearchResult & { screenshot?: { bucket: string; path: string } } = { ...r };
+    if (takeScreenshots && maxScreenshots > 0 && resultsWithShots.length > 0) {
+      const screenshotTargets = resultsWithShots.slice(0, maxScreenshots);
+      console.log(
+        `Capturing screenshots for ${screenshotTargets.length} links with concurrency=${screenshotConcurrency}, timeout=${screenshotTimeoutMs}ms`,
+      );
 
-      if (takeScreenshots) {
-        const shot = await fetchScreenshotPng({ url: r.url });
-        const ext = "png";
-        const fileName = `spy_${String(i + 1).padStart(2, "0")}.${ext}`;
-        const path = `${meta.project_id}/${meta.workflow_id}/${meta.step_id}/${fileName}`;
+      await mapWithConcurrency(screenshotTargets, screenshotConcurrency, async (item, index) => {
+        try {
+          const shot = await fetchScreenshotPng({
+            url: item.url,
+            timeoutMs: screenshotTimeoutMs,
+            fullPage: screenshotFullPage,
+          });
+          const ext = "png";
+          const fileName = `spy_${String(index + 1).padStart(2, "0")}.${ext}`;
+          const path = `${meta.project_id}/${meta.workflow_id}/${meta.step_id}/${fileName}`;
 
-        const { error: upErr } = await supabase.storage
-          .from("node-artifacts")
-          .upload(path, shot.bytes, { contentType: "image/png", upsert: true });
-        if (upErr) throw upErr;
+          const { error: upErr } = await supabase.storage
+            .from("node-artifacts")
+            .upload(path, shot.bytes, { contentType: "image/png", upsert: true });
+          if (upErr) throw upErr;
 
-        // Register artifact
-        await supabase.from("workflow_artifacts").insert({
-          project_id: meta.project_id,
-          workflow_run_id: meta.workflow_id,
-          project_workflow_step_id: meta.step_id,
-          artifact_type: "screenshot",
-          bucket: "node-artifacts",
-          path,
-          mime: "image/png",
-          metadata: {
-            url: r.url,
-            title: r.title,
-            source: r.source,
-            marketplace: r.marketplace,
-            provider: shot.provider,
-          },
-        });
+          await supabase.from("workflow_artifacts").insert({
+            project_id: meta.project_id,
+            workflow_run_id: meta.workflow_id,
+            project_workflow_step_id: meta.step_id,
+            artifact_type: "screenshot",
+            bucket: "node-artifacts",
+            path,
+            mime: "image/png",
+            metadata: {
+              url: item.url,
+              title: item.title,
+              source: item.source,
+              marketplace: item.marketplace,
+              provider: shot.provider,
+            },
+          });
 
-        item.screenshot = { bucket: "node-artifacts", path };
-        createdArtifacts.push({ bucket: "node-artifacts", path, url: r.url });
-      }
-
-      resultsWithShots.push(item);
+          item.screenshot = { bucket: "node-artifacts", path };
+        } catch (error) {
+          item.screenshot_error = error instanceof Error ? error.message : "Failed to capture screenshot";
+          console.warn(`Skipping screenshot for ${item.url}: ${item.screenshot_error}`);
+        }
+      });
     }
+
+    const createdArtifacts = resultsWithShots.flatMap((item) =>
+      item.screenshot ? [{ bucket: item.screenshot.bucket, path: item.screenshot.path, url: item.url }] : []
+    );
 
     const output = {
       trademark,
       results: resultsWithShots,
       citations: search.citations,
       artifacts: createdArtifacts,
-      notes:
-        takeScreenshots
-          ? "Скриншоты сохранены в node-artifacts и зарегистрированы в workflow_artifacts."
-          : "Скриншоты отключены (take_screenshots=false).",
+      notes: takeScreenshots
+        ? `Скриншоты сохранены для ${createdArtifacts.length} из ${Math.min(resultsWithShots.length, maxScreenshots)} ссылок. Остальные ссылки оставлены без скриншотов для ускорения шага.`
+        : "Скриншоты отключены (take_screenshots=false).",
+      screenshot_settings: takeScreenshots
+        ? {
+            max_screenshots: maxScreenshots,
+            screenshot_timeout_ms: screenshotTimeoutMs,
+            screenshot_concurrency: screenshotConcurrency,
+            full_page: screenshotFullPage,
+          }
+        : undefined,
     };
 
     return new Response(JSON.stringify(output), {
@@ -326,4 +395,3 @@ serve(async (req) => {
     });
   }
 });
-
