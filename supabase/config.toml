@@ -44,3 +44,6 @@ verify_jwt = false
 
 [functions.spy-market-scan]
 verify_jwt = false
+
+[functions.generate-kp-docx]
+verify_jwt = false
