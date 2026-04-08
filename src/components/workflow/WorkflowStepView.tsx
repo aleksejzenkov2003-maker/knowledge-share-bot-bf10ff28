@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useMemo } from 'react';
 import { ProjectWorkflowStep, ProjectStepMessage, WorkflowArtifact } from '@/types/workflow';
 import { WorkflowResultEditor } from './WorkflowResultEditor';
 import { WorkflowStepChat } from './WorkflowStepChat';
@@ -7,6 +7,7 @@ import { Badge } from '@/components/ui/badge';
 import { Card } from '@/components/ui/card';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { KpRenderEditorDialog } from './KpRenderEditorDialog';
+import { supabase } from '@/integrations/supabase/client';
 import {
   Play,
   RotateCcw,
@@ -19,6 +20,8 @@ import {
   GitCompareArrows,
   Braces,
   FileSignature,
+  Image as ImageIcon,
+  ExternalLink,
 } from 'lucide-react';
 interface WorkflowStepViewProps {
   step: ProjectWorkflowStep;
