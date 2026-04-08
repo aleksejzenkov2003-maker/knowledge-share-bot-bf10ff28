@@ -267,7 +267,19 @@ export function useProjectWorkflow(projectId: string | null, userId: string | un
 
     try {
       abortControllerRef.current = new AbortController();
-      const { data: { session } } = await supabase.auth.getSession();
+
+      let {
+        data: { session },
+      } = await supabase.auth.getSession();
+
+      if (!session?.access_token) {
+        const refreshResult = await supabase.auth.refreshSession();
+        session = refreshResult.data.session;
+      }
+
+      if (!session?.access_token) {
+        throw new Error('Сессия истекла. Войдите в систему снова.');
+      }
 
       // Save user message to step chat if provided
       if (message) {
@@ -287,12 +299,131 @@ export function useProjectWorkflow(projectId: string | null, userId: string | un
           method: 'POST',
           headers: {
             'Content-Type': 'application/json',
-            'Authorization': `Bearer ${session?.access_token}`,
+            'Authorization': `Bearer ${session.access_token}`,
           },
           body: JSON.stringify({ step_id: stepId, message }),
           signal: abortControllerRef.current.signal,
         }
       );
+
+      if (response.status === 401) {
+        const refreshResult = await supabase.auth.refreshSession();
+        const refreshedToken = refreshResult.data.session?.access_token;
+
+        if (!refreshedToken) {
+          throw new Error('Сессия истекла. Войдите в систему снова.');
+        }
+
+        const retriedResponse = await fetch(
+          `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/workflow-step-execute`,
+          {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+              'Authorization': `Bearer ${refreshedToken}`,
+            },
+            body: JSON.stringify({ step_id: stepId, message }),
+            signal: abortControllerRef.current.signal,
+          }
+        );
+
+        if (!retriedResponse.ok) {
+          throw new Error(`HTTP error! status: ${retriedResponse.status}`);
+        }
+
+        const reader = retriedResponse.body?.getReader();
+        if (!reader) throw new Error('No reader');
+
+        const decoder = new TextDecoder();
+        let buffer = '';
+
+        updateIntervalRef.current = window.setInterval(() => {
+          setStreamingContent(streamingContentRef.current);
+        }, STREAM_UPDATE_INTERVAL);
+
+        while (true) {
+          const { done, value } = await reader.read();
+          if (done) break;
+
+          buffer += decoder.decode(value, { stream: true });
+          const lines = buffer.split('\n');
+          buffer = lines.pop() || '';
+
+          for (const line of lines) {
+            if (line.startsWith('data: ')) {
+              const data = line.slice(6).trim();
+              if (data === '[DONE]' || !data) continue;
+              try {
+                const parsed = JSON.parse(data);
+                if (parsed.type === 'content' && parsed.content) {
+                  streamingContentRef.current += parsed.content;
+                }
+              } catch {
+                // skip
+              }
+            }
+          }
+        }
+
+        queryClient.invalidateQueries({ queryKey: workflowQueryKeys.workflowSteps(activeWorkflowId || '') });
+        queryClient.invalidateQueries({ queryKey: workflowQueryKeys.stepMessages(stepId) });
+        if (projectId) {
+          queryClient.invalidateQueries({ queryKey: workflowQueryKeys.projectWorkflows(projectId) });
+        }
+
+        const { data: stepFresh } = await supabase
+          .from('project_workflow_steps')
+          .select('workflow_id, template_step_id')
+          .eq('id', stepId)
+          .single();
+        if (stepFresh?.template_step_id && stepFresh.workflow_id) {
+          const { data: tmpl } = await supabase
+            .from('workflow_template_steps')
+            .select('node_type, require_approval')
+            .eq('id', stepFresh.template_step_id)
+            .single();
+          const nt = tmpl?.node_type as string | undefined;
+          const needApprove = tmpl?.require_approval !== false;
+          if ((nt === 'condition' || nt === 'quality_check') && !needApprove) {
+            const { data: row } = await supabase
+              .from('project_workflow_steps')
+              .select('user_edited_output, user_edits, approved_output, output_data')
+              .eq('id', stepId)
+              .single();
+            const approved = (row?.approved_output as Record<string, unknown> | null)
+              ?? (row?.user_edited_output as Record<string, unknown> | null)
+              ?? (row?.user_edits as Record<string, unknown> | null)
+              ?? (row?.output_data as Record<string, unknown> | null)
+              ?? {};
+            const branch = typeof approved === 'object' && approved ? String((approved as Record<string, unknown>)._branch ?? '') : '';
+            if (branch === 'true' || branch === 'false') {
+              const { data: nextEdge } = await supabase
+                .from('workflow_template_edges')
+                .select('target_node_id, source_handle')
+                .eq('source_node_id', stepFresh.template_step_id)
+                .eq('template_id', (await supabase.from('project_workflows').select('template_id').eq('id', stepFresh.workflow_id).single()).data?.template_id)
+                .eq('source_handle', branch)
+                .maybeSingle();
+              if (nextEdge?.target_node_id) {
+                const { data: nextStep } = await supabase
+                  .from('project_workflow_steps')
+                  .select('id')
+                  .eq('workflow_id', stepFresh.workflow_id)
+                  .eq('template_step_id', nextEdge.target_node_id)
+                  .maybeSingle();
+                if (nextStep?.id) {
+                  setTimeout(() => executeStep(nextStep.id), 300);
+                }
+              }
+            }
+            toast.success('Этап выполнен, ветка передана дальше');
+            return;
+          }
+        }
+
+        toast.success('Этап выполнен');
+        return;
+      }
 
       if (!response.ok) {
         throw new Error(`HTTP error! status: ${response.status}`);
