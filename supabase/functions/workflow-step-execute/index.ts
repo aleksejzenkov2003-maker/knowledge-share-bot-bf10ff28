@@ -680,18 +680,43 @@ serve(async (req) => {
             }
           }
 
+          // ── Parse two-document output (КП_КЛИЕНТ / КП_СОТРУДНИК) ──
+          let clientKp: string | null = null;
+          let internalReport: string | null = null;
+
+          const kpClientMarker = '===КП_КЛИЕНТ===';
+          const kpEmployeeMarker = '===КП_СОТРУДНИК===';
+          const clientIdx = fullContent.indexOf(kpClientMarker);
+          const employeeIdx = fullContent.indexOf(kpEmployeeMarker);
+
+          if (clientIdx !== -1 && employeeIdx !== -1 && employeeIdx > clientIdx) {
+            clientKp = fullContent
+              .slice(clientIdx + kpClientMarker.length, employeeIdx)
+              .trim();
+            internalReport = fullContent
+              .slice(employeeIdx + kpEmployeeMarker.length)
+              .trim();
+          }
+
           let parsedResult: Record<string, unknown> | null = null;
           try {
             const m = fullContent.match(/\{[\s\S]*\}/);
             if (m) parsedResult = JSON.parse(m[0]);
           } catch { /* ignore */ }
 
-          const raw_output = parsedResult
+          const raw_output: Record<string, unknown> = parsedResult
             ? { ...parsedResult, _stream_text: fullContent, metadata }
             : { content: fullContent, metadata };
+
+          // If two-doc split succeeded, store both documents separately
+          if (clientKp) {
+            raw_output.client_kp = clientKp;
+            raw_output.internal_report = internalReport || '';
+          }
+
           const humanReadable = (parsedResult?.human_readable as Record<string, unknown>) || {
             title: 'Результат агента',
-            summary: fullContent.slice(0, 1200),
+            summary: clientKp || fullContent.slice(0, 1200),
           };
 
           await supabase.from('project_workflow_steps').update({
