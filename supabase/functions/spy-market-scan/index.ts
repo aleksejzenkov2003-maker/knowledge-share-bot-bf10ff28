@@ -366,22 +366,54 @@ serve(async (req) => {
       item.screenshot ? [{ bucket: item.screenshot.bucket, path: item.screenshot.path, url: item.url }] : []
     );
 
+    // Build human-readable content for the workflow step display
+    const mpLabels: Record<string, string> = {
+      wb: "Wildberries",
+      ozon: "Ozon",
+      yandex_market: "Яндекс Маркет",
+      site: "Сайт",
+      other: "Другое",
+    };
+
+    const groupedByMp: Record<string, SearchResultWithScreenshot[]> = {};
+    for (const r of resultsWithShots) {
+      const key = r.marketplace || "other";
+      if (!groupedByMp[key]) groupedByMp[key] = [];
+      groupedByMp[key].push(r);
+    }
+
+    let contentMd = `## Результаты поиска обозначения «${trademark}» в открытых источниках\n\n`;
+    contentMd += `Найдено **${resultsWithShots.length}** ссылок.\n\n`;
+
+    for (const [mp, items] of Object.entries(groupedByMp)) {
+      contentMd += `### ${mpLabels[mp] || mp}\n\n`;
+      for (const item of items) {
+        const title = item.title || item.url;
+        contentMd += `- [${title}](${item.url})`;
+        if (item.screenshot) {
+          contentMd += ` 📸`;
+        }
+        if (item.screenshot_error) {
+          contentMd += ` ⚠️ скриншот не удалось сделать`;
+        }
+        contentMd += `\n`;
+      }
+      contentMd += `\n`;
+    }
+
+    if (createdArtifacts.length > 0) {
+      contentMd += `---\n📸 Скриншоты сохранены: ${createdArtifacts.length} шт.\n`;
+    }
+
     const output = {
+      content: contentMd,
       trademark,
       results: resultsWithShots,
       citations: search.citations,
       artifacts: createdArtifacts,
       notes: takeScreenshots
-        ? `Скриншоты сохранены для ${createdArtifacts.length} из ${Math.min(resultsWithShots.length, maxScreenshots)} ссылок. Остальные ссылки оставлены без скриншотов для ускорения шага.`
+        ? `Скриншоты сохранены для ${createdArtifacts.length} из ${Math.min(resultsWithShots.length, maxScreenshots)} ссылок.`
         : "Скриншоты отключены (take_screenshots=false).",
-      screenshot_settings: takeScreenshots
-        ? {
-            max_screenshots: maxScreenshots,
-            screenshot_timeout_ms: screenshotTimeoutMs,
-            screenshot_concurrency: screenshotConcurrency,
-            full_page: screenshotFullPage,
-          }
-        : undefined,
     };
 
     return new Response(JSON.stringify(output), {
