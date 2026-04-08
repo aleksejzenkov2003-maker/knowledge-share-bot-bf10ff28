@@ -329,6 +329,13 @@ serve(async (req) => {
       }
     }
 
+    // Merge context_folder_ids from workflow engine / project context packs
+    if (context_folder_ids && Array.isArray(context_folder_ids) && context_folder_ids.length > 0) {
+      const merged = new Set([...folderIds, ...context_folder_ids]);
+      folderIds = Array.from(merged);
+      console.log(`Merged context_folder_ids: ${context_folder_ids.length} extra folders, total: ${folderIds.length}`);
+    }
+
     // Append system_prompt_append if provided (used by workflow engine)
     if (system_prompt_append) {
       systemPrompt += '\n\n' + system_prompt_append;
