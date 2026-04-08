@@ -256,8 +256,8 @@ serve(async (req) => {
       ? Math.min(Math.max(Number(body.max_screenshots || 4), 0), 8)
       : 0;
     const screenshotTimeoutMs = Math.min(
-      Math.max(Number(body.screenshot_timeout_ms || 15000), 5000),
-      30000,
+      Math.max(Number(body.screenshot_timeout_ms || 25000), 5000),
+      45000,
     );
     const screenshotConcurrency = Math.min(
       Math.max(Number(body.screenshot_concurrency || 3), 1),
