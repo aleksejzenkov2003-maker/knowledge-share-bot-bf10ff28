@@ -8,7 +8,7 @@ const corsHeaders = {
 const {
   Document, Packer, Paragraph, TextRun, Table, TableRow, TableCell,
   Header, Footer, AlignmentType, HeadingLevel, BorderStyle, WidthType,
-  ShadingType, PageNumber, PageBreak, LevelFormat,
+  ShadingType, PageNumber, PageBreak, LevelFormat, ImageRun,
 // @ts-ignore – esm.sh CJS shim
 } = await import("https://esm.sh/docx@9.5.0");
 
@@ -160,13 +160,82 @@ function parseInlineRuns(text: string): any[] {
   return runs;
 }
 
+async function fetchImageBytes(url?: string | null): Promise<Uint8Array | null> {
+  if (!url) return null;
+  try {
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 10000);
+    const resp = await fetch(url, { signal: controller.signal });
+    clearTimeout(timeout);
+    if (!resp.ok) return null;
+    const arrayBuffer = await resp.arrayBuffer();
+    return new Uint8Array(arrayBuffer);
+  } catch {
+    return null;
+  }
+}
+
+function buildMetaTable(params: {
+  trademarkName?: string;
+  companyName?: string;
+  contactPerson?: string;
+  phone?: string;
+  email?: string;
+}): any {
+  const rows: [string, string][] = [
+    ["Заявитель", params.companyName || "-"],
+    ["Товарный знак", params.trademarkName || "-"],
+    ["Контактное лицо", params.contactPerson || "-"],
+    ["Телефон", params.phone || "-"],
+    ["Email", params.email || "-"],
+    ["Дата", new Date().toLocaleDateString("ru-RU")],
+  ];
+  return new Table({
+    width: { size: 9360, type: WidthType.DXA },
+    rows: rows.map(([key, value]) =>
+      new TableRow({
+        children: [
+          new TableCell({
+            borders: cellBorders,
+            shading: { fill: "EDF4F8", type: ShadingType.CLEAR },
+            width: { size: 2500, type: WidthType.DXA },
+            children: [
+              new Paragraph({
+                children: [new TextRun({ text: key, bold: true, font: "Arial", size: 20 })],
+              }),
+            ],
+          }),
+          new TableCell({
+            borders: cellBorders,
+            width: { size: 6860, type: WidthType.DXA },
+            children: [
+              new Paragraph({
+                children: [new TextRun({ text: value, font: "Arial", size: 20 })],
+              }),
+            ],
+          }),
+        ],
+      }),
+    ),
+  });
+}
+
 serve(async (req) => {
   if (req.method === 'OPTIONS') {
     return new Response('ok', { headers: corsHeaders });
   }
 
   try {
-    const { markdown, trademark_name } = await req.json();
+    const {
+      markdown,
+      trademark_name,
+      company_name,
+      contact_person,
+      email,
+      phone,
+      logo_url,
+      screenshots,
+    } = await req.json();
     if (!markdown) {
       return new Response(JSON.stringify({ error: 'markdown is required' }), {
         status: 400,
@@ -175,6 +244,8 @@ serve(async (req) => {
     }
 
     const content = mdToParagraphs(markdown);
+    const logoBytes = await fetchImageBytes(typeof logo_url === "string" ? logo_url : null);
+    const screenshotItems = Array.isArray(screenshots) ? screenshots.slice(0, 10) : [];
 
     const doc = new Document({
       styles: {
@@ -225,6 +296,19 @@ serve(async (req) => {
         headers: {
           default: new Header({
             children: [
+              ...(logoBytes
+                ? [
+                    new Paragraph({
+                      alignment: AlignmentType.RIGHT,
+                      children: [
+                        new ImageRun({
+                          data: logoBytes,
+                          transformation: { width: 160, height: 48 },
+                        }),
+                      ],
+                    }),
+                  ]
+                : []),
               new Paragraph({
                 alignment: AlignmentType.CENTER,
                 border: { bottom: { style: BorderStyle.SINGLE, size: 6, color: "2E75B6", space: 1 } },
@@ -259,6 +343,117 @@ serve(async (req) => {
         },
         children: content,
       }],
+    });
+    doc.addSection({
+      properties: {
+        page: {
+          size: { width: 11906, height: 16838 },
+          margin: { top: 1440, right: 1134, bottom: 1440, left: 1134 },
+        },
+      },
+      headers: {
+        default: new Header({
+          children: [
+            new Paragraph({
+              alignment: AlignmentType.CENTER,
+              border: { bottom: { style: BorderStyle.SINGLE, size: 6, color: "2E75B6", space: 1 } },
+              children: [new TextRun({ text: BRAND_HEADER, font: "Arial", size: 14, color: "2E75B6" })],
+            }),
+          ],
+        }),
+      },
+      footers: {
+        default: new Footer({
+          children: [
+            new Paragraph({
+              alignment: AlignmentType.CENTER,
+              border: { top: { style: BorderStyle.SINGLE, size: 4, color: "CCCCCC", space: 1 } },
+              children: [new TextRun({ text: BRAND_FOOTER, font: "Arial", size: 14, color: "666666" })],
+            }),
+          ],
+        }),
+      },
+      children: [
+        ...(logoBytes
+          ? [
+              new Paragraph({
+                alignment: AlignmentType.CENTER,
+                spacing: { after: 180 },
+                children: [
+                  new ImageRun({
+                    data: logoBytes,
+                    transformation: { width: 220, height: 70 },
+                  }),
+                ],
+              }),
+            ]
+          : []),
+        new Paragraph({
+          alignment: AlignmentType.CENTER,
+          heading: HeadingLevel.HEADING_1,
+          spacing: { after: 140 },
+          children: [new TextRun({ text: "КОММЕРЧЕСКОЕ ПРЕДЛОЖЕНИЕ", bold: true, font: "Arial", size: 34 })],
+        }),
+        new Paragraph({
+          alignment: AlignmentType.CENTER,
+          spacing: { after: 260 },
+          children: [new TextRun({ text: "По регистрации товарного знака", font: "Arial", size: 24 })],
+        }),
+        buildMetaTable({
+          trademarkName: trademark_name,
+          companyName: company_name,
+          contactPerson: contact_person,
+          phone,
+          email,
+        }),
+        new Paragraph({ children: [], spacing: { after: 200 } }),
+        new Paragraph({
+          children: [
+            new TextRun({
+              text: "Структура документа включает анализ охраноспособности, подбор классов МКТУ, результаты поиска и детальный расчет затрат.",
+              font: "Arial",
+              size: 22,
+            }),
+          ],
+        }),
+        new Paragraph({ children: [new PageBreak()] }),
+        new Paragraph({
+          heading: HeadingLevel.HEADING_2,
+          children: [new TextRun({ text: "Приложение: скриншоты из открытых источников", bold: true })],
+        }),
+        ...(await Promise.all(
+          screenshotItems.map(async (item: any, idx: number) => {
+            const url = typeof item?.url === "string" ? item.url : null;
+            const title = typeof item?.title === "string" ? item.title : `Скриншот ${idx + 1}`;
+            const sourceUrl = typeof item?.source_url === "string" ? item.source_url : "";
+            const bytes = await fetchImageBytes(url);
+            const chunk: any[] = [
+              new Paragraph({
+                spacing: { before: 220, after: 80 },
+                children: [new TextRun({ text: `${idx + 1}. ${title}`, bold: true, font: "Arial", size: 20 })],
+              }),
+            ];
+            if (sourceUrl) {
+              chunk.push(
+                new Paragraph({
+                  spacing: { after: 120 },
+                  children: [new TextRun({ text: sourceUrl, italics: true, color: "666666", size: 18 })],
+                }),
+              );
+            }
+            if (bytes) {
+              chunk.push(
+                new Paragraph({
+                  alignment: AlignmentType.CENTER,
+                  spacing: { after: 180 },
+                  children: [new ImageRun({ data: bytes, transformation: { width: 500, height: 300 } })],
+                }),
+              );
+            }
+            return chunk;
+          }),
+        )).flat(),
+      ],
     });
 
     const buffer = await Packer.toBuffer(doc);

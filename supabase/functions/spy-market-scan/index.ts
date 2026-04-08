@@ -28,6 +28,22 @@ type SearchResultWithScreenshot = SearchResult & {
   screenshot_error?: string;
 };
 
+type MarketplaceInsight = {
+  provider: "mpstats" | "marketguru";
+  marketplace: "wb" | "ozon" | "yandex_market" | "other";
+  product_url?: string;
+  product_name?: string;
+  seller?: string;
+  brand?: string;
+  price?: number;
+  sales_estimate?: number;
+  revenue_estimate?: number;
+  reviews?: number;
+  rating?: number;
+  source?: string;
+  raw?: Record<string, unknown>;
+};
+
 function normalizeUrl(u: string): string | null {
   try {
     const url = new URL(u);
@@ -80,6 +96,143 @@ async function mapWithConcurrency<T>(
   });
 
   await Promise.all(runners);
+}
+
+function asNumber(v: unknown): number | undefined {
+  if (typeof v === "number" && Number.isFinite(v)) return v;
+  if (typeof v === "string" && v.trim() !== "" && !Number.isNaN(Number(v))) return Number(v);
+  return undefined;
+}
+
+function normalizeMarketplaceFromText(value: unknown): MarketplaceInsight["marketplace"] {
+  const s = String(value || "").toLowerCase();
+  if (s.includes("wb") || s.includes("wildberries")) return "wb";
+  if (s.includes("ozon")) return "ozon";
+  if (s.includes("yandex") || s.includes("яндекс") || s.includes("market")) return "yandex_market";
+  return "other";
+}
+
+function pickString(obj: Record<string, unknown>, keys: string[]): string | undefined {
+  for (const k of keys) {
+    const v = obj[k];
+    if (typeof v === "string" && v.trim() !== "") return v.trim();
+  }
+  return undefined;
+}
+
+function pickNumber(obj: Record<string, unknown>, keys: string[]): number | undefined {
+  for (const k of keys) {
+    const n = asNumber(obj[k]);
+    if (n !== undefined) return n;
+  }
+  return undefined;
+}
+
+function normalizeInsightsFromUnknown(
+  provider: MarketplaceInsight["provider"],
+  payload: unknown,
+): MarketplaceInsight[] {
+  const out: MarketplaceInsight[] = [];
+  const visit = (item: unknown) => {
+    if (!item || typeof item !== "object") return;
+    const row = item as Record<string, unknown>;
+    const product_url = pickString(row, ["product_url", "url", "link", "item_url", "card_url"]);
+    const product_name = pickString(row, ["product_name", "name", "title", "item_name"]);
+    const seller = pickString(row, ["seller", "seller_name", "shop", "vendor"]);
+    const brand = pickString(row, ["brand", "brand_name"]);
+    const marketplace = normalizeMarketplaceFromText(
+      row.marketplace ?? row.source_marketplace ?? row.platform ?? product_url ?? "",
+    );
+
+    // keep rows that are at least product-like
+    if (!product_url && !product_name) return;
+
+    out.push({
+      provider,
+      marketplace,
+      product_url,
+      product_name,
+      seller,
+      brand,
+      price: pickNumber(row, ["price", "current_price", "sale_price"]),
+      sales_estimate: pickNumber(row, ["sales", "sales_estimate", "sales_count"]),
+      revenue_estimate: pickNumber(row, ["revenue", "revenue_estimate", "turnover"]),
+      reviews: pickNumber(row, ["reviews", "reviews_count", "feedbacks"]),
+      rating: pickNumber(row, ["rating", "rate", "avg_rating"]),
+      source: pickString(row, ["source", "source_url"]),
+      raw: row,
+    });
+  };
+
+  if (Array.isArray(payload)) {
+    for (const i of payload) visit(i);
+    return out;
+  }
+  if (payload && typeof payload === "object") {
+    const root = payload as Record<string, unknown>;
+    const candidates = [
+      root.items,
+      root.results,
+      root.data,
+      root.products,
+      root.cards,
+      root.rows,
+    ];
+    let pickedArray = false;
+    for (const c of candidates) {
+      if (Array.isArray(c)) {
+        for (const i of c) visit(i);
+        pickedArray = true;
+      }
+    }
+    if (!pickedArray) visit(root);
+  }
+  return out;
+}
+
+async function fetchProviderInsights(args: {
+  provider: MarketplaceInsight["provider"];
+  endpoint: string;
+  apiKey: string;
+  trademark: string;
+  goodsServices?: string;
+  maxLinks: number;
+  timeoutMs: number;
+}): Promise<MarketplaceInsight[]> {
+  const { provider, endpoint, apiKey, trademark, goodsServices, maxLinks, timeoutMs } = args;
+
+  const payload = {
+    trademark,
+    goods_services: goodsServices,
+    max_links: maxLinks,
+  };
+
+  const r = await fetchWithTimeout(
+    endpoint,
+    {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${apiKey}`,
+        "X-API-Key": apiKey,
+      },
+      body: JSON.stringify(payload),
+    },
+    timeoutMs,
+  );
+
+  const text = await r.text();
+  if (!r.ok) {
+    throw new Error(`${provider} error [${r.status}]: ${text}`);
+  }
+
+  let parsed: unknown = null;
+  try {
+    parsed = JSON.parse(text);
+  } catch {
+    throw new Error(`${provider} returned non-JSON response`);
+  }
+  return normalizeInsightsFromUnknown(provider, parsed);
 }
 
 async function perplexitySearchLinks(args: {
@@ -313,6 +466,58 @@ serve(async (req) => {
     });
     console.log(`Found ${search.results.length} links for \"${trademark}\"`);
 
+    // Optional marketplace analytics providers (MPSTATS / MarketGuru)
+    const providerTimeoutMs = Math.min(Math.max(Number(body.providers_timeout_ms || 15000), 5000), 60000);
+    const providerEnabled = body.use_marketplace_providers !== false;
+    const providerInsights: MarketplaceInsight[] = [];
+    const providerErrors: string[] = [];
+
+    if (providerEnabled) {
+      const mpstatsKey = Deno.env.get("MPSTATS_API_KEY");
+      const mpstatsEndpoint = Deno.env.get("MPSTATS_API_URL");
+      if (mpstatsKey && mpstatsEndpoint) {
+        try {
+          const rows = await fetchProviderInsights({
+            provider: "mpstats",
+            endpoint: mpstatsEndpoint,
+            apiKey: mpstatsKey,
+            trademark,
+            goodsServices,
+            maxLinks,
+            timeoutMs: providerTimeoutMs,
+          });
+          providerInsights.push(...rows);
+          console.log(`MPSTATS insights: ${rows.length}`);
+        } catch (e) {
+          const msg = e instanceof Error ? e.message : "MPSTATS unknown error";
+          providerErrors.push(msg);
+          console.warn(msg);
+        }
+      }
+
+      const marketGuruKey = Deno.env.get("MARKETGURU_API_KEY");
+      const marketGuruEndpoint = Deno.env.get("MARKETGURU_API_URL");
+      if (marketGuruKey && marketGuruEndpoint) {
+        try {
+          const rows = await fetchProviderInsights({
+            provider: "marketguru",
+            endpoint: marketGuruEndpoint,
+            apiKey: marketGuruKey,
+            trademark,
+            goodsServices,
+            maxLinks,
+            timeoutMs: providerTimeoutMs,
+          });
+          providerInsights.push(...rows);
+          console.log(`MarketGuru insights: ${rows.length}`);
+        } catch (e) {
+          const msg = e instanceof Error ? e.message : "MarketGuru unknown error";
+          providerErrors.push(msg);
+          console.warn(msg);
+        }
+      }
+    }
+
     const resultsWithShots: SearchResultWithScreenshot[] = search.results.map((r) => ({ ...r }));
 
     if (takeScreenshots && maxScreenshots > 0 && resultsWithShots.length > 0) {
@@ -366,6 +571,37 @@ serve(async (req) => {
       item.screenshot ? [{ bucket: item.screenshot.bucket, path: item.screenshot.path, url: item.url }] : []
     );
 
+    // Persist provider analytics as JSON artifacts
+    const marketplaceDataArtifacts: Array<{ bucket: string; path: string; provider: string }> = [];
+    if (providerInsights.length > 0) {
+      const grouped: Record<string, MarketplaceInsight[]> = {};
+      for (const row of providerInsights) {
+        if (!grouped[row.provider]) grouped[row.provider] = [];
+        grouped[row.provider].push(row);
+      }
+      for (const [provider, rows] of Object.entries(grouped)) {
+        const fileName = `marketplace_${provider}_${Date.now()}.json`;
+        const path = `${meta.project_id}/${meta.workflow_id}/${meta.step_id}/${fileName}`;
+        const bytes = new TextEncoder().encode(JSON.stringify({ provider, rows }, null, 2));
+        const { error: upErr } = await supabase.storage
+          .from("node-artifacts")
+          .upload(path, bytes, { contentType: "application/json", upsert: true });
+        if (!upErr) {
+          await supabase.from("workflow_artifacts").insert({
+            project_id: meta.project_id,
+            workflow_run_id: meta.workflow_id,
+            project_workflow_step_id: meta.step_id,
+            artifact_type: "marketplace_data",
+            bucket: "node-artifacts",
+            path,
+            mime: "application/json",
+            metadata: { provider, rows_count: rows.length, trademark },
+          });
+          marketplaceDataArtifacts.push({ bucket: "node-artifacts", path, provider });
+        }
+      }
+    }
+
     // Build human-readable content for the workflow step display
     const mpLabels: Record<string, string> = {
       wb: "Wildberries",
@@ -404,13 +640,29 @@ serve(async (req) => {
     if (createdArtifacts.length > 0) {
       contentMd += `---\n📸 Скриншоты сохранены: ${createdArtifacts.length} шт.\n`;
     }
+    if (providerInsights.length > 0) {
+      const byProvider: Record<string, number> = {};
+      for (const row of providerInsights) {
+        byProvider[row.provider] = (byProvider[row.provider] || 0) + 1;
+      }
+      contentMd += `\n### Данные маркетплейс-аналитики\n\n`;
+      for (const [provider, count] of Object.entries(byProvider)) {
+        contentMd += `- ${provider}: ${count} записей\n`;
+      }
+    }
+    if (providerErrors.length > 0) {
+      contentMd += `\n> ⚠️ Ошибки внешних провайдеров: ${providerErrors.join(" | ")}\n`;
+    }
 
     const output = {
       content: contentMd,
       trademark,
       results: resultsWithShots,
+      marketplace_insights: providerInsights,
       citations: search.citations,
       artifacts: createdArtifacts,
+      marketplace_data_artifacts: marketplaceDataArtifacts,
+      provider_errors: providerErrors,
       notes: takeScreenshots
         ? `Скриншоты сохранены для ${createdArtifacts.length} из ${Math.min(resultsWithShots.length, maxScreenshots)} ссылок.`
         : "Скриншоты отключены (take_screenshots=false).",

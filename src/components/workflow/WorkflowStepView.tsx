@@ -162,12 +162,50 @@ export const WorkflowStepView: React.FC<WorkflowStepViewProps> = ({
   const handleDownloadDocx = useCallback(async () => {
     if (!clientKp) return;
     try {
-      const projectId_ = projectId;
+      const out = (rawOut as Record<string, unknown> | null) || {};
+      const logoUrl =
+        (typeof out.company_logo_url === 'string' && out.company_logo_url) ||
+        (typeof out.logo_url === 'string' && out.logo_url) ||
+        null;
+      const companyName =
+        (typeof out.company_name === 'string' && out.company_name) ||
+        (typeof out.applicant === 'string' && out.applicant) ||
+        '';
+      const contactPerson = typeof out.contact_person === 'string' ? out.contact_person : '';
+      const email = typeof out.email === 'string' ? out.email : '';
+      const phone = typeof out.phone === 'string' ? out.phone : '';
+      const screenshotPayload = screenshotArtifacts
+        .map((artifact) => {
+          const meta = (artifact.metadata as Record<string, unknown> | null) || {};
+          const signedUrl = signedUrls[artifact.id];
+          if (!signedUrl) return null;
+          return {
+            url: signedUrl,
+            title:
+              (typeof meta.title === 'string' && meta.title) ||
+              (typeof meta.url === 'string' && meta.url) ||
+              artifact.path,
+            source_url: typeof meta.url === 'string' ? meta.url : undefined,
+          };
+        })
+        .filter(Boolean)
+        .slice(0, 10);
+
       const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
       const resp = await fetch(`${supabaseUrl}/functions/v1/generate-kp-docx`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ markdown: clientKp, trademark_name: step.template_step?.name || 'KP' }),
+        body: JSON.stringify({
+          markdown: clientKp,
+          trademark_name: step.template_step?.name || 'KP',
+          company_name: companyName || undefined,
+          contact_person: contactPerson || undefined,
+          email: email || undefined,
+          phone: phone || undefined,
+          logo_url: logoUrl || undefined,
+          screenshots: screenshotPayload,
+          project_id: projectId,
+        }),
       });
       if (!resp.ok) throw new Error('Ошибка генерации DOCX');
       const blob = await resp.blob();
@@ -180,7 +218,7 @@ export const WorkflowStepView: React.FC<WorkflowStepViewProps> = ({
     } catch (e) {
       console.error(e);
     }
-  }, [clientKp, projectId, step.template_step?.name]);
+  }, [clientKp, projectId, rawOut, screenshotArtifacts, signedUrls, step.template_step?.name]);
 
   const handleSaveEdits = () => {
     if (editedContent !== null) {
