@@ -372,6 +372,65 @@ export const WorkflowStepView: React.FC<WorkflowStepViewProps> = ({
               streamingContent={streamingContent}
             />
           </TabsContent>
+
+          {screenshotArtifacts.length > 0 && (
+            <TabsContent value="screenshots" className="flex-1 overflow-auto px-4 pb-4">
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mt-3">
+                {screenshotArtifacts.map((artifact) => {
+                  const meta = artifact.metadata as Record<string, unknown> | null;
+                  const url = meta?.url as string | undefined;
+                  const title = meta?.title as string | undefined;
+                  const signedUrl = signedUrls[artifact.id];
+
+                  return (
+                    <Card key={artifact.id} className="overflow-hidden">
+                      {signedUrl ? (
+                        <div
+                          className="cursor-pointer"
+                          onClick={() =>
+                            setExpandedScreenshot(
+                              expandedScreenshot === artifact.id ? null : artifact.id,
+                            )
+                          }
+                        >
+                          <img
+                            src={signedUrl}
+                            alt={title || url || 'Screenshot'}
+                            className={`w-full object-cover transition-all ${
+                              expandedScreenshot === artifact.id
+                                ? 'max-h-none'
+                                : 'max-h-64'
+                            }`}
+                          />
+                        </div>
+                      ) : (
+                        <div className="h-40 flex items-center justify-center bg-muted text-muted-foreground text-sm">
+                          <Loader2 className="h-5 w-5 animate-spin mr-2" />
+                          Загрузка...
+                        </div>
+                      )}
+                      <div className="p-3 border-t">
+                        <p className="text-sm font-medium truncate">
+                          {title || url || artifact.path}
+                        </p>
+                        {url && (
+                          <a
+                            href={url}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="text-xs text-primary hover:underline flex items-center gap-1 mt-1"
+                          >
+                            <ExternalLink className="h-3 w-3" />
+                            {new URL(url).hostname}
+                          </a>
+                        )}
+                      </div>
+                    </Card>
+                  );
+                })}
+              </div>
+            </TabsContent>
+          )}
         </Tabs>
       ) : (
         <div className="flex-1 flex items-center justify-center text-muted-foreground">
