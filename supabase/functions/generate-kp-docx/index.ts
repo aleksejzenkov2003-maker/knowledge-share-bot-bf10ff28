@@ -8,7 +8,7 @@ const corsHeaders = {
 const {
   Document, Packer, Paragraph, TextRun, Table, TableRow, TableCell,
   Header, Footer, AlignmentType, HeadingLevel, BorderStyle, WidthType,
-  ShadingType, PageNumber, PageBreak, LevelFormat, ImageRun,
+  ShadingType, PageNumber, PageBreak, LevelFormat, ImageRun, VerticalAlign,
 // @ts-ignore – esm.sh CJS shim
 } = await import("https://esm.sh/docx@9.5.0");
 
@@ -220,6 +220,121 @@ function buildMetaTable(params: {
   });
 }
 
+function buildCoverBlock(params: {
+  trademarkName?: string;
+  companyName?: string;
+  logoBytes?: Uint8Array | null;
+}): any {
+  return new Table({
+    width: { size: 100, type: WidthType.PERCENTAGE },
+    rows: [
+      new TableRow({
+        children: [
+          new TableCell({
+            verticalAlign: VerticalAlign.CENTER,
+            shading: { fill: "23272E", type: ShadingType.CLEAR },
+            margins: { top: 540, left: 560, right: 560, bottom: 540 },
+            children: [
+              ...(params.logoBytes
+                ? [
+                    new Paragraph({
+                      alignment: AlignmentType.LEFT,
+                      spacing: { after: 260 },
+                      children: [
+                        new ImageRun({
+                          data: params.logoBytes,
+                          transformation: { width: 180, height: 56 },
+                        }),
+                      ],
+                    }),
+                  ]
+                : []),
+              new Paragraph({
+                spacing: { after: 140 },
+                children: [
+                  new TextRun({
+                    text: "РЕГИСТРАЦИЯ",
+                    bold: false,
+                    font: "Arial",
+                    color: "FFFFFF",
+                    size: 72,
+                  }),
+                ],
+              }),
+              new Paragraph({
+                spacing: { after: 140 },
+                children: [
+                  new TextRun({
+                    text: "ТОВАРНОГО",
+                    bold: false,
+                    font: "Arial",
+                    color: "FFFFFF",
+                    size: 72,
+                  }),
+                ],
+              }),
+              new Paragraph({
+                spacing: { after: 260 },
+                children: [
+                  new TextRun({
+                    text: "ЗНАКА",
+                    bold: false,
+                    font: "Arial",
+                    color: "FFFFFF",
+                    size: 72,
+                  }),
+                ],
+              }),
+              new Paragraph({
+                spacing: { after: 100 },
+                children: [
+                  new TextRun({
+                    text: `Коммерческое предложение для знака «${params.trademarkName || "-"}»`,
+                    font: "Arial",
+                    color: "F0F2F5",
+                    size: 24,
+                  }),
+                ],
+              }),
+              new Paragraph({
+                spacing: { after: 260 },
+                children: [
+                  new TextRun({
+                    text: `Подготовлено: ${params.companyName || "ARTPATENT"}`,
+                    font: "Arial",
+                    color: "CFD4DC",
+                    size: 22,
+                  }),
+                ],
+              }),
+              new Paragraph({
+                spacing: { after: 60 },
+                children: [new TextRun({ text: "Анализ охраноспособности", font: "Arial", color: "FFFFFF", size: 28 })],
+              }),
+              new Paragraph({
+                spacing: { after: 60 },
+                children: [new TextRun({ text: "Подбор классов МКТУ", font: "Arial", color: "FFFFFF", size: 28 })],
+              }),
+              new Paragraph({
+                spacing: { after: 60 },
+                children: [new TextRun({ text: "Результаты бесплатного поиска", font: "Arial", color: "FFFFFF", size: 28 })],
+              }),
+              new Paragraph({
+                spacing: { after: 200 },
+                children: [new TextRun({ text: "Детальный расчет стоимости", font: "Arial", color: "FFFFFF", size: 28 })],
+              }),
+              new Paragraph({
+                spacing: { before: 200, after: 40 },
+                children: [new TextRun({ text: "ARTPATENT", font: "Arial", color: "FFFFFF", size: 36 })],
+              }),
+            ],
+          }),
+        ],
+      }),
+    ],
+  });
+}
+
 serve(async (req) => {
   if (req.method === 'OPTIONS') {
     return new Response('ok', { headers: corsHeaders });
@@ -246,6 +361,12 @@ serve(async (req) => {
     const content = mdToParagraphs(markdown);
     const logoBytes = await fetchImageBytes(typeof logo_url === "string" ? logo_url : null);
     const screenshotItems = Array.isArray(screenshots) ? screenshots.slice(0, 10) : [];
+
+    const coverBlock = buildCoverBlock({
+      trademarkName: trademark_name,
+      companyName: company_name,
+      logoBytes,
+    });
 
     const doc = new Document({
       styles: {
@@ -286,94 +407,52 @@ serve(async (req) => {
           },
         ],
       },
-      sections: [{
-        properties: {
-          page: {
-            size: { width: 11906, height: 16838 }, // A4
-            margin: { top: 1440, right: 1134, bottom: 1440, left: 1134 },
+      sections: [
+        {
+          properties: {
+            page: {
+              size: { width: 11906, height: 16838 },
+              margin: { top: 720, right: 720, bottom: 720, left: 720 },
+            },
           },
+          headers: { default: new Header({ children: [] }) },
+          footers: { default: new Footer({ children: [] }) },
+          children: [coverBlock],
         },
-        headers: {
-          default: new Header({
-            children: [
-              ...(logoBytes
-                ? [
-                    new Paragraph({
-                      alignment: AlignmentType.RIGHT,
-                      children: [
-                        new ImageRun({
-                          data: logoBytes,
-                          transformation: { width: 160, height: 48 },
-                        }),
-                      ],
-                    }),
-                  ]
-                : []),
-              new Paragraph({
-                alignment: AlignmentType.CENTER,
-                border: { bottom: { style: BorderStyle.SINGLE, size: 6, color: "2E75B6", space: 1 } },
-                children: [new TextRun({
-                  text: BRAND_HEADER,
-                  font: "Arial",
-                  size: 14,
-                  color: "2E75B6",
-                })],
-              }),
-            ],
-          }),
-        },
-        footers: {
-          default: new Footer({
-            children: [
-              new Paragraph({
-                alignment: AlignmentType.CENTER,
-                border: { top: { style: BorderStyle.SINGLE, size: 4, color: "CCCCCC", space: 1 } },
-                children: [
-                  new TextRun({ text: BRAND_FOOTER, font: "Arial", size: 14, color: "666666" }),
-                ],
-              }),
-              new Paragraph({
-                alignment: AlignmentType.RIGHT,
-                children: [
-                  new TextRun({ children: [PageNumber.CURRENT], font: "Arial", size: 14, color: "999999" }),
-                ],
-              }),
-            ],
-          }),
-        },
-        children: content,
-      }],
-    });
-    doc.addSection({
-      properties: {
-        page: {
-          size: { width: 11906, height: 16838 },
-          margin: { top: 1440, right: 1134, bottom: 1440, left: 1134 },
-        },
-      },
-      headers: {
-        default: new Header({
-          children: [
-            new Paragraph({
-              alignment: AlignmentType.CENTER,
-              border: { bottom: { style: BorderStyle.SINGLE, size: 6, color: "2E75B6", space: 1 } },
-              children: [new TextRun({ text: BRAND_HEADER, font: "Arial", size: 14, color: "2E75B6" })],
+        {
+          properties: {
+            page: {
+              size: { width: 11906, height: 16838 },
+              margin: { top: 1440, right: 1134, bottom: 1440, left: 1134 },
+            },
+          },
+          headers: {
+            default: new Header({
+              children: [
+                new Paragraph({
+                  alignment: AlignmentType.CENTER,
+                  border: { bottom: { style: BorderStyle.SINGLE, size: 6, color: "2E75B6", space: 1 } },
+                  children: [new TextRun({ text: BRAND_HEADER, font: "Arial", size: 14, color: "2E75B6" })],
+                }),
+              ],
             }),
-          ],
-        }),
-      },
-      footers: {
-        default: new Footer({
-          children: [
-            new Paragraph({
-              alignment: AlignmentType.CENTER,
-              border: { top: { style: BorderStyle.SINGLE, size: 4, color: "CCCCCC", space: 1 } },
-              children: [new TextRun({ text: BRAND_FOOTER, font: "Arial", size: 14, color: "666666" })],
+          },
+          footers: {
+            default: new Footer({
+              children: [
+                new Paragraph({
+                  alignment: AlignmentType.CENTER,
+                  border: { top: { style: BorderStyle.SINGLE, size: 4, color: "CCCCCC", space: 1 } },
+                  children: [new TextRun({ text: BRAND_FOOTER, font: "Arial", size: 14, color: "666666" })],
+                }),
+                new Paragraph({
+                  alignment: AlignmentType.RIGHT,
+                  children: [new TextRun({ children: [PageNumber.CURRENT], font: "Arial", size: 14, color: "999999" })],
+                }),
+              ],
             }),
-          ],
-        }),
-      },
-      children: [
+          },
+          children: [
         ...(logoBytes
           ? [
               new Paragraph({
@@ -416,6 +495,7 @@ serve(async (req) => {
             }),
           ],
         }),
+        ...content,
         new Paragraph({ children: [new PageBreak()] }),
         new Paragraph({
           heading: HeadingLevel.HEADING_2,
@@ -453,6 +533,8 @@ serve(async (req) => {
             return chunk;
           }),
         )).flat(),
+          ],
+        },
       ],
     });
 

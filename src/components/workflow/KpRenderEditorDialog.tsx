@@ -37,6 +37,37 @@ function markdownToHtml(text: string): string {
     .replace(/$/, '</p>');
 }
 
+function renderBrandedHtml(markdown: string): string {
+  const body = markdownToHtml(markdown);
+  const tmMatch =
+    markdown.match(/товарного знака\s*[«"](.*?)[»"]/i) ||
+    markdown.match(/#\s*(.+)/);
+  const tm = tmMatch?.[1]?.trim() || 'ТОВАРНОГО ЗНАКА';
+
+  return `
+    <section style="background:#23272e;color:#fff;padding:56px 56px 64px;min-height:980px;">
+      <div style="font-size:13px;letter-spacing:6px;color:#c6d1e3;margin-bottom:48px;">РЕГИСТРАЦИЯ ТОВАРНОГО ЗНАКА   ARTPATENT.RU</div>
+      <div style="font-size:74px;line-height:0.95;font-weight:400;letter-spacing:1px;">РЕГИСТРАЦИЯ</div>
+      <div style="font-size:74px;line-height:0.95;font-weight:400;letter-spacing:1px;">ТОВАРНОГО</div>
+      <div style="font-size:74px;line-height:0.95;font-weight:400;letter-spacing:1px;margin-bottom:40px;">ЗНАКА</div>
+      <div style="font-size:26px;line-height:1.3;color:#f3f5f7;margin-bottom:30px;">${tm}</div>
+      <div style="font-size:32px;line-height:1.6;color:#f3f5f7;">
+        Анализ охраноспособности<br/>
+        Подбор классов МКТУ<br/>
+        Результаты бесплатного поиска<br/>
+        Детальный расчет стоимости
+      </div>
+      <div style="margin-top:120px;font-size:36px;letter-spacing:10px;">ARTPATENT</div>
+    </section>
+    <section style="background:#fff;color:#000;padding:34px 40px 30px;">
+      ${body}
+      <div style="margin-top:26px;padding-top:10px;border-top:1px solid #d8dee8;font-size:12px;color:#6d7786;">
+        420202 | Казань | Тази Гиззата 4 | +7 843 2 728 728 | info@artpatent.ru | www.artpatent.ru
+      </div>
+    </section>
+  `;
+}
+
 async function createSignedUrl(bucket: string, path: string, expiresIn = 3600): Promise<string | null> {
   const { data, error } = await supabase.storage.from(bucket).createSignedUrl(path, expiresIn);
   if (error) return null;
@@ -83,7 +114,7 @@ export function KpRenderEditorDialog(props: {
     };
   }, [open, screenshotArtifacts]);
 
-  const html = useMemo(() => markdownToHtml(md), [md]);
+  const html = useMemo(() => renderBrandedHtml(md), [md]);
 
   const renderPdfBlob = async (): Promise<Blob> => {
     const el = previewRef.current;
