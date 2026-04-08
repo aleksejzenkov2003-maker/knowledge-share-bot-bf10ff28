@@ -194,6 +194,7 @@ serve(async (req) => {
     });
     const token = authHeader.replace('Bearer ', '');
     const { data: claimsData, error: claimsError } = await supabaseAuth.auth.getClaims(token);
+    let user: any;
     if (claimsError || !claimsData?.claims?.sub) {
       // Fallback to getUser if getClaims is unavailable
       const { data: { user: fallbackUser }, error: fallbackErr } = await supabaseAuth.auth.getUser();
@@ -202,10 +203,10 @@ serve(async (req) => {
           status: 401, headers: jsonHeaders,
         });
       }
-      var user = fallbackUser;
+      user = fallbackUser;
     } else {
       // Build a minimal user object from claims
-      var user = { id: claimsData.claims.sub as string, email: (claimsData.claims.email as string) || '' } as any;
+      user = { id: claimsData.claims.sub as string, email: (claimsData.claims.email as string) || '' };
     }
 
     const supabase = createClient(supabaseUrl, supabaseServiceKey);
