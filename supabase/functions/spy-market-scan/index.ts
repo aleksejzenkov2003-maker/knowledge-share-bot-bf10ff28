@@ -207,10 +207,28 @@ serve(async (req) => {
     const body = await req.json();
     const meta = (body.__workflow || null) as WorkflowMeta | null;
 
-    const trademark = String(body.trademark || body.designation || body.name || "");
+    let trademark = String(body.trademark || body.designation || body.name || "");
     const goodsServices = body.goods_services ? String(body.goods_services) : undefined;
     const maxLinks = Number(body.max_links || 12);
     const takeScreenshots = body.take_screenshots !== false;
+
+    // If no explicit trademark field, try to extract from content (workflow passes previous step output as content)
+    if (!trademark.trim() && body.content && typeof body.content === 'string') {
+      const content = body.content as string;
+      // Try common patterns: «Name», "Name", ТЗ "Name", обозначения «Name»
+      const patterns = [
+        /(?:товарн\w+\s+знак\w*|ТЗ|обозначени\w+)\s+[«"«]([^»"»]+)[»"»]/i,
+        /[«"«]([^»"»]{2,40})[»"»]/,
+      ];
+      for (const p of patterns) {
+        const m = content.match(p);
+        if (m?.[1]) {
+          trademark = m[1].trim();
+          console.log(`Extracted trademark from content: "${trademark}"`);
+          break;
+        }
+      }
+    }
 
     if (!meta?.project_id || !meta.workflow_id || !meta.step_id) {
       throw new Error("__workflow meta is required (project_id, workflow_id, step_id)");
