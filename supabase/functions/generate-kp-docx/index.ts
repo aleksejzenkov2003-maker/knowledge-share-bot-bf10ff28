@@ -242,9 +242,10 @@ function buildCoverBlock(params: {
                       spacing: { after: 260 },
                       children: [
                         new ImageRun({
+                          type: "jpg",
                           data: params.logoBytes,
                           transformation: { width: 180, height: 56 },
-                        }),
+                        } as any),
                       ],
                     }),
                   ]
