@@ -81,6 +81,25 @@ export const WorkflowStepView: React.FC<WorkflowStepViewProps> = ({
   const [editedContent, setEditedContent] = useState<string | null>(null);
   const [inputText, setInputText] = useState('');
   const [compareRaw, setCompareRaw] = useState(false);
+  const [expandedScreenshot, setExpandedScreenshot] = useState<string | null>(null);
+
+  // Filter screenshot artifacts for this step
+  const screenshotArtifacts = useMemo(() => {
+    return artifacts.filter(
+      (a) =>
+        a.project_workflow_step_id === step.id &&
+        a.artifact_type === 'screenshot' &&
+        a.bucket === 'node-artifacts',
+    );
+  }, [artifacts, step.id]);
+
+  const getScreenshotUrl = (artifact: WorkflowArtifact) => {
+    const { data } = supabase.storage
+      .from(artifact.bucket)
+      .getPublicUrl(artifact.path);
+    // For private buckets, use createSignedUrl instead
+    return data.publicUrl;
+  };
 
   const name = step.template_step?.name || `Этап ${step.step_order}`;
   const description = step.template_step?.description || '';
