@@ -480,8 +480,9 @@ export function useOptimizedChat(userId: string | undefined, departmentId: strin
         .update({ updated_at: new Date().toISOString() })
         .eq("id", conversationId);
 
-      // Invalidate queries to sync
-      queryClient.invalidateQueries({ queryKey: chatQueryKeys.messages(conversationId) });
+      // Wait for queries to refetch before clearing isLoading,
+      // otherwise the component switches to stale dbMessages showing empty content
+      await queryClient.invalidateQueries({ queryKey: chatQueryKeys.messages(conversationId) });
 
     } catch (error: any) {
       if (updateIntervalRef.current) {
