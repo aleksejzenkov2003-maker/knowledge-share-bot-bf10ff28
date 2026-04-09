@@ -579,8 +579,12 @@ export function useOptimizedDepartmentChat(userId: string | undefined, departmen
           : m
       ));
 
-      queryClient.invalidateQueries({ queryKey: departmentChatQueryKeys.messages(activeChatId) });
-      queryClient.invalidateQueries({ queryKey: departmentChatQueryKeys.chats(departmentId!) });
+      // Wait for queries to refetch before clearing isGenerating,
+      // otherwise the component switches to stale dbMessages showing empty content
+      await Promise.all([
+        queryClient.invalidateQueries({ queryKey: departmentChatQueryKeys.messages(activeChatId) }),
+        queryClient.invalidateQueries({ queryKey: departmentChatQueryKeys.chats(departmentId!) }),
+      ]);
 
     } catch (error: any) {
       if (updateIntervalRef.current) {
