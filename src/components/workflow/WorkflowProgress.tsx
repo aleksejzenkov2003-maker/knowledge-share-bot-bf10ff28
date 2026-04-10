@@ -2,6 +2,7 @@ import React from 'react';
 import { ProjectWorkflow, ProjectWorkflowStep } from '@/types/workflow';
 import { Progress } from '@/components/ui/progress';
 import { Badge } from '@/components/ui/badge';
+import { Loader2 } from 'lucide-react';
 
 interface WorkflowProgressProps {
   workflow: ProjectWorkflow;
@@ -18,6 +19,8 @@ const statusLabels: Record<string, string> = {
 export const WorkflowProgress: React.FC<WorkflowProgressProps> = ({ workflow, steps }) => {
   const completedCount = steps.filter(s => s.status === 'completed' || s.status === 'skipped').length;
   const progress = steps.length > 0 ? (completedCount / steps.length) * 100 : 0;
+  const runningStep = steps.find((s) => s.status === 'running');
+  const runningName = runningStep?.template_step?.name || (runningStep ? `Этап ${runningStep.step_order}` : '');
 
   return (
     <div className="flex items-center gap-3 px-4 py-2 border-b bg-muted/20">
@@ -30,6 +33,12 @@ export const WorkflowProgress: React.FC<WorkflowProgressProps> = ({ workflow, st
       <span className="text-xs text-muted-foreground">
         {completedCount} / {steps.length} этапов
       </span>
+      {runningStep && (
+        <span className="ml-auto text-xs text-primary flex items-center gap-1.5">
+          <Loader2 className="h-3 w-3 animate-spin" />
+          Выполняется: {runningName}
+        </span>
+      )}
     </div>
   );
 };

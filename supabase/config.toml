@@ -47,3 +47,6 @@ verify_jwt = false
 
 [functions.generate-kp-docx]
 verify_jwt = false
+
+[functions.ingest-clean-markdown]
+verify_jwt = false

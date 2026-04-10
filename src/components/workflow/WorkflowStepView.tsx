@@ -8,6 +8,7 @@ import { Card } from '@/components/ui/card';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { KpRenderEditorDialog } from './KpRenderEditorDialog';
 import { supabase } from '@/integrations/supabase/client';
+import { useDocumentIngestCleaner } from '@/hooks/useDocumentIngestCleaner';
 import {
   Play,
   RotateCcw,
@@ -82,8 +83,10 @@ export const WorkflowStepView: React.FC<WorkflowStepViewProps> = ({
 }) => {
   const [editedContent, setEditedContent] = useState<string | null>(null);
   const [inputText, setInputText] = useState('');
+  const [sourceDocumentId, setSourceDocumentId] = useState('');
   const [compareRaw, setCompareRaw] = useState(false);
   const [expandedScreenshot, setExpandedScreenshot] = useState<string | null>(null);
+  const { runIngest, isRunning: isIngestRunning } = useDocumentIngestCleaner();
 
   // Filter screenshot artifacts for this step
   const screenshotArtifacts = useMemo(() => {
@@ -243,6 +246,21 @@ export const WorkflowStepView: React.FC<WorkflowStepViewProps> = ({
     }
   };
 
+  const handleIngestDocument = async () => {
+    if (!sourceDocumentId.trim()) return;
+    const data = await runIngest({
+      documentId: sourceDocumentId.trim(),
+      projectId,
+      forceReprocess: true,
+    });
+    if (!data?.markdown) return;
+    setInputText((prev) =>
+      [prev.trim(), `## Контекст из документа ${sourceDocumentId.trim()}\n\n${data.markdown}`]
+        .filter(Boolean)
+        .join('\n\n'),
+    );
+  };
+
   if (isFirstStep && step.status === 'pending') {
     return (
       <div className="flex-1 p-6 max-w-4xl mx-auto w-full">
@@ -251,6 +269,28 @@ export const WorkflowStepView: React.FC<WorkflowStepViewProps> = ({
           {description && <p className="text-sm text-muted-foreground mt-1">{description}</p>}
         </div>
         <Card className="p-4">
+          <div className="mb-3 rounded-md border p-3 bg-muted/20">
+            <label className="text-xs font-medium block mb-2">Загрузчик + очистка в Markdown</label>
+            <div className="flex items-center gap-2">
+              <input
+                value={sourceDocumentId}
+                onChange={(e) => setSourceDocumentId(e.target.value)}
+                placeholder="ID документа (documents.id)"
+                className="flex-1 h-9 px-2 border rounded-md bg-background text-xs"
+              />
+              <Button
+                size="sm"
+                variant="outline"
+                disabled={!sourceDocumentId.trim() || isIngestRunning}
+                onClick={() => void handleIngestDocument()}
+              >
+                {isIngestRunning ? <Loader2 className="h-4 w-4 animate-spin" /> : 'Импортировать'}
+              </Button>
+            </div>
+            <p className="text-[11px] text-muted-foreground mt-2">
+              Комбайн: обработка документа + очистка + вставка готового Markdown в поле ниже.
+            </p>
+          </div>
           <label className="text-sm font-medium mb-2 block">Входные данные</label>
           <textarea
             value={inputText}
