@@ -1,0 +1,1 @@
+UPDATE public.chat_roles SET external_apis = '{"reputation": {"enabled": true, "auto_search": true}}'::jsonb WHERE id = 'b1000001-0000-0000-0000-000000000010';
