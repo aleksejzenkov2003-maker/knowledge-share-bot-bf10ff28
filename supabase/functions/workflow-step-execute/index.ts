@@ -760,6 +760,86 @@ serve(async (req) => {
             content: fullContent, metadata: metadata as any,
           });
 
+          // ── Quality check agent (if configured) ──
+          if (templateStep?.quality_check_agent_id) {
+            try {
+              const { data: qcRole } = await supabase
+                .from('chat_roles')
+                .select('id, system_prompt_id, system_prompts:system_prompt_id(prompt_text)')
+                .eq('id', templateStep.quality_check_agent_id)
+                .single();
+
+              if (qcRole) {
+                const taskDesc = templateStep.prompt_override || templateStep.description || templateStep.name || 'Этап workflow';
+                const qcMessage = `## Задание этапа\n${taskDesc}\n\n## Результат агента\n${fullContent.slice(0, 8000)}`;
+                
+                const qcBody: Record<string, unknown> = {
+                  message: qcMessage,
+                  role_id: qcRole.id,
+                  project_id: projectId,
+                };
+                
+                const qcResp = await fetch(`${supabaseUrl}/functions/v1/chat-stream`, {
+                  method: 'POST',
+                  headers: { 'Content-Type': 'application/json', 'Authorization': authHeader },
+                  body: JSON.stringify(qcBody),
+                });
+
+                if (qcResp.ok) {
+                  const qcReader = qcResp.body?.getReader();
+                  let qcContent = '';
+                  if (qcReader) {
+                    const qcDecoder = new TextDecoder();
+                    let qcBuf = '';
+                    while (true) {
+                      const { done: qcDone, value: qcVal } = await qcReader.read();
+                      if (qcDone) break;
+                      qcBuf += qcDecoder.decode(qcVal, { stream: true });
+                      const qcLines = qcBuf.split('\n');
+                      qcBuf = qcLines.pop() || '';
+                      for (const ql of qcLines) {
+                        if (ql.startsWith('data: ')) {
+                          const qd = ql.slice(6).trim();
+                          if (qd === '[DONE]' || !qd) continue;
+                          try { const qp = JSON.parse(qd); if (qp.type === 'content' && qp.content) qcContent += qp.content; } catch {}
+                        }
+                      }
+                    }
+                  }
+
+                  // Parse QC verdict
+                  let qcVerdict = 'PASS';
+                  try {
+                    const qcJson = JSON.parse(qcContent.match(/\{[\s\S]*\}/)?.[0] || '{}');
+                    qcVerdict = qcJson.verdict || 'PASS';
+                  } catch {}
+
+                  // Save QC result as a step message
+                  await supabase.from('project_step_messages').insert({
+                    step_id, user_id: user.id, message_role: 'assistant',
+                    content: `🔍 **Проверка качества**: ${qcVerdict}\n\n${qcContent}`,
+                    metadata: { type: 'quality_check' },
+                  });
+
+                  // If FAIL, set step to waiting_for_user
+                  if (qcVerdict === 'FAIL') {
+                    await supabase.from('project_workflow_steps').update({
+                      status: 'waiting_for_user',
+                      human_readable_output: {
+                        ...humanReadable,
+                        quality_check: 'FAIL',
+                        quality_feedback: qcContent.slice(0, 2000),
+                      },
+                    }).eq('id', step_id);
+                  }
+                }
+              }
+            } catch (qcErr) {
+              console.error('Quality check error:', qcErr);
+              // Non-fatal: step stays completed even if QC fails
+            }
+          }
+
           await checkWorkflowCompletion(supabase, step.workflow_id);
 
           controller.enqueue(encoder.encode('data: [DONE]\n\n'));
