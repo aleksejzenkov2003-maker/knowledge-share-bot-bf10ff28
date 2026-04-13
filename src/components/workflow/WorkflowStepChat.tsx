@@ -38,8 +38,8 @@ export const WorkflowStepChat: React.FC<WorkflowStepChatProps> = ({
   };
 
   return (
-    <div className="flex flex-col h-full border rounded-md">
-      <ScrollArea className="flex-1 p-4">
+    <div className="flex min-h-0 h-full flex-col border rounded-md overflow-hidden">
+      <ScrollArea className="min-h-0 flex-1">
         <div className="space-y-3">
           {messages.map((msg) => (
             <div

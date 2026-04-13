@@ -79,7 +79,7 @@ const ProjectChatPage: React.FC = () => {
   };
 
   return (
-    <div data-no-padding className="flex flex-col h-full min-h-0 overflow-hidden">
+    <div data-no-padding className="flex h-[calc(100vh-3.5rem)] max-h-[calc(100vh-3.5rem)] flex-col overflow-hidden">
       {/* Header */}
       <div className="flex items-center justify-between p-3 border-b bg-background">
         <div className="flex items-center gap-3">
