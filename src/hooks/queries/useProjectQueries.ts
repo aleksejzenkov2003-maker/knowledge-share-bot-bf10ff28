@@ -8,6 +8,7 @@
    ContextPack,
    ProjectContextPack,
    ProjectMemory,
+   ProjectFolder,
    CreateProjectInput,
    AddMemberInput,
   ProjectMemoryType,
