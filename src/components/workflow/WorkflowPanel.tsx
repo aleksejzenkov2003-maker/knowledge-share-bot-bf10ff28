@@ -1,6 +1,6 @@
-import React from 'react';
+import React, { useMemo } from 'react';
 import { useProjectWorkflow } from '@/hooks/useProjectWorkflow';
-import { WorkflowStepper } from './WorkflowStepper';
+import { WorkflowStepper, groupStepsByStage } from './WorkflowStepper';
 import { WorkflowStepView } from './WorkflowStepView';
 import { WorkflowProgress } from './WorkflowProgress';
 
