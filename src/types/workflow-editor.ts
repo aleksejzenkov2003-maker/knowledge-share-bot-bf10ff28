@@ -78,3 +78,9 @@ export interface EditorValidationIssue {
   nodeId?: string;
   edgeId?: string;
 }
+
+export interface WorkflowEditorNodeMeta {
+  stageGroup?: string | null;
+  stageOrder?: number;
+  qualityCheckAgentId?: string | null;
+}

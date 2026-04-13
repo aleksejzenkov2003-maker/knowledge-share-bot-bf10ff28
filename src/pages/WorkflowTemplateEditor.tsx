@@ -47,6 +47,17 @@ const WorkflowTemplateEditor: React.FC<WorkflowTemplateEditorProps> = ({ templat
   const templateTestRun = useWorkflowTemplateTestRun(steps, graphEdges);
 
   const [templateName, setTemplateName] = React.useState('');
+  const availableStageGroups = React.useMemo(
+    () =>
+      Array.from(
+        new Set(
+          steps
+            .map((s) => s.stage_group?.trim())
+            .filter((v): v is string => Boolean(v))
+        )
+      ),
+    [steps]
+  );
 
   React.useEffect(() => {
     if (template) setTemplateName(template.name);
@@ -168,6 +179,7 @@ const WorkflowTemplateEditor: React.FC<WorkflowTemplateEditorProps> = ({ templat
           <WorkflowNodeConfigPanel
             step={selectedStep}
             agents={agents}
+            availableStageGroups={availableStageGroups}
             onUpdate={updateStep}
             onDelete={deleteStep}
             onClose={() => setSelectedNodeId(null)}

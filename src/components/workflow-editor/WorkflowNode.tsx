@@ -67,6 +67,14 @@ export const WorkflowNode = memo(({ data, selected }: NodeProps<WorkflowNodeType
         </div>
       </div>
 
+      {data.stageGroup && (
+        <div className="mt-1">
+          <span className="text-[9px] px-1.5 py-0.5 rounded-full bg-muted text-muted-foreground font-medium">
+            этап: {data.stageGroup}
+          </span>
+        </div>
+      )}
+
       {data.nodeKey && (
         <div className="text-[9px] font-mono text-muted-foreground mt-1 truncate" title={String(data.nodeKey)}>
           #{String(data.nodeKey)}
@@ -87,6 +95,11 @@ export const WorkflowNode = memo(({ data, selected }: NodeProps<WorkflowNodeType
         {(data.nodeType === 'condition' || data.nodeType === 'quality_check') && (
           <span className="text-[9px] px-1.5 py-0.5 rounded-full bg-slate-200/80 text-slate-800 font-medium dark:bg-slate-800 dark:text-slate-200">
             оркестрация
+          </span>
+        )}
+        {data.qualityCheckAgentId && (data.nodeType === 'agent' || data.nodeType === 'output') && (
+          <span className="text-[9px] px-1.5 py-0.5 rounded-full bg-rose-100 text-rose-700 font-medium dark:bg-rose-900/30 dark:text-rose-300">
+            QC
           </span>
         )}
       </div>

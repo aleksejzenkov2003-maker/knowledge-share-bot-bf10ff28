@@ -30,6 +30,7 @@ interface Agent {
 interface WorkflowNodeConfigPanelProps {
   step: WorkflowTemplateStep;
   agents: Agent[];
+  availableStageGroups: string[];
   onUpdate: (stepId: string, updates: Record<string, unknown>) => void;
   onDelete: (stepId: string) => void;
   onClose: () => void;
@@ -40,6 +41,7 @@ interface WorkflowNodeConfigPanelProps {
 export const WorkflowNodeConfigPanel: React.FC<WorkflowNodeConfigPanelProps> = ({
   step,
   agents,
+  availableStageGroups,
   onUpdate,
   onDelete,
   onClose,
@@ -66,6 +68,7 @@ export const WorkflowNodeConfigPanel: React.FC<WorkflowNodeConfigPanelProps> = (
   const [outputMode, setOutputMode] = useState(step.output_mode || 'structured_json');
   const [resultAssemblyMode, setResultAssemblyMode] = useState(step.result_assembly_mode || 'ai_summary');
   const [resultTemplateId, setResultTemplateId] = useState(step.result_template_id || '');
+  const [qualityCheckAgentId, setQualityCheckAgentId] = useState(step.quality_check_agent_id || '');
   const [stageGroup, setStageGroup] = useState(step.stage_group || '');
   const [stageOrder, setStageOrder] = useState(step.stage_order ?? 0);
   const [dirty, setDirty] = useState(false);
@@ -90,6 +93,7 @@ export const WorkflowNodeConfigPanel: React.FC<WorkflowNodeConfigPanelProps> = (
     setOutputMode(step.output_mode || 'structured_json');
     setResultAssemblyMode(step.result_assembly_mode || 'ai_summary');
     setResultTemplateId(step.result_template_id || '');
+    setQualityCheckAgentId(step.quality_check_agent_id || '');
     setStageGroup(step.stage_group || '');
     setStageOrder(step.stage_order ?? 0);
     setDirty(false);
@@ -118,6 +122,7 @@ export const WorkflowNodeConfigPanel: React.FC<WorkflowNodeConfigPanelProps> = (
       output_mode: outputMode,
       result_assembly_mode: resultAssemblyMode || null,
       result_template_id: resultTemplateId.trim() || null,
+      quality_check_agent_id: qualityCheckAgentId || null,
       stage_group: stageGroup.trim() || null,
       stage_order: stageOrder,
     };
@@ -213,6 +218,7 @@ export const WorkflowNodeConfigPanel: React.FC<WorkflowNodeConfigPanelProps> = (
             <div className="space-y-1.5">
               <Label className="text-xs">Этап (группа)</Label>
               <Input
+                list="workflow-stage-groups"
                 value={stageGroup}
                 onChange={(e) => {
                   setStageGroup(e.target.value);
@@ -221,6 +227,11 @@ export const WorkflowNodeConfigPanel: React.FC<WorkflowNodeConfigPanelProps> = (
                 className="h-8 text-xs"
                 placeholder="Напр. Анализ"
               />
+              <datalist id="workflow-stage-groups">
+                {availableStageGroups.map((group) => (
+                  <option key={group} value={group} />
+                ))}
+              </datalist>
             </div>
             <div className="space-y-1.5">
               <Label className="text-xs">Порядок этапа</Label>
@@ -237,6 +248,31 @@ export const WorkflowNodeConfigPanel: React.FC<WorkflowNodeConfigPanelProps> = (
           </div>
 
           <Separator />
+
+          {(nodeType === 'agent' || nodeType === 'output') && (
+            <div className="space-y-1.5">
+              <Label className="text-xs">QC-агент (проверка качества)</Label>
+              <Select
+                value={qualityCheckAgentId || '__none__'}
+                onValueChange={(v) => {
+                  setQualityCheckAgentId(v === '__none__' ? '' : v);
+                  markDirty();
+                }}
+              >
+                <SelectTrigger className="h-8 text-xs">
+                  <SelectValue placeholder="Без QC-агента" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="__none__">Без QC-агента</SelectItem>
+                  {agents.map((a) => (
+                    <SelectItem key={`qc-${a.id}`} value={a.id}>
+                      {a.name}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+          )}
 
           {nodeType === 'input' && (
             <InputNodeConfig
