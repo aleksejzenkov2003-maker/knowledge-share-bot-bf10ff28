@@ -838,13 +838,23 @@ serve(async (req) => {
                   const qcHasRewrite = qcVerdict === 'REWRITE' && !!correctedOutput;
 
                   // Save QC result as a step message
+                  // Build structured markdown instead of dumping raw JSON
+                  let structureNotesMd = '';
+                  try {
+                    const qcJson = JSON.parse(qcContent.match(/\{[\s\S]*\}/)?.[0] || '{}');
+                    const notes = Array.isArray(qcJson.structure_notes) ? qcJson.structure_notes : [];
+                    if (notes.length > 0) {
+                      structureNotesMd = '\n\n**Замечания по структуре:**\n' + notes.map((n: string) => `- ${n}`).join('\n');
+                    }
+                  } catch {}
+
                   await supabase.from('project_step_messages').insert({
                     step_id, user_id: user.id, message_role: 'assistant',
                     content: [
                       `🔍 **Проверка качества**: ${qcVerdict}`,
-                      qcFeedback ? `\n${qcFeedback}` : '',
+                      qcFeedback ? `\n\n${qcFeedback}` : '',
                       qcHasRewrite ? '\n\n✅ Материал автоматически переписан под структуру КП.' : '',
-                      `\n\n${qcContent}`,
+                      structureNotesMd,
                     ].join(''),
                     metadata: { type: 'quality_check' },
                   });
