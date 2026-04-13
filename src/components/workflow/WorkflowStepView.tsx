@@ -584,16 +584,14 @@ export const WorkflowStepView: React.FC<WorkflowStepViewProps> = ({
                     </Button>
                   </div>
                 )}
-                <div className="flex-1 min-h-0 min-w-0 overflow-auto pr-1">
-                  <WorkflowResultEditor
-                    content={displayContent}
-                    isEditable={isEditable && step.status === 'completed'}
-                    isStreaming={isExecuting}
-                    onChange={setEditedContent}
-                    onSave={handleSaveEdits}
-                    hasUnsavedChanges={editedContent !== null}
-                  />
-                </div>
+                <WorkflowResultEditor
+                  content={displayContent}
+                  isEditable={isEditable && step.status === 'completed'}
+                  isStreaming={isExecuting}
+                  onChange={setEditedContent}
+                  onSave={handleSaveEdits}
+                  hasUnsavedChanges={editedContent !== null}
+                />
               </div>
             </TabsContent>
           )}
