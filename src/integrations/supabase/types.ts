@@ -2310,6 +2310,8 @@ export type Database = {
           result_assembly_mode: string | null
           result_template_id: string | null
           script_config: Json | null
+          stage_group: string | null
+          stage_order: number | null
           step_order: number
           temperature: number | null
           template_id: string
@@ -2338,6 +2340,8 @@ export type Database = {
           result_assembly_mode?: string | null
           result_template_id?: string | null
           script_config?: Json | null
+          stage_group?: string | null
+          stage_order?: number | null
           step_order: number
           temperature?: number | null
           template_id: string
@@ -2366,6 +2370,8 @@ export type Database = {
           result_assembly_mode?: string | null
           result_template_id?: string | null
           script_config?: Json | null
+          stage_group?: string | null
+          stage_order?: number | null
           step_order?: number
           temperature?: number | null
           template_id?: string
