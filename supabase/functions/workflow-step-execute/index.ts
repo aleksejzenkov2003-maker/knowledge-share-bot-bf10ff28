@@ -636,30 +636,7 @@ serve(async (req) => {
       }
     }
 
-    // ============ DOSSIER AGENT: force Perplexity for web research ============
-    // If agent has reputation enabled, use Perplexity (sonar-pro) for web research
-    // instead of the default provider. Reputation API will be called on a separate step.
     const chatStreamUrl = `${supabaseUrl}/functions/v1/chat-stream`;
-    let forceProvider: string | null = null;
-    let forceModel: string | null = null;
-
-    if (agentRoleId) {
-      const { data: agentRole } = await supabase
-        .from('chat_roles')
-        .select('external_apis')
-        .eq('id', agentRoleId)
-        .single();
-
-      const extApis = agentRole?.external_apis as { reputation?: { enabled?: boolean } } | null;
-      if (extApis?.reputation?.enabled) {
-        // Force Perplexity for web research — reputation will run on next step
-        forceProvider = 'perplexity';
-        forceModel = 'sonar-pro';
-        console.log('Dossier agent detected: forcing Perplexity sonar-pro for web research');
-      }
-    }
-
-    // Build chat body
     const chatBody: Record<string, unknown> = {
       message: userMessage,
       message_history: messageHistory,
@@ -669,8 +646,6 @@ serve(async (req) => {
     if (agentRoleId) chatBody.role_id = agentRoleId;
     if (contextFolderIds.length > 0) chatBody.context_folder_ids = contextFolderIds;
     if (systemPromptAppend.trim()) chatBody.system_prompt_append = systemPromptAppend.trim();
-    if (forceProvider) chatBody.force_provider = forceProvider;
-    if (forceModel) chatBody.force_model = forceModel;
 
     const chatResponse = await fetch(chatStreamUrl, {
       method: 'POST',
