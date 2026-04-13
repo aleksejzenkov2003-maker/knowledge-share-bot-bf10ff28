@@ -43,7 +43,7 @@ export const WorkflowResultEditor: React.FC<WorkflowResultEditorProps> = ({
 
   if (isStreaming) {
     return (
-      <Card className="p-4 mt-3 min-w-0 overflow-hidden">
+      <Card className="p-4 mt-3 min-w-0">
         <div className="flex items-center gap-2 mb-3 text-sm text-muted-foreground">
           <Loader2 className="h-4 w-4 animate-spin" />
           Генерация ответа...
@@ -61,7 +61,7 @@ export const WorkflowResultEditor: React.FC<WorkflowResultEditorProps> = ({
 
   if (isEditing && isEditable) {
     return (
-      <Card className="p-4 mt-3 min-w-0 overflow-hidden">
+      <Card className="p-4 mt-3 min-w-0">
         <div className="flex items-center justify-between mb-3">
           <span className="text-sm font-medium">Редактирование результата</span>
           <div className="flex gap-2">
@@ -84,7 +84,7 @@ export const WorkflowResultEditor: React.FC<WorkflowResultEditorProps> = ({
   }
 
   return (
-    <Card className="p-4 mt-3 min-w-0 overflow-hidden">
+    <Card className="p-4 mt-3 min-w-0">
       {isEditable && (
         <div className="flex justify-end mb-2">
           <Button size="sm" variant="outline" onClick={() => setIsEditing(true)}>

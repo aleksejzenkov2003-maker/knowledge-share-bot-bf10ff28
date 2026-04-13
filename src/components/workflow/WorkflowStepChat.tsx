@@ -16,6 +16,30 @@ interface WorkflowStepChatProps {
   streamingContent: string;
 }
 
+const chatMarkdownComponents = {
+  table: ({ children }: { children?: React.ReactNode }) => (
+    <div className="my-3 overflow-x-auto">
+      <table className="min-w-full border-collapse text-xs">{children}</table>
+    </div>
+  ),
+  th: ({ children }: { children?: React.ReactNode }) => (
+    <th className="border px-2 py-1 text-left font-semibold">{children}</th>
+  ),
+  td: ({ children }: { children?: React.ReactNode }) => (
+    <td className="border px-2 py-1 align-top">{children}</td>
+  ),
+  pre: ({ children }: { children?: React.ReactNode }) => (
+    <pre className="overflow-x-auto max-w-full whitespace-pre-wrap break-words text-xs my-2 p-2 rounded bg-background/50">{children}</pre>
+  ),
+  code: ({ className, children }: { className?: string; children?: React.ReactNode }) => {
+    const isBlock = className?.startsWith('language-');
+    if (isBlock) {
+      return <code className="text-xs font-mono">{children}</code>;
+    }
+    return <code className="bg-background/50 px-1 py-0.5 rounded text-xs font-mono">{children}</code>;
+  },
+};
+
 export const WorkflowStepChat: React.FC<WorkflowStepChatProps> = ({
   stepId,
   messages,
@@ -24,21 +48,40 @@ export const WorkflowStepChat: React.FC<WorkflowStepChatProps> = ({
   streamingContent,
 }) => {
   const [inputValue, setInputValue] = React.useState('');
-  const messagesEndRef = React.useRef<HTMLDivElement>(null);
+  const scrollContainerRef = React.useRef<HTMLDivElement>(null);
+  const isUserNearBottomRef = React.useRef(true);
 
+  // Track whether user is near bottom
+  const handleScroll = React.useCallback(() => {
+    const el = scrollContainerRef.current;
+    if (!el) return;
+    const threshold = 80;
+    isUserNearBottomRef.current = el.scrollHeight - el.scrollTop - el.clientHeight < threshold;
+  }, []);
+
+  // Auto-scroll only when user is near bottom or during streaming
   React.useEffect(() => {
-    messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
-  }, [messages, streamingContent]);
+    const el = scrollContainerRef.current;
+    if (!el) return;
+    if (isUserNearBottomRef.current || isExecuting) {
+      el.scrollTop = el.scrollHeight;
+    }
+  }, [messages, streamingContent, isExecuting]);
 
   const handleSend = () => {
     if (!inputValue.trim() || isExecuting) return;
     onSendMessage(inputValue.trim());
     setInputValue('');
+    isUserNearBottomRef.current = true;
   };
 
   return (
     <div className="flex min-h-0 h-full min-w-0 flex-col overflow-hidden rounded-md border">
-      <div className="min-h-0 flex-1 overflow-auto p-4 min-w-0">
+      <div
+        ref={scrollContainerRef}
+        onScroll={handleScroll}
+        className="min-h-0 flex-1 overflow-auto p-4 min-w-0"
+      >
         <div className="space-y-3 min-w-0 max-w-full">
           {messages.map((msg) => (
             <div
@@ -54,21 +97,13 @@ export const WorkflowStepChat: React.FC<WorkflowStepChatProps> = ({
                 </div>
               )}
               <Card className={cn(
-                'p-3 max-w-[80%] text-sm min-w-0 overflow-hidden',
+                'p-3 max-w-[80%] text-sm min-w-0',
                 msg.message_role === 'user' ? 'bg-primary text-primary-foreground' : 'bg-muted'
               )}>
                 <div className="prose prose-sm dark:prose-invert max-w-none break-words min-w-0 [overflow-wrap:anywhere]">
                   <ReactMarkdown
                     remarkPlugins={[remarkGfm]}
-                    components={{
-                      table: ({ children }) => (
-                        <div className="my-3 overflow-x-auto">
-                          <table className="min-w-full border-collapse text-xs">{children}</table>
-                        </div>
-                      ),
-                      th: ({ children }) => <th className="border px-2 py-1 text-left font-semibold">{children}</th>,
-                      td: ({ children }) => <td className="border px-2 py-1 align-top">{children}</td>,
-                    }}
+                    components={chatMarkdownComponents}
                   >
                     {msg.content}
                   </ReactMarkdown>
@@ -87,19 +122,11 @@ export const WorkflowStepChat: React.FC<WorkflowStepChatProps> = ({
               <div className="w-6 h-6 rounded-full bg-primary/10 flex items-center justify-center flex-shrink-0 mt-1">
                 <Bot className="h-3 w-3 text-primary" />
               </div>
-              <Card className="p-3 max-w-[80%] text-sm bg-muted min-w-0 overflow-hidden">
+              <Card className="p-3 max-w-[80%] text-sm bg-muted min-w-0">
                 <div className="prose prose-sm dark:prose-invert max-w-none break-words min-w-0 [overflow-wrap:anywhere]">
                   <ReactMarkdown
                     remarkPlugins={[remarkGfm]}
-                    components={{
-                      table: ({ children }) => (
-                        <div className="my-3 overflow-x-auto">
-                          <table className="min-w-full border-collapse text-xs">{children}</table>
-                        </div>
-                      ),
-                      th: ({ children }) => <th className="border px-2 py-1 text-left font-semibold">{children}</th>,
-                      td: ({ children }) => <td className="border px-2 py-1 align-top">{children}</td>,
-                    }}
+                    components={chatMarkdownComponents}
                   >
                     {streamingContent}
                   </ReactMarkdown>
@@ -121,8 +148,6 @@ export const WorkflowStepChat: React.FC<WorkflowStepChatProps> = ({
               </Card>
             </div>
           )}
-
-          <div ref={messagesEndRef} />
         </div>
       </div>
 
