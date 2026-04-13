@@ -29,7 +29,7 @@ export const WorkflowStepper: React.FC<WorkflowStepperProps> = ({
   onSelectStep,
 }) => {
   return (
-    <div className="flex items-center gap-1 overflow-x-auto px-4 py-3 border-b bg-muted/30">
+    <div className="flex items-center gap-1 overflow-x-auto px-4 py-2 border-b bg-muted/30 shrink-0">
       {steps.map((step, index) => {
         const config = stepStatusConfig[step.status as WorkflowStepStatus] || stepStatusConfig.pending;
         const Icon = config.icon;

@@ -23,7 +23,7 @@ export const WorkflowProgress: React.FC<WorkflowProgressProps> = ({ workflow, st
   const runningName = runningStep?.template_step?.name || (runningStep ? `Этап ${runningStep.step_order}` : '');
 
   return (
-    <div className="flex items-center gap-3 px-4 py-2 border-b bg-muted/20">
+    <div className="flex items-center gap-3 px-4 py-1.5 border-b bg-muted/20 shrink-0">
       <Badge variant="outline" className="text-xs">
         {statusLabels[workflow.status] || workflow.status}
       </Badge>
