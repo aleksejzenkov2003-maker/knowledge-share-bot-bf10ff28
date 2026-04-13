@@ -66,6 +66,8 @@ export const WorkflowNodeConfigPanel: React.FC<WorkflowNodeConfigPanelProps> = (
   const [outputMode, setOutputMode] = useState(step.output_mode || 'structured_json');
   const [resultAssemblyMode, setResultAssemblyMode] = useState(step.result_assembly_mode || 'ai_summary');
   const [resultTemplateId, setResultTemplateId] = useState(step.result_template_id || '');
+  const [stageGroup, setStageGroup] = useState(step.stage_group || '');
+  const [stageOrder, setStageOrder] = useState(step.stage_order ?? 0);
   const [dirty, setDirty] = useState(false);
 
   useEffect(() => {
@@ -88,6 +90,8 @@ export const WorkflowNodeConfigPanel: React.FC<WorkflowNodeConfigPanelProps> = (
     setOutputMode(step.output_mode || 'structured_json');
     setResultAssemblyMode(step.result_assembly_mode || 'ai_summary');
     setResultTemplateId(step.result_template_id || '');
+    setStageGroup(step.stage_group || '');
+    setStageOrder(step.stage_order ?? 0);
     setDirty(false);
   }, [step]);
 
@@ -114,6 +118,8 @@ export const WorkflowNodeConfigPanel: React.FC<WorkflowNodeConfigPanelProps> = (
       output_mode: outputMode,
       result_assembly_mode: resultAssemblyMode || null,
       result_template_id: resultTemplateId.trim() || null,
+      stage_group: stageGroup.trim() || null,
+      stage_order: stageOrder,
     };
     onUpdate(step.id, payload);
     setDirty(false);
