@@ -3,7 +3,7 @@ import { useProjectWorkflow } from '@/hooks/useProjectWorkflow';
 import { WorkflowStepper, groupStepsByStage } from './WorkflowStepper';
 import { WorkflowStepView } from './WorkflowStepView';
 import { WorkflowProgress } from './WorkflowProgress';
-
+import { cn } from '@/lib/utils';
 import { WorkflowTemplate } from '@/types/workflow';
 import { Button } from '@/components/ui/button';
 import { Card } from '@/components/ui/card';
@@ -51,6 +51,13 @@ export const WorkflowPanel: React.FC<WorkflowPanelProps> = ({ projectId, userId 
     skipStep,
     artifacts,
   } = useProjectWorkflow(projectId, userId);
+
+  const stages = useMemo(() => groupStepsByStage(steps), [steps]);
+
+  const currentStage = useMemo(() => {
+    if (activeStageKey) return stages.find(s => s.key === activeStageKey);
+    return stages.find(s => s.steps.some(st => st.id === activeStepId));
+  }, [stages, activeStepId, activeStageKey]);
 
   const handleCreateWorkflow = async () => {
     if (!selectedTemplateId) return;
@@ -105,14 +112,6 @@ export const WorkflowPanel: React.FC<WorkflowPanelProps> = ({ projectId, userId 
       </div>
     );
   }
-
-  const stages = useMemo(() => groupStepsByStage(steps), [steps]);
-
-  // Find the active stage based on activeStepId
-  const currentStage = useMemo(() => {
-    if (activeStageKey) return stages.find(s => s.key === activeStageKey);
-    return stages.find(s => s.steps.some(st => st.id === activeStepId));
-  }, [stages, activeStepId, activeStageKey]);
 
   const handleSelectStage = (key: string) => {
     setActiveStageKey(key);
