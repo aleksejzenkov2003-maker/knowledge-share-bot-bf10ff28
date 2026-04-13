@@ -201,12 +201,11 @@ export function validateWorkflowGraph(
       }
       const out = edges.filter((e) => e.source_node_id === s.id);
       const hasPass = out.some((e) => e.source_handle === 'branch_pass');
-      const hasFail = out.some((e) => e.source_handle === 'branch_fail');
-      if (!hasPass || !hasFail) {
+      if (!hasPass) {
         issues.push({
           severity: 'warning',
           code: 'quality_branches',
-          message: `Проверка «${s.name}»: добавьте связи «Ок» и «Не ок»`,
+          message: `Проверка «${s.name}»: добавьте связь «Ок» (branch_pass)`,
           nodeId: s.id,
         });
       }
