@@ -501,5 +501,133 @@ export const projectQueryKeys = {
      onSuccess: () => {
        queryClient.invalidateQueries({ queryKey: projectQueryKeys.memory(projectId) });
      },
-   });
- }
+  });
+}
+
+// ============================================
+// Project Folders
+// ============================================
+
+export function useProjectFoldersQuery() {
+  return useQuery({
+    queryKey: projectQueryKeys.folders(),
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from('project_folders')
+        .select('*')
+        .order('name');
+      if (error) throw error;
+      return data as ProjectFolder[];
+    },
+  });
+}
+
+export function useCreateProjectFolder() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: async (name: string) => {
+      const { data: { user } } = await supabase.auth.getUser();
+      const { data, error } = await supabase
+        .from('project_folders')
+        .insert({ name, created_by: user?.id })
+        .select()
+        .single();
+      if (error) throw error;
+      return data as ProjectFolder;
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: projectQueryKeys.folders() });
+      toast.success('Папка создана');
+    },
+    onError: () => toast.error('Ошибка создания папки'),
+  });
+}
+
+export function useRenameProjectFolder() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: async ({ id, name }: { id: string; name: string }) => {
+      const { error } = await supabase
+        .from('project_folders')
+        .update({ name })
+        .eq('id', id);
+      if (error) throw error;
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: projectQueryKeys.folders() });
+    },
+  });
+}
+
+export function useDeleteProjectFolder() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: async (id: string) => {
+      const { error } = await supabase
+        .from('project_folders')
+        .delete()
+        .eq('id', id);
+      if (error) throw error;
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: projectQueryKeys.folders() });
+      queryClient.invalidateQueries({ queryKey: projectQueryKeys.list() });
+      toast.success('Папка удалена');
+    },
+  });
+}
+
+// Rename project
+export function useRenameProject() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: async ({ id, name }: { id: string; name: string }) => {
+      const { error } = await supabase
+        .from('projects')
+        .update({ name })
+        .eq('id', id);
+      if (error) throw error;
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: projectQueryKeys.list() });
+      toast.success('Проект переименован');
+    },
+  });
+}
+
+// Move project to folder
+export function useMoveProject() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: async ({ id, folderId }: { id: string; folderId: string | null }) => {
+      const { error } = await supabase
+        .from('projects')
+        .update({ folder_id: folderId })
+        .eq('id', id);
+      if (error) throw error;
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: projectQueryKeys.list() });
+      toast.success('Проект перемещён');
+    },
+  });
+}
+
+// Delete project
+export function useDeleteProject() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: async (id: string) => {
+      const { error } = await supabase
+        .from('projects')
+        .delete()
+        .eq('id', id);
+      if (error) throw error;
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: projectQueryKeys.list() });
+      toast.success('Проект удалён');
+    },
+    onError: () => toast.error('Ошибка удаления проекта'),
+  });
+}
