@@ -33,6 +33,8 @@ export interface WorkflowNodeData {
   nodeKey: string | null;
   resultAssemblyMode: string | null;
   resultTemplateId: string | null;
+  stageGroup: string | null;
+  stageOrder: number;
   stepOrder: number;
   stepId: string;
   [key: string]: unknown;
@@ -81,6 +83,8 @@ function normalizeStep(row: Record<string, unknown>): WorkflowTemplateStep {
     node_key: (row.node_key as string) ?? null,
     result_assembly_mode: (row.result_assembly_mode as string) ?? null,
     result_template_id: (row.result_template_id as string) ?? null,
+    stage_group: (row.stage_group as string) ?? null,
+    stage_order: typeof row.stage_order === 'number' ? row.stage_order : 0,
     agent: chatRoles
       ? {
           id: chatRoles.id as string,
@@ -247,6 +251,8 @@ export function useWorkflowEditor(templateId: string | null) {
         nodeKey: step.node_key,
         resultAssemblyMode: step.result_assembly_mode,
         resultTemplateId: step.result_template_id,
+        stageGroup: step.stage_group,
+        stageOrder: step.stage_order,
       },
     }));
   }, []);

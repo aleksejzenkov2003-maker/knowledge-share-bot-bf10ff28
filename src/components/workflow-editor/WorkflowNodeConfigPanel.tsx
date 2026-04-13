@@ -66,6 +66,8 @@ export const WorkflowNodeConfigPanel: React.FC<WorkflowNodeConfigPanelProps> = (
   const [outputMode, setOutputMode] = useState(step.output_mode || 'structured_json');
   const [resultAssemblyMode, setResultAssemblyMode] = useState(step.result_assembly_mode || 'ai_summary');
   const [resultTemplateId, setResultTemplateId] = useState(step.result_template_id || '');
+  const [stageGroup, setStageGroup] = useState(step.stage_group || '');
+  const [stageOrder, setStageOrder] = useState(step.stage_order ?? 0);
   const [dirty, setDirty] = useState(false);
 
   useEffect(() => {
@@ -88,6 +90,8 @@ export const WorkflowNodeConfigPanel: React.FC<WorkflowNodeConfigPanelProps> = (
     setOutputMode(step.output_mode || 'structured_json');
     setResultAssemblyMode(step.result_assembly_mode || 'ai_summary');
     setResultTemplateId(step.result_template_id || '');
+    setStageGroup(step.stage_group || '');
+    setStageOrder(step.stage_order ?? 0);
     setDirty(false);
   }, [step]);
 
@@ -114,6 +118,8 @@ export const WorkflowNodeConfigPanel: React.FC<WorkflowNodeConfigPanelProps> = (
       output_mode: outputMode,
       result_assembly_mode: resultAssemblyMode || null,
       result_template_id: resultTemplateId.trim() || null,
+      stage_group: stageGroup.trim() || null,
+      stage_order: stageOrder,
     };
     onUpdate(step.id, payload);
     setDirty(false);
@@ -201,6 +207,33 @@ export const WorkflowNodeConfigPanel: React.FC<WorkflowNodeConfigPanelProps> = (
               className="text-xs min-h-[60px]"
               rows={2}
             />
+          </div>
+
+          <div className="grid grid-cols-2 gap-2">
+            <div className="space-y-1.5">
+              <Label className="text-xs">Этап (группа)</Label>
+              <Input
+                value={stageGroup}
+                onChange={(e) => {
+                  setStageGroup(e.target.value);
+                  markDirty();
+                }}
+                className="h-8 text-xs"
+                placeholder="Напр. Анализ"
+              />
+            </div>
+            <div className="space-y-1.5">
+              <Label className="text-xs">Порядок этапа</Label>
+              <Input
+                type="number"
+                value={stageOrder}
+                onChange={(e) => {
+                  setStageOrder(parseInt(e.target.value) || 0);
+                  markDirty();
+                }}
+                className="h-8 text-xs"
+              />
+            </div>
           </div>
 
           <Separator />

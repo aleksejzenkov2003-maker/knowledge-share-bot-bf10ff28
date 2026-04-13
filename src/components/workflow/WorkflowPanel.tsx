@@ -1,9 +1,9 @@
-import React from 'react';
+import React, { useMemo } from 'react';
 import { useProjectWorkflow } from '@/hooks/useProjectWorkflow';
-import { WorkflowStepper } from './WorkflowStepper';
+import { WorkflowStepper, groupStepsByStage } from './WorkflowStepper';
 import { WorkflowStepView } from './WorkflowStepView';
 import { WorkflowProgress } from './WorkflowProgress';
-
+import { cn } from '@/lib/utils';
 import { WorkflowTemplate } from '@/types/workflow';
 import { Button } from '@/components/ui/button';
 import { Card } from '@/components/ui/card';
@@ -23,6 +23,7 @@ interface WorkflowPanelProps {
 
 export const WorkflowPanel: React.FC<WorkflowPanelProps> = ({ projectId, userId }) => {
   const [selectedTemplateId, setSelectedTemplateId] = React.useState<string>('');
+  const [activeStageKey, setActiveStageKey] = React.useState<string | null>(null);
 
   const {
     templates,
@@ -50,6 +51,13 @@ export const WorkflowPanel: React.FC<WorkflowPanelProps> = ({ projectId, userId 
     skipStep,
     artifacts,
   } = useProjectWorkflow(projectId, userId);
+
+  const stages = useMemo(() => groupStepsByStage(steps), [steps]);
+
+  const currentStage = useMemo(() => {
+    if (activeStageKey) return stages.find(s => s.key === activeStageKey);
+    return stages.find(s => s.steps.some(st => st.id === activeStepId));
+  }, [stages, activeStepId, activeStageKey]);
 
   const handleCreateWorkflow = async () => {
     if (!selectedTemplateId) return;
@@ -105,8 +113,9 @@ export const WorkflowPanel: React.FC<WorkflowPanelProps> = ({ projectId, userId 
     );
   }
 
-  // Show active workflow
-  if (!activeWorkflow) return null;
+  const handleSelectStage = (key: string) => {
+    setActiveStageKey(key);
+  };
 
   return (
     <div className="flex flex-col flex-1 min-h-0 overflow-hidden">
@@ -118,8 +127,33 @@ export const WorkflowPanel: React.FC<WorkflowPanelProps> = ({ projectId, userId 
         steps={steps}
         activeStepId={activeStepId}
         onSelectStep={setActiveStepId}
+        activeStageKey={activeStageKey}
+        onSelectStage={handleSelectStage}
       />
-      
+
+      {/* Sub-tabs for multi-step stages */}
+      {currentStage && currentStage.steps.length > 1 && (
+        <div className="flex items-center gap-1 px-4 py-1 border-b bg-background shrink-0 overflow-x-auto">
+          {currentStage.steps.map((s) => {
+            const stepName = s.template_step?.name || `Шаг ${s.step_order}`;
+            const isActive = s.id === activeStepId;
+            return (
+              <button
+                key={s.id}
+                onClick={() => setActiveStepId(s.id)}
+                className={cn(
+                  "px-2.5 py-1 text-xs rounded-md whitespace-nowrap transition-colors",
+                  isActive
+                    ? "bg-primary/10 text-primary font-medium border border-primary/30"
+                    : "text-muted-foreground hover:bg-muted"
+                )}
+              >
+                {stepName}
+              </button>
+            );
+          })}
+        </div>
+      )}
 
       {/* Active step content */}
       {isLoadingSteps ? (
