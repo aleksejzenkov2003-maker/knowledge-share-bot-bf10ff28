@@ -484,7 +484,7 @@ export const WorkflowStepView: React.FC<WorkflowStepViewProps> = ({
           </TabsList>
 
           {/* Chat tab — primary */}
-          <TabsContent value="chat" className="flex-1 flex flex-col px-4 pb-2 mt-0 min-h-0 min-w-0">
+          <TabsContent value="chat" className="flex-1 flex flex-col px-4 pb-2 mt-0 min-h-0 min-w-0 overflow-hidden">
             <div className="flex-1 min-h-0 min-w-0">
               <WorkflowStepChat
                 stepId={step.id}
