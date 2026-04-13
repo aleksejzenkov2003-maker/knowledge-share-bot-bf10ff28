@@ -78,6 +78,8 @@ export interface WorkflowTemplateStep {
   node_key: string | null;
   result_assembly_mode: string | null;
   result_template_id: string | null;
+  stage_group: string | null;
+  stage_order: number;
   // Связанные данные
   agent?: {
     id: string;
