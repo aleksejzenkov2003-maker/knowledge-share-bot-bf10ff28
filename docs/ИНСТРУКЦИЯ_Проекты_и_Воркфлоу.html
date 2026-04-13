@@ -1,0 +1,1088 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Руководство пользователя — Проекты и Воркфлоу</title>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  
+  body {
+    font-family: 'Segoe UI', Arial, sans-serif;
+    font-size: 13px;
+    line-height: 1.6;
+    color: #1a1a2e;
+    background: #fff;
+    max-width: 900px;
+    margin: 0 auto;
+    padding: 40px 50px;
+  }
+
+  /* Cover page */
+  .cover {
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
+    min-height: 600px;
+    border-bottom: 3px solid #4f46e5;
+    margin-bottom: 60px;
+    padding-bottom: 40px;
+  }
+  .cover-badge {
+    display: inline-block;
+    background: #ede9fe;
+    color: #4f46e5;
+    border-radius: 20px;
+    padding: 4px 14px;
+    font-size: 11px;
+    font-weight: 600;
+    letter-spacing: 0.5px;
+    margin-bottom: 24px;
+    width: fit-content;
+  }
+  .cover h1 {
+    font-size: 36px;
+    font-weight: 800;
+    color: #1e1b4b;
+    line-height: 1.2;
+    margin-bottom: 12px;
+  }
+  .cover h2 {
+    font-size: 20px;
+    font-weight: 400;
+    color: #6366f1;
+    margin-bottom: 32px;
+  }
+  .cover-meta {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 12px;
+    max-width: 480px;
+  }
+  .cover-meta-item {
+    background: #f8f7ff;
+    border: 1px solid #e0e7ff;
+    border-radius: 8px;
+    padding: 12px 16px;
+  }
+  .cover-meta-item .label {
+    font-size: 10px;
+    text-transform: uppercase;
+    letter-spacing: 0.8px;
+    color: #818cf8;
+    margin-bottom: 4px;
+  }
+  .cover-meta-item .value {
+    font-weight: 600;
+    color: #3730a3;
+    font-size: 13px;
+  }
+
+  /* TOC */
+  .toc {
+    background: #f8f7ff;
+    border: 1px solid #c7d2fe;
+    border-radius: 12px;
+    padding: 28px 32px;
+    margin-bottom: 48px;
+    page-break-after: always;
+  }
+  .toc h3 {
+    font-size: 14px;
+    font-weight: 700;
+    color: #4338ca;
+    text-transform: uppercase;
+    letter-spacing: 1px;
+    margin-bottom: 16px;
+    padding-bottom: 10px;
+    border-bottom: 2px solid #c7d2fe;
+  }
+  .toc ol {
+    columns: 2;
+    column-gap: 30px;
+    padding-left: 20px;
+  }
+  .toc li {
+    margin-bottom: 7px;
+    color: #4338ca;
+    font-size: 12px;
+    break-inside: avoid;
+  }
+  .toc a {
+    color: #4338ca;
+    text-decoration: none;
+  }
+  .toc a:hover { text-decoration: underline; }
+
+  /* Sections */
+  section {
+    margin-bottom: 48px;
+    page-break-inside: avoid;
+  }
+  
+  h1 { font-size: 28px; color: #1e1b4b; margin-bottom: 16px; }
+  h2 {
+    font-size: 20px;
+    color: #1e1b4b;
+    border-bottom: 2px solid #4f46e5;
+    padding-bottom: 8px;
+    margin-bottom: 20px;
+    margin-top: 40px;
+  }
+  h3 {
+    font-size: 15px;
+    color: #312e81;
+    margin: 20px 0 12px;
+    font-weight: 700;
+  }
+  h4 {
+    font-size: 13px;
+    color: #4338ca;
+    margin: 16px 0 8px;
+    font-weight: 600;
+  }
+
+  p { margin-bottom: 12px; }
+
+  /* Tables */
+  table {
+    width: 100%;
+    border-collapse: collapse;
+    margin: 16px 0;
+    font-size: 12px;
+    border-radius: 8px;
+    overflow: hidden;
+    box-shadow: 0 1px 4px rgba(79,70,229,0.08);
+  }
+  thead tr { background: #4f46e5; color: white; }
+  thead th {
+    padding: 10px 14px;
+    text-align: left;
+    font-weight: 600;
+    font-size: 11px;
+    letter-spacing: 0.3px;
+  }
+  tbody tr { border-bottom: 1px solid #e0e7ff; }
+  tbody tr:nth-child(even) { background: #f5f3ff; }
+  tbody td { padding: 9px 14px; vertical-align: top; }
+
+  /* Code blocks */
+  pre {
+    background: #1e1b4b;
+    color: #c7d2fe;
+    border-radius: 8px;
+    padding: 16px 20px;
+    margin: 16px 0;
+    font-family: 'Consolas', 'Courier New', monospace;
+    font-size: 11px;
+    line-height: 1.7;
+    overflow-x: auto;
+    white-space: pre-wrap;
+  }
+  code {
+    background: #ede9fe;
+    color: #4338ca;
+    padding: 1px 5px;
+    border-radius: 4px;
+    font-family: 'Consolas', 'Courier New', monospace;
+    font-size: 11px;
+  }
+  pre code { background: transparent; color: inherit; padding: 0; }
+
+  /* Callouts */
+  .callout {
+    border-radius: 8px;
+    padding: 14px 18px;
+    margin: 16px 0;
+    display: flex;
+    gap: 12px;
+    align-items: flex-start;
+  }
+  .callout-icon { font-size: 18px; flex-shrink: 0; margin-top: 1px; }
+  .callout-body { flex: 1; }
+  .callout-body strong { display: block; margin-bottom: 4px; font-size: 12px; }
+  .callout.tip { background: #ecfdf5; border: 1px solid #6ee7b7; }
+  .callout.tip strong { color: #065f46; }
+  .callout.warning { background: #fffbeb; border: 1px solid #fcd34d; }
+  .callout.warning strong { color: #92400e; }
+  .callout.info { background: #eff6ff; border: 1px solid #93c5fd; }
+  .callout.info strong { color: #1e40af; }
+  .callout.danger { background: #fef2f2; border: 1px solid #fca5a5; }
+  .callout.danger strong { color: #991b1b; }
+
+  /* Step cards */
+  .steps { margin: 16px 0; }
+  .step {
+    display: flex;
+    gap: 16px;
+    margin-bottom: 20px;
+    align-items: flex-start;
+  }
+  .step-num {
+    width: 32px;
+    height: 32px;
+    background: #4f46e5;
+    color: white;
+    border-radius: 50%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-weight: 800;
+    font-size: 14px;
+    flex-shrink: 0;
+    margin-top: 2px;
+  }
+  .step-body { flex: 1; }
+  .step-body h4 { margin-top: 0; }
+
+  /* Node cards */
+  .node-card {
+    border: 1px solid #e0e7ff;
+    border-radius: 12px;
+    padding: 18px 20px;
+    margin: 12px 0;
+    background: #fafafe;
+    page-break-inside: avoid;
+  }
+  .node-card-header {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    margin-bottom: 12px;
+  }
+  .node-icon {
+    width: 36px;
+    height: 36px;
+    border-radius: 8px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 18px;
+  }
+  .node-icon.input { background: #dbeafe; }
+  .node-icon.agent { background: #ede9fe; }
+  .node-icon.output { background: #d1fae5; }
+  .node-icon.condition { background: #fef3c7; }
+  .node-icon.quality { background: #fce7f3; }
+  .node-icon.script { background: #f1f5f9; }
+  .node-title { font-weight: 700; font-size: 14px; color: #1e1b4b; }
+  .node-type-badge {
+    font-size: 10px;
+    padding: 2px 8px;
+    border-radius: 10px;
+    font-weight: 600;
+  }
+  .node-type-badge.input { background: #dbeafe; color: #1e40af; }
+  .node-type-badge.agent { background: #ede9fe; color: #4338ca; }
+  .node-type-badge.output { background: #d1fae5; color: #065f46; }
+  .node-type-badge.condition { background: #fef3c7; color: #92400e; }
+  .node-type-badge.quality { background: #fce7f3; color: #9d174d; }
+  .node-type-badge.script { background: #f1f5f9; color: #334155; }
+
+  /* Workflow diagram */
+  .workflow-diagram {
+    background: #f8f7ff;
+    border: 1px solid #c7d2fe;
+    border-radius: 12px;
+    padding: 24px;
+    margin: 20px 0;
+    font-family: 'Consolas', monospace;
+    font-size: 12px;
+    line-height: 2;
+    color: #312e81;
+  }
+  .flow-stage {
+    background: white;
+    border: 1px solid #a5b4fc;
+    border-radius: 8px;
+    padding: 6px 14px;
+    margin: 3px 0;
+    display: inline-block;
+  }
+  .flow-stage.completed { border-color: #34d399; background: #ecfdf5; }
+  .flow-stage.parallel { border-color: #f59e0b; background: #fffbeb; }
+  .flow-arrow { color: #6366f1; font-weight: bold; }
+
+  /* FAQ items */
+  .faq-item {
+    border: 1px solid #e0e7ff;
+    border-radius: 10px;
+    margin-bottom: 12px;
+    overflow: hidden;
+    page-break-inside: avoid;
+  }
+  .faq-q {
+    background: #ede9fe;
+    padding: 12px 16px;
+    font-weight: 600;
+    color: #312e81;
+    font-size: 12px;
+  }
+  .faq-a {
+    padding: 12px 16px;
+    font-size: 12px;
+    color: #374151;
+    background: #fafafe;
+  }
+
+  /* Print */
+  @media print {
+    body { padding: 20px 30px; font-size: 11px; }
+    .cover { min-height: auto; page-break-after: always; }
+    .toc { page-break-after: always; }
+    section { page-break-inside: avoid; }
+    h2 { page-break-before: auto; }
+  }
+
+  ul, ol {
+    padding-left: 22px;
+    margin-bottom: 12px;
+  }
+  li { margin-bottom: 5px; }
+
+  .tag {
+    display: inline-block;
+    background: #ede9fe;
+    color: #4338ca;
+    border-radius: 6px;
+    padding: 1px 8px;
+    font-size: 11px;
+    font-weight: 600;
+    margin: 2px;
+  }
+  
+  .verdict-pass { color: #065f46; font-weight: 700; }
+  .verdict-rewrite { color: #92400e; font-weight: 700; }
+  .verdict-fail { color: #991b1b; font-weight: 700; }
+  
+  hr {
+    border: none;
+    border-top: 1px solid #e0e7ff;
+    margin: 32px 0;
+  }
+  
+  .footer {
+    margin-top: 60px;
+    padding-top: 20px;
+    border-top: 2px solid #4f46e5;
+    text-align: center;
+    color: #6b7280;
+    font-size: 11px;
+  }
+</style>
+</head>
+<body>
+
+<!-- ─── Cover ─── -->
+<div class="cover">
+  <div class="cover-badge">AI Chat Platform</div>
+  <h1>Руководство пользователя</h1>
+  <h2>Работа с Проектами и Воркфлоу</h2>
+  <div class="cover-meta">
+    <div class="cover-meta-item">
+      <div class="label">Версия</div>
+      <div class="value">Апрель 2026</div>
+    </div>
+    <div class="cover-meta-item">
+      <div class="label">Аудитория</div>
+      <div class="value">Начинающий пользователь</div>
+    </div>
+    <div class="cover-meta-item">
+      <div class="label">Охват</div>
+      <div class="value">Проекты, Воркфлоу, КП</div>
+    </div>
+    <div class="cover-meta-item">
+      <div class="label">Формат</div>
+      <div class="value">Пошаговая инструкция</div>
+    </div>
+  </div>
+</div>
+
+<!-- ─── TOC ─── -->
+<div class="toc">
+  <h3>📋 Содержание</h3>
+  <ol>
+    <li><a href="#s1">Что такое Проект?</a></li>
+    <li><a href="#s2">Создание нового проекта</a></li>
+    <li><a href="#s3">Добавление участников</a></li>
+    <li><a href="#s4">Что такое Воркфлоу?</a></li>
+    <li><a href="#s5">Запуск воркфлоу</a></li>
+    <li><a href="#s6">Этапы воркфлоу</a></li>
+    <li><a href="#s7">Этап «Досье клиента»</a></li>
+    <li><a href="#s8">Проверка качества (QC)</a></li>
+    <li><a href="#s9">Итоговое КП</a></li>
+    <li><a href="#s10">Редактор шаблонов (Admin)</a></li>
+    <li><a href="#s11">Типы нод в редакторе</a></li>
+    <li><a href="#s12">Настройка агентов</a></li>
+    <li><a href="#s13">FAQ</a></li>
+    <li><a href="#s14">Проблемы и решения</a></li>
+  </ol>
+</div>
+
+<!-- ─── S1: Что такое Проект ─── -->
+<section id="s1">
+  <h2>1. Что такое Проект?</h2>
+  <p><strong>Проект</strong> — это отдельное рабочее пространство для конкретной задачи или клиента. Например:</p>
+  <ul>
+    <li>Проект для клиента «АВАНТЕРМ» — регистрация товарного знака</li>
+    <li>Проект для клиента «РусТрейд» — юридическая экспертиза</li>
+  </ul>
+  
+  <p>Каждый проект содержит:</p>
+  <ul>
+    <li>👥 <strong>Участников</strong> — люди и AI-агенты</li>
+    <li>📁 <strong>Документы</strong> — файлы, загруженные в проект</li>
+    <li>⚙️ <strong>Воркфлоу</strong> — автоматизированный процесс обработки задачи</li>
+    <li>📜 <strong>История</strong> — все шаги и результаты</li>
+  </ul>
+
+  <h3>Структура папок</h3>
+  <p>Проекты можно организовывать в <strong>папки</strong> — например, по клиентам или типам услуг:</p>
+  <pre>📁 Товарные знаки
+  └── 📋 Проект: АВАНТЕРМ
+  └── 📋 Проект: Риском
+
+📁 Патенты
+  └── 📋 Проект: ООО ТехноПром</pre>
+
+  <h3>Статусы проекта</h3>
+  <table>
+    <thead><tr><th>Статус</th><th>Значение</th></tr></thead>
+    <tbody>
+      <tr><td>🟢 <strong>Активный</strong></td><td>Проект в работе</td></tr>
+      <tr><td>✅ <strong>Завершён</strong></td><td>Работа по проекту закончена</td></tr>
+      <tr><td>📦 <strong>В архиве</strong></td><td>Проект закрыт, но сохранён</td></tr>
+    </tbody>
+  </table>
+</section>
+
+<!-- ─── S2: Создание проекта ─── -->
+<section id="s2">
+  <h2>2. Создание нового проекта</h2>
+
+  <div class="steps">
+    <div class="step">
+      <div class="step-num">1</div>
+      <div class="step-body">
+        <h4>Открыть раздел «Проекты»</h4>
+        <p>В левом боковом меню нажмите на пункт <strong>«Проекты»</strong>. Вы увидите список всех проектов или пустой экран.</p>
+      </div>
+    </div>
+    <div class="step">
+      <div class="step-num">2</div>
+      <div class="step-body">
+        <h4>Нажать «Создать проект»</h4>
+        <p>Кнопка находится в правом верхнем углу или по центру пустого экрана.</p>
+      </div>
+    </div>
+    <div class="step">
+      <div class="step-num">3</div>
+      <div class="step-body">
+        <h4>Заполнить данные</h4>
+        <table>
+          <thead><tr><th>Поле</th><th>Что вводить</th><th>Пример</th></tr></thead>
+          <tbody>
+            <tr><td><strong>Название</strong></td><td>Название клиента или задачи</td><td>«АВАНТЕРМ — ТЗ»</td></tr>
+            <tr><td><strong>Описание</strong></td><td>Краткое описание (необязательно)</td><td>«Регистрация словесного знака»</td></tr>
+            <tr><td><strong>Папка</strong></td><td>Выберите папку из списка</td><td>«Товарные знаки»</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+    <div class="step">
+      <div class="step-num">4</div>
+      <div class="step-body">
+        <h4>Сохранить</h4>
+        <p>Нажмите <strong>«Создать»</strong> или <strong>«Сохранить»</strong>. Проект создан!</p>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ─── S3: Участники ─── -->
+<section id="s3">
+  <h2>3. Добавление участников в проект</h2>
+  <p>Внутри проекта нажмите кнопку <strong>«Добавить»</strong> (иконка человека со знаком «+»).</p>
+
+  <h3>👤 Пользователи (люди)</h3>
+  <table>
+    <thead><tr><th>Роль</th><th>Что может делать</th></tr></thead>
+    <tbody>
+      <tr><td><strong>Владелец</strong></td><td>Всё: создать, удалить, пригласить других</td></tr>
+      <tr><td><strong>Администратор</strong></td><td>Управлять проектом и участниками</td></tr>
+      <tr><td><strong>Участник</strong></td><td>Работать с воркфлоу, смотреть результаты</td></tr>
+      <tr><td><strong>Наблюдатель</strong></td><td>Только читать результаты</td></tr>
+    </tbody>
+  </table>
+
+  <h3>🤖 AI-агенты (роли)</h3>
+  <p>Виртуальные ассистенты с заданными инструкциями. Они выполняют этапы воркфлоу автоматически.</p>
+  <p>Примеры агентов:</p>
+  <ul>
+    <li><strong>Досье-аналитик</strong> — собирает информацию о компании</li>
+    <li><strong>Аналитик МКТУ</strong> — анализирует классы товаров</li>
+    <li><strong>QC-Редактор КП</strong> — проверяет качество и структуру документа</li>
+  </ul>
+</section>
+
+<!-- ─── S4: Что такое Воркфлоу ─── -->
+<section id="s4">
+  <h2>4. Что такое Воркфлоу (Workflow)?</h2>
+  <p><strong>Воркфлоу</strong> — это автоматизированный сценарий обработки задачи, состоящий из нескольких этапов, которые выполняются последовательно (или параллельно).</p>
+
+  <div class="callout info">
+    <div class="callout-icon">💡</div>
+    <div class="callout-body">
+      <strong>Аналогия</strong>
+      Представьте воркфлоу как конвейер на заводе: каждый агент выполняет свою часть работы и передаёт результат следующему.
+    </div>
+  </div>
+
+  <h3>Воркфлоу «КП по товарному знаку»</h3>
+  <div class="workflow-diagram">
+    <div>📥 <span class="flow-stage">Входные данные</span> <span class="flow-arrow">↓</span></div>
+    <div>📋 <span class="flow-stage">Досье клиента</span> ← Агент собирает информацию о заявителе <span class="flow-arrow">↓</span></div>
+    <div>✅ <span class="flow-stage">Проверка досье</span> ← Автоматическая проверка полноты <span class="flow-arrow">↓</span></div>
+    <div style="margin:8px 0;">
+      <div style="background:#fffbeb;border:1px solid #fcd34d;border-radius:8px;padding:12px 16px;">
+        ⚡ <strong>Параллельный анализ (5 агентов одновременно)</strong><br>
+        &nbsp;&nbsp;&nbsp;• Анализ МКТУ &nbsp;&nbsp; • Охраноспособность знака<br>
+        &nbsp;&nbsp;&nbsp;• Конфликтный поиск &nbsp;&nbsp; • Шпион / открытые источники
+      </div>
+    </div>
+    <div><span class="flow-arrow">↓</span></div>
+    <div>✅ <span class="flow-stage">Проверка анализов</span> ← Проверка полноты результатов <span class="flow-arrow">↓</span></div>
+    <div>📄 <span class="flow-stage">Итоговое КП</span> ← Финальный документ для клиента</div>
+  </div>
+</section>
+
+<!-- ─── S5: Запуск воркфлоу ─── -->
+<section id="s5">
+  <h2>5. Запуск воркфлоу в проекте</h2>
+  <div class="steps">
+    <div class="step">
+      <div class="step-num">1</div>
+      <div class="step-body">
+        <h4>Открыть проект</h4>
+        <p>На странице «Проекты» кликните по нужному проекту.</p>
+      </div>
+    </div>
+    <div class="step">
+      <div class="step-num">2</div>
+      <div class="step-body">
+        <h4>Выбрать шаблон</h4>
+        <p>Если воркфлоу ещё нет — выберите <strong>«КП по товарному знаку»</strong> и нажмите <strong>«Создать воркфлоу»</strong>.</p>
+      </div>
+    </div>
+    <div class="step">
+      <div class="step-num">3</div>
+      <div class="step-body">
+        <h4>Ввести входные данные</h4>
+        <p>Откроется первый этап. Введите информацию о клиенте в свободной форме:</p>
+        <pre>Контактное лицо: Марат
+Телефон / email: +79061159328
+Основные товары и услуги: продажа и установка печей и дымоходов
+
+АВАНТЕРМ
+
+Описание знака:
+Заявляемое обозначение – словесный товарный знак,
+выполнен стандартным шрифтом черного цвета.</pre>
+        <div class="callout tip">
+          <div class="callout-icon">✅</div>
+          <div class="callout-body">
+            <strong>Советы по вводу данных</strong>
+            Чем подробнее — тем точнее результат. Укажите название бренда, товары/услуги, ИНН (если есть), описание знака (словесный/изобразительный/комбинированный).
+          </div>
+        </div>
+      </div>
+    </div>
+    <div class="step">
+      <div class="step-num">4</div>
+      <div class="step-body">
+        <h4>Нажать «Запустить»</h4>
+        <p>Система начнёт обработку. Прогресс виден в верхней полоске этапов.</p>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ─── S6: Этапы ─── -->
+<section id="s6">
+  <h2>6. Этапы воркфлоу — как они работают</h2>
+
+  <h3>Статусы этапа</h3>
+  <table>
+    <thead><tr><th>Иконка</th><th>Статус</th><th>Значение</th></tr></thead>
+    <tbody>
+      <tr><td>⏳</td><td><strong>Ожидает</strong></td><td>Ещё не запущен</td></tr>
+      <tr><td>▶️</td><td><strong>Выполняется</strong></td><td>Агент работает прямо сейчас</td></tr>
+      <tr><td>✅</td><td><strong>Завершён</strong></td><td>Результат получен</td></tr>
+      <tr><td>❌</td><td><strong>Ошибка</strong></td><td>Что-то пошло не так</td></tr>
+      <tr><td>⏸</td><td><strong>Ожидает подтверждения</strong></td><td>Требует нажатия «Подтвердить»</td></tr>
+    </tbody>
+  </table>
+
+  <h3>Вкладки внутри этапа</h3>
+  <table>
+    <thead><tr><th>Вкладка</th><th>Что показывает</th></tr></thead>
+    <tbody>
+      <tr><td>💬 <strong>Чат</strong></td><td>Живой поток сообщений от агента в процессе работы</td></tr>
+      <tr><td>📄 <strong>Результат</strong></td><td>Готовый текст / таблица / документ</td></tr>
+      <tr><td>{ } <strong>JSON</strong></td><td>Техническая структура данных (для разработчиков)</td></tr>
+    </tbody>
+  </table>
+
+  <h3>Управление этапом</h3>
+  <table>
+    <thead><tr><th>Кнопка</th><th>Действие</th></tr></thead>
+    <tbody>
+      <tr><td>▶️ <strong>Запустить</strong></td><td>Запустить этот этап</td></tr>
+      <tr><td>🔄 <strong>Перезапустить</strong></td><td>Запустить заново (результат перезаписывается)</td></tr>
+      <tr><td>✅ <strong>Подтвердить и продолжить</strong></td><td>Одобрить результат, перейти к следующему этапу</td></tr>
+      <tr><td>⏭ <strong>Пропустить</strong></td><td>Пропустить этот этап</td></tr>
+    </tbody>
+  </table>
+</section>
+
+<!-- ─── S7: Досье ─── -->
+<section id="s7">
+  <h2>7. Работа с этапом «Досье клиента»</h2>
+  <p>Это первый и ключевой этап. Агент <strong>Досье-аналитик</strong> собирает информацию о клиенте.</p>
+
+  <h3>Что делает агент</h3>
+  <ol>
+    <li>Анализирует введённые данные (название бренда, товары, услуги)</li>
+    <li>Ищет компанию в базе <strong>Reputation API</strong> по названию (или ИНН, если указан)</li>
+    <li>Формирует досье с ключевыми данными: ИНН, ОГРН, адрес, статус компании, деятельность, товарные знаки</li>
+    <li>Передаёт результат на проверку качества (QC-агент)</li>
+  </ol>
+
+  <h3>Пример готового досье</h3>
+  <pre>## Досье: АВАНТЕРМ
+
+### Общие сведения
+- Полное наименование: [если найдено в реестре]
+- ИНН: [если найден]
+- Деятельность: продажа и установка печей и дымоходов
+
+### Контактные данные
+- Контактное лицо: Марат
+- Телефон: +79061159328
+
+### Товарный знак
+- Заявляемое обозначение: АВАНТЕРМ
+- Тип: Словесный</pre>
+
+  <div class="callout info">
+    <div class="callout-icon">ℹ️</div>
+    <div class="callout-body">
+      <strong>Если ИНН не указан</strong>
+      Система найдёт компанию по названию бренда. Это работает в большинстве случаев, но ИНН даёт более точный результат.
+    </div>
+  </div>
+</section>
+
+<!-- ─── S8: QC ─── -->
+<section id="s8">
+  <h2>8. Проверка качества (QC-агент)</h2>
+  <p>На каждом ключевом этапе работает <strong>QC-агент</strong> (модель Claude Sonnet 4.6), которая проверяет результат основного агента.</p>
+
+  <h3>Что проверяет QC-агент</h3>
+  <ul>
+    <li>✅ Соответствие задаче этапа</li>
+    <li>✅ Наличие обязательных разделов</li>
+    <li>✅ Деловой стиль и структуру документа</li>
+    <li>✅ Логику и полноту текста</li>
+  </ul>
+
+  <h3>Три возможных вердикта</h3>
+  <table>
+    <thead><tr><th>Вердикт</th><th>Что происходит</th></tr></thead>
+    <tbody>
+      <tr><td>✅ <span class="verdict-pass">PASS</span></td><td>Результат принят, работа продолжается автоматически</td></tr>
+      <tr><td>✏️ <span class="verdict-rewrite">REWRITE</span></td><td>QC сам переписал текст в правильную структуру — финальный результат уже исправлен</td></tr>
+      <tr><td>❌ <span class="verdict-fail">FAIL</span></td><td>QC не может исправить сам — нужны данные от пользователя</td></tr>
+    </tbody>
+  </table>
+
+  <div class="callout tip">
+    <div class="callout-icon">✅</div>
+    <div class="callout-body">
+      <strong>Что делать при FAIL?</strong>
+      Нажмите «Подтвердить и продолжить» (если результат устраивает) или перезапустите этап, добавив уточнение в чате.
+    </div>
+  </div>
+</section>
+
+<!-- ─── S9: КП ─── -->
+<section id="s9">
+  <h2>9. Итоговый этап — КП (Коммерческое Предложение)</h2>
+
+  <h3>Структура итогового КП</h3>
+  <p>КП состоит из двух частей:</p>
+
+  <h4>Документ для клиента (КП_КЛИЕНТ)</h4>
+  <table>
+    <thead><tr><th>Раздел</th><th>Содержание</th></tr></thead>
+    <tbody>
+      <tr><td>1. Досье клиента</td><td>Данные заявителя, контакты, деятельность</td></tr>
+      <tr><td>2. Анализ МКТУ</td><td>Таблица классов и товаров/услуг, рекомендации</td></tr>
+      <tr><td>3. Охраноспособность</td><td>Оценка знака, вывод: высокая / средняя / низкая</td></tr>
+      <tr><td>4. Конфликтный поиск</td><td>Таблица похожих знаков, риски</td></tr>
+      <tr><td>5. Мониторинг / Шпион</td><td>Данные из открытых источников</td></tr>
+      <tr><td>6. Стоимость и сроки</td><td>Таблица стоимости работ и сроков</td></tr>
+    </tbody>
+  </table>
+
+  <h4>Внутренний отчёт (КП_СОТРУДНИК)</h4>
+  <p>Детальная версия с техническими заметками — для внутреннего использования.</p>
+
+  <h3>Редактирование и экспорт</h3>
+  <div class="steps">
+    <div class="step">
+      <div class="step-num">1</div>
+      <div class="step-body">
+        <p>Нажмите <strong>✏️ Редактировать</strong> во вкладке «Результат»</p>
+      </div>
+    </div>
+    <div class="step">
+      <div class="step-num">2</div>
+      <div class="step-body">
+        <p>Внесите правки в текстовом редакторе (формат Markdown)</p>
+      </div>
+    </div>
+    <div class="step">
+      <div class="step-num">3</div>
+      <div class="step-body">
+        <p>Нажмите <strong>«Скачать PDF»</strong> — документ сохранится в артефактах проекта</p>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ─── S10: Редактор шаблонов ─── -->
+<section id="s10">
+  <h2>10. Редактор шаблонов воркфлоу (для администратора)</h2>
+
+  <div class="callout warning">
+    <div class="callout-icon">⚠️</div>
+    <div class="callout-body">
+      <strong>Только для администраторов</strong>
+      Рядовым пользователям редактировать шаблоны не нужно. Этот раздел для тех, кто настраивает систему.
+    </div>
+  </div>
+
+  <h3>Как открыть редактор</h3>
+  <p>В левом меню перейдите в <strong>«Воркфлоу»</strong> → нажмите <strong>«Редактировать»</strong> рядом с нужным шаблоном.</p>
+
+  <h3>Что вы видите</h3>
+  <p>Открывается <strong>визуальный редактор (canvas)</strong> с прямоугольниками (нодами) и стрелками между ними.</p>
+
+  <h3>Навигация по канвасу</h3>
+  <table>
+    <thead><tr><th>Действие</th><th>Как</th></tr></thead>
+    <tbody>
+      <tr><td>Переместить вид</td><td>Зажать пробел + тащить мышью</td></tr>
+      <tr><td>Масштаб</td><td>Колёсико мыши</td></tr>
+      <tr><td>Выделить ноду</td><td>Кликнуть на неё</td></tr>
+      <tr><td>Переместить ноду</td><td>Потащить мышью</td></tr>
+      <tr><td>Удалить ноду/связь</td><td>Выделить + Delete</td></tr>
+    </tbody>
+  </table>
+
+  <h3>Создание связей между нодами</h3>
+  <p>Наведите мышь на <strong>правую точку</strong> одной ноды, появится кружок — потяните его к <strong>левой точке</strong> другой ноды. Связь создана!</p>
+
+  <h3>Группировка по этапам</h3>
+  <p>В настройках каждой ноды укажите поле <strong>«Этап (группа)»</strong> — например, «Досье клиента», «Параллельный анализ». Ноды с одинаковой группой визуально объединятся в рамку на канвасе.</p>
+</section>
+
+<!-- ─── S11: Типы нод ─── -->
+<section id="s11">
+  <h2>11. Типы нод в редакторе</h2>
+
+  <div class="node-card">
+    <div class="node-card-header">
+      <div class="node-icon input">📥</div>
+      <div>
+        <div class="node-title">Input — Входные данные</div>
+        <span class="node-type-badge input">input</span>
+      </div>
+    </div>
+    <p><strong>Что делает:</strong> Принимает первоначальные данные от пользователя.</p>
+    <p><strong>Настройки:</strong> Поля формы ввода (название бренда, ИНН, товары и услуги и т.д.)</p>
+    <p><strong>Когда использовать:</strong> Всегда первая нода в любом воркфлоу.</p>
+  </div>
+
+  <div class="node-card">
+    <div class="node-card-header">
+      <div class="node-icon agent">🤖</div>
+      <div>
+        <div class="node-title">Agent — AI Агент</div>
+        <span class="node-type-badge agent">agent</span>
+      </div>
+    </div>
+    <p><strong>Что делает:</strong> Отправляет запрос к языковой модели и получает результат.</p>
+    <table>
+      <thead><tr><th>Настройка</th><th>Описание</th></tr></thead>
+      <tbody>
+        <tr><td><strong>Роль агента</strong></td><td>Выберите агента (например, «Досье-аналитик»)</td></tr>
+        <tr><td><strong>Переопределение промта</strong></td><td>Дополнительные инструкции для этого шага</td></tr>
+        <tr><td><strong>QC-агент</strong></td><td>Агент, проверяющий результат этого шага</td></tr>
+        <tr><td><strong>Этап (группа)</strong></td><td>Название группы (например, «Досье клиента»)</td></tr>
+        <tr><td><strong>Автозапуск</strong></td><td>Шаг запускается без нажатия кнопки</td></tr>
+      </tbody>
+    </table>
+  </div>
+
+  <div class="node-card">
+    <div class="node-card-header">
+      <div class="node-icon output">📄</div>
+      <div>
+        <div class="node-title">Output — Итог (сборка)</div>
+        <span class="node-type-badge output">output</span>
+      </div>
+    </div>
+    <p><strong>Что делает:</strong> Собирает результаты всех предыдущих шагов и формирует финальный документ.</p>
+    <p>Автоматически получает инструкцию: «Собери и структурируй результаты всех предыдущих этапов в финальный документ».</p>
+  </div>
+
+  <div class="node-card">
+    <div class="node-card-header">
+      <div class="node-icon condition">🔀</div>
+      <div>
+        <div class="node-title">Condition — Условие IF/ELSE</div>
+        <span class="node-type-badge condition">condition</span>
+      </div>
+    </div>
+    <p><strong>Что делает:</strong> Проверяет условие и направляет воркфлоу по одной из двух веток.</p>
+    <p><strong>Пример:</strong> «Если указан ИНН → детальный поиск, иначе → поиск по названию»</p>
+    <table>
+      <thead><tr><th>Оператор</th><th>Значение</th></tr></thead>
+      <tbody>
+        <tr><td><code>not_empty</code></td><td>Поле не пустое</td></tr>
+        <tr><td><code>empty</code></td><td>Поле пустое</td></tr>
+        <tr><td><code>eq</code></td><td>Равно значению</td></tr>
+        <tr><td><code>contains</code></td><td>Содержит текст</td></tr>
+        <tr><td><code>gt / lt</code></td><td>Больше / меньше числа</td></tr>
+      </tbody>
+    </table>
+  </div>
+
+  <div class="node-card">
+    <div class="node-card-header">
+      <div class="node-icon quality">🛡️</div>
+      <div>
+        <div class="node-title">Quality Check — Проверка результата</div>
+        <span class="node-type-badge quality">quality_check</span>
+      </div>
+    </div>
+    <p><strong>Что делает:</strong> Проверяет данные по набору правил. Если проверка не пройдена — шаг помечается соответственно.</p>
+    <p><strong>Пример:</strong> Проверка досье — правило <code>content not_empty</code> (текст досье должен быть заполнен).</p>
+  </div>
+
+  <div class="node-card">
+    <div class="node-card-header">
+      <div class="node-icon script">⚙️</div>
+      <div>
+        <div class="node-title">Script — Скрипт</div>
+        <span class="node-type-badge script">script</span>
+      </div>
+    </div>
+    <p><strong>Что делает:</strong> Вызывает стороннюю функцию (например, сканер открытых источников, парсер сайтов).</p>
+    <p><strong>Пример функции:</strong> <code>spy-market-scan</code> — мониторинг рынка и конкурентов.</p>
+  </div>
+</section>
+
+<!-- ─── S12: Агенты ─── -->
+<section id="s12">
+  <h2>12. Настройка агентов (ролей)</h2>
+  <p>Перейдите в меню <strong>«Роли / Агенты»</strong> (Admin → ChatRoles).</p>
+
+  <h3>Основные агенты в воркфлоу «КП»</h3>
+  <table>
+    <thead><tr><th>Агент</th><th>Роль</th><th>Модель</th></tr></thead>
+    <tbody>
+      <tr><td><strong>Досье-аналитик</strong></td><td>Собирает информацию о клиенте, ищет в Reputation API</td><td>Claude Sonnet</td></tr>
+      <tr><td><strong>Аналитик МКТУ</strong></td><td>Анализирует классы МКТУ, даёт рекомендации</td><td>Claude Sonnet</td></tr>
+      <tr><td><strong>Аналитик охраноспособности</strong></td><td>Оценивает шансы регистрации знака</td><td>Claude Sonnet</td></tr>
+      <tr><td><strong>Аналитик конфликтности</strong></td><td>Ищет похожие зарегистрированные знаки</td><td>Claude Sonnet</td></tr>
+      <tr><td><strong>Шпион-аналитик</strong></td><td>Мониторинг открытых источников</td><td>Claude / Perplexity</td></tr>
+      <tr><td><strong>QC-Редактор КП</strong></td><td>Проверяет качество каждого блока</td><td>Claude Sonnet 4.6</td></tr>
+      <tr><td><strong>Финальный KP-сборщик</strong></td><td>Компонует итоговый документ</td><td>Claude Sonnet</td></tr>
+    </tbody>
+  </table>
+
+  <h3>Как создать нового агента</h3>
+  <div class="steps">
+    <div class="step"><div class="step-num">1</div><div class="step-body"><p>Откройте <strong>«Роли / Агенты»</strong>, нажмите <strong>«Создать роль»</strong></p></div></div>
+    <div class="step"><div class="step-num">2</div><div class="step-body"><p>Заполните: <strong>Название</strong>, <strong>Системный промт</strong>, <strong>Модель</strong>, <strong>Папки знаний</strong></p></div></div>
+    <div class="step"><div class="step-num">3</div><div class="step-body"><p>Нажмите <strong>«Сохранить»</strong></p></div></div>
+  </div>
+
+  <h3>Что такое системный промт</h3>
+  <p><strong>Системный промт</strong> — инструкция, которую агент получает перед каждым запросом. Он определяет его поведение, стиль и формат ответа.</p>
+  <pre>Ты — эксперт по регистрации товарных знаков.
+Твоя задача: анализировать класс МКТУ и давать рекомендации.
+
+Формат ответа:
+## Анализ МКТУ: [название знака]
+### Рекомендуемые классы
+| Класс | Описание | Обоснование |
+|-------|----------|-------------|
+| 11    | Печи     | Основная деятельность клиента |</pre>
+</section>
+
+<!-- ─── S13: FAQ ─── -->
+<section id="s13">
+  <h2>13. Часто задаваемые вопросы (FAQ)</h2>
+
+  <div class="faq-item">
+    <div class="faq-q">❓ Можно ли редактировать результат этапа вручную?</div>
+    <div class="faq-a">Да! В любом завершённом этапе во вкладке «Результат» есть кнопка ✏️ «Редактировать». Следующие этапы будут использовать отредактированный вариант.</div>
+  </div>
+
+  <div class="faq-item">
+    <div class="faq-q">❓ Что делать, если агент дал неправильный ответ?</div>
+    <div class="faq-a">
+      Три варианта:<br>
+      1. <strong>Уточните задачу</strong> в поле «Уточнение для агента» и отправьте<br>
+      2. <strong>Перезапустите этап</strong> кнопкой 🔄<br>
+      3. <strong>Отредактируйте вручную</strong> во вкладке «Результат»
+    </div>
+  </div>
+
+  <div class="faq-item">
+    <div class="faq-q">❓ Что значит «QC не пройдена»?</div>
+    <div class="faq-a">QC-агент нашёл проблемы, которые не смог исправить сам (вердикт FAIL). Нажмите «Подтвердить и продолжить» (если результат устраивает) или перезапустите этап с уточнением.</div>
+  </div>
+
+  <div class="faq-item">
+    <div class="faq-q">❓ ИНН компании не найден — это проблема?</div>
+    <div class="faq-a">Нет. Система работает и без ИНН — поиск произойдёт по названию бренда. В разделе «ИНН» будет указано «не найден в реестре» — это нормально.</div>
+  </div>
+
+  <div class="faq-item">
+    <div class="faq-q">❓ Как долго длится один воркфлоу?</div>
+    <div class="faq-a">
+      В среднем 2–5 минут:<br>
+      • Входные данные: 3–5 сек<br>
+      • Досье клиента: 20–60 сек (поиск в Reputation API)<br>
+      • Параллельный анализ (все 5): 60–120 сек<br>
+      • Итоговое КП: 30–60 сек
+    </div>
+  </div>
+
+  <div class="faq-item">
+    <div class="faq-q">❓ Можно ли запустить только один этап?</div>
+    <div class="faq-a">Да. Нажмите ▶️ «Запустить» на конкретном этапе. Остальные можно запустить потом или вручную по порядку.</div>
+  </div>
+
+  <div class="faq-item">
+    <div class="faq-q">❓ Параллельные этапы — они все запускаются одновременно?</div>
+    <div class="faq-a">Да! Все 5 агентов параллельного анализа работают одновременно, что значительно ускоряет обработку.</div>
+  </div>
+
+  <div class="faq-item">
+    <div class="faq-q">❓ Как скачать итоговое КП?</div>
+    <div class="faq-a">В этапе «Итоговое КП» нажмите кнопку «Скачать PDF» или «Экспорт». Документ сохранится в артефактах проекта.</div>
+  </div>
+</section>
+
+<!-- ─── S14: Проблемы ─── -->
+<section id="s14">
+  <h2>14. Возможные проблемы и решения</h2>
+
+  <div class="callout danger">
+    <div class="callout-icon">❌</div>
+    <div class="callout-body">
+      <strong>«По вашему запросу ничего не найдено»</strong>
+      Система не нашла компанию в Reputation API. Агент Досье-аналитик всё равно сформирует досье на основе введённых данных. Для точности укажите ИНН.
+    </div>
+  </div>
+
+  <div class="callout warning">
+    <div class="callout-icon">⚠️</div>
+    <div class="callout-body">
+      <strong>«Проверка не пройдена: Правило (inn): не выполнено»</strong>
+      Старое правило требовало ИНН. Исправлено в обновлении — убедитесь, что в Supabase применена миграция <code>20260413140000_fix_dossier_quality_check_rules.sql</code>.
+    </div>
+  </div>
+
+  <div class="callout warning">
+    <div class="callout-icon">⚠️</div>
+    <div class="callout-body">
+      <strong>Этап завис со статусом «Выполняется»</strong>
+      Подождите 2–3 минуты (Reputation API может отвечать медленно), затем нажмите 🔄 «Перезапустить».
+    </div>
+  </div>
+
+  <div class="callout info">
+    <div class="callout-icon">ℹ️</div>
+    <div class="callout-body">
+      <strong>Таблицы не отображаются в результатах</strong>
+      Убедитесь, что в браузере не устаревший кеш. Обновите страницу (Ctrl+Shift+R).
+    </div>
+  </div>
+</section>
+
+<hr>
+
+<!-- ─── Appendix ─── -->
+<section>
+  <h2>Приложение A. Чек-лист перед запуском воркфлоу</h2>
+  <table>
+    <thead><tr><th>✓</th><th>Что проверить</th></tr></thead>
+    <tbody>
+      <tr><td>☐</td><td>Указано <strong>название бренда или компании</strong></td></tr>
+      <tr><td>☐</td><td>Описаны <strong>основные товары и услуги</strong></td></tr>
+      <tr><td>☐</td><td>Указан <strong>тип товарного знака</strong> (словесный / изобразительный / комбинированный)</td></tr>
+      <tr><td>☐</td><td>По возможности указан <strong>ИНН</strong></td></tr>
+      <tr><td>☐</td><td>Проект создан и помещён в нужную <strong>папку</strong></td></tr>
+      <tr><td>☐</td><td>Выбран правильный <strong>шаблон воркфлоу</strong> («КП по товарному знаку»)</td></tr>
+    </tbody>
+  </table>
+</section>
+
+<section>
+  <h2>Приложение B. Формат входных данных</h2>
+  <p>Система автоматически распознаёт следующие поля из свободного текста:</p>
+  <table>
+    <thead><tr><th>Что пишете</th><th>Поле в системе</th><th>Пример</th></tr></thead>
+    <tbody>
+      <tr><td>Название бренда заглавными буквами</td><td><code>trademark</code>, <code>designation</code></td><td><code>АВАНТЕРМ</code></td></tr>
+      <tr><td>«Контактное лицо: ...»</td><td><code>contact_person</code></td><td>Марат</td></tr>
+      <tr><td>«Телефон: ...» или «Тел.: ...»</td><td><code>phone</code></td><td>+79061159328</td></tr>
+      <tr><td>«Основные товары и услуги: ...»</td><td><code>goods_services</code></td><td>продажа печей</td></tr>
+      <tr><td>«Описание знака: ...»</td><td><code>designation_description</code></td><td>словесный знак...</td></tr>
+      <tr><td>ИНН (10 или 12 цифр)</td><td><code>inn</code></td><td>7701234567</td></tr>
+      <tr><td>ОГРН (13 или 15 цифр)</td><td><code>ogrn</code></td><td>1027700123456</td></tr>
+      <tr><td>«ООО / АО / ИП + название»</td><td><code>company_name</code>, <code>applicant</code></td><td>ООО Авантерм</td></tr>
+    </tbody>
+  </table>
+</section>
+
+<section>
+  <h2>Приложение C. Горячие клавиши</h2>
+  <table>
+    <thead><tr><th>Действие</th><th>Сочетание клавиш</th></tr></thead>
+    <tbody>
+      <tr><td>Обновить страницу</td><td>F5 / Ctrl+R</td></tr>
+      <tr><td>Жёсткое обновление (без кеша)</td><td>Ctrl+Shift+R</td></tr>
+      <tr><td>Отправить сообщение в чате</td><td>Enter</td></tr>
+      <tr><td>Новая строка в чате</td><td>Shift + Enter</td></tr>
+      <tr><td>Масштаб на канвасе</td><td>Колёсико мыши</td></tr>
+      <tr><td>Перемещение канваса</td><td>Пробел + перетащить</td></tr>
+      <tr><td>Удалить ноду/связь на канвасе</td><td>Выделить + Delete</td></tr>
+    </tbody>
+  </table>
+</section>
+
+<div class="footer">
+  <p>📘 Руководство пользователя · AI Chat — Проекты и Воркфлоу · Версия апрель 2026</p>
+  <p style="margin-top:6px;">Для вопросов и обращений — обратитесь к администратору системы</p>
+</div>
+
+</body>
+</html>
