@@ -322,14 +322,14 @@ export function useProjectWorkflow(projectId: string | null, userId: string | un
       if (trow?.auto_run) {
         const capturedId = candidate.id as string;
         const capturedDelay = delay;
-        setTimeout(() => executeStep(capturedId), capturedDelay);
+        setTimeout(() => executeStepRef.current?.(capturedId), capturedDelay);
         delay += 400;
       }
     }
 
     toast.success('Этап выполнен, ветка передана дальше');
     return true;
-  }, [queryClient, executeStep]);
+  }, [queryClient]);
 
   // Execute a step
   const executeStep = useCallback(async (stepId: string, message?: string) => {
