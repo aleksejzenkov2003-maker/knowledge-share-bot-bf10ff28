@@ -38,8 +38,8 @@ export const WorkflowStepChat: React.FC<WorkflowStepChatProps> = ({
 
   return (
     <div className="flex min-h-0 h-full min-w-0 flex-col overflow-hidden rounded-md border">
-      <div className="min-h-0 flex-1 overflow-auto p-4">
-        <div className="space-y-3 min-w-0">
+      <div className="min-h-0 flex-1 overflow-auto p-4 min-w-0">
+        <div className="space-y-3 min-w-0 max-w-full">
           {messages.map((msg) => (
             <div
               key={msg.id}
@@ -54,10 +54,10 @@ export const WorkflowStepChat: React.FC<WorkflowStepChatProps> = ({
                 </div>
               )}
               <Card className={cn(
-                'p-3 max-w-[80%] text-sm min-w-0',
+                'p-3 max-w-[80%] text-sm min-w-0 overflow-hidden',
                 msg.message_role === 'user' ? 'bg-primary text-primary-foreground' : 'bg-muted'
               )}>
-                <div className="prose prose-sm dark:prose-invert max-w-none break-words">
+                <div className="prose prose-sm dark:prose-invert max-w-none break-words min-w-0 [overflow-wrap:anywhere]">
                   <ReactMarkdown
                     remarkPlugins={[remarkGfm]}
                     components={{
@@ -87,8 +87,8 @@ export const WorkflowStepChat: React.FC<WorkflowStepChatProps> = ({
               <div className="w-6 h-6 rounded-full bg-primary/10 flex items-center justify-center flex-shrink-0 mt-1">
                 <Bot className="h-3 w-3 text-primary" />
               </div>
-              <Card className="p-3 max-w-[80%] text-sm bg-muted min-w-0">
-                <div className="prose prose-sm dark:prose-invert max-w-none break-words">
+              <Card className="p-3 max-w-[80%] text-sm bg-muted min-w-0 overflow-hidden">
+                <div className="prose prose-sm dark:prose-invert max-w-none break-words min-w-0 [overflow-wrap:anywhere]">
                   <ReactMarkdown
                     remarkPlugins={[remarkGfm]}
                     components={{
