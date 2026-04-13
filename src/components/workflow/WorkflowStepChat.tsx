@@ -80,7 +80,7 @@ export const WorkflowStepChat: React.FC<WorkflowStepChatProps> = ({
       <div
         ref={scrollContainerRef}
         onScroll={handleScroll}
-        className="min-h-0 flex-1 overflow-y-auto overflow-x-hidden p-4 min-w-0"
+        className="h-0 min-h-0 flex-1 overflow-y-auto overflow-x-hidden p-4 min-w-0 overscroll-contain"
       >
         <div className="space-y-3 min-w-0 max-w-full">
           {messages.map((msg) => (
