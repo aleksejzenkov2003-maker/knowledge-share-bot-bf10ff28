@@ -309,36 +309,16 @@ export const WorkflowStepView: React.FC<WorkflowStepViewProps> = ({
   }, [projectId, step.id, step.input_data]);
 
   // First step pending: input form
+  const [showIngestTool, setShowIngestTool] = React.useState(false);
+
   if (isFirstStep && step.status === 'pending') {
     return (
-      <div className="flex-1 p-6 max-w-4xl mx-auto w-full">
+      <div className="flex-1 overflow-y-auto p-6 max-w-4xl mx-auto w-full">
         <div className="mb-4">
           <h2 className="text-lg font-semibold">{name}</h2>
           {description && <p className="text-sm text-muted-foreground mt-1">{description}</p>}
         </div>
         <Card className="p-4">
-          <div className="mb-3 rounded-md border p-3 bg-muted/20">
-            <label className="text-xs font-medium block mb-2">Загрузчик + очистка в Markdown</label>
-            <div className="flex items-center gap-2">
-              <input
-                value={sourceDocumentId}
-                onChange={(e) => setSourceDocumentId(e.target.value)}
-                placeholder="ID документа (documents.id)"
-                className="flex-1 h-9 px-2 border rounded-md bg-background text-xs"
-              />
-              <Button
-                size="sm"
-                variant="outline"
-                disabled={!sourceDocumentId.trim() || isIngestRunning}
-                onClick={() => void handleIngestDocument()}
-              >
-                {isIngestRunning ? <Loader2 className="h-4 w-4 animate-spin" /> : 'Импортировать'}
-              </Button>
-            </div>
-            <p className="text-[11px] text-muted-foreground mt-2">
-              Комбайн: обработка документа + очистка + вставка готового Markdown в поле ниже.
-            </p>
-          </div>
           <label className="text-sm font-medium mb-2 block">Входные данные</label>
           <textarea
             value={inputText}
@@ -346,10 +326,45 @@ export const WorkflowStepView: React.FC<WorkflowStepViewProps> = ({
             placeholder="Введите данные для начала workflow..."
             className="w-full min-h-[200px] p-3 border rounded-md bg-background text-sm resize-y"
           />
-          <Button onClick={handleSetInput} disabled={!inputText.trim()} className="mt-3">
-            <CheckCircle2 className="h-4 w-4 mr-2" />
-            Сохранить и продолжить
-          </Button>
+          <div className="flex items-center gap-2 mt-3">
+            <Button onClick={handleSetInput} disabled={!inputText.trim()}>
+              <CheckCircle2 className="h-4 w-4 mr-2" />
+              Сохранить и продолжить
+            </Button>
+            <Button
+              type="button"
+              size="sm"
+              variant="ghost"
+              className="text-xs text-muted-foreground"
+              onClick={() => setShowIngestTool(!showIngestTool)}
+            >
+              <Upload className="h-3.5 w-3.5 mr-1" />
+              Импорт из документа
+            </Button>
+          </div>
+          {showIngestTool && (
+            <div className="mt-3 rounded-md border p-3 bg-muted/20">
+              <p className="text-[11px] text-muted-foreground mb-2">
+                Загрузить содержимое документа из базы знаний (по ID) и вставить как Markdown в поле выше.
+              </p>
+              <div className="flex items-center gap-2">
+                <input
+                  value={sourceDocumentId}
+                  onChange={(e) => setSourceDocumentId(e.target.value)}
+                  placeholder="ID документа (documents.id)"
+                  className="flex-1 h-8 px-2 border rounded-md bg-background text-xs"
+                />
+                <Button
+                  size="sm"
+                  variant="outline"
+                  disabled={!sourceDocumentId.trim() || isIngestRunning}
+                  onClick={() => void handleIngestDocument()}
+                >
+                  {isIngestRunning ? <Loader2 className="h-4 w-4 animate-spin" /> : 'Импорт'}
+                </Button>
+              </div>
+            </div>
+          )}
         </Card>
       </div>
     );
