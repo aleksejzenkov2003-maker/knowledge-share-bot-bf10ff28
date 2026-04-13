@@ -23,6 +23,7 @@ interface WorkflowPanelProps {
 
 export const WorkflowPanel: React.FC<WorkflowPanelProps> = ({ projectId, userId }) => {
   const [selectedTemplateId, setSelectedTemplateId] = React.useState<string>('');
+  const [activeStageKey, setActiveStageKey] = React.useState<string | null>(null);
 
   const {
     templates,
