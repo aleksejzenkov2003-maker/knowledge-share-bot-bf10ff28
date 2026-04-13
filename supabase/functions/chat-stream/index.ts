@@ -274,8 +274,8 @@ serve(async (req) => {
       userId = user?.id || null;
     }
 
-    const reqBody: ChatRequest & { system_prompt_append?: string; context_folder_ids?: string[]; reputation_query?: string } = await req.json();
-    const { role_id, department_id, model, provider_id, message_history, attachments, is_department_chat, reply_to, system_prompt_append, context_folder_ids, reputation_query } = reqBody;
+    const reqBody: ChatRequest & { system_prompt_append?: string; context_folder_ids?: string[]; reputation_query?: string; force_provider?: string; force_model?: string } = await req.json();
+    const { role_id, department_id, model, provider_id, message_history, attachments, is_department_chat, reply_to, system_prompt_append, context_folder_ids, reputation_query, force_provider, force_model } = reqBody;
     let message = reqBody.message;
 
     if (!message && (!attachments || attachments.length === 0)) {
@@ -430,11 +430,30 @@ serve(async (req) => {
       }
     }
 
+    // Force provider override (used by workflow engine to force e.g. Perplexity for dossier)
+    if (force_provider) {
+      const fpKey = getEffectiveApiKey(force_provider, null);
+      if (fpKey) {
+        const defaultModels: Record<string, string> = {
+          perplexity: 'sonar-pro',
+          gemini: 'gemini-2.5-flash',
+          anthropic: 'claude-sonnet-4-6',
+          openai: 'gpt-4o',
+        };
+        providerConfig = {
+          provider_type: force_provider,
+          api_key: fpKey,
+          default_model: force_model || defaultModels[force_provider] || '',
+        };
+        console.log(`Force provider override: ${force_provider}, model: ${force_model || providerConfig.default_model}`);
+      }
+    }
+
     if (!providerConfig || !providerConfig.api_key) {
       throw new Error('No AI provider configured or API key missing');
     }
 
-    let finalModel = selectedModel || providerConfig.default_model;
+    let finalModel = force_model || selectedModel || providerConfig.default_model;
 
     // =====================================================
     // "SMART LIBRARIAN" RAG - Hybrid Search with Claude Re-ranking
