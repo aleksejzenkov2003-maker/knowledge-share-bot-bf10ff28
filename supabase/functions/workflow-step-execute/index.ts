@@ -651,7 +651,7 @@ serve(async (req) => {
     // Extract clean reputation search query from workingInput for agents with reputation API
     // This prevents the reputation API from searching with the full workflow instruction text
     const wi = (workingInput || {}) as Record<string, unknown>;
-    const repQuery = (wi.inn as string) || (wi.ogrn as string) || (wi.company_name as string) || (wi.applicant as string) || (wi.name as string) || '';
+    const repQuery = (wi.inn as string) || (wi.ogrn as string) || (wi.company_name as string) || (wi.applicant as string) || (wi.name as string) || (typeof wi.content === 'string' ? wi.content : '') || '';
     if (repQuery.trim()) {
       chatBody.reputation_query = repQuery.trim();
       console.log(`Workflow: reputation_query = "${repQuery.trim()}"`);
