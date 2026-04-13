@@ -1056,6 +1056,12 @@ serve(async (req) => {
       }
       // Remove postal codes & legal forms
       cleaned = cleaned.replace(/\b\d{6}\b/g, '');
+      // Try to extract company name after legal form anywhere in text (e.g. "ТЗ Мангуст ООО Мангуст ...")
+      const legalFormInline = cleaned.match(/(?:ООО|ОАО|ЗАО|ПАО|АО|ИП)\s+([А-ЯЁA-Za-zа-яё\-]+(?:\s+[А-ЯЁA-Za-zа-яё\-]+)?)/i);
+      if (legalFormInline) {
+        // Use the company name found after legal form
+        return legalFormInline[0].replace(/\s+/g, ' ').trim();
+      }
       cleaned = cleaned.replace(/^(Общество с ограниченной ответственностью|Акционерное общество|Закрытое акционерное общество|Публичное акционерное общество|Индивидуальный предприниматель|ООО|ОАО|ЗАО|ПАО|АО|ИП)\s*/i, '');
       const parts = cleaned.split(',').map((p: string) => p.trim()).filter(Boolean);
       if (parts.length > 2) {
