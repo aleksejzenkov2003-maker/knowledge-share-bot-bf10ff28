@@ -209,6 +209,33 @@ export const WorkflowNodeConfigPanel: React.FC<WorkflowNodeConfigPanelProps> = (
             />
           </div>
 
+          <div className="grid grid-cols-2 gap-2">
+            <div className="space-y-1.5">
+              <Label className="text-xs">Этап (группа)</Label>
+              <Input
+                value={stageGroup}
+                onChange={(e) => {
+                  setStageGroup(e.target.value);
+                  markDirty();
+                }}
+                className="h-8 text-xs"
+                placeholder="Напр. Анализ"
+              />
+            </div>
+            <div className="space-y-1.5">
+              <Label className="text-xs">Порядок этапа</Label>
+              <Input
+                type="number"
+                value={stageOrder}
+                onChange={(e) => {
+                  setStageOrder(parseInt(e.target.value) || 0);
+                  markDirty();
+                }}
+                className="h-8 text-xs"
+              />
+            </div>
+          </div>
+
           <Separator />
 
           {nodeType === 'input' && (
