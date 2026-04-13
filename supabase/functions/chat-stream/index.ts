@@ -1454,7 +1454,8 @@ serve(async (req) => {
     // If role has reputation enabled and it's the primary function,
     // return results directly without calling any LLM
     // =====================================================
-    const isReputationOnlyRole = externalApis?.reputation?.enabled && folderIds.length === 0;
+    // In workflow mode (reputation_query set) we always pass data through LLM for analysis
+    const isReputationOnlyRole = externalApis?.reputation?.enabled && folderIds.length === 0 && !reputation_query;
     
     if (isReputationOnlyRole) {
       const responseTimeMs = Date.now() - startTime;
