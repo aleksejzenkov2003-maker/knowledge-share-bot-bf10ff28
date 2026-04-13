@@ -538,7 +538,7 @@ export const WorkflowStepView: React.FC<WorkflowStepViewProps> = ({
           {/* Two-doc tabs */}
           {hasTwoDocs && (
             <>
-              <TabsContent value="client_kp" className="flex-1 min-h-0 overflow-y-auto px-4 pb-4 mt-0">
+              <TabsContent value="client_kp" className="flex-1 min-h-0 overflow-auto px-4 pb-4 mt-0">
                 <div className="flex items-center gap-2 mb-2">
                   <Button size="sm" variant="outline" onClick={handleDownloadDocx}>
                     <Download className="h-4 w-4 mr-1" />
@@ -554,7 +554,7 @@ export const WorkflowStepView: React.FC<WorkflowStepViewProps> = ({
                   hasUnsavedChanges={editedContent !== null}
                 />
               </TabsContent>
-              <TabsContent value="employee_report" className="flex-1 min-h-0 overflow-y-auto px-4 pb-4 mt-0">
+              <TabsContent value="employee_report" className="flex-1 min-h-0 overflow-auto px-4 pb-4 mt-0">
                 <WorkflowResultEditor
                   content={internalReport!}
                   isEditable={false}
@@ -569,7 +569,7 @@ export const WorkflowStepView: React.FC<WorkflowStepViewProps> = ({
 
           {/* Single result tab */}
           {!hasTwoDocs && (
-            <TabsContent value="result" className="flex-1 min-h-0 overflow-y-auto px-4 pb-4 mt-0">
+            <TabsContent value="result" className="flex-1 min-h-0 overflow-auto px-4 pb-4 mt-0">
               {userEdited && rawOut && (
                 <div className="flex justify-end mb-2">
                   <Button
@@ -595,7 +595,7 @@ export const WorkflowStepView: React.FC<WorkflowStepViewProps> = ({
           )}
 
           {/* JSON tab */}
-          <TabsContent value="structured" className="flex-1 min-h-0 overflow-y-auto px-4 pb-4 mt-0">
+          <TabsContent value="structured" className="flex-1 min-h-0 overflow-auto px-4 pb-4 mt-0">
             <Card className="p-3 mt-2">
               <pre className="text-xs font-mono whitespace-pre-wrap break-all">
                 {stringifyPayload(compareRaw ? rawOut : userEdited ?? rawOut)}
@@ -605,7 +605,7 @@ export const WorkflowStepView: React.FC<WorkflowStepViewProps> = ({
 
           {/* Screenshots tab */}
           {screenshotArtifacts.length > 0 && (
-            <TabsContent value="screenshots" className="flex-1 min-h-0 overflow-y-auto px-4 pb-4 mt-0">
+            <TabsContent value="screenshots" className="flex-1 min-h-0 overflow-auto px-4 pb-4 mt-0">
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mt-2">
                 {screenshotArtifacts.map((artifact) => {
                   const meta = artifact.metadata as Record<string, unknown> | null;
