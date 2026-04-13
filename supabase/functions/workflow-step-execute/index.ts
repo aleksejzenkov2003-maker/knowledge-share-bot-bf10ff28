@@ -173,38 +173,74 @@ function evaluateQualityOrchestration(
 }
 
 function deriveStructuredInputFromContent(content: string): Record<string, unknown> {
-  const normalized = content.replace(/\s+/g, ' ').trim();
+  const normalized = content.replace(/\r\n/g, '\n').trim();
   if (!normalized) return {};
 
-  const result: Record<string, unknown> = {
-    content: normalized,
+  const result: Record<string, unknown> = { content: normalized };
+
+  // Helper: extract labeled value (e.g. "Контактное лицо: Марат" → "Марат")
+  const extractLabel = (pattern: RegExp): string | null => {
+    const m = normalized.match(pattern);
+    return m?.[1]?.trim() || null;
   };
 
-  // Company name: take text before "регистрирует"/"регистрация"/"ТЗ" markers when possible
-  const companyMatch =
-    normalized.match(/^(.*?)(?:\s+регистриру(?:ет|ют|ется)\b)/i) ||
-    normalized.match(/^(.*?)(?:\s+регистрац(?:ия|ию)\b)/i) ||
-    normalized.match(/^(.*?)(?:\s+тз\b|(?:\s+товарн(?:ый|ого)\s+знак))/i);
-  if (companyMatch?.[1]) {
-    const companyName = companyMatch[1].trim().replace(/[.,;:]$/, '');
-    if (companyName.length >= 3) {
-      result.company_name = companyName;
-      result.applicant = companyName;
+  // Parse labeled fields commonly found in trademark request forms
+  const contactPerson = extractLabel(/контактное\s+лицо\s*[:\-–]\s*(.+?)(?:\n|телефон|email|$)/i);
+  if (contactPerson) result.contact_person = contactPerson;
+
+  const phone = extractLabel(/(?:телефон|тел\.?)\s*(?:\/\s*email)?\s*[:\-–]\s*(.+?)(?:\n|основн|описание|$)/i);
+  if (phone) result.phone = phone;
+
+  const email = extractLabel(/(?:email|e-mail|эл\.?\s*почта)\s*[:\-–]\s*(\S+)/i);
+  if (email) result.email = email;
+
+  const goodsServices = extractLabel(/основны[ей]\s+товар[ыа]\s+и\s+услуг[иа]\s*[:\-–]\s*(.+?)(?:\n|[A-ZА-ЯЁ]{3,}|описание|$)/i);
+  if (goodsServices) result.goods_services = goodsServices;
+
+  const designationDesc = extractLabel(/описание\s+знака\s*[:\-–]\s*(.+)/is);
+  if (designationDesc) result.designation_description = designationDesc.replace(/\s+/g, ' ').trim();
+
+  // Trademark / brand: quoted «…» or "…", or standalone ALL-CAPS word (≥3 chars)
+  const quotedTm = normalized.match(/[«"]([^"»]{2,80})[»"]/u)?.[1];
+  if (quotedTm) {
+    result.trademark = quotedTm.trim();
+    result.designation = quotedTm.trim();
+  }
+
+  if (!result.trademark) {
+    const stopWords = new Set([
+      'ИНН', 'ОГРН', 'ИП', 'ООО', 'ОАО', 'ЗАО', 'АО', 'ПАО', 'НКО',
+      'МКТУ', 'ФИПС', 'JSON', 'DONE',
+    ]);
+    const allCaps = normalized.match(/\b([A-ZА-ЯЁ]{3,40})\b/gu) || [];
+    const brand = allCaps.find((w) => !stopWords.has(w));
+    if (brand) {
+      result.trademark = brand;
+      result.designation = brand;
     }
   }
 
-  // Trademark name: quoted or after "ТЗ/товарный знак"
-  const trademarkMatch =
-    normalized.match(/[«"]([^"»]{2,80})[»"]/u) ||
-    normalized.match(/(?:\bтз\b|товарн(?:ый|ого)\s+знак)\s+([a-zA-Zа-яА-Я0-9\-_.]{2,80})/u);
-  if (trademarkMatch?.[1]) {
-    result.trademark = trademarkMatch[1].trim();
-    result.designation = trademarkMatch[1].trim();
-    result['обозначение'] = trademarkMatch[1].trim();
+  // Company name from legal forms or "компания:" label
+  const legalMatch = normalized.match(/\b(ООО|ОАО|ЗАО|АО|ПАО|ИП|НКО)\s+[«"]?([^»",.;\n]{2,120})[»"]?/iu);
+  if (legalMatch) {
+    result.company_name = legalMatch[0].trim();
+    result.applicant = legalMatch[0].trim();
+  }
+  if (!result.company_name) {
+    const labeledCompany = extractLabel(/(?:компания|заявитель|организация|наименование)\s*[:\-–]\s*([^\n,.;]{3,120})/i);
+    if (labeledCompany) {
+      result.company_name = labeledCompany;
+      result.applicant = labeledCompany;
+    }
+  }
+  // If still no company, use trademark as a proxy (common for brand-centric requests)
+  if (!result.company_name && result.trademark) {
+    result.company_name = result.trademark;
   }
 
-  // Very rough goods/services fallback so downstream prompt has context
-  result.goods_services = normalized;
+  if (!result.goods_services) {
+    result.goods_services = normalized;
+  }
 
   return result;
 }
@@ -212,16 +248,44 @@ function deriveStructuredInputFromContent(content: string): Record<string, unkno
 function extractReputationQuery(seed: string): string | null {
   const txt = seed.replace(/\s+/g, ' ').trim();
   if (!txt) return null;
-  const inn = txt.match(/\b\d{10,12}\b/)?.[0];
+
+  // 1. INN (10 or 12 digits)
+  const inn = txt.match(/\b\d{10}(?:\d{2})?\b/)?.[0];
   if (inn) return inn;
-  const ogrn = txt.match(/\b\d{13,15}\b/)?.[0];
+
+  // 2. OGRN (13 or 15 digits)
+  const ogrn = txt.match(/\b\d{13}(?:\d{2})?\b/)?.[0];
   if (ogrn) return ogrn;
-  const quoted = txt.match(/[«"]([^"»]{3,120})[»"]/u)?.[1];
+
+  // 3. Quoted names «АВАНТЕРМ» / "АВАНТЕРМ"
+  const quoted = txt.match(/[«"]([^"»]{2,120})[»"]/u)?.[1];
   if (quoted) return quoted.trim();
-  const company =
-    txt.match(/\b(ООО|АО|ПАО|ИП)\s+[^\n,.;]{2,120}/iu)?.[0] ||
-    txt.match(/(?:компания|заявитель)\s*[:\-]?\s*([^\n,.;]{3,120})/iu)?.[1];
-  if (company) return company.trim();
+
+  // 4. Legal-form prefixed names: ООО «Рога», ИП Иванов
+  const legalForm =
+    txt.match(/\b(ООО|ОАО|ЗАО|АО|ПАО|ИП|НКО)\s+[«"]?([^»",.;\n]{2,120})[»"]?/iu);
+  if (legalForm) return legalForm[0].trim();
+
+  // 5. All-caps brand names (≥3 Cyrillic/Latin uppercase chars), e.g. АВАНТЕРМ
+  const allCaps = txt.match(/\b([A-ZА-ЯЁ]{3,40})\b/u);
+  if (allCaps) {
+    const candidate = allCaps[1];
+    const stopWords = new Set([
+      'ИНН', 'ОГРН', 'ИП', 'ООО', 'ОАО', 'ЗАО', 'АО', 'ПАО', 'НКО',
+      'МКТУ', 'ФИПС', 'ТЗ', 'КП', 'RAG', 'JSON', 'DONE', 'POST', 'GET',
+    ]);
+    if (!stopWords.has(candidate)) return candidate;
+  }
+
+  // 6. Labeled field: "компания:", "заявитель:", "название:"
+  const labeled =
+    txt.match(/(?:компания|заявитель|название|бренд|наименование)\s*[:\-–]\s*([^\n,.;]{3,120})/iu)?.[1];
+  if (labeled) return labeled.trim();
+
+  // 7. Fallback — first meaningful phrase (skip very long prompt text)
+  const firstLine = txt.split(/[.\n]/).find((s) => s.trim().length >= 3 && s.trim().length <= 120);
+  if (firstLine) return firstLine.trim();
+
   return txt.slice(0, 120);
 }
 
@@ -751,6 +815,22 @@ serve(async (req) => {
     if (contextFolderIds.length > 0) chatBody.context_folder_ids = contextFolderIds;
     if (systemPromptAppend.trim()) chatBody.system_prompt_append = systemPromptAppend.trim();
 
+    // When reputation is enabled, always pass reputation_query so chat-stream
+    // does NOT short-circuit into "reputation-only" mode that skips the LLM.
+    if (reputationEnabled) {
+      const wi = (workingInput || {}) as Record<string, unknown>;
+      const repSeed = [
+        String(wi.company_name || ''),
+        String(wi.trademark || ''),
+        String(wi.applicant || ''),
+        String(wi.designation || ''),
+        String(wi.inn || ''),
+        String(wi.content || ''),
+      ].filter(Boolean).join(' ');
+      const repQ = extractReputationQuery(repSeed);
+      if (repQ) chatBody.reputation_query = repQ;
+    }
+
     const chatResponse = await fetch(chatStreamUrl, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', 'Authorization': authHeader },
@@ -811,9 +891,15 @@ serve(async (req) => {
             }
           }
 
-          // ── Dossier pipeline: base dossier -> reputation enrichment -> final dossier ──
+          // ── Dossier pipeline: second enrichment pass ──
+          // The first chat-stream call already included reputation_query (when enabled),
+          // so the LLM received reputation data as context. This second pass is only
+          // needed when the first call's output indicates it couldn't find company data
+          // (e.g. the LLM mentions it couldn't find the company in reputation DB)
+          // and we want to try a refined query extracted from the LLM's own output.
           const isDossierStep = String(templateStep?.name || '').toLowerCase().includes('досье');
-          if (isDossierStep && reputationEnabled && agentRoleId) {
+          const alreadyHasReputation = Boolean(metadata?.reputation_company_data || metadata?.reputation_enriched);
+          if (isDossierStep && reputationEnabled && agentRoleId && !alreadyHasReputation) {
             const repQuerySeed = [
               fullContent,
               String((workingInput as Record<string, unknown>)?.company_name || ''),
@@ -822,32 +908,37 @@ serve(async (req) => {
             ].filter(Boolean).join(' ');
             const reputationQuery = extractReputationQuery(repQuerySeed);
             if (reputationQuery) {
-              const enrichBody: Record<string, unknown> = {
-                message: [
-                  'Сформируй финальное досье клиента на основе текущего черновика.',
-                  'Дополни его результатами Reputation API и сохрани структуру ответа этапа.',
-                  '',
-                  'Черновик досье:',
-                  fullContent.slice(0, 12000),
-                ].join('\n'),
-                role_id: agentRoleId,
-                project_id: projectId,
-                reputation_query: reputationQuery,
-              };
-              if (contextFolderIds.length > 0) enrichBody.context_folder_ids = contextFolderIds;
-              if (systemPromptAppend.trim()) enrichBody.system_prompt_append = systemPromptAppend.trim();
+              try {
+                const enrichBody: Record<string, unknown> = {
+                  message: [
+                    'Сформируй финальное досье клиента на основе текущего черновика.',
+                    'Дополни его результатами Reputation API и сохрани структуру ответа этапа.',
+                    'Если API не вернул данных, сохрани имеющуюся информацию и укажи что данные из открытых реестров не найдены.',
+                    '',
+                    'Черновик досье:',
+                    fullContent.slice(0, 12000),
+                  ].join('\n'),
+                  role_id: agentRoleId,
+                  project_id: projectId,
+                  reputation_query: reputationQuery,
+                };
+                if (contextFolderIds.length > 0) enrichBody.context_folder_ids = contextFolderIds;
+                if (systemPromptAppend.trim()) enrichBody.system_prompt_append = systemPromptAppend.trim();
 
-              const enrichResp = await fetch(chatStreamUrl, {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json', 'Authorization': authHeader },
-                body: JSON.stringify(enrichBody),
-              });
-              if (enrichResp.ok) {
-                const enriched = await readSseContent(enrichResp);
-                if (enriched.content.trim()) {
-                  fullContent = enriched.content.trim();
-                  metadata = { ...metadata, ...enriched.metadata, reputation_enriched: true };
+                const enrichResp = await fetch(chatStreamUrl, {
+                  method: 'POST',
+                  headers: { 'Content-Type': 'application/json', 'Authorization': authHeader },
+                  body: JSON.stringify(enrichBody),
+                });
+                if (enrichResp.ok) {
+                  const enriched = await readSseContent(enrichResp);
+                  if (enriched.content.trim() && enriched.content.trim().length > 100) {
+                    fullContent = enriched.content.trim();
+                    metadata = { ...metadata, ...enriched.metadata, reputation_enriched: true };
+                  }
                 }
+              } catch (enrichErr) {
+                console.error('Dossier enrichment error (non-fatal):', enrichErr);
               }
             }
           }

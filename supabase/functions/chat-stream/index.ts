@@ -1473,8 +1473,9 @@ serve(async (req) => {
     // If role has reputation enabled and it's the primary function,
     // return results directly without calling any LLM
     // =====================================================
-    // In workflow mode (reputation_query set) we always pass data through LLM for analysis
-    const isReputationOnlyRole = externalApis?.reputation?.enabled && folderIds.length === 0 && !reputation_query;
+    // In workflow mode (reputation_query set OR message_history present) always pass through LLM
+    const hasWorkflowContext = !!reputation_query || (Array.isArray(message_history) && message_history.length > 0);
+    const isReputationOnlyRole = externalApis?.reputation?.enabled && folderIds.length === 0 && !hasWorkflowContext;
     
     if (isReputationOnlyRole) {
       const responseTimeMs = Date.now() - startTime;
