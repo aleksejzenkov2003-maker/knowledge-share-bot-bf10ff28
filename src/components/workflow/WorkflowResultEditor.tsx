@@ -84,18 +84,20 @@ export const WorkflowResultEditor: React.FC<WorkflowResultEditorProps> = ({
   }
 
   return (
-    <Card className="p-4 mt-3 min-w-0">
+    <Card className="mt-3 flex min-h-full min-w-0 flex-col p-4">
       {isEditable && (
-        <div className="flex justify-end mb-2">
+        <div className="flex justify-end mb-2 shrink-0">
           <Button size="sm" variant="outline" onClick={() => setIsEditing(true)}>
             Редактировать
           </Button>
         </div>
       )}
-      <div className="prose prose-sm dark:prose-invert max-w-none min-w-0 break-words [overflow-wrap:anywhere]">
-        <ReactMarkdown remarkPlugins={[remarkGfm]} components={markdownComponents}>
-          {content}
-        </ReactMarkdown>
+      <div className="min-w-0 flex-1 overflow-auto">
+        <div className="prose prose-sm dark:prose-invert max-w-none min-w-0 break-words [overflow-wrap:anywhere]">
+          <ReactMarkdown remarkPlugins={[remarkGfm]} components={markdownComponents}>
+            {content}
+          </ReactMarkdown>
+        </div>
       </div>
     </Card>
   );
