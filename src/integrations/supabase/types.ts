@@ -1372,6 +1372,30 @@ export type Database = {
           },
         ]
       }
+      project_folders: {
+        Row: {
+          created_at: string
+          created_by: string | null
+          id: string
+          name: string
+          updated_at: string
+        }
+        Insert: {
+          created_at?: string
+          created_by?: string | null
+          id?: string
+          name: string
+          updated_at?: string
+        }
+        Update: {
+          created_at?: string
+          created_by?: string | null
+          id?: string
+          name?: string
+          updated_at?: string
+        }
+        Relationships: []
+      }
       project_members: {
         Row: {
           agent_id: string | null
@@ -1677,6 +1701,7 @@ export type Database = {
           created_by: string | null
           department_id: string | null
           description: string | null
+          folder_id: string | null
           id: string
           name: string
           settings: Json | null
@@ -1688,6 +1713,7 @@ export type Database = {
           created_by?: string | null
           department_id?: string | null
           description?: string | null
+          folder_id?: string | null
           id?: string
           name: string
           settings?: Json | null
@@ -1699,6 +1725,7 @@ export type Database = {
           created_by?: string | null
           department_id?: string | null
           description?: string | null
+          folder_id?: string | null
           id?: string
           name?: string
           settings?: Json | null
@@ -1718,6 +1745,13 @@ export type Database = {
             columns: ["department_id"]
             isOneToOne: false
             referencedRelation: "departments"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "projects_folder_id_fkey"
+            columns: ["folder_id"]
+            isOneToOne: false
+            referencedRelation: "project_folders"
             referencedColumns: ["id"]
           },
         ]
