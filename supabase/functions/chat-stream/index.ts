@@ -1056,6 +1056,12 @@ serve(async (req) => {
       }
       // Remove postal codes & legal forms
       cleaned = cleaned.replace(/\b\d{6}\b/g, '');
+      // Try to extract company name after legal form anywhere in text (e.g. "ТЗ Мангуст ООО Мангуст ...")
+      const legalFormInline = cleaned.match(/(?:ООО|ОАО|ЗАО|ПАО|АО|ИП)\s+([А-ЯЁA-Za-zа-яё\-]+(?:\s+[А-ЯЁA-Za-zа-яё\-]+)?)/i);
+      if (legalFormInline) {
+        // Use the company name found after legal form
+        return legalFormInline[0].replace(/\s+/g, ' ').trim();
+      }
       cleaned = cleaned.replace(/^(Общество с ограниченной ответственностью|Акционерное общество|Закрытое акционерное общество|Публичное акционерное общество|Индивидуальный предприниматель|ООО|ОАО|ЗАО|ПАО|АО|ИП)\s*/i, '');
       const parts = cleaned.split(',').map((p: string) => p.trim()).filter(Boolean);
       if (parts.length > 2) {
@@ -1359,11 +1365,15 @@ serve(async (req) => {
             const results = Array.isArray(searchData) ? searchData : (searchData.Items || searchData.Results || searchData.items || []);
             console.log(`Reputation: Got ${results.length} search results`);
             
-            if (results.length > 1) {
+            if (results.length > 1 && !reputation_query) {
+              // In interactive mode, show selection list
               reputationSearchResults = results.slice(0, 10);
               console.log(`Reputation: ${results.length} results, sending for selection`);
-            } else if (results.length === 1) {
-              const firstResult = results[0];
+            } else if (results.length >= 1) {
+              // In workflow mode (reputation_query set) or single result — auto-select first
+              const firstResult = reputation_query && results.length > 1
+                ? results[0]  // Auto-select first in workflow mode
+                : results[0];
               const entityType = (firstResult.Type || 'Company').toLowerCase();
               const cardType = entityType === 'entrepreneur' ? 'entrepreneur' : entityType === 'person' ? 'person' : 'company';
               
