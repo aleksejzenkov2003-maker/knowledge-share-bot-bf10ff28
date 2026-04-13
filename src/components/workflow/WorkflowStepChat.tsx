@@ -1,6 +1,5 @@
 import React from 'react';
 import { ProjectStepMessage } from '@/types/workflow';
-import { ScrollArea } from '@/components/ui/scroll-area';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Card } from '@/components/ui/card';
@@ -38,9 +37,9 @@ export const WorkflowStepChat: React.FC<WorkflowStepChatProps> = ({
   };
 
   return (
-    <div className="flex min-h-0 h-full flex-col border rounded-md overflow-hidden">
-      <ScrollArea className="min-h-0 flex-1">
-        <div className="space-y-3">
+    <div className="flex min-h-0 h-full min-w-0 flex-col overflow-hidden rounded-md border">
+      <div className="min-h-0 flex-1 overflow-auto p-4">
+        <div className="space-y-3 min-w-0">
           {messages.map((msg) => (
             <div
               key={msg.id}
@@ -55,10 +54,10 @@ export const WorkflowStepChat: React.FC<WorkflowStepChatProps> = ({
                 </div>
               )}
               <Card className={cn(
-                'p-3 max-w-[80%] text-sm',
+                'p-3 max-w-[80%] text-sm min-w-0',
                 msg.message_role === 'user' ? 'bg-primary text-primary-foreground' : 'bg-muted'
               )}>
-                <div className="prose prose-sm dark:prose-invert max-w-none">
+                <div className="prose prose-sm dark:prose-invert max-w-none break-words">
                   <ReactMarkdown
                     remarkPlugins={[remarkGfm]}
                     components={{
@@ -88,8 +87,8 @@ export const WorkflowStepChat: React.FC<WorkflowStepChatProps> = ({
               <div className="w-6 h-6 rounded-full bg-primary/10 flex items-center justify-center flex-shrink-0 mt-1">
                 <Bot className="h-3 w-3 text-primary" />
               </div>
-              <Card className="p-3 max-w-[80%] text-sm bg-muted">
-                <div className="prose prose-sm dark:prose-invert max-w-none">
+              <Card className="p-3 max-w-[80%] text-sm bg-muted min-w-0">
+                <div className="prose prose-sm dark:prose-invert max-w-none break-words">
                   <ReactMarkdown
                     remarkPlugins={[remarkGfm]}
                     components={{
@@ -125,9 +124,9 @@ export const WorkflowStepChat: React.FC<WorkflowStepChatProps> = ({
 
           <div ref={messagesEndRef} />
         </div>
-      </ScrollArea>
+      </div>
 
-      <div className="p-3 border-t flex gap-2">
+      <div className="p-3 border-t flex gap-2 shrink-0">
         <Input
           value={inputValue}
           onChange={e => setInputValue(e.target.value)}
