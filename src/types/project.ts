@@ -14,18 +14,28 @@ import type { Json } from '@/integrations/supabase/types';
  // Тип записи памяти
  export type ProjectMemoryType = 'fact' | 'decision' | 'requirement' | 'todo';
  
- // Проект
- export interface Project {
-   id: string;
-   name: string;
-   description: string | null;
-   created_by: string | null;
-   department_id: string | null;
-   status: ProjectStatus;
+// Папка проектов
+export interface ProjectFolder {
+  id: string;
+  name: string;
+  created_by: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+// Проект
+export interface Project {
+  id: string;
+  name: string;
+  description: string | null;
+  created_by: string | null;
+  department_id: string | null;
+  folder_id: string | null;
+  status: ProjectStatus;
   settings: Json;
-   created_at: string;
-   updated_at: string;
- }
+  created_at: string;
+  updated_at: string;
+}
  
  // Участник проекта
  export interface ProjectMember {
