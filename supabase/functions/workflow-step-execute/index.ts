@@ -172,6 +172,88 @@ function evaluateQualityOrchestration(
   return { passed, errors };
 }
 
+function deriveStructuredInputFromContent(content: string): Record<string, unknown> {
+  const normalized = content.replace(/\s+/g, ' ').trim();
+  if (!normalized) return {};
+
+  const result: Record<string, unknown> = {
+    content: normalized,
+  };
+
+  // Company name: take text before "регистрирует"/"регистрация"/"ТЗ" markers when possible
+  const companyMatch =
+    normalized.match(/^(.*?)(?:\s+регистриру(?:ет|ют|ется)\b)/i) ||
+    normalized.match(/^(.*?)(?:\s+регистрац(?:ия|ию)\b)/i) ||
+    normalized.match(/^(.*?)(?:\s+тз\b|(?:\s+товарн(?:ый|ого)\s+знак))/i);
+  if (companyMatch?.[1]) {
+    const companyName = companyMatch[1].trim().replace(/[.,;:]$/, '');
+    if (companyName.length >= 3) {
+      result.company_name = companyName;
+      result.applicant = companyName;
+    }
+  }
+
+  // Trademark name: quoted or after "ТЗ/товарный знак"
+  const trademarkMatch =
+    normalized.match(/[«"]([^"»]{2,80})[»"]/u) ||
+    normalized.match(/(?:\bтз\b|товарн(?:ый|ого)\s+знак)\s+([a-zA-Zа-яА-Я0-9\-_.]{2,80})/u);
+  if (trademarkMatch?.[1]) {
+    result.trademark = trademarkMatch[1].trim();
+    result.designation = trademarkMatch[1].trim();
+    result['обозначение'] = trademarkMatch[1].trim();
+  }
+
+  // Very rough goods/services fallback so downstream prompt has context
+  result.goods_services = normalized;
+
+  return result;
+}
+
+function extractReputationQuery(seed: string): string | null {
+  const txt = seed.replace(/\s+/g, ' ').trim();
+  if (!txt) return null;
+  const inn = txt.match(/\b\d{10,12}\b/)?.[0];
+  if (inn) return inn;
+  const ogrn = txt.match(/\b\d{13,15}\b/)?.[0];
+  if (ogrn) return ogrn;
+  const quoted = txt.match(/[«"]([^"»]{3,120})[»"]/u)?.[1];
+  if (quoted) return quoted.trim();
+  const company =
+    txt.match(/\b(ООО|АО|ПАО|ИП)\s+[^\n,.;]{2,120}/iu)?.[0] ||
+    txt.match(/(?:компания|заявитель)\s*[:\-]?\s*([^\n,.;]{3,120})/iu)?.[1];
+  if (company) return company.trim();
+  return txt.slice(0, 120);
+}
+
+async function readSseContent(resp: Response): Promise<{ content: string; metadata: Record<string, unknown> }> {
+  const reader = resp.body?.getReader();
+  if (!reader) return { content: '', metadata: {} };
+  const decoder = new TextDecoder();
+  let buf = '';
+  let content = '';
+  let metadata: Record<string, unknown> = {};
+  while (true) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    buf += decoder.decode(value, { stream: true });
+    const lines = buf.split('\n');
+    buf = lines.pop() || '';
+    for (const line of lines) {
+      if (!line.startsWith('data: ')) continue;
+      const raw = line.slice(6).trim();
+      if (!raw || raw === '[DONE]') continue;
+      try {
+        const p = JSON.parse(raw);
+        if (p.type === 'content' && p.content) content += String(p.content);
+        if (p.type === 'metadata' && typeof p === 'object') metadata = p as Record<string, unknown>;
+      } catch {
+        // ignore malformed chunks
+      }
+    }
+  }
+  return { content, metadata };
+}
+
 serve(async (req) => {
   if (req.method === 'OPTIONS') {
     return new Response('ok', { headers: corsHeaders });
@@ -313,9 +395,21 @@ serve(async (req) => {
     // ============ INPUT NODE ============
     if (nodeType === 'input') {
       // Input nodes just pass input_data as output_data
-      const outputData = workingInput && Object.keys(workingInput).length > 0
+      let outputData = workingInput && Object.keys(workingInput).length > 0
         ? workingInput
         : { content: message || '' };
+
+      const contentValue =
+        typeof (outputData as Record<string, unknown>)?.content === 'string'
+          ? String((outputData as Record<string, unknown>).content)
+          : '';
+      if (contentValue.trim()) {
+        // Normalize free-text user input into structured keys for downstream dossier steps.
+        outputData = {
+          ...deriveStructuredInputFromContent(contentValue),
+          ...(outputData as Record<string, unknown>),
+        };
+      }
 
       await supabase
         .from('project_workflow_steps')
@@ -637,6 +731,16 @@ serve(async (req) => {
     }
 
     const chatStreamUrl = `${supabaseUrl}/functions/v1/chat-stream`;
+    let reputationEnabled = false;
+    if (agentRoleId) {
+      const { data: roleCfg } = await supabase
+        .from('chat_roles')
+        .select('external_apis')
+        .eq('id', agentRoleId)
+        .single();
+      const apis = roleCfg?.external_apis as { reputation?: { enabled?: boolean } } | null;
+      reputationEnabled = Boolean(apis?.reputation?.enabled);
+    }
     const chatBody: Record<string, unknown> = {
       message: userMessage,
       message_history: messageHistory,
@@ -703,6 +807,47 @@ serve(async (req) => {
                     metadata = parsed;
                   }
                 } catch { /* skip */ }
+              }
+            }
+          }
+
+          // ── Dossier pipeline: base dossier -> reputation enrichment -> final dossier ──
+          const isDossierStep = String(templateStep?.name || '').toLowerCase().includes('досье');
+          if (isDossierStep && reputationEnabled && agentRoleId) {
+            const repQuerySeed = [
+              fullContent,
+              String((workingInput as Record<string, unknown>)?.company_name || ''),
+              String((workingInput as Record<string, unknown>)?.inn || ''),
+              String((workingInput as Record<string, unknown>)?.applicant || ''),
+            ].filter(Boolean).join(' ');
+            const reputationQuery = extractReputationQuery(repQuerySeed);
+            if (reputationQuery) {
+              const enrichBody: Record<string, unknown> = {
+                message: [
+                  'Сформируй финальное досье клиента на основе текущего черновика.',
+                  'Дополни его результатами Reputation API и сохрани структуру ответа этапа.',
+                  '',
+                  'Черновик досье:',
+                  fullContent.slice(0, 12000),
+                ].join('\n'),
+                role_id: agentRoleId,
+                project_id: projectId,
+                reputation_query: reputationQuery,
+              };
+              if (contextFolderIds.length > 0) enrichBody.context_folder_ids = contextFolderIds;
+              if (systemPromptAppend.trim()) enrichBody.system_prompt_append = systemPromptAppend.trim();
+
+              const enrichResp = await fetch(chatStreamUrl, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json', 'Authorization': authHeader },
+                body: JSON.stringify(enrichBody),
+              });
+              if (enrichResp.ok) {
+                const enriched = await readSseContent(enrichResp);
+                if (enriched.content.trim()) {
+                  fullContent = enriched.content.trim();
+                  metadata = { ...metadata, ...enriched.metadata, reputation_enriched: true };
+                }
               }
             }
           }
