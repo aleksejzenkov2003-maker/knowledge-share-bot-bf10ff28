@@ -19,7 +19,7 @@ export const AdminLayout: React.FC<AdminLayoutProps> = ({ children }) => {
           <AdminHeader />
           <main
             className={isProjectDetailRoute
-              ? 'flex-1 min-h-0 min-w-0 overflow-hidden p-0'
+              ? 'flex-1 min-h-0 min-w-0 overflow-auto p-0'
               : 'flex-1 min-h-0 min-w-0 overflow-auto p-6'}
           >
             {children}
