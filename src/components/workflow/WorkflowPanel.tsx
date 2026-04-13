@@ -3,7 +3,7 @@ import { useProjectWorkflow } from '@/hooks/useProjectWorkflow';
 import { WorkflowStepper } from './WorkflowStepper';
 import { WorkflowStepView } from './WorkflowStepView';
 import { WorkflowProgress } from './WorkflowProgress';
-import { WorkflowDocumentAssembly } from './WorkflowDocumentAssembly';
+
 import { WorkflowTemplate } from '@/types/workflow';
 import { Button } from '@/components/ui/button';
 import { Card } from '@/components/ui/card';
@@ -118,7 +118,7 @@ export const WorkflowPanel: React.FC<WorkflowPanelProps> = ({ projectId, userId 
         activeStepId={activeStepId}
         onSelectStep={setActiveStepId}
       />
-      <WorkflowDocumentAssembly steps={steps} />
+      
 
       {/* Active step content */}
       {isLoadingSteps ? (
@@ -140,6 +140,7 @@ export const WorkflowPanel: React.FC<WorkflowPanelProps> = ({ projectId, userId 
           onSetInputData={setStepInputData}
           onRetryStep={retryStep}
           onRetryFromStep={retryFromStep}
+          onSkipStep={skipStep}
           isFirstStep={activeStep.step_order === (steps[0]?.step_order ?? 0)}
         />
       ) : null}
