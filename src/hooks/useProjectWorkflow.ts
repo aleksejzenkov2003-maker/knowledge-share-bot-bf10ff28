@@ -257,6 +257,9 @@ export function useProjectWorkflow(projectId: string | null, userId: string | un
     }
   }, [projectId, userId, queryClient]);
 
+  // Ref to break circular dependency between handlePostStepCompletion and executeStep
+  const executeStepRef = useRef<(stepId: string, message?: string) => Promise<void>>();
+
   // Shared helper: after a step completes, auto-confirm condition/quality_check nodes
   // and auto-run ALL downstream targets (parallel fan-out).
   const handlePostStepCompletion = useCallback(async (stepId: string): Promise<boolean> => {
