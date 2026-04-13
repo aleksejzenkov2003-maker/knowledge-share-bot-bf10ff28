@@ -636,8 +636,92 @@ serve(async (req) => {
       }
     }
 
-    // Call chat-stream
+    // ============ TWO-PHASE DOSSIER: parse input → reputation search ============
+    // If agent has reputation enabled, first use LLM to extract structured data,
+    // then use the extracted company_name/inn for reputation API search.
     const chatStreamUrl = `${supabaseUrl}/functions/v1/chat-stream`;
+    let reputationQuery = '';
+
+    if (agentRoleId) {
+      const { data: agentRole } = await supabase
+        .from('chat_roles')
+        .select('external_apis')
+        .eq('id', agentRoleId)
+        .single();
+
+      const extApis = agentRole?.external_apis as { reputation?: { enabled?: boolean } } | null;
+      if (extApis?.reputation?.enabled) {
+        // Check if workingInput already has structured fields
+        const wi = (workingInput || {}) as Record<string, unknown>;
+        const hasStructured = !!(wi.inn || wi.ogrn || wi.company_name);
+
+        if (!hasStructured && typeof wi.content === 'string' && wi.content.trim()) {
+          // Phase 1: Ask LLM to parse raw text into structured data
+          console.log('Dossier Phase 1: Parsing raw input via LLM...');
+          const parseMessage = [
+            'Из следующего текста извлеки данные о клиенте. Верни СТРОГО JSON:',
+            '{"company_name":"название компании или null","inn":"ИНН или null","ogrn":"ОГРН или null","fio":"ФИО контактного лица или null","trademark":"название товарного знака или null","legal_form":"ООО/ИП/АО/ПАО или null"}',
+            '',
+            `Текст: "${wi.content}"`,
+          ].join('\n');
+
+          try {
+            const parseResp = await fetch(chatStreamUrl, {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json', 'Authorization': authHeader },
+              body: JSON.stringify({ message: parseMessage, project_id: projectId }),
+            });
+
+            if (parseResp.ok) {
+              const parseReader = parseResp.body?.getReader();
+              let parseContent = '';
+              if (parseReader) {
+                const dec = new TextDecoder();
+                let buf = '';
+                while (true) {
+                  const { done, value } = await parseReader.read();
+                  if (done) break;
+                  buf += dec.decode(value, { stream: true });
+                  const lines = buf.split('\n');
+                  buf = lines.pop() || '';
+                  for (const line of lines) {
+                    if (line.startsWith('data: ')) {
+                      const d = line.slice(6).trim();
+                      if (d === '[DONE]' || !d) continue;
+                      try { const p = JSON.parse(d); if (p.type === 'content' && p.content) parseContent += p.content; } catch {}
+                    }
+                  }
+                }
+              }
+
+              // Extract JSON from LLM response
+              try {
+                const jsonMatch = parseContent.match(/\{[\s\S]*\}/);
+                if (jsonMatch) {
+                  const parsed = JSON.parse(jsonMatch[0]);
+                  console.log('Dossier Phase 1 result:', JSON.stringify(parsed));
+                  // Merge parsed data into workingInput
+                  if (parsed.company_name) workingInput.company_name = parsed.company_name;
+                  if (parsed.inn) workingInput.inn = parsed.inn;
+                  if (parsed.ogrn) workingInput.ogrn = parsed.ogrn;
+                  if (parsed.fio) workingInput.fio = parsed.fio;
+                  if (parsed.trademark) workingInput.trademark = parsed.trademark;
+                  if (parsed.legal_form) workingInput.legal_form = parsed.legal_form;
+                  // Build reputation query from parsed data
+                  reputationQuery = parsed.inn || parsed.ogrn || 
+                    (parsed.legal_form && parsed.company_name ? `${parsed.legal_form} ${parsed.company_name}` : parsed.company_name) || '';
+                }
+              } catch (e) { console.error('Dossier Phase 1 parse error:', e); }
+            }
+          } catch (e) { console.error('Dossier Phase 1 error:', e); }
+        } else {
+          // Already have structured data — build reputation query directly
+          reputationQuery = (wi.inn as string) || (wi.ogrn as string) || (wi.company_name as string) || '';
+        }
+      }
+    }
+
+    // Call chat-stream (Phase 2 for dossier — now with structured data + reputation)
     const chatBody: Record<string, unknown> = {
       message: userMessage,
       message_history: messageHistory,
@@ -648,13 +732,9 @@ serve(async (req) => {
     if (contextFolderIds.length > 0) chatBody.context_folder_ids = contextFolderIds;
     if (systemPromptAppend.trim()) chatBody.system_prompt_append = systemPromptAppend.trim();
 
-    // Extract clean reputation search query from workingInput for agents with reputation API
-    // This prevents the reputation API from searching with the full workflow instruction text
-    const wi = (workingInput || {}) as Record<string, unknown>;
-    const repQuery = (wi.inn as string) || (wi.ogrn as string) || (wi.company_name as string) || (wi.applicant as string) || (wi.name as string) || (typeof wi.content === 'string' ? wi.content : '') || '';
-    if (repQuery.trim()) {
-      chatBody.reputation_query = repQuery.trim();
-      console.log(`Workflow: reputation_query = "${repQuery.trim()}"`);
+    if (reputationQuery.trim()) {
+      chatBody.reputation_query = reputationQuery.trim();
+      console.log(`Workflow: reputation_query = "${reputationQuery.trim()}"`);
     }
 
     const chatResponse = await fetch(chatStreamUrl, {
