@@ -106,8 +106,17 @@ export const WorkflowPanel: React.FC<WorkflowPanelProps> = ({ projectId, userId 
     );
   }
 
-  // Show active workflow
-  if (!activeWorkflow) return null;
+  const stages = useMemo(() => groupStepsByStage(steps), [steps]);
+
+  // Find the active stage based on activeStepId
+  const currentStage = useMemo(() => {
+    if (activeStageKey) return stages.find(s => s.key === activeStageKey);
+    return stages.find(s => s.steps.some(st => st.id === activeStepId));
+  }, [stages, activeStepId, activeStageKey]);
+
+  const handleSelectStage = (key: string) => {
+    setActiveStageKey(key);
+  };
 
   return (
     <div className="flex flex-col flex-1 min-h-0 overflow-hidden">
@@ -119,8 +128,33 @@ export const WorkflowPanel: React.FC<WorkflowPanelProps> = ({ projectId, userId 
         steps={steps}
         activeStepId={activeStepId}
         onSelectStep={setActiveStepId}
+        activeStageKey={activeStageKey}
+        onSelectStage={handleSelectStage}
       />
-      
+
+      {/* Sub-tabs for multi-step stages */}
+      {currentStage && currentStage.steps.length > 1 && (
+        <div className="flex items-center gap-1 px-4 py-1 border-b bg-background shrink-0 overflow-x-auto">
+          {currentStage.steps.map((s) => {
+            const stepName = s.template_step?.name || `Шаг ${s.step_order}`;
+            const isActive = s.id === activeStepId;
+            return (
+              <button
+                key={s.id}
+                onClick={() => setActiveStepId(s.id)}
+                className={cn(
+                  "px-2.5 py-1 text-xs rounded-md whitespace-nowrap transition-colors",
+                  isActive
+                    ? "bg-primary/10 text-primary font-medium border border-primary/30"
+                    : "text-muted-foreground hover:bg-muted"
+                )}
+              >
+                {stepName}
+              </button>
+            );
+          })}
+        </div>
+      )}
 
       {/* Active step content */}
       {isLoadingSteps ? (
