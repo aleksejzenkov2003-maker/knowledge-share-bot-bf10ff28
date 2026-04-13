@@ -497,61 +497,8 @@ export function useProjectWorkflow(projectId: string | null, userId: string | un
         queryClient.invalidateQueries({ queryKey: workflowQueryKeys.projectWorkflows(projectId) });
       }
 
-      const { data: stepFresh } = await supabase
-        .from('project_workflow_steps')
-        .select('workflow_id, template_step_id')
-        .eq('id', stepId)
-        .single();
-      if (stepFresh?.template_step_id && stepFresh.workflow_id) {
-        const { data: tmpl } = await supabase
-          .from('workflow_template_steps')
-          .select('node_type, require_approval')
-          .eq('id', stepFresh.template_step_id)
-          .single();
-        const nt = tmpl?.node_type as string | undefined;
-        const needApprove = tmpl?.require_approval !== false;
-        if ((nt === 'condition' || nt === 'quality_check') && !needApprove) {
-          const { data: row } = await supabase
-            .from('project_workflow_steps')
-            .select('user_edited_output, user_edits, approved_output, output_data')
-            .eq('id', stepId)
-            .single();
-          const approved =
-            (row?.approved_output as Record<string, unknown> | null) ||
-            (row?.user_edited_output as Record<string, unknown> | null) ||
-            (row?.user_edits as Record<string, unknown> | null) ||
-            (row?.output_data as Record<string, unknown>) ||
-            {};
-          const r = await confirmProjectWorkflowStep(supabase, {
-            workflowId: stepFresh.workflow_id as string,
-            stepId,
-            approvedPayload: approved,
-          });
-          if (!('error' in r)) {
-            queryClient.invalidateQueries({ queryKey: workflowQueryKeys.workflowSteps(stepFresh.workflow_id as string) });
-            const { data: allSteps } = await supabase
-              .from('project_workflow_steps')
-              .select('id, template_step_id')
-              .eq('workflow_id', stepFresh.workflow_id);
-            const candidate = (allSteps || []).find(
-              (s: { template_step_id?: string | null }) =>
-                s.template_step_id && r.targetTemplateIds.includes(s.template_step_id as string)
-            );
-            if (candidate?.template_step_id) {
-              const { data: trow } = await supabase
-                .from('workflow_template_steps')
-                .select('auto_run')
-                .eq('id', candidate.template_step_id)
-                .maybeSingle();
-              if (trow?.auto_run) {
-                setTimeout(() => executeStep(candidate.id as string), 400);
-              }
-            }
-            toast.success('Этап выполнен, ветка передана дальше');
-            return;
-          }
-        }
-      }
+      const handled = await handlePostStepCompletion(stepId);
+      if (handled) return;
 
       toast.success('Этап выполнен');
     } catch (error) {
