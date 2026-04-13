@@ -569,8 +569,8 @@ export const WorkflowStepView: React.FC<WorkflowStepViewProps> = ({
 
           {/* Single result tab */}
           {!hasTwoDocs && (
-            <TabsContent value="result" className="flex-1 min-h-0 min-w-0 mt-0 px-4 pb-4 overflow-hidden">
-              <div className="flex h-full min-h-0 min-w-0 flex-col overflow-hidden">
+            <TabsContent value="result" className="flex-1 min-h-0 min-w-0 mt-0 px-4 pb-4 overflow-auto">
+              <div className="flex min-h-0 min-w-0 flex-col">
                 {userEdited && rawOut && (
                   <div className="flex justify-end mb-2 shrink-0">
                     <Button
@@ -599,7 +599,7 @@ export const WorkflowStepView: React.FC<WorkflowStepViewProps> = ({
           )}
 
           {/* JSON tab */}
-          <TabsContent value="structured" className="flex-1 min-h-0 min-w-0 mt-0 px-4 pb-4 overflow-hidden">
+          <TabsContent value="structured" className="flex-1 min-h-0 min-w-0 mt-0 px-4 pb-4 overflow-auto">
             <div className="h-full min-h-0 min-w-0 overflow-auto pr-1">
               <Card className="p-3 mt-2 min-w-0">
                 <pre className="text-xs font-mono whitespace-pre-wrap break-all min-w-0 overflow-x-auto max-w-full"> 
