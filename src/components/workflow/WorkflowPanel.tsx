@@ -112,6 +112,7 @@ export const WorkflowPanel: React.FC<WorkflowPanelProps> = ({ projectId, userId 
       </div>
     );
   }
+  if (!activeWorkflow) return null;
 
   const handleSelectStage = (key: string) => {
     setActiveStageKey(key);
