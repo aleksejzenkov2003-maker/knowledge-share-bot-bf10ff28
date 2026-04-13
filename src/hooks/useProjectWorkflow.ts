@@ -683,6 +683,27 @@ export function useProjectWorkflow(projectId: string | null, userId: string | un
     }
   }, [activeWorkflowId, queryClient]);
 
+  const skipStep = useCallback(
+    async (stepId: string) => {
+      try {
+        const { error } = await supabase
+          .from('project_workflow_steps')
+          .update({
+            status: 'skipped' as WorkflowStepStatus,
+            completed_at: new Date().toISOString(),
+          } as never)
+          .eq('id', stepId);
+        if (error) throw error;
+        queryClient.invalidateQueries({ queryKey: workflowQueryKeys.workflowSteps(activeWorkflowId || '') });
+        toast.success('Шаг пропущен');
+      } catch (e) {
+        console.error(e);
+        toast.error('Не удалось пропустить шаг');
+      }
+    },
+    [activeWorkflowId, queryClient]
+  );
+
   return {
     // Templates
     templates,
@@ -715,6 +736,7 @@ export function useProjectWorkflow(projectId: string | null, userId: string | un
 
     retryStep,
     retryFromStep,
+    skipStep,
 
     // Step messages
     stepMessages,
