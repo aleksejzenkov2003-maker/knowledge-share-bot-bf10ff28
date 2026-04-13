@@ -20,17 +20,18 @@ import type { Json } from '@/integrations/supabase/types';
  // ============================================
  // Query Keys
  // ============================================
- export const projectQueryKeys = {
-   all: ['projects'] as const,
-   list: () => [...projectQueryKeys.all, 'list'] as const,
-   detail: (id: string) => [...projectQueryKeys.all, 'detail', id] as const,
-   members: (projectId: string) => [...projectQueryKeys.all, 'members', projectId] as const,
-   chats: (projectId: string) => [...projectQueryKeys.all, 'chats', projectId] as const,
-   messages: (chatId: string) => [...projectQueryKeys.all, 'messages', chatId] as const,
-   contextPacks: () => ['contextPacks'] as const,
-   projectContextPacks: (projectId: string) => [...projectQueryKeys.all, 'contextPacks', projectId] as const,
-   memory: (projectId: string) => [...projectQueryKeys.all, 'memory', projectId] as const,
- };
+export const projectQueryKeys = {
+  all: ['projects'] as const,
+  list: () => [...projectQueryKeys.all, 'list'] as const,
+  detail: (id: string) => [...projectQueryKeys.all, 'detail', id] as const,
+  members: (projectId: string) => [...projectQueryKeys.all, 'members', projectId] as const,
+  chats: (projectId: string) => [...projectQueryKeys.all, 'chats', projectId] as const,
+  messages: (chatId: string) => [...projectQueryKeys.all, 'messages', chatId] as const,
+  contextPacks: () => ['contextPacks'] as const,
+  projectContextPacks: (projectId: string) => [...projectQueryKeys.all, 'contextPacks', projectId] as const,
+  memory: (projectId: string) => [...projectQueryKeys.all, 'memory', projectId] as const,
+  folders: () => ['projectFolders'] as const,
+};
  
  // ============================================
  // Queries
