@@ -515,7 +515,10 @@ export function useProjectWorkflow(projectId: string | null, userId: string | un
       setStreamingContent('');
       abortControllerRef.current = null;
     }
-  }, [userId, activeWorkflowId, projectId, queryClient]);
+  }, [userId, activeWorkflowId, projectId, queryClient, handlePostStepCompletion]);
+
+  // Keep ref in sync for circular calls from handlePostStepCompletion
+  useEffect(() => { executeStepRef.current = executeStep; }, [executeStep]);
 
   // Stop execution
   const stopExecution = useCallback(() => {
