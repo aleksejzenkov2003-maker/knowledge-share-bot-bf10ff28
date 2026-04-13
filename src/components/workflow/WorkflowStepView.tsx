@@ -569,38 +569,44 @@ export const WorkflowStepView: React.FC<WorkflowStepViewProps> = ({
 
           {/* Single result tab */}
           {!hasTwoDocs && (
-            <TabsContent value="result" className="flex-1 min-h-0 min-w-0 overflow-auto px-4 pb-4 mt-0">
-              {userEdited && rawOut && (
-                <div className="flex justify-end mb-2">
-                  <Button
-                    size="sm"
-                    variant="outline"
-                    className="text-xs"
-                    onClick={() => setCompareRaw((v) => !v)}
-                  >
-                    <GitCompareArrows className="h-3.5 w-3.5 mr-1" />
-                    {compareRaw ? 'Правки' : 'Сырой'}
-                  </Button>
+            <TabsContent value="result" className="flex-1 min-h-0 min-w-0 mt-0 px-4 pb-4 overflow-hidden">
+              <div className="flex h-full min-h-0 min-w-0 flex-col overflow-hidden">
+                {userEdited && rawOut && (
+                  <div className="flex justify-end mb-2 shrink-0">
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      className="text-xs"
+                      onClick={() => setCompareRaw((v) => !v)}
+                    >
+                      <GitCompareArrows className="h-3.5 w-3.5 mr-1" />
+                      {compareRaw ? 'Правки' : 'Сырой'}
+                    </Button>
+                  </div>
+                )}
+                <div className="flex-1 min-h-0 min-w-0 overflow-auto pr-1">
+                  <WorkflowResultEditor
+                    content={displayContent}
+                    isEditable={isEditable && step.status === 'completed'}
+                    isStreaming={isExecuting}
+                    onChange={setEditedContent}
+                    onSave={handleSaveEdits}
+                    hasUnsavedChanges={editedContent !== null}
+                  />
                 </div>
-              )}
-              <WorkflowResultEditor
-                content={displayContent}
-                isEditable={isEditable && step.status === 'completed'}
-                isStreaming={isExecuting}
-                onChange={setEditedContent}
-                onSave={handleSaveEdits}
-                hasUnsavedChanges={editedContent !== null}
-              />
+              </div>
             </TabsContent>
           )}
 
           {/* JSON tab */}
-          <TabsContent value="structured" className="flex-1 min-h-0 min-w-0 overflow-auto px-4 pb-4 mt-0">
-            <Card className="p-3 mt-2 min-w-0">
-              <pre className="text-xs font-mono whitespace-pre-wrap break-all min-w-0">
-                {stringifyPayload(compareRaw ? rawOut : userEdited ?? rawOut)}
-              </pre>
-            </Card>
+          <TabsContent value="structured" className="flex-1 min-h-0 min-w-0 mt-0 px-4 pb-4 overflow-hidden">
+            <div className="h-full min-h-0 min-w-0 overflow-auto pr-1">
+              <Card className="p-3 mt-2 min-w-0">
+                <pre className="text-xs font-mono whitespace-pre-wrap break-all min-w-0 overflow-x-auto max-w-full"> 
+                  {stringifyPayload(compareRaw ? rawOut : userEdited ?? rawOut)}
+                </pre>
+              </Card>
+            </div>
           </TabsContent>
 
           {/* Screenshots tab */}
