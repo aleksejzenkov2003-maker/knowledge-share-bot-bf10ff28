@@ -373,7 +373,7 @@ export const WorkflowStepView: React.FC<WorkflowStepViewProps> = ({
   const hasOutput = !!(displayContent || isExecuting);
 
   return (
-    <div className="flex-1 flex flex-col min-h-0 min-w-0 overflow-hidden">
+    <div className="flex-1 flex flex-col min-h-0 min-w-0 overflow-x-hidden">
       {/* Compact header */}
       <div className="px-4 py-2 border-b flex items-center justify-between flex-wrap gap-2 min-w-0">
         <div className="flex items-center gap-2 min-w-0">
@@ -448,7 +448,7 @@ export const WorkflowStepView: React.FC<WorkflowStepViewProps> = ({
 
       {/* Main content: chat-first layout with tabs */}
       {hasOutput ? (
-        <Tabs defaultValue="chat" className="flex-1 flex flex-col min-h-0 min-w-0 overflow-hidden">
+        <Tabs defaultValue="chat" className="flex-1 flex flex-col min-h-0 min-w-0 overflow-x-hidden">
           <TabsList className="mx-4 mt-2 w-fit flex-wrap h-auto gap-1">
             <TabsTrigger value="chat" className="text-xs h-7">
               <MessageSquare className="h-3.5 w-3.5 mr-1" />
