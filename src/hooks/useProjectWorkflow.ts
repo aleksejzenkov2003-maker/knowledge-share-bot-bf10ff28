@@ -104,7 +104,7 @@ export function useWorkflowStepsQuery(workflowId: string | null) {
       if (!workflowId) return [];
       const { data, error } = await supabase
         .from('project_workflow_steps')
-        .select('*, workflow_template_steps:template_step_id(id, name, description, step_order, is_user_editable, auto_run, require_approval, node_type, node_key, script_config), chat_roles:agent_id(id, name, slug, mention_trigger, description)')
+        .select('*, workflow_template_steps:template_step_id(id, name, description, step_order, is_user_editable, auto_run, require_approval, node_type, node_key, script_config, stage_group, stage_order), chat_roles:agent_id(id, name, slug, mention_trigger, description)')
         .eq('workflow_id', workflowId)
         .order('step_order');
       if (error) throw error;
