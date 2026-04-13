@@ -1,4 +1,4 @@
-import React, { useState, useMemo, useCallback } from 'react';
+import React, { useState, useMemo, useCallback, useRef } from 'react';
 import { ProjectWorkflowStep, ProjectStepMessage, WorkflowArtifact } from '@/types/workflow';
 import { WorkflowResultEditor } from './WorkflowResultEditor';
 import { WorkflowStepChat } from './WorkflowStepChat';
@@ -9,6 +9,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { KpRenderEditorDialog } from './KpRenderEditorDialog';
 import { supabase } from '@/integrations/supabase/client';
 import { useDocumentIngestCleaner } from '@/hooks/useDocumentIngestCleaner';
+import { toast } from 'sonner';
 import {
   Play,
   RotateCcw,
@@ -25,7 +26,10 @@ import {
   ExternalLink,
   Users,
   Download,
+  SkipForward,
+  Upload,
 } from 'lucide-react';
+
 interface WorkflowStepViewProps {
   step: ProjectWorkflowStep;
   stepMessages: ProjectStepMessage[];
@@ -40,6 +44,7 @@ interface WorkflowStepViewProps {
   onSetInputData: (stepId: string, data: Record<string, unknown>) => void;
   onRetryStep: (stepId: string) => void;
   onRetryFromStep: (stepId: string) => void;
+  onSkipStep: (stepId: string) => void;
   isFirstStep: boolean;
 }
 
@@ -79,6 +84,7 @@ export const WorkflowStepView: React.FC<WorkflowStepViewProps> = ({
   onSetInputData,
   onRetryStep,
   onRetryFromStep,
+  onSkipStep,
   isFirstStep,
 }) => {
   const [editedContent, setEditedContent] = useState<string | null>(null);
@@ -86,6 +92,8 @@ export const WorkflowStepView: React.FC<WorkflowStepViewProps> = ({
   const [sourceDocumentId, setSourceDocumentId] = useState('');
   const [compareRaw, setCompareRaw] = useState(false);
   const [expandedScreenshot, setExpandedScreenshot] = useState<string | null>(null);
+  const [isUploading, setIsUploading] = useState(false);
+  const fileInputRef = useRef<HTMLInputElement>(null);
   const { runIngest, isRunning: isIngestRunning } = useDocumentIngestCleaner();
 
   // Filter screenshot artifacts for this step
@@ -98,7 +106,6 @@ export const WorkflowStepView: React.FC<WorkflowStepViewProps> = ({
     );
   }, [artifacts, step.id]);
 
-  // Use signed URLs for private bucket - store them in state
   const [signedUrls, setSignedUrls] = useState<Record<string, string>>({});
 
   React.useEffect(() => {
@@ -147,7 +154,6 @@ export const WorkflowStepView: React.FC<WorkflowStepViewProps> = ({
     (step.template_step?.name || '').toLowerCase().includes('кп') ||
     step.template_step?.node_type === 'output';
 
-  // Detect two-document split (client KP + employee report)
   const clientKp = useMemo(() => {
     const out = rawOut as Record<string, unknown> | null;
     if (out?.client_kp && typeof out.client_kp === 'string') return out.client_kp;
@@ -261,6 +267,48 @@ export const WorkflowStepView: React.FC<WorkflowStepViewProps> = ({
     );
   };
 
+  // File upload handler
+  const handleFileUpload = useCallback(async (files: FileList | null) => {
+    if (!files || files.length === 0) return;
+    setIsUploading(true);
+    try {
+      const uploadedFiles: { name: string; path: string; size: number; type: string }[] = [];
+      for (const file of Array.from(files)) {
+        const path = `${projectId}/${step.id}/${Date.now()}_${file.name}`;
+        const { error } = await supabase.storage
+          .from('node-artifacts')
+          .upload(path, file);
+        if (error) {
+          console.error('Upload error:', error);
+          toast.error(`Ошибка загрузки ${file.name}`);
+          continue;
+        }
+        uploadedFiles.push({ name: file.name, path, size: file.size, type: file.type });
+      }
+      if (uploadedFiles.length > 0) {
+        // Add uploaded files to step input_data
+        const currentInput = (step.input_data || {}) as Record<string, unknown>;
+        const existingFiles = (currentInput.uploaded_files as unknown[] || []);
+        const newInput = {
+          ...currentInput,
+          uploaded_files: [...existingFiles, ...uploadedFiles],
+        };
+        await supabase
+          .from('project_workflow_steps')
+          .update({ input_data: newInput } as never)
+          .eq('id', step.id);
+        toast.success(`Загружено файлов: ${uploadedFiles.length}`);
+      }
+    } catch (e) {
+      console.error(e);
+      toast.error('Ошибка загрузки файлов');
+    } finally {
+      setIsUploading(false);
+      if (fileInputRef.current) fileInputRef.current.value = '';
+    }
+  }, [projectId, step.id, step.input_data]);
+
+  // First step pending: input form
   if (isFirstStep && step.status === 'pending') {
     return (
       <div className="flex-1 p-6 max-w-4xl mx-auto w-full">
@@ -307,86 +355,50 @@ export const WorkflowStepView: React.FC<WorkflowStepViewProps> = ({
     );
   }
 
+  const hasOutput = !!(displayContent || isExecuting);
+
   return (
     <div className="flex-1 flex flex-col min-h-0">
-      <div className="p-4 border-b flex items-center justify-between flex-wrap gap-2">
-        <div className="flex items-center gap-3">
-          <div>
-            <div className="flex items-center gap-2 flex-wrap">
-              <h2 className="font-semibold">{name}</h2>
-              <Badge variant={statusInfo.variant}>{statusInfo.label}</Badge>
-            </div>
-            {description && <p className="text-sm text-muted-foreground mt-0.5">{description}</p>}
-          </div>
-        </div>
-
-        <div className="flex items-center gap-2 flex-wrap">
+      {/* Compact header */}
+      <div className="px-4 py-2 border-b flex items-center justify-between flex-wrap gap-2">
+        <div className="flex items-center gap-2 min-w-0">
+          <h2 className="font-semibold text-sm truncate">{name}</h2>
+          <Badge variant={statusInfo.variant} className="text-xs shrink-0">{statusInfo.label}</Badge>
           {step.agent && (
-            <Badge variant="secondary" className="text-xs">
+            <Badge variant="secondary" className="text-xs shrink-0">
               <Bot className="h-3 w-3 mr-1" />
               {agentName}
             </Badge>
           )}
-
-          {nodeType === 'condition' &&
-            step.status === 'completed' &&
-            rawOut &&
-            typeof rawOut === 'object' && (
-              <Badge variant="outline" className="text-xs">
-                {(rawOut as Record<string, unknown>)._branch === true ||
-                (rawOut as Record<string, unknown>)._branch === 'true'
-                  ? 'Итог условия: Да'
-                  : 'Итог условия: Нет'}
-              </Badge>
-            )}
-
-          {nodeType === 'quality_check' &&
-            step.status === 'completed' &&
-            rawOut &&
-            typeof rawOut === 'object' && (
-              <Badge
-                variant={(rawOut as Record<string, unknown>).quality_passed === true ? 'secondary' : 'destructive'}
-                className="text-xs"
-              >
-                {(rawOut as Record<string, unknown>).quality_passed === true
-                  ? 'Проверка пройдена'
-                  : 'Проверка не пройдена'}
-              </Badge>
-            )}
-
-          {step.status === 'pending' && !isFirstStep && (
-            <Button size="sm" onClick={() => onExecute(step.id)}>
-              <Play className="h-4 w-4 mr-1" />
-              Запустить
-            </Button>
+          {nodeType === 'condition' && step.status === 'completed' && rawOut && typeof rawOut === 'object' && (
+            <Badge variant="outline" className="text-xs">
+              {(rawOut as Record<string, unknown>)._branch === true ||
+              (rawOut as Record<string, unknown>)._branch === 'true'
+                ? 'Да' : 'Нет'}
+            </Badge>
           )}
-
-          {step.status === 'running' || isExecuting ? (
-            <Button size="sm" variant="outline" onClick={onStop}>
-              <Loader2 className="h-4 w-4 mr-1 animate-spin" />
-              Остановить
-            </Button>
-          ) : null}
-
+          {nodeType === 'quality_check' && step.status === 'completed' && rawOut && typeof rawOut === 'object' && (
+            <Badge
+              variant={(rawOut as Record<string, unknown>).quality_passed === true ? 'secondary' : 'destructive'}
+              className="text-xs"
+            >
+              {(rawOut as Record<string, unknown>).quality_passed === true ? '✓ Пройдена' : '✗ Не пройдена'}
+            </Badge>
+          )}
+        </div>
+        <div className="flex items-center gap-1.5 shrink-0">
           {step.status === 'completed' && (
-            <>
-              <Button size="sm" variant="outline" onClick={() => onExecute(step.id)}>
-                <RotateCcw className="h-4 w-4 mr-1" />
-                Перезапустить
-              </Button>
-              <Button size="sm" variant="outline" onClick={() => onRetryStep(step.id)}>
-                Сбросить шаг
-              </Button>
-              <Button size="sm" variant="outline" onClick={() => onRetryFromStep(step.id)}>
-                Сбросить отсюда
-              </Button>
-              <Button size="sm" onClick={handleConfirm}>
-                <CheckCircle2 className="h-4 w-4 mr-1" />
-                Подтвердить
-              </Button>
-            </>
+            <Button size="sm" variant="outline" className="h-7 text-xs" onClick={() => onExecute(step.id)}>
+              <RotateCcw className="h-3 w-3 mr-1" />
+              Перезапустить
+            </Button>
           )}
-
+          {(step.status === 'pending' || step.status === 'error') && (
+            <Button size="sm" variant="outline" className="h-7 text-xs" onClick={() => onSkipStep(step.id)}>
+              <SkipForward className="h-3 w-3 mr-1" />
+              Пропустить
+            </Button>
+          )}
           {step.status === 'completed' && isKpFinal && (
             <KpRenderEditorDialog
               projectId={projectId}
@@ -395,73 +407,120 @@ export const WorkflowStepView: React.FC<WorkflowStepViewProps> = ({
               initialMarkdown={stringifyPayload(userEdited ?? rawOut)}
               artifacts={artifacts}
               trigger={
-                <Button size="sm" variant="outline">
-                  <FileSignature className="h-4 w-4 mr-1" />
-                  Редактор КП
+                <Button size="sm" variant="outline" className="h-7 text-xs">
+                  <FileSignature className="h-3 w-3 mr-1" />
+                  КП
                 </Button>
               }
             />
           )}
-
-          {step.status === 'error' && (
-            <Button size="sm" onClick={() => onExecute(step.id)}>
-              <RotateCcw className="h-4 w-4 mr-1" />
-              Повторить
+          {(step.status === 'running' || isExecuting) && (
+            <Button size="sm" variant="outline" className="h-7 text-xs" onClick={onStop}>
+              <Loader2 className="h-3 w-3 mr-1 animate-spin" />
+              Стоп
             </Button>
           )}
         </div>
       </div>
 
-      {hr?.title && step.status === 'completed' && (
-        <div className="mx-4 mt-3 p-3 rounded-md bg-primary/5 border border-primary/20 text-sm">
-          <div className="font-semibold text-primary">{hr.title}</div>
-          {hr.summary && <p className="text-muted-foreground mt-1 text-xs">{hr.summary}</p>}
-        </div>
-      )}
-
+      {/* Error message */}
       {step.error_message && (
-        <div className="mx-4 mt-3 p-3 rounded-md bg-destructive/10 text-destructive text-sm flex items-start gap-2">
-          <AlertCircle className="h-4 w-4 mt-0.5 flex-shrink-0" />
+        <div className="mx-4 mt-2 p-2 rounded-md bg-destructive/10 text-destructive text-xs flex items-start gap-2">
+          <AlertCircle className="h-3.5 w-3.5 mt-0.5 flex-shrink-0" />
           {step.error_message}
         </div>
       )}
 
-      {displayContent || isExecuting ? (
-        <Tabs defaultValue={hasTwoDocs ? 'client_kp' : 'result'} className="flex-1 flex flex-col min-h-0">
-          <TabsList className="mx-4 mt-3 w-fit flex-wrap h-auto gap-1">
+      {/* Main content: chat-first layout with tabs */}
+      {hasOutput ? (
+        <Tabs defaultValue="chat" className="flex-1 flex flex-col min-h-0">
+          <TabsList className="mx-4 mt-2 w-fit flex-wrap h-auto gap-1">
+            <TabsTrigger value="chat" className="text-xs h-7">
+              <MessageSquare className="h-3.5 w-3.5 mr-1" />
+              Чат
+            </TabsTrigger>
             {hasTwoDocs ? (
               <>
-                <TabsTrigger value="client_kp">
-                  <FileText className="h-4 w-4 mr-1" />
-                  КП для клиента
+                <TabsTrigger value="client_kp" className="text-xs h-7">
+                  <FileText className="h-3.5 w-3.5 mr-1" />
+                  КП клиенту
                 </TabsTrigger>
-                <TabsTrigger value="employee_report">
-                  <Users className="h-4 w-4 mr-1" />
-                  Отчёт для сотрудника
+                <TabsTrigger value="employee_report" className="text-xs h-7">
+                  <Users className="h-3.5 w-3.5 mr-1" />
+                  Отчёт
                 </TabsTrigger>
               </>
             ) : (
-              <TabsTrigger value="result">
-                <FileText className="h-4 w-4 mr-1" />
+              <TabsTrigger value="result" className="text-xs h-7">
+                <FileText className="h-3.5 w-3.5 mr-1" />
                 Результат
               </TabsTrigger>
             )}
-            <TabsTrigger value="structured">
-              <Braces className="h-4 w-4 mr-1" />
+            <TabsTrigger value="structured" className="text-xs h-7">
+              <Braces className="h-3.5 w-3.5 mr-1" />
               JSON
             </TabsTrigger>
-            <TabsTrigger value="chat">
-              <MessageSquare className="h-4 w-4 mr-1" />
-              Чат с агентом
-            </TabsTrigger>
             {screenshotArtifacts.length > 0 && (
-              <TabsTrigger value="screenshots">
-                <ImageIcon className="h-4 w-4 mr-1" />
-                Скриншоты ({screenshotArtifacts.length})
+              <TabsTrigger value="screenshots" className="text-xs h-7">
+                <ImageIcon className="h-3.5 w-3.5 mr-1" />
+                ({screenshotArtifacts.length})
               </TabsTrigger>
             )}
           </TabsList>
 
+          {/* Chat tab — primary */}
+          <TabsContent value="chat" className="flex-1 flex flex-col min-h-0 overflow-hidden px-4 pb-2">
+            <div className="flex-1 min-h-0">
+              <WorkflowStepChat
+                stepId={step.id}
+                messages={stepMessages}
+                onSendMessage={(msg) => onExecute(step.id, msg)}
+                isExecuting={isExecuting}
+                streamingContent={streamingContent}
+              />
+            </div>
+            {/* File upload + action buttons at bottom of chat */}
+            <div className="flex items-center gap-2 pt-2 border-t mt-2 flex-wrap">
+              <input
+                ref={fileInputRef}
+                type="file"
+                multiple
+                className="hidden"
+                onChange={(e) => handleFileUpload(e.target.files)}
+              />
+              <Button
+                size="sm"
+                variant="outline"
+                className="h-7 text-xs"
+                onClick={() => fileInputRef.current?.click()}
+                disabled={isUploading}
+              >
+                {isUploading ? <Loader2 className="h-3 w-3 mr-1 animate-spin" /> : <Upload className="h-3 w-3 mr-1" />}
+                Файлы
+              </Button>
+              
+              {step.status === 'pending' && !isFirstStep && (
+                <Button size="sm" className="h-7 text-xs" onClick={() => onExecute(step.id)}>
+                  <Play className="h-3 w-3 mr-1" />
+                  Запустить этап
+                </Button>
+              )}
+              {step.status === 'error' && (
+                <Button size="sm" className="h-7 text-xs" onClick={() => onExecute(step.id)}>
+                  <RotateCcw className="h-3 w-3 mr-1" />
+                  Повторить
+                </Button>
+              )}
+              {step.status === 'completed' && (
+                <Button size="sm" className="h-7 text-xs" onClick={handleConfirm}>
+                  <CheckCircle2 className="h-3 w-3 mr-1" />
+                  Подтвердить и продолжить
+                </Button>
+              )}
+            </div>
+          </TabsContent>
+
+          {/* Two-doc tabs */}
           {hasTwoDocs && (
             <>
               <TabsContent value="client_kp" className="flex-1 overflow-auto px-4 pb-4">
@@ -493,6 +552,7 @@ export const WorkflowStepView: React.FC<WorkflowStepViewProps> = ({
             </>
           )}
 
+          {/* Single result tab */}
           {!hasTwoDocs && (
             <TabsContent value="result" className="flex-1 overflow-auto px-4 pb-4">
               {userEdited && rawOut && (
@@ -504,7 +564,7 @@ export const WorkflowStepView: React.FC<WorkflowStepViewProps> = ({
                     onClick={() => setCompareRaw((v) => !v)}
                   >
                     <GitCompareArrows className="h-3.5 w-3.5 mr-1" />
-                    {compareRaw ? 'Показать правки' : 'Сравнить с сырым'}
+                    {compareRaw ? 'Правки' : 'Сырой'}
                   </Button>
                 </div>
               )}
@@ -519,52 +579,35 @@ export const WorkflowStepView: React.FC<WorkflowStepViewProps> = ({
             </TabsContent>
           )}
 
+          {/* JSON tab */}
           <TabsContent value="structured" className="flex-1 overflow-auto px-4 pb-4">
-            <Card className="p-3 mt-3">
+            <Card className="p-3 mt-2">
               <pre className="text-xs font-mono whitespace-pre-wrap break-all">
                 {stringifyPayload(compareRaw ? rawOut : userEdited ?? rawOut)}
               </pre>
             </Card>
           </TabsContent>
 
-          <TabsContent value="chat" className="flex-1 overflow-hidden px-4 pb-4">
-            <WorkflowStepChat
-              stepId={step.id}
-              messages={stepMessages}
-              onSendMessage={(msg) => onExecute(step.id, msg)}
-              isExecuting={isExecuting}
-              streamingContent={streamingContent}
-            />
-          </TabsContent>
-
+          {/* Screenshots tab */}
           {screenshotArtifacts.length > 0 && (
             <TabsContent value="screenshots" className="flex-1 overflow-auto px-4 pb-4">
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mt-3">
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mt-2">
                 {screenshotArtifacts.map((artifact) => {
                   const meta = artifact.metadata as Record<string, unknown> | null;
                   const url = meta?.url as string | undefined;
                   const title = meta?.title as string | undefined;
                   const signedUrl = signedUrls[artifact.id];
-
                   return (
                     <Card key={artifact.id} className="overflow-hidden">
                       {signedUrl ? (
                         <div
                           className="cursor-pointer"
-                          onClick={() =>
-                            setExpandedScreenshot(
-                              expandedScreenshot === artifact.id ? null : artifact.id,
-                            )
-                          }
+                          onClick={() => setExpandedScreenshot(expandedScreenshot === artifact.id ? null : artifact.id)}
                         >
                           <img
                             src={signedUrl}
                             alt={title || url || 'Screenshot'}
-                            className={`w-full object-cover transition-all ${
-                              expandedScreenshot === artifact.id
-                                ? 'max-h-none'
-                                : 'max-h-64'
-                            }`}
+                            className={`w-full object-cover transition-all ${expandedScreenshot === artifact.id ? 'max-h-none' : 'max-h-64'}`}
                           />
                         </div>
                       ) : (
@@ -574,16 +617,9 @@ export const WorkflowStepView: React.FC<WorkflowStepViewProps> = ({
                         </div>
                       )}
                       <div className="p-3 border-t">
-                        <p className="text-sm font-medium truncate">
-                          {title || url || artifact.path}
-                        </p>
+                        <p className="text-sm font-medium truncate">{title || url || artifact.path}</p>
                         {url && (
-                          <a
-                            href={url}
-                            target="_blank"
-                            rel="noopener noreferrer"
-                            className="text-xs text-primary hover:underline flex items-center gap-1 mt-1"
-                          >
+                          <a href={url} target="_blank" rel="noopener noreferrer" className="text-xs text-primary hover:underline flex items-center gap-1 mt-1">
                             <ExternalLink className="h-3 w-3" />
                             {new URL(url).hostname}
                           </a>
@@ -597,10 +633,31 @@ export const WorkflowStepView: React.FC<WorkflowStepViewProps> = ({
           )}
         </Tabs>
       ) : (
-        <div className="flex-1 flex items-center justify-center text-muted-foreground">
-          <div className="text-center">
-            <Bot className="h-10 w-10 mx-auto mb-3 opacity-30" />
-            <p className="text-sm">Нажмите «Запустить» для выполнения этапа</p>
+        /* Empty state with Run button centered */
+        <div className="flex-1 flex flex-col items-center justify-center text-muted-foreground gap-3">
+          <Bot className="h-10 w-10 opacity-30" />
+          <p className="text-sm">Этап готов к выполнению</p>
+          <div className="flex items-center gap-2">
+            <input
+              ref={fileInputRef}
+              type="file"
+              multiple
+              className="hidden"
+              onChange={(e) => handleFileUpload(e.target.files)}
+            />
+            <Button
+              size="sm"
+              variant="outline"
+              onClick={() => fileInputRef.current?.click()}
+              disabled={isUploading}
+            >
+              {isUploading ? <Loader2 className="h-4 w-4 mr-1 animate-spin" /> : <Upload className="h-4 w-4 mr-1" />}
+              Загрузить файлы
+            </Button>
+            <Button size="sm" onClick={() => onExecute(step.id)}>
+              <Play className="h-4 w-4 mr-1" />
+              Запустить этап
+            </Button>
           </div>
         </div>
       )}

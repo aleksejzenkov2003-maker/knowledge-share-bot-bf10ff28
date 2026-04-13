@@ -47,6 +47,7 @@ export const WorkflowPanel: React.FC<WorkflowPanelProps> = ({ projectId, userId 
     stepMessages,
     retryStep,
     retryFromStep,
+    skipStep,
     artifacts,
   } = useProjectWorkflow(projectId, userId);
 
