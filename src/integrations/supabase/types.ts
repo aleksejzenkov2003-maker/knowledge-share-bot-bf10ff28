@@ -2271,6 +2271,7 @@ export type Database = {
           position_x: number
           position_y: number
           prompt_override: string | null
+          quality_check_agent_id: string | null
           require_approval: boolean
           result_assembly_mode: string | null
           result_template_id: string | null
@@ -2298,6 +2299,7 @@ export type Database = {
           position_x?: number
           position_y?: number
           prompt_override?: string | null
+          quality_check_agent_id?: string | null
           require_approval?: boolean
           result_assembly_mode?: string | null
           result_template_id?: string | null
@@ -2325,6 +2327,7 @@ export type Database = {
           position_x?: number
           position_y?: number
           prompt_override?: string | null
+          quality_check_agent_id?: string | null
           require_approval?: boolean
           result_assembly_mode?: string | null
           result_template_id?: string | null
@@ -2338,6 +2341,13 @@ export type Database = {
           {
             foreignKeyName: "workflow_template_steps_agent_id_fkey"
             columns: ["agent_id"]
+            isOneToOne: false
+            referencedRelation: "chat_roles"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "workflow_template_steps_quality_check_agent_id_fkey"
+            columns: ["quality_check_agent_id"]
             isOneToOne: false
             referencedRelation: "chat_roles"
             referencedColumns: ["id"]
