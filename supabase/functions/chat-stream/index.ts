@@ -1343,8 +1343,8 @@ serve(async (req) => {
           
         } else {
           // Normalize the search query (strip legal forms, extract INN/OGRN, etc.)
-          const normalizedQuery = normalizeRepQuery(message);
-          console.log(`Reputation: Searching for "${message}" → normalized: "${normalizedQuery}"`);
+          const normalizedQuery = normalizeRepQuery(repSearchMessage);
+          console.log(`Reputation: Searching for "${repSearchMessage}" → normalized: "${normalizedQuery}"`);
           
           // Direct search to api.reputation.ru with timeout
           const searchRes = await fetch(`${REPUTATION_API_BASE}/entities/search`, {
