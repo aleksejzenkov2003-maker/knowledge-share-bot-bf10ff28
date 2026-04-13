@@ -430,11 +430,30 @@ serve(async (req) => {
       }
     }
 
+    // Force provider override (used by workflow engine to force e.g. Perplexity for dossier)
+    if (force_provider) {
+      const fpKey = getEffectiveApiKey(force_provider, null);
+      if (fpKey) {
+        const defaultModels: Record<string, string> = {
+          perplexity: 'sonar-pro',
+          gemini: 'gemini-2.5-flash',
+          anthropic: 'claude-sonnet-4-6',
+          openai: 'gpt-4o',
+        };
+        providerConfig = {
+          provider_type: force_provider,
+          api_key: fpKey,
+          default_model: force_model || defaultModels[force_provider] || '',
+        };
+        console.log(`Force provider override: ${force_provider}, model: ${force_model || providerConfig.default_model}`);
+      }
+    }
+
     if (!providerConfig || !providerConfig.api_key) {
       throw new Error('No AI provider configured or API key missing');
     }
 
-    let finalModel = selectedModel || providerConfig.default_model;
+    let finalModel = force_model || selectedModel || providerConfig.default_model;
 
     // =====================================================
     // "SMART LIBRARIAN" RAG - Hybrid Search with Claude Re-ranking
