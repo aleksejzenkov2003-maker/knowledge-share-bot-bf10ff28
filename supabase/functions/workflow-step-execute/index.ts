@@ -648,6 +648,15 @@ serve(async (req) => {
     if (contextFolderIds.length > 0) chatBody.context_folder_ids = contextFolderIds;
     if (systemPromptAppend.trim()) chatBody.system_prompt_append = systemPromptAppend.trim();
 
+    // Extract clean reputation search query from workingInput for agents with reputation API
+    // This prevents the reputation API from searching with the full workflow instruction text
+    const wi = (workingInput || {}) as Record<string, unknown>;
+    const repQuery = (wi.inn as string) || (wi.ogrn as string) || (wi.company_name as string) || (wi.applicant as string) || (wi.name as string) || '';
+    if (repQuery.trim()) {
+      chatBody.reputation_query = repQuery.trim();
+      console.log(`Workflow: reputation_query = "${repQuery.trim()}"`);
+    }
+
     const chatResponse = await fetch(chatStreamUrl, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', 'Authorization': authHeader },
