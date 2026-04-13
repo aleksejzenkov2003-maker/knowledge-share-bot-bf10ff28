@@ -274,8 +274,8 @@ serve(async (req) => {
       userId = user?.id || null;
     }
 
-    const reqBody: ChatRequest & { system_prompt_append?: string; context_folder_ids?: string[] } = await req.json();
-    const { role_id, department_id, model, provider_id, message_history, attachments, is_department_chat, reply_to, system_prompt_append, context_folder_ids } = reqBody;
+    const reqBody: ChatRequest & { system_prompt_append?: string; context_folder_ids?: string[]; reputation_query?: string } = await req.json();
+    const { role_id, department_id, model, provider_id, message_history, attachments, is_department_chat, reply_to, system_prompt_append, context_folder_ids, reputation_query } = reqBody;
     let message = reqBody.message;
 
     if (!message && (!attachments || attachments.length === 0)) {
@@ -1272,11 +1272,13 @@ serve(async (req) => {
     const REP_TIMEOUT = 25000; // 25s timeout for search/card
     const FIPS_TIMEOUT = 15000; // 15s timeout for FIPS
     
-    if (externalApis?.reputation?.enabled && message && REPUTATION_API_KEY) {
+    // Use reputation_query (clean search term from workflow) if provided, otherwise use message
+    const repSearchMessage = reputation_query || message;
+    if (externalApis?.reputation?.enabled && repSearchMessage && REPUTATION_API_KEY) {
       console.log('Reputation: Direct API calls to api.reputation.ru');
       const repHeaders = { 'Authorization': REPUTATION_API_KEY, 'Content-Type': 'application/json', 'Accept': 'application/json' };
       
-      const selectMatch = message.match(/\[REPUTATION_SELECT:([^:]+):([^\]]+)\]/);
+      const selectMatch = repSearchMessage.match(/\[REPUTATION_SELECT:([^:]+):([^\]]+)\]/);
       
       try {
         if (selectMatch) {
