@@ -1,64 +1,90 @@
 
+Цель: исправить страницу проекта так, чтобы в ней снова работали вертикальная и горизонтальная прокрутка там, где это нужно, и чтобы текст больше не вылезал за экран.
 
-## Plan: Stage Grouping for Workflow Steps
+Что именно сломано
+- В проектах сейчас зажата вся цепочка контейнеров через `overflow-hidden`.
+- При этом у нескольких flex-элементов по дороге не хватает `min-w-0` / местами `min-h-0`, поэтому контент не ужимается по ширине и не создает корректную область прокрутки.
+- Дополнительно markdown-рендер результата не ограничивает длинные строки достаточно жестко, поэтому текст раздувает ширину панели.
+- На скрине видно именно это: контент уходит вправо, а родитель его обрезает, но горизонтальный скролл не появляется.
 
-### Concept
-Add a `stage_group` (string label) and `stage_order` (number) to each workflow template step. Steps sharing the same `stage_group` value belong to one logical stage. The stepper UI groups steps by stage instead of showing individual nodes.
+Do I know what the issue is?
+Да. Проблема не в данных и не в миграциях. Это чисто UI-проблема: неправильная комбинация `flex` + `overflow-hidden` + отсутствующих `min-w-0`, плюс слабые ограничения для markdown-контента.
 
-**Example**: 7 nodes, but "Анализ МКТУ", "Охраноспособность", "Конфликты" all have `stage_group = "Параллельный анализ"` — displayed as one stage with 3 agents inside.
+Файлы, где нужно править
+- `src/components/layout/AdminLayout.tsx`
+- `src/pages/ProjectChat.tsx`
+- `src/components/workflow/WorkflowPanel.tsx`
+- `src/components/workflow/WorkflowStepView.tsx`
+- `src/components/workflow/WorkflowStepChat.tsx`
+- `src/components/workflow/WorkflowResultEditor.tsx`
 
-### Changes
+План исправления
+1. Нормализовать всю flex-цепочку страницы проекта
+- Добавить `min-w-0` на контейнеры контентной области, чтобы они реально могли сжиматься внутри layout с сайдбаром.
+- В первую очередь это касается:
+  - правой колонки в `AdminLayout`
+  - `main` на route `/projects/:id`
+  - корня `ProjectChat`
+  - `WorkflowPanel`
+  - `WorkflowStepView`
+  - активных tab-pane контейнеров
 
-#### 1. Database migration
-- `ALTER TABLE workflow_template_steps ADD COLUMN stage_group TEXT DEFAULT NULL`
-- `ALTER TABLE workflow_template_steps ADD COLUMN stage_order INT DEFAULT 0`
-- Steps with the same `stage_group` are treated as one stage; NULL = standalone stage
+2. Назначить явные scroll-контейнеры
+- Не полагаться на случайное поведение `TabsContent`.
+- Для каждого режима сделать один понятный scroll owner:
+  - чат: список сообщений
+  - результат: внутренняя область просмотра результата
+  - JSON: область с `pre`
+  - screenshots: сетка скриншотов
+- Внешние контейнеры оставить фиксированными по высоте, а прокрутку отдать только внутренним областям.
 
-#### 2. Node config in editor — add Stage field
-**File:** `src/components/workflow-editor/AgentNodeConfig.tsx` + `WorkflowNodeConfigPanel.tsx`
-- Add a text input "Этап (группа)" where user types stage name (e.g. "Параллельный анализ")
-- Add a numeric input "Порядок этапа" for ordering stages in the stepper
-- Save to `stage_group` / `stage_order` on the template step
+3. Убрать ширинные “разрывы” контента
+- В `WorkflowResultEditor` добавить ограничения:
+  - `min-w-0`
+  - `max-w-full`
+  - `break-words` / `overflow-wrap:anywhere`
+- Для markdown-элементов отдельно усилить поведение:
+  - `table` оставить в `overflow-x-auto`
+  - `pre` и code-блоки тоже обернуть/ограничить по ширине
+  - карточки результата не должны расширять родителя
+- Те же ограничения применить в `WorkflowStepChat`, чтобы длинные строки в сообщениях не ломали layout.
 
-#### 3. WorkflowStepper — group by stage
-**File:** `src/components/workflow/WorkflowStepper.tsx`
-- Group project steps by their template step's `stage_group`
-- Show one stepper item per stage (with combined status: running if any child is running, completed only if all children completed)
-- Clicking a stage expands to show its child steps
+4. Упростить конфликтующие overflow-обертки
+- Убрать лишние промежуточные `overflow-hidden`, которые не дают дочернему `overflow-auto` сработать предсказуемо.
+- Особенно в `WorkflowStepView` вокруг tab-контента: сейчас там слишком много слоев, которые режут контент.
 
-#### 4. WorkflowPanel — navigate within stages
-**File:** `src/components/workflow/WorkflowPanel.tsx`
-- When a stage is selected, show all its steps in tabs or a sub-list within the content area
-- User can switch between agents within the same stage
+5. Проверить горизонтальный скролл только там, где он реально нужен
+- Для обычного текста — перенос строк, чтобы он входил в экран.
+- Для таблиц, wide markdown и code/pre — локальный горизонтальный скролл внутри панели, а не обрезание всей страницы.
 
-#### 5. Type updates
-- Add `stage_group` and `stage_order` to `WorkflowTemplateStep` type and `WorkflowNodeData`
-
-### Technical details
-
-**Stage status derivation:**
+Технические детали
+- Главный риск сейчас — не высота, а ширина flex-деталей внутри layout с сайдбаром.
+- Для flex layout почти наверняка нужен такой паттерн:
 ```text
-stage.status =
-  any child 'error'          → 'error'
-  any child 'running'        → 'running'  
-  any child 'waiting_for_user' → 'waiting_for_user'
-  all children 'completed'/'skipped' → 'completed'
-  else                       → 'pending'
+sidebar layout
+  -> content column: min-w-0 min-h-0
+    -> main: min-w-0 min-h-0 overflow-hidden
+      -> project page: min-w-0 min-h-0 overflow-hidden
+        -> workflow panel: min-w-0 min-h-0 overflow-hidden
+          -> step view: min-w-0 min-h-0 flex-col
+            -> tab content: min-w-0 min-h-0
+              -> inner scroll area: min-w-0 min-h-0 overflow-auto
 ```
+- Для markdown-областей нужен отдельный контроль `pre`, `table`, `img`, длинных inline-строк и обычных параграфов.
 
-**Stepper layout:**
-```text
-Before: [Входные] → [Досье] → [МКТУ] → [Охрана] → [Конфликты] → [Шпион] → [Итог]
-After:  [1. Вход] → [2. Досье] → [3. Анализ (4 агента)] → [4. Итоговое КП]
-```
+Что не потребуется
+- Миграции не нужны.
+- Backend/Auth трогать не нужно.
 
-Steps without `stage_group` remain individual stages (backward compatible).
-
-### Files to modify
-- New migration — add `stage_group`, `stage_order` columns
-- `src/types/workflow.ts` — add fields to `WorkflowTemplateStep`
-- `src/hooks/useWorkflowEditor.ts` — include new fields in node data
-- `src/components/workflow-editor/WorkflowNodeConfigPanel.tsx` — stage group input
-- `src/components/workflow/WorkflowStepper.tsx` — group by stage
-- `src/components/workflow/WorkflowPanel.tsx` — multi-step stage view
-
+Как я проверю после правки
+- Открою проект с длинным результатом.
+- Проверю вертикальную прокрутку в:
+  - чате
+  - вкладке результата
+  - JSON
+  - screenshots
+- Проверю горизонтальное поведение:
+  - обычный текст не выходит за экран
+  - широкая таблица скроллится внутри панели
+  - длинный markdown/code не ломает ширину страницы
+- Убедюсь, что не появился двойной общий скролл всей админки.
