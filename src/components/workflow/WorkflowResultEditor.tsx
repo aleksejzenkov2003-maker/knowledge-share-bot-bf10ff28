@@ -3,6 +3,7 @@ import { Button } from '@/components/ui/button';
 import { Card } from '@/components/ui/card';
 import { Save, Loader2 } from 'lucide-react';
 import ReactMarkdown from 'react-markdown';
+import remarkGfm from 'remark-gfm';
 
 interface WorkflowResultEditorProps {
   content: string;
@@ -31,7 +32,20 @@ export const WorkflowResultEditor: React.FC<WorkflowResultEditorProps> = ({
           Генерация ответа...
         </div>
         <div className="prose prose-sm dark:prose-invert max-w-none">
-          <ReactMarkdown>{content}</ReactMarkdown>
+          <ReactMarkdown
+            remarkPlugins={[remarkGfm]}
+            components={{
+              table: ({ children }) => (
+                <div className="my-4 overflow-x-auto">
+                  <table className="min-w-full border-collapse text-sm">{children}</table>
+                </div>
+              ),
+              th: ({ children }) => <th className="border px-2 py-1 text-left font-semibold">{children}</th>,
+              td: ({ children }) => <td className="border px-2 py-1 align-top">{children}</td>,
+            }}
+          >
+            {content}
+          </ReactMarkdown>
         </div>
       </Card>
     );
@@ -73,7 +87,20 @@ export const WorkflowResultEditor: React.FC<WorkflowResultEditorProps> = ({
         </div>
       )}
       <div className="prose prose-sm dark:prose-invert max-w-none">
-        <ReactMarkdown>{content}</ReactMarkdown>
+        <ReactMarkdown
+          remarkPlugins={[remarkGfm]}
+          components={{
+            table: ({ children }) => (
+              <div className="my-4 overflow-x-auto">
+                <table className="min-w-full border-collapse text-sm">{children}</table>
+              </div>
+            ),
+            th: ({ children }) => <th className="border px-2 py-1 text-left font-semibold">{children}</th>,
+            td: ({ children }) => <td className="border px-2 py-1 align-top">{children}</td>,
+          }}
+        >
+          {content}
+        </ReactMarkdown>
       </div>
     </Card>
   );

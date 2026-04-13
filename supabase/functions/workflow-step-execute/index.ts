@@ -765,13 +765,30 @@ serve(async (req) => {
             try {
               const { data: qcRole } = await supabase
                 .from('chat_roles')
-                .select('id, system_prompt_id, system_prompts:system_prompt_id(prompt_text)')
+                .select('id')
                 .eq('id', templateStep.quality_check_agent_id)
                 .single();
 
               if (qcRole) {
                 const taskDesc = templateStep.prompt_override || templateStep.description || templateStep.name || 'Этап workflow';
-                const qcMessage = `## Задание этапа\n${taskDesc}\n\n## Результат агента\n${fullContent.slice(0, 8000)}`;
+                const qcMessage = [
+                  'Проверь качество результата этапа и при необходимости перепиши его в корректную структуру для КП.',
+                  'Проверь релевантность задаче, полноту, логику, деловой стиль и структуру.',
+                  '',
+                  'Верни СТРОГО JSON следующего вида:',
+                  '{',
+                  '  "verdict": "PASS" | "REWRITE" | "FAIL",',
+                  '  "feedback": "краткое объяснение",',
+                  '  "corrected_output": "исправленный markdown/текст или пусто",',
+                  '  "structure_notes": ["заметка 1", "заметка 2"]',
+                  '}',
+                  '',
+                  'Используй "REWRITE", если можешь исправить сам и дать готовый текст.',
+                  'Используй "FAIL", только если без дополнительных данных от пользователя исправить нельзя.',
+                  '',
+                  `## Задание этапа\n${taskDesc}`,
+                  `\n## Результат агента\n${fullContent.slice(0, 12000)}`,
+                ].join('\n');
                 
                 const qcBody: Record<string, unknown> = {
                   message: qcMessage,
@@ -807,28 +824,58 @@ serve(async (req) => {
                     }
                   }
 
-                  // Parse QC verdict
+                  // Parse QC verdict + optional corrected output
                   let qcVerdict = 'PASS';
+                  let qcFeedback = '';
+                  let correctedOutput = '';
                   try {
                     const qcJson = JSON.parse(qcContent.match(/\{[\s\S]*\}/)?.[0] || '{}');
-                    qcVerdict = qcJson.verdict || 'PASS';
+                    qcVerdict = String(qcJson.verdict || 'PASS').toUpperCase();
+                    qcFeedback = typeof qcJson.feedback === 'string' ? qcJson.feedback : '';
+                    correctedOutput = typeof qcJson.corrected_output === 'string' ? qcJson.corrected_output.trim() : '';
                   } catch {}
+
+                  const qcHasRewrite = qcVerdict === 'REWRITE' && !!correctedOutput;
 
                   // Save QC result as a step message
                   await supabase.from('project_step_messages').insert({
                     step_id, user_id: user.id, message_role: 'assistant',
-                    content: `🔍 **Проверка качества**: ${qcVerdict}\n\n${qcContent}`,
+                    content: [
+                      `🔍 **Проверка качества**: ${qcVerdict}`,
+                      qcFeedback ? `\n${qcFeedback}` : '',
+                      qcHasRewrite ? '\n\n✅ Материал автоматически переписан под структуру КП.' : '',
+                      `\n\n${qcContent}`,
+                    ].join(''),
                     metadata: { type: 'quality_check' },
                   });
 
-                  // If FAIL, set step to waiting_for_user
-                  if (qcVerdict === 'FAIL') {
+                  if (qcHasRewrite) {
+                    const rewrittenRawOutput = {
+                      ...raw_output,
+                      content: correctedOutput,
+                      _stream_text: correctedOutput,
+                      quality_check: 'REWRITE',
+                      quality_feedback: qcFeedback,
+                    } as Record<string, unknown>;
+
+                    await supabase.from('project_workflow_steps').update({
+                      output_data: rewrittenRawOutput,
+                      raw_output: rewrittenRawOutput,
+                      human_readable_output: {
+                        ...humanReadable,
+                        summary: correctedOutput.slice(0, 1200),
+                        quality_check: 'REWRITE',
+                        quality_feedback: qcFeedback || qcContent.slice(0, 2000),
+                      },
+                    }).eq('id', step_id);
+                  } else if (qcVerdict === 'FAIL') {
+                    // If FAIL and no auto-fix, request user intervention
                     await supabase.from('project_workflow_steps').update({
                       status: 'waiting_for_user',
                       human_readable_output: {
                         ...humanReadable,
                         quality_check: 'FAIL',
-                        quality_feedback: qcContent.slice(0, 2000),
+                        quality_feedback: (qcFeedback || qcContent).slice(0, 2000),
                       },
                     }).eq('id', step_id);
                   }

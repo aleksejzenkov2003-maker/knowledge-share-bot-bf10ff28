@@ -7,6 +7,7 @@ import { Card } from '@/components/ui/card';
 import { Loader2, Send, Bot, User } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import ReactMarkdown from 'react-markdown';
+import remarkGfm from 'remark-gfm';
 
 interface WorkflowStepChatProps {
   stepId: string;
@@ -58,7 +59,20 @@ export const WorkflowStepChat: React.FC<WorkflowStepChatProps> = ({
                 msg.message_role === 'user' ? 'bg-primary text-primary-foreground' : 'bg-muted'
               )}>
                 <div className="prose prose-sm dark:prose-invert max-w-none">
-                  <ReactMarkdown>{msg.content}</ReactMarkdown>
+                  <ReactMarkdown
+                    remarkPlugins={[remarkGfm]}
+                    components={{
+                      table: ({ children }) => (
+                        <div className="my-3 overflow-x-auto">
+                          <table className="min-w-full border-collapse text-xs">{children}</table>
+                        </div>
+                      ),
+                      th: ({ children }) => <th className="border px-2 py-1 text-left font-semibold">{children}</th>,
+                      td: ({ children }) => <td className="border px-2 py-1 align-top">{children}</td>,
+                    }}
+                  >
+                    {msg.content}
+                  </ReactMarkdown>
                 </div>
               </Card>
               {msg.message_role === 'user' && (
@@ -76,7 +90,20 @@ export const WorkflowStepChat: React.FC<WorkflowStepChatProps> = ({
               </div>
               <Card className="p-3 max-w-[80%] text-sm bg-muted">
                 <div className="prose prose-sm dark:prose-invert max-w-none">
-                  <ReactMarkdown>{streamingContent}</ReactMarkdown>
+                  <ReactMarkdown
+                    remarkPlugins={[remarkGfm]}
+                    components={{
+                      table: ({ children }) => (
+                        <div className="my-3 overflow-x-auto">
+                          <table className="min-w-full border-collapse text-xs">{children}</table>
+                        </div>
+                      ),
+                      th: ({ children }) => <th className="border px-2 py-1 text-left font-semibold">{children}</th>,
+                      td: ({ children }) => <td className="border px-2 py-1 align-top">{children}</td>,
+                    }}
+                  >
+                    {streamingContent}
+                  </ReactMarkdown>
                 </div>
               </Card>
             </div>
