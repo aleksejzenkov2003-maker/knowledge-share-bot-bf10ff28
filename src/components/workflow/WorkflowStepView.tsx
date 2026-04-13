@@ -433,7 +433,7 @@ export const WorkflowStepView: React.FC<WorkflowStepViewProps> = ({
 
       {/* Main content: chat-first layout with tabs */}
       {hasOutput ? (
-        <Tabs defaultValue="chat" className="flex-1 flex flex-col min-h-0">
+        <Tabs defaultValue="chat" className="flex-1 flex flex-col min-h-0 overflow-hidden">
           <TabsList className="mx-4 mt-2 w-fit flex-wrap h-auto gap-1">
             <TabsTrigger value="chat" className="text-xs h-7">
               <MessageSquare className="h-3.5 w-3.5 mr-1" />
