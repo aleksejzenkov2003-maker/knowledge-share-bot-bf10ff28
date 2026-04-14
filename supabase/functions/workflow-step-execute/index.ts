@@ -831,10 +831,12 @@ serve(async (req) => {
       if (repQ) chatBody.reputation_query = repQ;
     }
 
+    const WORKFLOW_CHAT_TIMEOUT = 180000; // 3 min timeout for workflow agent calls
     const chatResponse = await fetch(chatStreamUrl, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', 'Authorization': authHeader },
       body: JSON.stringify(chatBody),
+      signal: AbortSignal.timeout(WORKFLOW_CHAT_TIMEOUT),
     });
 
     if (!chatResponse.ok) {
@@ -929,6 +931,7 @@ serve(async (req) => {
                   method: 'POST',
                   headers: { 'Content-Type': 'application/json', 'Authorization': authHeader },
                   body: JSON.stringify(enrichBody),
+                  signal: AbortSignal.timeout(WORKFLOW_CHAT_TIMEOUT),
                 });
                 if (enrichResp.ok) {
                   const enriched = await readSseContent(enrichResp);
@@ -1035,6 +1038,7 @@ serve(async (req) => {
                   method: 'POST',
                   headers: { 'Content-Type': 'application/json', 'Authorization': authHeader },
                   body: JSON.stringify(qcBody),
+                  signal: AbortSignal.timeout(WORKFLOW_CHAT_TIMEOUT),
                 });
 
                 if (qcResp.ok) {
