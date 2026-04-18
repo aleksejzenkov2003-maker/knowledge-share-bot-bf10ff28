@@ -116,6 +116,84 @@ export const aiConfigTourSteps: DriveStep[] = [
   },
 ];
 
+export const workflowTemplatesTourSteps: DriveStep[] = [
+  {
+    element: '[data-tour="sidebar-workflow-templates"]',
+    popover: {
+      title: '🧩 Шаблоны воркфлоу',
+      description:
+        'Здесь вы собираете многошаговые процессы из AI-агентов, проверок и условий. Опубликованные шаблоны доступны для запуска в проектах.',
+    },
+  },
+  {
+    element: '[data-tour="workflow-templates-create"]',
+    popover: {
+      title: '➕ Создание шаблона',
+      description:
+        'Введите понятное название (например, «Подготовка КП») и нажмите «Создать». Откроется визуальный редактор, где вы соберёте шаги.',
+    },
+  },
+  {
+    element: '[data-tour="workflow-templates-list"]',
+    popover: {
+      title: '📋 Список шаблонов',
+      description:
+        'Ваши шаблоны. «Активен» + «Опубликован» — пользователи видят шаблон в проектах. Черновик — только у вас.',
+    },
+  },
+];
+
+export const workflowEditorTourSteps: DriveStep[] = [
+  {
+    element: '[data-tour="workflow-editor-toolbar"]',
+    popover: {
+      title: '🛠️ Панель редактора',
+      description:
+        'Здесь имя шаблона, статус и основные действия. Название сохраняется автоматически при потере фокуса.',
+    },
+  },
+  {
+    element: '[data-tour="workflow-editor-status"]',
+    popover: {
+      title: '🚦 Статус шаблона',
+      description:
+        '«Черновик» — видите только вы. «Опубликован» — шаблон доступен для запуска в проектах. «Архив» — скрыт.',
+    },
+  },
+  {
+    element: '[data-tour="workflow-editor-add-step"]',
+    popover: {
+      title: '➕ Добавить шаг',
+      description:
+        'Основные типы шагов: «Ввод данных» (форма старта), «AI Агент» (LLM-обработка), «Условие IF/ELSE», «Проверка результата», «Скрипт», «Итог».',
+    },
+  },
+  {
+    element: '[data-tour="workflow-editor-canvas"]',
+    popover: {
+      title: '🗺️ Холст процесса',
+      description:
+        'Перетаскивайте шаги мышкой. Тяните стрелку от одного шага к другому, чтобы связать их: данные из первого станут входом для второго.',
+    },
+  },
+  {
+    element: '[data-tour="workflow-editor-validation"]',
+    popover: {
+      title: '✅ Проверка графа',
+      description:
+        'Здесь появляются предупреждения: нет стартового шага, не настроен агент, «висящий» выход. Исправьте их перед публикацией.',
+    },
+  },
+  {
+    element: '[data-tour="workflow-editor-publish"]',
+    popover: {
+      title: '🚀 Опубликовать',
+      description:
+        'Когда граф собран и проверен — опубликуйте. После этого в проектах можно будет выбрать этот шаблон для запуска.',
+    },
+  },
+];
+
 export const adminTourSteps: DriveStep[] = [
   {
     element: '[data-tour="sidebar-users"]',
@@ -260,6 +338,21 @@ export const adminTours: TourDefinition[] = [
     description: 'Промпты и провайдеры',
     steps: aiConfigTourSteps,
     navigateTo: '/prompts',
+    roles: ['admin'],
+  },
+  {
+    id: 'workflow-templates',
+    label: 'Шаблоны воркфлоу',
+    description: 'Список шаблонов и создание нового',
+    steps: workflowTemplatesTourSteps,
+    navigateTo: '/workflow-templates',
+    roles: ['admin'],
+  },
+  {
+    id: 'workflow-editor',
+    label: 'Редактор воркфлоу',
+    description: 'Как устроен визуальный редактор процессов',
+    steps: workflowEditorTourSteps,
     roles: ['admin'],
   },
   {

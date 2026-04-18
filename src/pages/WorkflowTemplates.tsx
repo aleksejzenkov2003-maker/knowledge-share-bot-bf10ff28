@@ -98,7 +98,7 @@ const WorkflowTemplatesPage: React.FC = () => {
       </div>
 
       {/* Create new */}
-      <Card className="p-4">
+      <Card className="p-4" data-tour="workflow-templates-create">
         <div className="flex gap-2">
           <Input
             value={newName}
@@ -112,6 +112,10 @@ const WorkflowTemplatesPage: React.FC = () => {
             Создать
           </Button>
         </div>
+        <p className="text-xs text-muted-foreground mt-2">
+          Подсказка: дайте шаблону понятное название (например, «Подготовка КП» или «Досье клиента»).
+          Дальше откроется визуальный редактор — там соберёте шаги и связи.
+        </p>
       </Card>
 
       {/* List */}
@@ -125,7 +129,7 @@ const WorkflowTemplatesPage: React.FC = () => {
           <p>Нет шаблонов. Создайте первый.</p>
         </div>
       ) : (
-        <div className="grid gap-3">
+        <div className="grid gap-3" data-tour="workflow-templates-list">
           {templates.map(t => (
             <Card key={t.id} className="p-4 flex items-center justify-between hover:shadow-md transition-shadow">
               <div className="flex items-center gap-3">

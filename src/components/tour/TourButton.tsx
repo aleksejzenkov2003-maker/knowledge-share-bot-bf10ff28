@@ -1,4 +1,4 @@
-import { HelpCircle, MessageSquare, Users, FolderKanban, LayoutDashboard, UserCircle, BookOpen, Bot, Settings } from 'lucide-react';
+import { HelpCircle, MessageSquare, Users, FolderKanban, LayoutDashboard, UserCircle, BookOpen, Bot, Settings, GitBranch, Workflow } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import {
   DropdownMenu,
@@ -20,6 +20,8 @@ const tourIcons: Record<string, React.ComponentType<{ className?: string }>> = {
   'chat-roles': UserCircle,
   'knowledge-base': BookOpen,
   'ai-config': Bot,
+  'workflow-templates': GitBranch,
+  'workflow-editor': Workflow,
   'admin': Settings,
 };
 
