@@ -65,6 +65,8 @@ export function validateWorkflowGraph(
       severity: 'error',
       code: 'no_steps',
       message: 'Добавьте хотя бы один шаг',
+      suggestion:
+        'Нажмите «Добавить шаг» сверху и выберите «Ввод данных» — с него обычно начинается процесс.',
     });
     return issues;
   }
@@ -76,7 +78,9 @@ export function validateWorkflowGraph(
         severity: 'error',
         code: 'edge_dangling',
         message: 'Связь ссылается на несуществующий узел',
+        suggestion: 'Удалите эту связь — один из её концов указывает на несуществующий шаг.',
         edgeId: e.id,
+        fixType: 'select_edge',
       });
     }
   }
@@ -97,7 +101,9 @@ export function validateWorkflowGraph(
     issues.push({
       severity: 'error',
       code: 'no_entry',
-      message: 'Нужен узел «Ввод данных» без входящих связей',
+      message: 'Нет точки входа',
+      suggestion:
+        'Добавьте шаг «Ввод данных» (зелёный) без входящих связей — он будет стартом процесса.',
     });
   }
 
@@ -108,7 +114,10 @@ export function validateWorkflowGraph(
         severity: 'error',
         code: 'orphan_output',
         message: `Итоговый узел «${o.name}» без входов`,
+        suggestion:
+          'Протяните связь от последнего содержательного шага к этому «Итогу», иначе процесс не дойдёт до финала.',
         nodeId: o.id,
+        fixType: 'select_node',
       });
     }
   }
@@ -118,6 +127,8 @@ export function validateWorkflowGraph(
       severity: 'error',
       code: 'cycle',
       message: 'В графе есть цикл — разрешены только DAG',
+      suggestion:
+        'Найдите связь, которая возвращает данные назад по цепочке, и удалите её. Повторные попытки настраиваются через quality_check → agent одним ребром, но без обратной петли.',
     });
   }
 
@@ -127,7 +138,10 @@ export function validateWorkflowGraph(
         severity: 'warning',
         code: 'agent_no_role',
         message: `Агент «${s.name}»: не выбрана роль и пустой системный промпт`,
+        suggestion:
+          'Выберите роль в правой панели (из "Роли чата") или добавьте prompt_override — иначе шаг не знает, что делать.',
         nodeId: s.id,
+        fixType: 'select_node',
       });
     }
     if (s.node_type === 'script') {
@@ -139,7 +153,10 @@ export function validateWorkflowGraph(
           severity: 'error',
           code: 'script_no_key',
           message: `Скрипт «${s.name}»: укажите scriptKey или function_name`,
+          suggestion:
+            'В панели шага выберите из реестра скриптов нужный scriptKey или укажите имя edge-функции в function_name.',
           nodeId: s.id,
+          fixType: 'select_node',
         });
       }
     }
@@ -151,7 +168,10 @@ export function validateWorkflowGraph(
           severity: 'error',
           code: 'condition_no_rules',
           message: `Условие «${s.name}»: добавьте хотя бы одно правило`,
+          suggestion:
+            'В панели условия задайте хотя бы одно правило вида "поле - оператор - значение". Например: status = "ok".',
           nodeId: s.id,
+          fixType: 'select_node',
         });
       } else {
         for (const r of orch.rules) {
@@ -160,7 +180,9 @@ export function validateWorkflowGraph(
               severity: 'warning',
               code: 'condition_empty_field',
               message: `Условие «${s.name}»: в правиле не указано поле данных`,
+              suggestion: 'Задайте путь к полю в JSON (например data.status или $.result.ok).',
               nodeId: s.id,
+              fixType: 'select_node',
             });
           }
         }
@@ -173,7 +195,10 @@ export function validateWorkflowGraph(
           severity: 'warning',
           code: 'condition_branches',
           message: `Условие «${s.name}»: создайте две связи от зелёной (Да) и серой (Нет) точек`,
+          suggestion:
+            'От шага "Условие" должны идти две связи: одна от зелёного handle (Да) к шагу для истинной ветви, вторая от серого (Нет) — к альтернативному пути.',
           nodeId: s.id,
+          fixType: 'select_node',
         });
       }
     }
@@ -185,7 +210,10 @@ export function validateWorkflowGraph(
           severity: 'error',
           code: 'quality_no_rules',
           message: `Проверка «${s.name}»: добавьте требования к полям`,
+          suggestion:
+            'В панели проверки задайте список правил: какое поле должно существовать / совпадать / быть непустым.',
           nodeId: s.id,
+          fixType: 'select_node',
         });
       } else {
         for (const r of orch.rules) {
@@ -194,7 +222,9 @@ export function validateWorkflowGraph(
               severity: 'warning',
               code: 'quality_empty_field',
               message: `Проверка «${s.name}»: укажите поле в каждом требовании`,
+              suggestion: 'Задайте путь к полю (например output.price или $.result.amount).',
               nodeId: s.id,
+              fixType: 'select_node',
             });
           }
         }
@@ -206,7 +236,10 @@ export function validateWorkflowGraph(
           severity: 'warning',
           code: 'quality_branches',
           message: `Проверка «${s.name}»: добавьте связь «Ок» (branch_pass)`,
+          suggestion:
+            'Протяните связь от зелёного handle "Ок" к следующему шагу. Серая ветка "Fail" опциональна, но обычно её тоже делают.',
           nodeId: s.id,
+          fixType: 'select_node',
         });
       }
     }
@@ -221,7 +254,10 @@ export function validateWorkflowGraph(
         severity: 'warning',
         code: 'edge_no_mapping',
         message: `Связь ${src.name} → ${tgt.name}: нет маппинга полей`,
+        suggestion:
+          'Без маппинга следующий шаг не получит данные. Нажмите «Починить» — подставим passthrough ($ → $), либо задайте пути вручную в панели связи.',
         edgeId: e.id,
+        fixType: 'auto_passthrough_mapping',
       });
     }
   }

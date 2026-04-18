@@ -71,12 +71,22 @@ export type ResultAssemblyMode = 'ai_summary' | 'deterministic' | 'combined';
 
 export type EditorValidationSeverity = 'error' | 'warning';
 
+/** Types of fixes the editor can apply automatically (without AI). */
+export type EditorValidationFixType =
+  | 'auto_passthrough_mapping'
+  | 'select_node'
+  | 'select_edge';
+
 export interface EditorValidationIssue {
   severity: EditorValidationSeverity;
   code: string;
   message: string;
+  /** Human-readable "what to do" hint shown in the expanded row. */
+  suggestion?: string;
   nodeId?: string;
   edgeId?: string;
+  /** If set, UI shows a "Починить" button that calls the matching handler. */
+  fixType?: EditorValidationFixType;
 }
 
 export interface WorkflowEditorNodeMeta {

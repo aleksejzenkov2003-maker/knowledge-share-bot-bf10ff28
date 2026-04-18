@@ -15,6 +15,11 @@ import { Loader2, ArrowLeft, Rocket, HelpCircle } from 'lucide-react';
 import { useTour } from '@/components/tour/TourProvider';
 import { workflowEditorTourSteps } from '@/components/tour/tourSteps';
 import type { Node } from '@xyflow/react';
+import {
+  edgesNeedingMapping,
+  suggestMappingForEdge,
+} from '@/lib/workflowAutoFix';
+import { toast } from 'sonner';
 
 interface WorkflowTemplateEditorProps {
   templateId: string;
@@ -98,6 +103,61 @@ const WorkflowTemplateEditor: React.FC<WorkflowTemplateEditorProps> = ({
     setSelectedEdgeId(null);
     setSelectedNodeId(id);
   };
+
+  const mappingCandidates = React.useMemo(
+    () => edgesNeedingMapping(graphEdges),
+    [graphEdges],
+  );
+
+  const stepById = React.useCallback(
+    (id: string) => steps.find((s) => s.id === id),
+    [steps],
+  );
+
+  const handleFixEdgeMapping = React.useCallback(
+    async (edgeId: string) => {
+      const edge = graphEdges.find((e) => e.id === edgeId);
+      if (!edge) return;
+      const mapping = suggestMappingForEdge(
+        stepById(edge.source_node_id),
+        stepById(edge.target_node_id),
+      );
+      await updateEdge(edgeId, { mapping });
+      toast.success('Маппинг добавлен');
+    },
+    [graphEdges, stepById, updateEdge],
+  );
+
+  const handleFixAllMappings = React.useCallback(async () => {
+    if (mappingCandidates.length === 0) return;
+    await Promise.all(
+      mappingCandidates.map((e) =>
+        updateEdge(e.id, {
+          mapping: suggestMappingForEdge(
+            stepById(e.source_node_id),
+            stepById(e.target_node_id),
+          ),
+        }),
+      ),
+    );
+    toast.success(`Маппинги добавлены для ${mappingCandidates.length} связей`);
+  }, [mappingCandidates, stepById, updateEdge]);
+
+  const handleSelectNodeFromValidation = React.useCallback(
+    (nodeId: string) => {
+      setSelectedEdgeId(null);
+      setSelectedNodeId(nodeId);
+    },
+    [setSelectedEdgeId, setSelectedNodeId],
+  );
+
+  const handleSelectEdgeFromValidation = React.useCallback(
+    (edgeId: string) => {
+      setSelectedNodeId(null);
+      setSelectedEdgeId(edgeId);
+    },
+    [setSelectedNodeId, setSelectedEdgeId],
+  );
 
   const handleEdgeClick = (id: string) => {
     setSelectedNodeId(null);
@@ -232,7 +292,14 @@ const WorkflowTemplateEditor: React.FC<WorkflowTemplateEditorProps> = ({
         className="px-4 py-2 border-b bg-muted/20"
         data-tour="workflow-editor-validation"
       >
-        <ValidationPanel issues={validationIssues} />
+        <ValidationPanel
+          issues={validationIssues}
+          autofixableMappingCount={mappingCandidates.length}
+          onSelectNode={handleSelectNodeFromValidation}
+          onSelectEdge={handleSelectEdgeFromValidation}
+          onFixEdgeMapping={handleFixEdgeMapping}
+          onFixAllMappings={handleFixAllMappings}
+        />
       </div>
 
       <div className="flex flex-1 min-h-0">
