@@ -1,0 +1,2 @@
+ALTER TABLE public.workflow_templates ADD COLUMN IF NOT EXISTS is_preset boolean NOT NULL DEFAULT false;
+CREATE INDEX IF NOT EXISTS idx_workflow_templates_is_preset ON public.workflow_templates(is_preset) WHERE is_preset = true;
