@@ -2408,6 +2408,7 @@ export type Database = {
           description: string | null
           id: string
           is_active: boolean
+          is_preset: boolean
           name: string
           schema: Json
           template_status: string
@@ -2420,6 +2421,7 @@ export type Database = {
           description?: string | null
           id?: string
           is_active?: boolean
+          is_preset?: boolean
           name: string
           schema?: Json
           template_status?: string
@@ -2432,6 +2434,7 @@ export type Database = {
           description?: string | null
           id?: string
           is_active?: boolean
+          is_preset?: boolean
           name?: string
           schema?: Json
           template_status?: string
