@@ -2499,6 +2499,14 @@ export type Database = {
     Functions: {
       cleanup_expired_bitrix_sessions: { Args: never; Returns: number }
       cleanup_expired_pii_mappings: { Args: never; Returns: number }
+      clone_workflow_template: {
+        Args: {
+          new_name: string
+          new_owner: string
+          source_template_id: string
+        }
+        Returns: string
+      }
       get_project_member_role: {
         Args: { p_project_id: string; p_user_id: string }
         Returns: Database["public"]["Enums"]["project_member_role"]
