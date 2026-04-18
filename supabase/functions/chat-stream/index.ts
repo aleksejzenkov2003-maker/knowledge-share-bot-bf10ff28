@@ -2136,6 +2136,31 @@ ${goldenExamples.join('\n\n---\n\n')}
         const openrouterKey = providerConfig.api_key || OPENROUTER_API_KEY || '';
         const referer = Deno.env.get('OPENROUTER_HTTP_REFERER') || 'https://apt728.ru';
         const appTitle = Deno.env.get('OPENROUTER_APP_TITLE') || 'Knowledge Share Bot';
+
+        // OpenRouter supports automatic fallbacks via `models: [...]` array.
+        // We allow specifying multiple models in finalModel separated by "," or "|"
+        // (e.g. "openai/gpt-5.2,anthropic/claude-sonnet-4.5,google/gemini-2.5-pro").
+        // First model = primary; others = fallbacks tried in order if primary errors,
+        // is rate-limited, or refuses (per https://openrouter.ai/docs/guides/routing/model-fallbacks).
+        // Use `openrouter/auto` to let OpenRouter (NotDiamond) pick the best model per prompt.
+        const modelList = String(finalModel || '')
+          .split(/[,|]/)
+          .map((m) => m.trim())
+          .filter(Boolean);
+
+        const orBody: Record<string, unknown> = {
+          messages: [{ role: 'system', content: enhancedSystemPrompt }, ...simpleMessages],
+          stream: true,
+          max_tokens: 16384,
+        };
+
+        if (modelList.length > 1) {
+          orBody.model = modelList[0];
+          orBody.models = modelList; // automatic fallback chain
+        } else {
+          orBody.model = modelList[0] || 'openrouter/auto';
+        }
+
         streamResponse = await fetch('https://openrouter.ai/api/v1/chat/completions', {
           method: 'POST',
           signal: apiAbortController.signal,
@@ -2143,14 +2168,9 @@ ${goldenExamples.join('\n\n---\n\n')}
             'Authorization': `Bearer ${openrouterKey}`,
             'Content-Type': 'application/json',
             'HTTP-Referer': referer,
-            'X-OpenRouter-Title': appTitle,
+            'X-Title': appTitle,
           },
-          body: JSON.stringify({
-            model: finalModel,
-            messages: [{ role: 'system', content: enhancedSystemPrompt }, ...simpleMessages],
-            stream: true,
-            max_tokens: 16384,
-          }),
+          body: JSON.stringify(orBody),
         });
         break;
       }
