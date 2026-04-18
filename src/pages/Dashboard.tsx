@@ -146,7 +146,7 @@ const Dashboard = () => {
 
             setUsageData(Object.entries(dailyUsage).map(([name, count]) => ({ name, count })));
             setProviderUsage(Object.entries(providerCounts).map(([name, value]) => ({ 
-              name: name === 'lovable' ? 'Lovable AI' : name === 'anthropic' ? 'Anthropic' : name === 'openai' ? 'OpenAI' : name === 'perplexity' ? 'Perplexity' : name,
+              name: name === 'lovable' ? 'Lovable AI' : name === 'anthropic' ? 'Anthropic' : name === 'openai' ? 'OpenAI' : name === 'openrouter' ? 'OpenRouter' : name === 'perplexity' ? 'Perplexity' : name,
               value 
             })));
           }

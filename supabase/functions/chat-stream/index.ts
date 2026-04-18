@@ -261,6 +261,7 @@ serve(async (req) => {
     const ANTHROPIC_API_KEY = Deno.env.get('ANTHROPIC_API_KEY');
     const GEMINI_API_KEY = Deno.env.get('GEMINI_API_KEY');
     const GIGACHAT_API_KEY = Deno.env.get('GIGACHAT_API_KEY');
+    const OPENROUTER_API_KEY = Deno.env.get('OPENROUTER_API_KEY');
 
     const supabaseUrl = Deno.env.get('SUPABASE_URL')!;
     const supabaseKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!;
@@ -363,6 +364,8 @@ serve(async (req) => {
           return Deno.env.get('QWEN_API_KEY') || '';
         case 'kimi':
           return Deno.env.get('KIMI_API_KEY') || '';
+        case 'openrouter':
+          return OPENROUTER_API_KEY || '';
         default:
           return '';
       }
@@ -439,6 +442,7 @@ serve(async (req) => {
           gemini: 'gemini-2.5-flash',
           anthropic: 'claude-sonnet-4-6',
           openai: 'gpt-4o',
+          openrouter: 'openai/gpt-4o-mini',
         };
         providerConfig = {
           provider_type: force_provider,
@@ -2119,6 +2123,29 @@ ${goldenExamples.join('\n\n---\n\n')}
             'Content-Type': 'application/json',
           },
            body: JSON.stringify({
+            model: finalModel,
+            messages: [{ role: 'system', content: enhancedSystemPrompt }, ...simpleMessages],
+            stream: true,
+            max_tokens: 16384,
+          }),
+        });
+        break;
+      }
+
+      case 'openrouter': {
+        const openrouterKey = providerConfig.api_key || OPENROUTER_API_KEY || '';
+        const referer = Deno.env.get('OPENROUTER_HTTP_REFERER') || 'https://apt728.ru';
+        const appTitle = Deno.env.get('OPENROUTER_APP_TITLE') || 'Knowledge Share Bot';
+        streamResponse = await fetch('https://openrouter.ai/api/v1/chat/completions', {
+          method: 'POST',
+          signal: apiAbortController.signal,
+          headers: {
+            'Authorization': `Bearer ${openrouterKey}`,
+            'Content-Type': 'application/json',
+            'HTTP-Referer': referer,
+            'X-OpenRouter-Title': appTitle,
+          },
+          body: JSON.stringify({
             model: finalModel,
             messages: [{ role: 'system', content: enhancedSystemPrompt }, ...simpleMessages],
             stream: true,

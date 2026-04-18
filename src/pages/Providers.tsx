@@ -69,6 +69,15 @@ const providerModels: Record<string, { value: string; label: string }[]> = {
     { value: 'qwq-plus', label: 'QwQ Plus (рассуждения)' },
     { value: 'qwen3.5-plus', label: 'Qwen3.5 Plus (новый)' },
   ],
+  openrouter: [
+    { value: 'openai/gpt-4o-mini', label: 'GPT-4o Mini (OpenRouter)' },
+    { value: 'openai/gpt-4o', label: 'GPT-4o' },
+    { value: 'openai/gpt-5.2', label: 'GPT-5.2' },
+    { value: 'anthropic/claude-sonnet-4', label: 'Claude Sonnet 4' },
+    { value: 'anthropic/claude-3.5-sonnet', label: 'Claude 3.5 Sonnet' },
+    { value: 'google/gemini-2.5-flash', label: 'Gemini 2.5 Flash' },
+    { value: 'google/gemini-2.5-pro', label: 'Gemini 2.5 Pro' },
+  ],
   kimi: [
     { value: 'kimi-k2.5', label: 'Kimi K2.5 (reasoning + vision)' },
     { value: 'kimi-k2.5-agent', label: 'Kimi K2.5 Agent (нативный agentic)' },
@@ -84,7 +93,7 @@ const providerModels: Record<string, { value: string; label: string }[]> = {
 };
 
 // Проверка наличия API ключей из env (для подсказок в UI)
-const envConfiguredProviders = ['perplexity', 'anthropic', 'gemini', 'gigachat', 'openai', 'qwen', 'kimi'];
+const envConfiguredProviders = ['perplexity', 'anthropic', 'gemini', 'gigachat', 'openai', 'openrouter', 'qwen', 'kimi'];
 
 const providerLabels: Record<string, string> = {
   perplexity: 'Perplexity',
@@ -94,6 +103,7 @@ const providerLabels: Record<string, string> = {
   gigachat: 'GigaChat (Сбер)',
   qwen: 'Qwen (Alibaba)',
   kimi: 'Kimi (Moonshot)',
+  openrouter: 'OpenRouter',
 };
 
 const Providers = () => {
@@ -320,6 +330,7 @@ const Providers = () => {
                       <SelectItem value="perplexity">Perplexity</SelectItem>
                       <SelectItem value="anthropic">Anthropic (Claude)</SelectItem>
                       <SelectItem value="openai">OpenAI</SelectItem>
+                      <SelectItem value="openrouter">OpenRouter</SelectItem>
                       <SelectItem value="gemini">Google Gemini</SelectItem>
                       <SelectItem value="gigachat">GigaChat (Сбер)</SelectItem>
                       <SelectItem value="qwen">Qwen (Alibaba)</SelectItem>
@@ -356,6 +367,8 @@ const Providers = () => {
                           ? 'sk-ant-... (опционально)' 
                           : newProvider.provider_type === 'openai'
                           ? 'sk-... (опционально)'
+                          : newProvider.provider_type === 'openrouter'
+                          ? 'sk-or-v1-... (опционально, см. секреты Supabase)'
                           : newProvider.provider_type === 'perplexity'
                           ? 'pplx-... (опционально)'
                           : newProvider.provider_type === 'gemini'

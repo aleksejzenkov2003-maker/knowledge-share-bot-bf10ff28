@@ -100,6 +100,15 @@ const providerModels: Record<string, { value: string; label: string }[]> = {
     { value: 'o3-mini', label: 'O3 Mini' },
     { value: 'o4-mini', label: 'O4 Mini (новый)' },
   ],
+  openrouter: [
+    { value: 'openai/gpt-4o-mini', label: 'GPT-4o Mini (OpenRouter)' },
+    { value: 'openai/gpt-4o', label: 'GPT-4o' },
+    { value: 'openai/gpt-5.2', label: 'GPT-5.2' },
+    { value: 'anthropic/claude-sonnet-4', label: 'Claude Sonnet 4' },
+    { value: 'anthropic/claude-3.5-sonnet', label: 'Claude 3.5 Sonnet' },
+    { value: 'google/gemini-2.5-flash', label: 'Gemini 2.5 Flash' },
+    { value: 'google/gemini-2.5-pro', label: 'Gemini 2.5 Pro' },
+  ],
   anthropic: [
     { value: 'claude-opus-4-6', label: 'Claude Opus 4.6 (топ)' },
     { value: 'claude-sonnet-4-6', label: 'Claude Sonnet 4.6 (новейший)' },
