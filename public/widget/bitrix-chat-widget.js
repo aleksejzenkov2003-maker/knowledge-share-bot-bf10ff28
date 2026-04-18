@@ -10,7 +10,7 @@
  * <html>
  * <head>
  *   <script src="//api.bitrix24.com/api/v1/"></script>
- *   <script src="https://knowledge-share-bot.lovable.app/widget/bitrix-chat-widget.js"></script>
+ *   <script src="https://apt728.ru/widget/bitrix-chat-widget.js"></script>
  * </head>
  * <body>
  *   <div id="knowledge-chat" style="height: 100vh;"></div>

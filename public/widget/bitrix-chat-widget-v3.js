@@ -9,7 +9,7 @@
  * <html>
  * <head>
  *   <script src="//api.bitrix24.com/api/v1/"></script>
- *   <script src="https://knowledge-share-bot.lovable.app/widget/bitrix-chat-widget-v3.js"></script>
+ *   <script src="https://apt728.ru/widget/bitrix-chat-widget-v3.js"></script>
  * </head>
  * <body>
  *   <div id="knowledge-chat" style="height: 100vh;"></div>
@@ -44,7 +44,7 @@
 
   var KnowledgeChat = {
     version: '3.1.0',
-    baseUrl: 'https://knowledge-share-bot.lovable.app',
+    baseUrl: 'https://apt728.ru',
     
     /**
      * Initialize chat widget
