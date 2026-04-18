@@ -20,6 +20,7 @@ import {
 import { toast } from 'sonner';
 import { WorkflowTemplate } from '@/types/workflow';
 import { workflowQueryKeys } from '@/hooks/useProjectWorkflow';
+import { AIArchitectDialog } from '@/components/workflow-editor/AIArchitectDialog';
 
 const WorkflowTemplatesPage: React.FC = () => {
   const { user } = useAuth();
@@ -29,6 +30,7 @@ const WorkflowTemplatesPage: React.FC = () => {
   const [cloningId, setCloningId] = useState<string | null>(null);
   const [editTemplateId, setEditTemplateId] = useState<string | null>(null);
   const [activeTab, setActiveTab] = useState<'mine' | 'gallery'>('mine');
+  const [aiOpen, setAiOpen] = useState(false);
 
   const { data: templates = [], isLoading } = useQuery({
     queryKey: workflowQueryKeys.templates,
@@ -130,6 +132,10 @@ const WorkflowTemplatesPage: React.FC = () => {
             setEditTemplateId(null);
             setActiveTab('gallery');
           }}
+          onOpenAIArchitect={() => {
+            setEditTemplateId(null);
+            setAiOpen(true);
+          }}
         />
       </React.Suspense>
     );
@@ -137,17 +143,34 @@ const WorkflowTemplatesPage: React.FC = () => {
 
   return (
     <div className="space-y-6">
-      <div className="flex items-center justify-between">
+      <div className="flex items-center justify-between flex-wrap gap-3">
         <div>
           <h1 className="text-2xl font-bold flex items-center gap-2">
             <GitBranch className="h-6 w-6 text-primary" />
             Workflow шаблоны
           </h1>
           <p className="text-sm text-muted-foreground mt-1">
-            Создавайте процессы с нуля или возьмите готовый скелет из галереи
+            Создавайте процессы с нуля, берите скелет из галереи или опишите задачу словами
           </p>
         </div>
+        <Button
+          onClick={() => setAiOpen(true)}
+          className="gap-1.5 bg-gradient-to-r from-violet-500 to-indigo-600 hover:from-violet-600 hover:to-indigo-700 text-white"
+          data-tour="workflow-ai-architect"
+        >
+          <Sparkles className="h-4 w-4" />
+          Создать с ИИ
+        </Button>
       </div>
+
+      <AIArchitectDialog
+        open={aiOpen}
+        onOpenChange={setAiOpen}
+        onTemplateCreated={(id) => {
+          queryClient.invalidateQueries({ queryKey: workflowQueryKeys.templates });
+          setEditTemplateId(id);
+        }}
+      />
 
       <Tabs
         value={activeTab}

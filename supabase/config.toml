@@ -50,3 +50,6 @@ verify_jwt = false
 
 [functions.ingest-clean-markdown]
 verify_jwt = false
+
+[functions.workflow-ai-architect]
+verify_jwt = false

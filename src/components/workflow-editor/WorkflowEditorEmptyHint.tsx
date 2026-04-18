@@ -17,16 +17,22 @@ interface WorkflowEditorEmptyHintProps {
    * If provided, the "Готовый шаблон" card becomes active; otherwise it shows "скоро".
    */
   onOpenGallery?: () => void;
+  /**
+   * Callback to open the AI-architect dialog.
+   * If provided, the "ИИ-ассистент" card becomes active; otherwise it shows "скоро".
+   */
+  onOpenAIArchitect?: () => void;
 }
 
 /**
  * Empty-state overlay shown on top of the canvas when a template has no steps yet.
- * Offers three paths: start blank, pick a template from gallery, or use AI builder (Phase 3).
+ * Offers three paths: start blank, pick a template from gallery, or use AI builder.
  */
 export const WorkflowEditorEmptyHint: React.FC<WorkflowEditorEmptyHintProps> = ({
   onAddFirstStep,
   onStartTour,
   onOpenGallery,
+  onOpenAIArchitect,
 }) => {
   return (
     <div className="absolute inset-0 flex items-center justify-center pointer-events-none p-6">
@@ -85,19 +91,35 @@ export const WorkflowEditorEmptyHint: React.FC<WorkflowEditorEmptyHintProps> = (
             </div>
           )}
 
-          {/* AI builder — coming soon */}
-          <div className="relative text-left rounded-lg border bg-card/50 p-3 opacity-70">
-            <Badge variant="outline" className="absolute top-2 right-2 text-[9px]">
-              скоро
-            </Badge>
-            <div className="flex items-center gap-2 mb-1">
-              <Sparkles className="h-4 w-4 text-violet-600" />
-              <span className="font-medium text-sm">ИИ-ассистент</span>
+          {/* AI builder */}
+          {onOpenAIArchitect ? (
+            <button
+              type="button"
+              onClick={onOpenAIArchitect}
+              className="text-left rounded-lg border border-violet-300/60 bg-gradient-to-br from-violet-500/5 to-indigo-500/5 hover:from-violet-500/10 hover:to-indigo-500/10 transition p-3 group"
+            >
+              <div className="flex items-center gap-2 mb-1">
+                <Sparkles className="h-4 w-4 text-violet-600" />
+                <span className="font-medium text-sm">ИИ-ассистент</span>
+              </div>
+              <p className="text-xs text-muted-foreground leading-snug">
+                Опишите цель словами — Claude Opus соберёт граф и предложит связи.
+              </p>
+            </button>
+          ) : (
+            <div className="relative text-left rounded-lg border bg-card/50 p-3 opacity-70">
+              <Badge variant="outline" className="absolute top-2 right-2 text-[9px]">
+                скоро
+              </Badge>
+              <div className="flex items-center gap-2 mb-1">
+                <Sparkles className="h-4 w-4 text-violet-600" />
+                <span className="font-medium text-sm">ИИ-ассистент</span>
+              </div>
+              <p className="text-xs text-muted-foreground leading-snug">
+                Опишите цель словами — ассистент соберёт граф и предложит связи.
+              </p>
             </div>
-            <p className="text-xs text-muted-foreground leading-snug">
-              Опишите цель словами — ассистент соберёт граф и предложит связи.
-            </p>
-          </div>
+          )}
         </div>
 
         <div className="flex items-center justify-between gap-3 pt-1 border-t">

@@ -21,12 +21,15 @@ interface WorkflowTemplateEditorProps {
   onBack: () => void;
   /** Optional: navigate to presets gallery instead of going back to list. */
   onOpenGallery?: () => void;
+  /** Optional: open the AI-architect dialog. */
+  onOpenAIArchitect?: () => void;
 }
 
 const WorkflowTemplateEditor: React.FC<WorkflowTemplateEditorProps> = ({
   templateId,
   onBack,
   onOpenGallery,
+  onOpenAIArchitect,
 }) => {
   const {
     template,
@@ -251,6 +254,7 @@ const WorkflowTemplateEditor: React.FC<WorkflowTemplateEditorProps> = ({
               onAddFirstStep={() => void handleAddNode('input')}
               onStartTour={() => startTour(workflowEditorTourSteps)}
               onOpenGallery={onOpenGallery}
+              onOpenAIArchitect={onOpenAIArchitect}
             />
           )}
         </div>
