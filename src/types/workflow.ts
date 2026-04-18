@@ -32,6 +32,8 @@ export interface WorkflowTemplate {
   template_status: WorkflowTemplatePublishStatus;
   /** entryNodeIds, global settings */
   schema: WorkflowTemplateSchemaMeta & Record<string, unknown>;
+  /** System/gallery preset — shown in "Готовые шаблоны" and cloned into user drafts */
+  is_preset?: boolean;
   created_at: string;
   updated_at: string;
 }

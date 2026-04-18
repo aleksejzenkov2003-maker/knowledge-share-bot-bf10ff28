@@ -19,9 +19,15 @@ import type { Node } from '@xyflow/react';
 interface WorkflowTemplateEditorProps {
   templateId: string;
   onBack: () => void;
+  /** Optional: navigate to presets gallery instead of going back to list. */
+  onOpenGallery?: () => void;
 }
 
-const WorkflowTemplateEditor: React.FC<WorkflowTemplateEditorProps> = ({ templateId, onBack }) => {
+const WorkflowTemplateEditor: React.FC<WorkflowTemplateEditorProps> = ({
+  templateId,
+  onBack,
+  onOpenGallery,
+}) => {
   const {
     template,
     steps,
@@ -244,6 +250,7 @@ const WorkflowTemplateEditor: React.FC<WorkflowTemplateEditorProps> = ({ templat
             <WorkflowEditorEmptyHint
               onAddFirstStep={() => void handleAddNode('input')}
               onStartTour={() => startTour(workflowEditorTourSteps)}
+              onOpenGallery={onOpenGallery}
             />
           )}
         </div>

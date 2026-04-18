@@ -12,15 +12,21 @@ import {
 interface WorkflowEditorEmptyHintProps {
   onAddFirstStep: () => void;
   onStartTour: () => void;
+  /**
+   * Callback to navigate to the presets gallery.
+   * If provided, the "Готовый шаблон" card becomes active; otherwise it shows "скоро".
+   */
+  onOpenGallery?: () => void;
 }
 
 /**
  * Empty-state overlay shown on top of the canvas when a template has no steps yet.
- * Offers three paths: start blank, pick a template (coming soon), or use AI builder (coming soon).
+ * Offers three paths: start blank, pick a template from gallery, or use AI builder (Phase 3).
  */
 export const WorkflowEditorEmptyHint: React.FC<WorkflowEditorEmptyHintProps> = ({
   onAddFirstStep,
   onStartTour,
+  onOpenGallery,
 }) => {
   return (
     <div className="absolute inset-0 flex items-center justify-center pointer-events-none p-6">
@@ -49,19 +55,35 @@ export const WorkflowEditorEmptyHint: React.FC<WorkflowEditorEmptyHintProps> = (
             </p>
           </button>
 
-          {/* Gallery — coming soon */}
-          <div className="relative text-left rounded-lg border bg-card/50 p-3 opacity-70">
-            <Badge variant="outline" className="absolute top-2 right-2 text-[9px]">
-              скоро
-            </Badge>
-            <div className="flex items-center gap-2 mb-1">
-              <LibraryBig className="h-4 w-4 text-sky-600" />
-              <span className="font-medium text-sm">Готовый шаблон</span>
+          {/* Gallery */}
+          {onOpenGallery ? (
+            <button
+              type="button"
+              onClick={onOpenGallery}
+              className="text-left rounded-lg border bg-card hover:bg-accent transition p-3 group"
+            >
+              <div className="flex items-center gap-2 mb-1">
+                <LibraryBig className="h-4 w-4 text-sky-600" />
+                <span className="font-medium text-sm">Готовый шаблон</span>
+              </div>
+              <p className="text-xs text-muted-foreground leading-snug">
+                Выбрать из галереи типовых процессов и настроить под себя.
+              </p>
+            </button>
+          ) : (
+            <div className="relative text-left rounded-lg border bg-card/50 p-3 opacity-70">
+              <Badge variant="outline" className="absolute top-2 right-2 text-[9px]">
+                скоро
+              </Badge>
+              <div className="flex items-center gap-2 mb-1">
+                <LibraryBig className="h-4 w-4 text-sky-600" />
+                <span className="font-medium text-sm">Готовый шаблон</span>
+              </div>
+              <p className="text-xs text-muted-foreground leading-snug">
+                Выбрать из галереи типовых процессов.
+              </p>
             </div>
-            <p className="text-xs text-muted-foreground leading-snug">
-              Выбрать из галереи типовых процессов: КП, досье, проверка договора.
-            </p>
-          </div>
+          )}
 
           {/* AI builder — coming soon */}
           <div className="relative text-left rounded-lg border bg-card/50 p-3 opacity-70">
