@@ -3,10 +3,16 @@ import { ProjectStepMessage } from '@/types/workflow';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Card } from '@/components/ui/card';
-import { Loader2, Send, Bot, User } from 'lucide-react';
+import { Loader2, Send, Bot, User, Paperclip, FileText, ChevronDown } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
+
+interface InheritedAttachment {
+  file_path: string;
+  file_name: string;
+  file_size?: number;
+}
 
 interface WorkflowStepChatProps {
   stepId: string;
@@ -14,6 +20,7 @@ interface WorkflowStepChatProps {
   onSendMessage: (message: string) => void;
   isExecuting: boolean;
   streamingContent: string;
+  inheritedAttachments?: InheritedAttachment[];
 }
 
 const chatMarkdownComponents = {
