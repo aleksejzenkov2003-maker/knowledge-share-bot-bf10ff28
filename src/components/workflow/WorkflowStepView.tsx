@@ -368,9 +368,24 @@ export const WorkflowStepView: React.FC<WorkflowStepViewProps> = ({
     return att as { file_path: string; file_name: string; file_type: string; file_size: number }[];
   }, [step.input_data]);
 
+  // Globally suppressed attachment paths — collected from suppressed_attachments
+  // arrays on every step's input_data. Once a doc is removed anywhere, it stops
+  // being inherited by all subsequent steps.
+  const suppressedPaths = useMemo(() => {
+    const set = new Set<string>();
+    for (const s of allSteps) {
+      const sup = (s?.input_data as Record<string, unknown> | null)?.suppressed_attachments;
+      if (Array.isArray(sup)) {
+        for (const p of sup) if (typeof p === 'string') set.add(p);
+      }
+    }
+    return set;
+  }, [allSteps]);
+
   // Attachments inherited from previous steps in the same workflow run.
   // Aggregated from output_data.attachments and input_data.attachments of any step
-  // with step_order < current. Excludes those already attached directly to this step.
+  // with step_order < current. Excludes those already attached directly to this step
+  // and any path that was suppressed (removed) on any step.
   const inheritedAttachments = useMemo(() => {
     const map = new Map<string, { file_path: string; file_name: string; file_size?: number }>();
     for (const s of allSteps) {
@@ -386,7 +401,7 @@ export const WorkflowStepView: React.FC<WorkflowStepViewProps> = ({
         if (!Array.isArray(b)) continue;
         for (const a of b as Record<string, unknown>[]) {
           const fp = a?.file_path;
-          if (typeof fp === 'string' && !map.has(fp)) {
+          if (typeof fp === 'string' && !map.has(fp) && !suppressedPaths.has(fp)) {
             map.set(fp, {
               file_path: fp,
               file_name: String(a.file_name || fp),
@@ -398,18 +413,32 @@ export const WorkflowStepView: React.FC<WorkflowStepViewProps> = ({
     }
     for (const a of existingAttachments) map.delete(a.file_path);
     return Array.from(map.values());
-  }, [allSteps, step.id, step.step_order, existingAttachments]);
+  }, [allSteps, step.id, step.step_order, existingAttachments, suppressedPaths]);
 
   const handleRemoveAttachment = useCallback(async (filePath: string) => {
     try {
-      // Best-effort storage cleanup (ignore errors — file may not exist or belong to another step)
-      try { await supabase.storage.from('chat-attachments').remove([filePath]); } catch {}
       const currentInput = (step.input_data || {}) as Record<string, unknown>;
-      const remaining = (Array.isArray(currentInput.attachments) ? currentInput.attachments : [])
-        .filter((a: any) => a?.file_path !== filePath);
+      const ownAtts = Array.isArray(currentInput.attachments) ? currentInput.attachments : [];
+      const isOwn = ownAtts.some((a: any) => a?.file_path === filePath);
+      const newInput: Record<string, unknown> = { ...currentInput };
+
+      if (isOwn) {
+        // Best-effort storage cleanup only for own files
+        try { await supabase.storage.from('chat-attachments').remove([filePath]); } catch {}
+        newInput.attachments = ownAtts.filter((a: any) => a?.file_path !== filePath);
+      } else {
+        // Inherited file — add to suppressed list so it stops propagating
+        const existingSup = Array.isArray(currentInput.suppressed_attachments)
+          ? (currentInput.suppressed_attachments as string[])
+          : [];
+        if (!existingSup.includes(filePath)) {
+          newInput.suppressed_attachments = [...existingSup, filePath];
+        }
+      }
+
       const { error } = await supabase
         .from('project_workflow_steps')
-        .update({ input_data: { ...currentInput, attachments: remaining } } as never)
+        .update({ input_data: newInput } as never)
         .eq('id', step.id);
       if (error) throw error;
       queryClient.invalidateQueries({ queryKey: workflowQueryKeys.workflowSteps(step.workflow_id) });
@@ -623,6 +652,16 @@ export const WorkflowStepView: React.FC<WorkflowStepViewProps> = ({
                     {formatFileSize(a.file_size)}
                   </span>
                 )}
+                <Button
+                  type="button"
+                  size="icon"
+                  variant="ghost"
+                  className="h-4 w-4 shrink-0"
+                  title="Убрать из этого и последующих этапов"
+                  onClick={() => handleRemoveAttachment(a.file_path)}
+                >
+                  <X className="h-2.5 w-2.5" />
+                </Button>
               </div>
             ))}
           </div>
