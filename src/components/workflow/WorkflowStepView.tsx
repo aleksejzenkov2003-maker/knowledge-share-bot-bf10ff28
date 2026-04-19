@@ -54,6 +54,7 @@ interface WorkflowStepViewProps {
   onRetryFromStep: (stepId: string) => void;
   onSkipStep: (stepId: string) => void;
   isFirstStep: boolean;
+  allSteps?: ProjectWorkflowStep[];
 }
 
 const statusLabels: Record<string, { label: string; variant: 'default' | 'secondary' | 'destructive' | 'outline' }> = {
