@@ -384,7 +384,7 @@ export const WorkflowStepView: React.FC<WorkflowStepViewProps> = ({
             className="w-full min-h-[200px] p-3 border rounded-md bg-background text-sm resize-y"
           />
           <div className="flex items-center gap-2 mt-3 flex-wrap">
-            <Button onClick={handleSetInput} disabled={!inputText.trim()}>
+            <Button onClick={handleSetInput} disabled={!inputText.trim() && existingAttachments.length === 0}>
               <CheckCircle2 className="h-4 w-4 mr-2" />
               Сохранить и продолжить
             </Button>
