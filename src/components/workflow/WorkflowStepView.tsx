@@ -671,14 +671,15 @@ export const WorkflowStepView: React.FC<WorkflowStepViewProps> = ({
             <div className="flex-1 min-h-0 min-w-0 overflow-hidden">
               <WorkflowStepChat
                 stepId={step.id}
+                projectId={projectId}
                 messages={stepMessages}
-                onSendMessage={(msg) => onExecute(step.id, msg)}
+                onSendMessage={(msg, atts) => onExecute(step.id, msg, atts)}
                 isExecuting={isExecuting}
                 streamingContent={streamingContent}
                 inheritedAttachments={inheritedAttachments}
               />
             </div>
-            {/* Existing attachments list */}
+            {/* Existing attachments list (uploaded directly to this step) */}
             {existingAttachments.length > 0 && (
               <div className="mt-2 pt-2 border-t space-y-1">
                 <p className="text-[10px] text-muted-foreground">
@@ -709,26 +710,8 @@ export const WorkflowStepView: React.FC<WorkflowStepViewProps> = ({
                 </div>
               </div>
             )}
-            {/* File upload + action buttons at bottom of chat */}
+            {/* Step action buttons */}
             <div className="flex items-center gap-2 pt-2 border-t mt-2 flex-wrap">
-              <input
-                ref={fileInputRef}
-                type="file"
-                multiple
-                className="hidden"
-                onChange={(e) => handleFileUpload(e.target.files)}
-              />
-              <Button
-                size="sm"
-                variant="outline"
-                className="h-7 text-xs"
-                onClick={() => fileInputRef.current?.click()}
-                disabled={isUploading}
-              >
-                {isUploading ? <Loader2 className="h-3 w-3 mr-1 animate-spin" /> : <Paperclip className="h-3 w-3 mr-1" />}
-                Прикрепить
-              </Button>
-              
               {step.status === 'pending' && !isFirstStep && (
                 <Button size="sm" className="h-7 text-xs" onClick={() => onExecute(step.id)}>
                   <Play className="h-3 w-3 mr-1" />
