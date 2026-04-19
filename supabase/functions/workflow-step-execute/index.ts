@@ -859,6 +859,8 @@ serve(async (req) => {
       }
     }
     // Also pull from input_data of all run steps (covers attachments uploaded on input nodes)
+    // and collect globally suppressed paths (files explicitly removed by the user on any step).
+    const suppressedPaths = new Set<string>();
     {
       const { data: runStepsForAtt } = await supabase
         .from('project_workflow_steps')
@@ -869,12 +871,30 @@ serve(async (req) => {
         const outp = (rs.output_data as Record<string, unknown>) || {};
         merged.push(...collectAttachments(inp.attachments));
         merged.push(...collectAttachments(outp.attachments));
+        const sup = inp.suppressed_attachments;
+        if (Array.isArray(sup)) {
+          for (const p of sup) if (typeof p === 'string') suppressedPaths.add(p);
+        }
       }
     }
-    // Deduplicate by file_path, limit 5
+    // Also include suppressed list from current step's input_data
+    {
+      const sup = (stepInputData as Record<string, unknown>).suppressed_attachments;
+      if (Array.isArray(sup)) {
+        for (const p of sup) if (typeof p === 'string') suppressedPaths.add(p);
+      }
+    }
+    // Deduplicate by file_path, drop suppressed, limit 5
     const dedupedAttachments = Array.from(
-      new Map(merged.filter((a) => a.file_path).map((a) => [a.file_path as string, a])).values()
+      new Map(
+        merged
+          .filter((a) => a.file_path && !suppressedPaths.has(a.file_path as string))
+          .map((a) => [a.file_path as string, a])
+      ).values()
     ).slice(0, 5);
+    if (suppressedPaths.size > 0) {
+      console.log(`[workflow-step-execute] Suppressed paths: ${Array.from(suppressedPaths).join(', ')}`);
+    }
     if (dedupedAttachments.length > 0) {
       chatBody.attachments = dedupedAttachments;
       console.log(`[workflow-step-execute] Forwarding ${dedupedAttachments.length} attachments (inherited+current) to chat-stream`);
