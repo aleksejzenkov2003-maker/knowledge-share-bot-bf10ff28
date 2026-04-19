@@ -402,20 +402,23 @@ export const WorkflowStepView: React.FC<WorkflowStepViewProps> = ({
 
   const handleRemoveAttachment = useCallback(async (filePath: string) => {
     try {
-      await supabase.storage.from('chat-attachments').remove([filePath]);
+      // Best-effort storage cleanup (ignore errors — file may not exist or belong to another step)
+      try { await supabase.storage.from('chat-attachments').remove([filePath]); } catch {}
       const currentInput = (step.input_data || {}) as Record<string, unknown>;
       const remaining = (Array.isArray(currentInput.attachments) ? currentInput.attachments : [])
         .filter((a: any) => a?.file_path !== filePath);
-      await supabase
+      const { error } = await supabase
         .from('project_workflow_steps')
         .update({ input_data: { ...currentInput, attachments: remaining } } as never)
         .eq('id', step.id);
+      if (error) throw error;
+      queryClient.invalidateQueries({ queryKey: workflowQueryKeys.workflowSteps(step.workflow_id) });
       toast.success('Файл удалён');
     } catch (e) {
-      console.error(e);
+      console.error('[handleRemoveAttachment]', e);
       toast.error('Не удалось удалить файл');
     }
-  }, [step.id, step.input_data]);
+  }, [step.id, step.input_data, step.workflow_id, queryClient]);
 
   // First step pending: input form
   const [showIngestTool, setShowIngestTool] = React.useState(false);
