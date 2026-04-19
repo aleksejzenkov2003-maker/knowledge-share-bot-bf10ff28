@@ -593,6 +593,37 @@ export const WorkflowStepView: React.FC<WorkflowStepViewProps> = ({
                 streamingContent={streamingContent}
               />
             </div>
+            {/* Existing attachments list */}
+            {existingAttachments.length > 0 && (
+              <div className="mt-2 pt-2 border-t space-y-1">
+                <p className="text-[10px] text-muted-foreground">
+                  Вложения этапа ({existingAttachments.length}/5):
+                </p>
+                <div className="flex flex-wrap gap-1.5">
+                  {existingAttachments.map((att) => (
+                    <div
+                      key={att.file_path}
+                      className="flex items-center gap-1.5 rounded-md border bg-muted/30 px-2 py-1 text-[11px] max-w-full"
+                    >
+                      <FileText className="h-3 w-3 shrink-0 text-muted-foreground" />
+                      <span className="truncate max-w-[160px]">{att.file_name}</span>
+                      <span className="text-[9px] text-muted-foreground shrink-0">
+                        {formatFileSize(att.file_size)}
+                      </span>
+                      <Button
+                        type="button"
+                        size="icon"
+                        variant="ghost"
+                        className="h-4 w-4 shrink-0"
+                        onClick={() => handleRemoveAttachment(att.file_path)}
+                      >
+                        <X className="h-2.5 w-2.5" />
+                      </Button>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
             {/* File upload + action buttons at bottom of chat */}
             <div className="flex items-center gap-2 pt-2 border-t mt-2 flex-wrap">
               <input
@@ -609,8 +640,8 @@ export const WorkflowStepView: React.FC<WorkflowStepViewProps> = ({
                 onClick={() => fileInputRef.current?.click()}
                 disabled={isUploading}
               >
-                {isUploading ? <Loader2 className="h-3 w-3 mr-1 animate-spin" /> : <Upload className="h-3 w-3 mr-1" />}
-                Файлы
+                {isUploading ? <Loader2 className="h-3 w-3 mr-1 animate-spin" /> : <Paperclip className="h-3 w-3 mr-1" />}
+                Прикрепить
               </Button>
               
               {step.status === 'pending' && !isFirstStep && (
