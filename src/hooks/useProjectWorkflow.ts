@@ -258,7 +258,7 @@ export function useProjectWorkflow(projectId: string | null, userId: string | un
   }, [projectId, userId, queryClient]);
 
   // Ref to break circular dependency between handlePostStepCompletion and executeStep
-  const executeStepRef = useRef<(stepId: string, message?: string) => Promise<void>>();
+  const executeStepRef = useRef<(stepId: string, message?: string, attachments?: { file_path: string; file_name: string; file_type: string; file_size: number; contains_pii?: boolean }[]) => Promise<void>>();
 
   // Shared helper: after a step completes, auto-confirm condition/quality_check nodes
   // and auto-run ALL downstream targets (parallel fan-out).
@@ -332,7 +332,11 @@ export function useProjectWorkflow(projectId: string | null, userId: string | un
   }, [queryClient]);
 
   // Execute a step
-  const executeStep = useCallback(async (stepId: string, message?: string) => {
+  const executeStep = useCallback(async (
+    stepId: string,
+    message?: string,
+    attachments?: { file_path: string; file_name: string; file_type: string; file_size: number; contains_pii?: boolean }[],
+  ) => {
     if (!userId) return;
 
     setIsExecuting(true);
@@ -364,7 +368,15 @@ export function useProjectWorkflow(projectId: string | null, userId: string | un
             user_id: userId,
             message_role: 'user',
             content: message,
+            metadata: attachments && attachments.length > 0
+              ? ({ attachments } as unknown as Json)
+              : null,
           });
+      }
+
+      const requestPayload: Record<string, unknown> = { step_id: stepId, message };
+      if (attachments && attachments.length > 0) {
+        requestPayload.attachments = attachments;
       }
 
       const response = await fetch(
@@ -375,7 +387,7 @@ export function useProjectWorkflow(projectId: string | null, userId: string | un
             'Content-Type': 'application/json',
             'Authorization': `Bearer ${session.access_token}`,
           },
-          body: JSON.stringify({ step_id: stepId, message }),
+          body: JSON.stringify(requestPayload),
           signal: abortControllerRef.current.signal,
         }
       );
@@ -396,7 +408,7 @@ export function useProjectWorkflow(projectId: string | null, userId: string | un
               'Content-Type': 'application/json',
               'Authorization': `Bearer ${refreshedToken}`,
             },
-            body: JSON.stringify({ step_id: stepId, message }),
+            body: JSON.stringify(requestPayload),
             signal: abortControllerRef.current.signal,
           }
         );
