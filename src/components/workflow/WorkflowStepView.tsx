@@ -365,6 +365,38 @@ export const WorkflowStepView: React.FC<WorkflowStepViewProps> = ({
     return att as { file_path: string; file_name: string; file_type: string; file_size: number }[];
   }, [step.input_data]);
 
+  // Attachments inherited from previous steps in the same workflow run.
+  // Aggregated from output_data.attachments and input_data.attachments of any step
+  // with step_order < current. Excludes those already attached directly to this step.
+  const inheritedAttachments = useMemo(() => {
+    const map = new Map<string, { file_path: string; file_name: string; file_size?: number }>();
+    for (const s of allSteps) {
+      if (!s || s.id === step.id) continue;
+      if ((s.step_order ?? 0) >= (step.step_order ?? 0)) continue;
+      const buckets: unknown[] = [
+        (s.output_data as Record<string, unknown> | null)?.attachments,
+        (s.input_data as Record<string, unknown> | null)?.attachments,
+        (s.approved_output as Record<string, unknown> | null)?.attachments,
+        (s.user_edited_output as Record<string, unknown> | null)?.attachments,
+      ];
+      for (const b of buckets) {
+        if (!Array.isArray(b)) continue;
+        for (const a of b as Record<string, unknown>[]) {
+          const fp = a?.file_path;
+          if (typeof fp === 'string' && !map.has(fp)) {
+            map.set(fp, {
+              file_path: fp,
+              file_name: String(a.file_name || fp),
+              file_size: typeof a.file_size === 'number' ? a.file_size : undefined,
+            });
+          }
+        }
+      }
+    }
+    for (const a of existingAttachments) map.delete(a.file_path);
+    return Array.from(map.values());
+  }, [allSteps, step.id, step.step_order, existingAttachments]);
+
   const handleRemoveAttachment = useCallback(async (filePath: string) => {
     try {
       await supabase.storage.from('chat-attachments').remove([filePath]);
