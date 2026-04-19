@@ -1,54 +1,64 @@
 
+## Контекст
 
-# План: Досье-аналитик на Perplexity + Репутация
+Пользователь хочет, чтобы в воркфлоу проектов на каждом шаге (на этапе ввода данных и в чате обсуждения шага) можно было загружать документы (PDF, DOC, DOCX, MD и др.) — как в обычном чате — и чтобы LLM их анализировала как контекст.
 
-## Суть проблемы
-Сейчас агент Досье пытается сразу парсить входные данные и вызвать Reputation API в одном шаге. Пользователь хочет другой flow:
+## Что уже есть
 
-1. **Агент-аналитик (Perplexity)** — получает входные данные (название ТЗ, компания, адрес и т.д.), ищет в интернете дополнительную информацию и выдаёт структурированную таблицу (ФИО, название, адрес, вид деятельности, ТЗ и пр.)
-2. **Репутация** — берёт из результата агента название компании и адрес, делает запрос в Reputation API, создаёт резюме
-3. **Проверка** — результат идёт на проверку
+1. **Чат с проектами** (`WorkflowStepChat.tsx`) — обсуждение шага. Нужно проверить, поддерживает ли он вложения.
+2. **Форма ввода шага** (`WorkflowStepView.tsx` + `InputNodeConfig` `form_config.fields` с типом `file`) — поле `file` уже декларировано, но надо проверить, реально ли загружает и передаёт файлы в `workflow-step-execute`.
+3. **Извлечение текста из файлов** уже отработано:
+   - На фронте: `useAttachmentTextExtractor.ts` (PDF через pdfjs, DOCX через JSZip, plain text)
+   - На бэке: `chat-stream` имеет unified text extraction layer (mem: ai-provider-text-extraction-v2)
+4. **Storage bucket** `project-documents` существует.
+5. **Edge function `workflow-step-execute`** — основной исполнитель шагов; нужно проверить, принимает ли он вложения и как пробрасывает их в LLM.
 
-## Изменения
+## Что нужно изучить (быстрый аудит)
 
-### 1. `workflow-step-execute/index.ts` — Принудительный Perplexity для досье-агента
+- `WorkflowStepView.tsx` — как рендерится поле `file` в форме старта
+- `WorkflowStepChat.tsx` — есть ли там `ChatInput` с поддержкой вложений
+- `workflow-step-execute/index.ts` — принимает ли `attachments`, передаёт ли их в LLM (multimodal или text extraction)
+- `useProjectWorkflow.ts` — как payload отправляется
 
-- Если агент имеет reputation enabled, **не вызывать** reputation API сразу в Phase 1
-- Вместо этого: передать в `chat-stream` параметр `force_provider: 'perplexity'` и `force_model: 'sonar-pro'`
-- Убрать двухфазную логику dossier (строки ~639-722) — агент просто работает как обычный агент с Perplexity
-- Агент через prompt_override должен получить инструкцию: собрать данные и выдать JSON-таблицу
+## План реализации
 
-### 2. `workflow-step-execute/index.ts` — Передача reputation_query из output агента
+### 1. Загрузка файлов на этапе ввода (форма старта)
+- В `WorkflowStepView.tsx` для полей `type: 'file'` сделать полноценный uploader (drag&drop, до 10МБ × 5 файлов, как в чате — соответствует `file-upload-system`).
+- Загружать файлы в bucket `project-documents` по пути `{projectId}/workflow/{stepId}/{uuid}_{filename}`.
+- В payload шага сохранять массив `{ file_path, file_name, file_type, file_size }`.
 
-- После завершения шага досье-агента, **НЕ** вызывать reputation в этом же шаге
-- Reputation вызывается на **следующем** шаге workflow через маппинг рёбер (company_name, address из output первого шага)
+### 2. Загрузка файлов в чате обсуждения шага
+- В `WorkflowStepChat.tsx` подключить ту же логику вложений, что и в `ChatInputEnhanced`/обычном чате (если ещё не подключена) — кнопка скрепки, превью, лимит 5×10МБ.
+- Сохранять вложения в `metadata.attachments` сообщения чата шага (по аналогии с `ProjectChatMessage`).
 
-### 3. `chat-stream/index.ts` — Поддержка `force_provider`
+### 3. Передача файлов в LLM (бэкенд `workflow-step-execute`)
+- Принимать массив `attachments` в payload шага и в чате шага.
+- Для каждого файла:
+  - Скачать из storage через `service_role`.
+  - Если AI multimodal (Gemini/Claude/GPT-4o) и файл — изображение/PDF, передавать как inline_data/image_url.
+  - Иначе — извлекать текст (PDF → pdfjs, DOCX → JSZip, txt/md/csv → as-is) с лимитом 50k символов и подмешивать в system prompt блоком `=== ВЛОЖЕНИЯ ПОЛЬЗОВАТЕЛЯ ===`.
+- Переиспользовать существующий unified text extraction layer (тот же, что в `chat-stream`).
 
-- Добавить параметр `force_provider` и `force_model` в ChatRequest
-- Если указаны — использовать их вместо provider из роли/настроек
-- Это позволит workflow-engine принудительно отправить запрос через Perplexity для веб-поиска
-
-### 4. Workflow Template (конфигурация)
-
-Рекомендуемая структура шагов:
-```text
-[Входные данные] → [Досье-аналитик (Perplexity)] → [Репутация] → [Проверка]
-```
-- Шаг «Досье-аналитик»: agent с force_provider=perplexity, prompt_override с инструкцией выдать таблицу
-- Шаг «Репутация»: agent с reputation enabled, маппинг company_name из предыдущего шага
+### 4. UI-индикаторы
+- В превью результата шага показывать список загруженных файлов (имя + размер + кнопка скачать через signed URL).
+- В сообщениях чата шага — `AttachmentPreview` (компонент уже есть).
 
 ## Технические детали
 
-**workflow-step-execute/index.ts:**
-- Удалить блок "TWO-PHASE DOSSIER" (строки 639-722)
-- Вместо этого: проверить `scriptConfig.force_provider` или флаг в agent role
-- Передать `force_provider` и `force_model` в chatBody
+- **Лимиты**: 10МБ × 5 файлов на одно действие (соответствует core-правилу).
+- **Поддерживаемые типы для извлечения текста**: PDF, DOC/DOCX, MD, TXT, CSV, JSON, XML, HTML, RTF.
+- **Multimodal**: PNG/JPG/WEBP — напрямую модели; PDF для Gemini/Claude — как document; иначе — текстовая экстракция.
+- **Storage path**: `project-documents/{projectId}/workflow-inputs/{stepRunId}/{uuid}_{name}` и `project-documents/{projectId}/workflow-chat/{stepId}/{uuid}_{name}`.
+- **Безопасность**: RLS на bucket по `is_project_member(projectId, auth.uid())`.
 
-**chat-stream/index.ts:**
-- Расширить `ChatRequest` полями `force_provider?: string`, `force_model?: string`
-- В логике выбора провайдера: если `force_provider` задан, создать providerConfig из env-ключей для этого провайдера
-- Для Perplexity sonar-pro: использовать web search нативно (модель сама ищет в интернете)
+## Файлы к изменению
 
-**Результат:** Досье-агент реально ищет информацию в интернете через Perplexity, выдаёт структурированные данные, а репутация работает отдельным шагом на основе этих данных.
+- `src/components/workflow/WorkflowStepView.tsx` — uploader в форме старта
+- `src/components/workflow/WorkflowStepChat.tsx` — вложения в чате шага
+- `src/hooks/useProjectWorkflow.ts` — пробросить attachments в payload
+- `supabase/functions/workflow-step-execute/index.ts` — приём вложений + extraction/multimodal
+- (опц.) миграция RLS-политик для `storage.objects` bucket `project-documents`, если ещё не настроены под workflow-пути.
 
+## Что подтвердить
+
+Готово ли двигаться в таком объёме (форма старта + чат шага + бэкенд приём + текстовая экстракция/multimodal), или ограничиться только формой старта на первом этапе?
