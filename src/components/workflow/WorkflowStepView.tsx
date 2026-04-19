@@ -47,7 +47,7 @@ interface WorkflowStepViewProps {
   projectId: string;
   isExecuting: boolean;
   streamingContent: string;
-  onExecute: (stepId: string, message?: string) => void;
+  onExecute: (stepId: string, message?: string, attachments?: { file_path: string; file_name: string; file_type: string; file_size: number; contains_pii?: boolean }[]) => void;
   onStop: () => void;
   onSaveEdits: (stepId: string, edits: Record<string, unknown>) => void;
   onConfirm: (stepId: string) => void;
