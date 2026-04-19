@@ -298,9 +298,24 @@ export const WorkflowStepView: React.FC<WorkflowStepViewProps> = ({
         return;
       }
       const uploadedAttachments: { file_path: string; file_name: string; file_type: string; file_size: number }[] = [];
+      const sanitizeForStorage = (name: string) => {
+        const dotIdx = name.lastIndexOf('.');
+        const base = dotIdx > 0 ? name.slice(0, dotIdx) : name;
+        const ext = dotIdx > 0 ? name.slice(dotIdx) : '';
+        const safeBase = base
+          .normalize('NFKD')
+          .replace(/[^\w.\-]+/g, '_')
+          .replace(/_+/g, '_')
+          .replace(/^_+|_+$/g, '')
+          .slice(0, 80) || 'file';
+        const safeExt = ext.replace(/[^\w.]+/g, '');
+        return `${safeBase}${safeExt}`;
+      };
       for (const file of fileArr) {
-        // Path under user.id so chat-attachments RLS allows it
-        const path = `${user.id}/workflow/${step.id}/${Date.now()}_${file.name}`;
+        // Path under user.id so chat-attachments RLS allows it.
+        // Storage keys must be ASCII-safe (no cyrillic/spaces).
+        const safeName = sanitizeForStorage(file.name);
+        const path = `${user.id}/workflow/${step.id}/${Date.now()}_${safeName}`;
         const { error } = await supabase.storage
           .from('chat-attachments')
           .upload(path, file, { contentType: file.type || 'application/octet-stream' });
