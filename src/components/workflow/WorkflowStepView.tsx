@@ -1,4 +1,6 @@
 import React, { useState, useMemo, useCallback, useRef } from 'react';
+import { useQueryClient } from '@tanstack/react-query';
+import { workflowQueryKeys } from '@/hooks/useProjectWorkflow';
 import { ProjectWorkflowStep, ProjectStepMessage, WorkflowArtifact } from '@/types/workflow';
 import { WorkflowResultEditor } from './WorkflowResultEditor';
 import { WorkflowStepChat } from './WorkflowStepChat';
@@ -104,6 +106,7 @@ export const WorkflowStepView: React.FC<WorkflowStepViewProps> = ({
   const [expandedScreenshot, setExpandedScreenshot] = useState<string | null>(null);
   const [isUploading, setIsUploading] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const queryClient = useQueryClient();
   const { runIngest, isRunning: isIngestRunning } = useDocumentIngestCleaner();
 
   // Filter screenshot artifacts for this step
@@ -399,20 +402,23 @@ export const WorkflowStepView: React.FC<WorkflowStepViewProps> = ({
 
   const handleRemoveAttachment = useCallback(async (filePath: string) => {
     try {
-      await supabase.storage.from('chat-attachments').remove([filePath]);
+      // Best-effort storage cleanup (ignore errors — file may not exist or belong to another step)
+      try { await supabase.storage.from('chat-attachments').remove([filePath]); } catch {}
       const currentInput = (step.input_data || {}) as Record<string, unknown>;
       const remaining = (Array.isArray(currentInput.attachments) ? currentInput.attachments : [])
         .filter((a: any) => a?.file_path !== filePath);
-      await supabase
+      const { error } = await supabase
         .from('project_workflow_steps')
         .update({ input_data: { ...currentInput, attachments: remaining } } as never)
         .eq('id', step.id);
+      if (error) throw error;
+      queryClient.invalidateQueries({ queryKey: workflowQueryKeys.workflowSteps(step.workflow_id) });
       toast.success('Файл удалён');
     } catch (e) {
-      console.error(e);
+      console.error('[handleRemoveAttachment]', e);
       toast.error('Не удалось удалить файл');
     }
-  }, [step.id, step.input_data]);
+  }, [step.id, step.input_data, step.workflow_id, queryClient]);
 
   // First step pending: input form
   const [showIngestTool, setShowIngestTool] = React.useState(false);
