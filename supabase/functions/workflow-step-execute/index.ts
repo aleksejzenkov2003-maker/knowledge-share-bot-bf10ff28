@@ -815,6 +815,26 @@ serve(async (req) => {
     if (contextFolderIds.length > 0) chatBody.context_folder_ids = contextFolderIds;
     if (systemPromptAppend.trim()) chatBody.system_prompt_append = systemPromptAppend.trim();
 
+    // Collect attachments from request, step.input_data and workingInput (passthrough from previous steps)
+    type AttachmentLike = { file_path?: string; file_name?: string; file_type?: string; file_size?: number; contains_pii?: boolean };
+    const collectAttachments = (src: unknown): AttachmentLike[] => {
+      if (!src) return [];
+      if (Array.isArray(src)) return src.filter((a) => a && typeof a === 'object' && (a as AttachmentLike).file_path) as AttachmentLike[];
+      return [];
+    };
+    const stepInputData = (step.input_data as Record<string, unknown>) || {};
+    const merged: AttachmentLike[] = [
+      ...collectAttachments(requestAttachments),
+      ...collectAttachments(stepInputData.attachments),
+      ...collectAttachments((workingInput as Record<string, unknown>).attachments),
+    ];
+    // Deduplicate by file_path
+    const dedupedAttachments = Array.from(new Map(merged.map((a) => [a.file_path, a])).values()).slice(0, 5);
+    if (dedupedAttachments.length > 0) {
+      chatBody.attachments = dedupedAttachments;
+      console.log(`[workflow-step-execute] Forwarding ${dedupedAttachments.length} attachments to chat-stream`);
+    }
+
     // When reputation is enabled, always pass reputation_query so chat-stream
     // does NOT short-circuit into "reputation-only" mode that skips the LLM.
     if (reputationEnabled) {
