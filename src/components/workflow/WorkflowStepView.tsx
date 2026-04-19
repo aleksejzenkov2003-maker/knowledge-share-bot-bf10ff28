@@ -28,7 +28,15 @@ import {
   Download,
   SkipForward,
   Upload,
+  Paperclip,
+  X,
 } from 'lucide-react';
+
+function formatFileSize(bytes: number): string {
+  if (bytes < 1024) return `${bytes} B`;
+  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
+  return `${(bytes / 1024 / 1024).toFixed(1)} MB`;
+}
 
 interface WorkflowStepViewProps {
   step: ProjectWorkflowStep;
@@ -246,10 +254,13 @@ export const WorkflowStepView: React.FC<WorkflowStepViewProps> = ({
   };
 
   const handleSetInput = () => {
-    if (inputText.trim()) {
-      onSetInputData(step.id, { content: inputText });
-      setInputText('');
+    if (!inputText.trim() && existingAttachments.length === 0) return;
+    const payload: Record<string, unknown> = { content: inputText };
+    if (existingAttachments.length > 0) {
+      payload.attachments = existingAttachments;
     }
+    onSetInputData(step.id, payload);
+    setInputText('');
   };
 
   const handleIngestDocument = async () => {
@@ -267,37 +278,58 @@ export const WorkflowStepView: React.FC<WorkflowStepViewProps> = ({
     );
   };
 
-  // File upload handler
+  // File upload handler — uploads to chat-attachments bucket so chat-stream can read them
+  const MAX_FILE_SIZE = 10 * 1024 * 1024; // 10MB
+  const MAX_FILES_PER_UPLOAD = 5;
+
   const handleFileUpload = useCallback(async (files: FileList | null) => {
     if (!files || files.length === 0) return;
+    const fileArr = Array.from(files).slice(0, MAX_FILES_PER_UPLOAD);
+    const oversized = fileArr.filter((f) => f.size > MAX_FILE_SIZE);
+    if (oversized.length > 0) {
+      toast.error(`Файлы больше 10МБ: ${oversized.map((f) => f.name).join(', ')}`);
+      return;
+    }
     setIsUploading(true);
     try {
-      const uploadedFiles: { name: string; path: string; size: number; type: string }[] = [];
-      for (const file of Array.from(files)) {
-        const path = `${projectId}/${step.id}/${Date.now()}_${file.name}`;
+      const { data: { user } } = await supabase.auth.getUser();
+      if (!user) {
+        toast.error('Не авторизован');
+        return;
+      }
+      const uploadedAttachments: { file_path: string; file_name: string; file_type: string; file_size: number }[] = [];
+      for (const file of fileArr) {
+        // Path under user.id so chat-attachments RLS allows it
+        const path = `${user.id}/workflow/${step.id}/${Date.now()}_${file.name}`;
         const { error } = await supabase.storage
-          .from('node-artifacts')
-          .upload(path, file);
+          .from('chat-attachments')
+          .upload(path, file, { contentType: file.type || 'application/octet-stream' });
         if (error) {
           console.error('Upload error:', error);
           toast.error(`Ошибка загрузки ${file.name}`);
           continue;
         }
-        uploadedFiles.push({ name: file.name, path, size: file.size, type: file.type });
+        uploadedAttachments.push({
+          file_path: path,
+          file_name: file.name,
+          file_type: file.type || 'application/octet-stream',
+          file_size: file.size,
+        });
       }
-      if (uploadedFiles.length > 0) {
-        // Add uploaded files to step input_data
+      if (uploadedAttachments.length > 0) {
         const currentInput = (step.input_data || {}) as Record<string, unknown>;
-        const existingFiles = (currentInput.uploaded_files as unknown[] || []);
+        const existing = Array.isArray(currentInput.attachments)
+          ? (currentInput.attachments as unknown[])
+          : [];
         const newInput = {
           ...currentInput,
-          uploaded_files: [...existingFiles, ...uploadedFiles],
+          attachments: [...existing, ...uploadedAttachments],
         };
         await supabase
           .from('project_workflow_steps')
           .update({ input_data: newInput } as never)
           .eq('id', step.id);
-        toast.success(`Загружено файлов: ${uploadedFiles.length}`);
+        toast.success(`Загружено файлов: ${uploadedAttachments.length}`);
       }
     } catch (e) {
       console.error(e);
@@ -306,7 +338,32 @@ export const WorkflowStepView: React.FC<WorkflowStepViewProps> = ({
       setIsUploading(false);
       if (fileInputRef.current) fileInputRef.current.value = '';
     }
-  }, [projectId, step.id, step.input_data]);
+  }, [step.id, step.input_data]);
+
+  // Existing attachments list (from step.input_data.attachments)
+  const existingAttachments = useMemo(() => {
+    const inp = (step.input_data || {}) as Record<string, unknown>;
+    const att = inp.attachments;
+    if (!Array.isArray(att)) return [];
+    return att as { file_path: string; file_name: string; file_type: string; file_size: number }[];
+  }, [step.input_data]);
+
+  const handleRemoveAttachment = useCallback(async (filePath: string) => {
+    try {
+      await supabase.storage.from('chat-attachments').remove([filePath]);
+      const currentInput = (step.input_data || {}) as Record<string, unknown>;
+      const remaining = (Array.isArray(currentInput.attachments) ? currentInput.attachments : [])
+        .filter((a: any) => a?.file_path !== filePath);
+      await supabase
+        .from('project_workflow_steps')
+        .update({ input_data: { ...currentInput, attachments: remaining } } as never)
+        .eq('id', step.id);
+      toast.success('Файл удалён');
+    } catch (e) {
+      console.error(e);
+      toast.error('Не удалось удалить файл');
+    }
+  }, [step.id, step.input_data]);
 
   // First step pending: input form
   const [showIngestTool, setShowIngestTool] = React.useState(false);
@@ -326,10 +383,27 @@ export const WorkflowStepView: React.FC<WorkflowStepViewProps> = ({
             placeholder="Введите данные для начала workflow..."
             className="w-full min-h-[200px] p-3 border rounded-md bg-background text-sm resize-y"
           />
-          <div className="flex items-center gap-2 mt-3">
-            <Button onClick={handleSetInput} disabled={!inputText.trim()}>
+          <div className="flex items-center gap-2 mt-3 flex-wrap">
+            <Button onClick={handleSetInput} disabled={!inputText.trim() && existingAttachments.length === 0}>
               <CheckCircle2 className="h-4 w-4 mr-2" />
               Сохранить и продолжить
+            </Button>
+            <input
+              ref={fileInputRef}
+              type="file"
+              multiple
+              className="hidden"
+              onChange={(e) => handleFileUpload(e.target.files)}
+            />
+            <Button
+              type="button"
+              size="sm"
+              variant="outline"
+              onClick={() => fileInputRef.current?.click()}
+              disabled={isUploading}
+            >
+              {isUploading ? <Loader2 className="h-4 w-4 mr-1 animate-spin" /> : <Paperclip className="h-4 w-4 mr-1" />}
+              Прикрепить файлы
             </Button>
             <Button
               type="button"
@@ -342,6 +416,34 @@ export const WorkflowStepView: React.FC<WorkflowStepViewProps> = ({
               Импорт из документа
             </Button>
           </div>
+          {existingAttachments.length > 0 && (
+            <div className="mt-3 space-y-1.5">
+              <p className="text-[11px] text-muted-foreground">
+                Вложения ({existingAttachments.length}/5) — будут переданы LLM как контекст:
+              </p>
+              {existingAttachments.map((att) => (
+                <div
+                  key={att.file_path}
+                  className="flex items-center gap-2 rounded-md border bg-muted/30 px-2.5 py-1.5 text-xs"
+                >
+                  <FileText className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
+                  <span className="flex-1 truncate">{att.file_name}</span>
+                  <span className="text-[10px] text-muted-foreground shrink-0">
+                    {formatFileSize(att.file_size)}
+                  </span>
+                  <Button
+                    type="button"
+                    size="icon"
+                    variant="ghost"
+                    className="h-5 w-5 shrink-0"
+                    onClick={() => handleRemoveAttachment(att.file_path)}
+                  >
+                    <X className="h-3 w-3" />
+                  </Button>
+                </div>
+              ))}
+            </div>
+          )}
           {showIngestTool && (
             <div className="mt-3 rounded-md border p-3 bg-muted/20">
               <p className="text-[11px] text-muted-foreground mb-2">
@@ -494,6 +596,37 @@ export const WorkflowStepView: React.FC<WorkflowStepViewProps> = ({
                 streamingContent={streamingContent}
               />
             </div>
+            {/* Existing attachments list */}
+            {existingAttachments.length > 0 && (
+              <div className="mt-2 pt-2 border-t space-y-1">
+                <p className="text-[10px] text-muted-foreground">
+                  Вложения этапа ({existingAttachments.length}/5):
+                </p>
+                <div className="flex flex-wrap gap-1.5">
+                  {existingAttachments.map((att) => (
+                    <div
+                      key={att.file_path}
+                      className="flex items-center gap-1.5 rounded-md border bg-muted/30 px-2 py-1 text-[11px] max-w-full"
+                    >
+                      <FileText className="h-3 w-3 shrink-0 text-muted-foreground" />
+                      <span className="truncate max-w-[160px]">{att.file_name}</span>
+                      <span className="text-[9px] text-muted-foreground shrink-0">
+                        {formatFileSize(att.file_size)}
+                      </span>
+                      <Button
+                        type="button"
+                        size="icon"
+                        variant="ghost"
+                        className="h-4 w-4 shrink-0"
+                        onClick={() => handleRemoveAttachment(att.file_path)}
+                      >
+                        <X className="h-2.5 w-2.5" />
+                      </Button>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
             {/* File upload + action buttons at bottom of chat */}
             <div className="flex items-center gap-2 pt-2 border-t mt-2 flex-wrap">
               <input
@@ -510,8 +643,8 @@ export const WorkflowStepView: React.FC<WorkflowStepViewProps> = ({
                 onClick={() => fileInputRef.current?.click()}
                 disabled={isUploading}
               >
-                {isUploading ? <Loader2 className="h-3 w-3 mr-1 animate-spin" /> : <Upload className="h-3 w-3 mr-1" />}
-                Файлы
+                {isUploading ? <Loader2 className="h-3 w-3 mr-1 animate-spin" /> : <Paperclip className="h-3 w-3 mr-1" />}
+                Прикрепить
               </Button>
               
               {step.status === 'pending' && !isFirstStep && (
