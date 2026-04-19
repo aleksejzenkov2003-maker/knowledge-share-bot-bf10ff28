@@ -483,6 +483,15 @@ serve(async (req) => {
           ...(outputData as Record<string, unknown>),
         };
       }
+      // Preserve attachments from input_data into output_data so subsequent steps inherit them
+      const _stepInAtt = ((step.input_data as Record<string, unknown>) || {}).attachments;
+      const _wiAtt = (workingInput as Record<string, unknown>).attachments;
+      const _att = Array.isArray(_wiAtt) && _wiAtt.length > 0
+        ? _wiAtt
+        : Array.isArray(_stepInAtt) ? _stepInAtt : null;
+      if (_att && _att.length > 0) {
+        (outputData as Record<string, unknown>).attachments = _att;
+      }
 
       await supabase
         .from('project_workflow_steps')
