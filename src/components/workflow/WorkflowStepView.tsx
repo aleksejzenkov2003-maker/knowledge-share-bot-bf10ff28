@@ -254,10 +254,13 @@ export const WorkflowStepView: React.FC<WorkflowStepViewProps> = ({
   };
 
   const handleSetInput = () => {
-    if (inputText.trim()) {
-      onSetInputData(step.id, { content: inputText });
-      setInputText('');
+    if (!inputText.trim() && existingAttachments.length === 0) return;
+    const payload: Record<string, unknown> = { content: inputText };
+    if (existingAttachments.length > 0) {
+      payload.attachments = existingAttachments;
     }
+    onSetInputData(step.id, payload);
+    setInputText('');
   };
 
   const handleIngestDocument = async () => {
