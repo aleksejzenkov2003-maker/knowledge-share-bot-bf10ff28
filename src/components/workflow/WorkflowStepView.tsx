@@ -597,6 +597,32 @@ export const WorkflowStepView: React.FC<WorkflowStepViewProps> = ({
         </div>
       )}
 
+      {/* Inherited attachments from previous steps */}
+      {inheritedAttachments.length > 0 && (
+        <div className="mx-4 mt-2 rounded-md border bg-muted/20 px-3 py-2">
+          <div className="flex items-center gap-1.5 text-[11px] font-medium text-muted-foreground">
+            <Paperclip className="h-3 w-3" />
+            Документы из предыдущих этапов ({inheritedAttachments.length}) — переданы агенту
+          </div>
+          <div className="mt-1.5 flex flex-wrap gap-1.5">
+            {inheritedAttachments.map((a) => (
+              <div
+                key={a.file_path}
+                className="flex items-center gap-1.5 rounded-md border bg-background px-2 py-0.5 text-[11px]"
+              >
+                <FileText className="h-3 w-3 shrink-0 text-muted-foreground" />
+                <span className="truncate max-w-[200px]">{a.file_name}</span>
+                {typeof a.file_size === 'number' && (
+                  <span className="text-[9px] text-muted-foreground">
+                    {formatFileSize(a.file_size)}
+                  </span>
+                )}
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
       {/* Main content: chat-first layout with tabs */}
       {hasOutput ? (
         <Tabs defaultValue="chat" className="flex-1 flex flex-col min-h-0 min-w-0 overflow-x-hidden">
