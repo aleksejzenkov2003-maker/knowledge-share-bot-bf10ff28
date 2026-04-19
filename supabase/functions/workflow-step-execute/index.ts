@@ -379,18 +379,27 @@ serve(async (req) => {
 
     const projectId = step.project_workflows.project_id;
 
-    // Check membership
-    const { data: membership } = await supabase
-      .from('project_members')
+    // Check membership (admins bypass project membership check)
+    const { data: adminRole } = await supabase
+      .from('user_roles')
       .select('role')
-      .eq('project_id', projectId)
       .eq('user_id', user.id)
-      .single();
+      .eq('role', 'admin')
+      .maybeSingle();
 
-    if (!membership) {
-      return new Response(JSON.stringify({ error: 'Not a project member' }), {
-        status: 403, headers: jsonHeaders,
-      });
+    if (!adminRole) {
+      const { data: membership } = await supabase
+        .from('project_members')
+        .select('role')
+        .eq('project_id', projectId)
+        .eq('user_id', user.id)
+        .maybeSingle();
+
+      if (!membership) {
+        return new Response(JSON.stringify({ error: 'Not a project member' }), {
+          status: 403, headers: jsonHeaders,
+        });
+      }
     }
 
     // Load template step for node_type, prompt_override, script_config, schemas
