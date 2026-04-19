@@ -380,10 +380,27 @@ export const WorkflowStepView: React.FC<WorkflowStepViewProps> = ({
             placeholder="Введите данные для начала workflow..."
             className="w-full min-h-[200px] p-3 border rounded-md bg-background text-sm resize-y"
           />
-          <div className="flex items-center gap-2 mt-3">
+          <div className="flex items-center gap-2 mt-3 flex-wrap">
             <Button onClick={handleSetInput} disabled={!inputText.trim()}>
               <CheckCircle2 className="h-4 w-4 mr-2" />
               Сохранить и продолжить
+            </Button>
+            <input
+              ref={fileInputRef}
+              type="file"
+              multiple
+              className="hidden"
+              onChange={(e) => handleFileUpload(e.target.files)}
+            />
+            <Button
+              type="button"
+              size="sm"
+              variant="outline"
+              onClick={() => fileInputRef.current?.click()}
+              disabled={isUploading}
+            >
+              {isUploading ? <Loader2 className="h-4 w-4 mr-1 animate-spin" /> : <Paperclip className="h-4 w-4 mr-1" />}
+              Прикрепить файлы
             </Button>
             <Button
               type="button"
@@ -396,6 +413,34 @@ export const WorkflowStepView: React.FC<WorkflowStepViewProps> = ({
               Импорт из документа
             </Button>
           </div>
+          {existingAttachments.length > 0 && (
+            <div className="mt-3 space-y-1.5">
+              <p className="text-[11px] text-muted-foreground">
+                Вложения ({existingAttachments.length}/5) — будут переданы LLM как контекст:
+              </p>
+              {existingAttachments.map((att) => (
+                <div
+                  key={att.file_path}
+                  className="flex items-center gap-2 rounded-md border bg-muted/30 px-2.5 py-1.5 text-xs"
+                >
+                  <FileText className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
+                  <span className="flex-1 truncate">{att.file_name}</span>
+                  <span className="text-[10px] text-muted-foreground shrink-0">
+                    {formatFileSize(att.file_size)}
+                  </span>
+                  <Button
+                    type="button"
+                    size="icon"
+                    variant="ghost"
+                    className="h-5 w-5 shrink-0"
+                    onClick={() => handleRemoveAttachment(att.file_path)}
+                  >
+                    <X className="h-3 w-3" />
+                  </Button>
+                </div>
+              ))}
+            </div>
+          )}
           {showIngestTool && (
             <div className="mt-3 rounded-md border p-3 bg-muted/20">
               <p className="text-[11px] text-muted-foreground mb-2">
