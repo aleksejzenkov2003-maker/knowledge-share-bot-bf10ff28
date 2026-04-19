@@ -95,6 +95,7 @@ export const WorkflowStepView: React.FC<WorkflowStepViewProps> = ({
   onRetryFromStep,
   onSkipStep,
   isFirstStep,
+  allSteps = [],
 }) => {
   const [editedContent, setEditedContent] = useState<string | null>(null);
   const [inputText, setInputText] = useState('');
