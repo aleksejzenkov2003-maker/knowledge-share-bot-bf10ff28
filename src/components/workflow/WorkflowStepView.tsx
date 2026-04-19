@@ -106,6 +106,7 @@ export const WorkflowStepView: React.FC<WorkflowStepViewProps> = ({
   const [expandedScreenshot, setExpandedScreenshot] = useState<string | null>(null);
   const [isUploading, setIsUploading] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const queryClient = useQueryClient();
   const { runIngest, isRunning: isIngestRunning } = useDocumentIngestCleaner();
 
   // Filter screenshot artifacts for this step
