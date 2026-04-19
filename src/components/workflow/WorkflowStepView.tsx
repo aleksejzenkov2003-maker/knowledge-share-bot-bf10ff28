@@ -652,6 +652,16 @@ export const WorkflowStepView: React.FC<WorkflowStepViewProps> = ({
                     {formatFileSize(a.file_size)}
                   </span>
                 )}
+                <Button
+                  type="button"
+                  size="icon"
+                  variant="ghost"
+                  className="h-4 w-4 shrink-0"
+                  title="Убрать из этого и последующих этапов"
+                  onClick={() => handleRemoveAttachment(a.file_path)}
+                >
+                  <X className="h-2.5 w-2.5" />
+                </Button>
               </div>
             ))}
           </div>
