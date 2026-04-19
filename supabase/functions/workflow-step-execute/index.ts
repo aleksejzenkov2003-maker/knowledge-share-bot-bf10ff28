@@ -483,6 +483,15 @@ serve(async (req) => {
           ...(outputData as Record<string, unknown>),
         };
       }
+      // Preserve attachments from input_data into output_data so subsequent steps inherit them
+      const _stepInAtt = ((step.input_data as Record<string, unknown>) || {}).attachments;
+      const _wiAtt = (workingInput as Record<string, unknown>).attachments;
+      const _att = Array.isArray(_wiAtt) && _wiAtt.length > 0
+        ? _wiAtt
+        : Array.isArray(_stepInAtt) ? _stepInAtt : null;
+      if (_att && _att.length > 0) {
+        (outputData as Record<string, unknown>).attachments = _att;
+      }
 
       await supabase
         .from('project_workflow_steps')
@@ -824,7 +833,8 @@ serve(async (req) => {
     if (contextFolderIds.length > 0) chatBody.context_folder_ids = contextFolderIds;
     if (systemPromptAppend.trim()) chatBody.system_prompt_append = systemPromptAppend.trim();
 
-    // Collect attachments from request, step.input_data and workingInput (passthrough from previous steps)
+    // Collect attachments from: request, current step input/output, AND ALL previous steps in the run
+    // (auto-inheritance — independent of edge mapping, so docs from step 1 reach all later agents)
     type AttachmentLike = { file_path?: string; file_name?: string; file_type?: string; file_size?: number; contains_pii?: boolean };
     const collectAttachments = (src: unknown): AttachmentLike[] => {
       if (!src) return [];
@@ -837,11 +847,37 @@ serve(async (req) => {
       ...collectAttachments(stepInputData.attachments),
       ...collectAttachments((workingInput as Record<string, unknown>).attachments),
     ];
-    // Deduplicate by file_path
-    const dedupedAttachments = Array.from(new Map(merged.map((a) => [a.file_path, a])).values()).slice(0, 5);
+    // Inherit attachments from ALL previous steps of this workflow run
+    if (prevSteps && prevSteps.length > 0) {
+      for (const ps of prevSteps as Record<string, unknown>[]) {
+        const out = (ps.output_data as Record<string, unknown>) || {};
+        const approved = (ps.approved_output as Record<string, unknown>) || {};
+        const userEd = (ps.user_edited_output as Record<string, unknown>) || (ps.user_edits as Record<string, unknown>) || {};
+        merged.push(...collectAttachments(out.attachments));
+        merged.push(...collectAttachments(approved.attachments));
+        merged.push(...collectAttachments(userEd.attachments));
+      }
+    }
+    // Also pull from input_data of all run steps (covers attachments uploaded on input nodes)
+    {
+      const { data: runStepsForAtt } = await supabase
+        .from('project_workflow_steps')
+        .select('input_data, output_data')
+        .eq('workflow_id', step.workflow_id);
+      for (const rs of (runStepsForAtt || []) as Record<string, unknown>[]) {
+        const inp = (rs.input_data as Record<string, unknown>) || {};
+        const outp = (rs.output_data as Record<string, unknown>) || {};
+        merged.push(...collectAttachments(inp.attachments));
+        merged.push(...collectAttachments(outp.attachments));
+      }
+    }
+    // Deduplicate by file_path, limit 5
+    const dedupedAttachments = Array.from(
+      new Map(merged.filter((a) => a.file_path).map((a) => [a.file_path as string, a])).values()
+    ).slice(0, 5);
     if (dedupedAttachments.length > 0) {
       chatBody.attachments = dedupedAttachments;
-      console.log(`[workflow-step-execute] Forwarding ${dedupedAttachments.length} attachments to chat-stream`);
+      console.log(`[workflow-step-execute] Forwarding ${dedupedAttachments.length} attachments (inherited+current) to chat-stream`);
     }
 
     // When reputation is enabled, always pass reputation_query so chat-stream
@@ -1007,6 +1043,11 @@ serve(async (req) => {
           if (clientKp) {
             raw_output.client_kp = clientKp;
             raw_output.internal_report = internalReport || '';
+          }
+
+          // Persist attachments in output_data so downstream steps inherit them
+          if (dedupedAttachments.length > 0) {
+            raw_output.attachments = dedupedAttachments;
           }
 
           const humanReadable = (parsedResult?.human_readable as Record<string, unknown>) || {

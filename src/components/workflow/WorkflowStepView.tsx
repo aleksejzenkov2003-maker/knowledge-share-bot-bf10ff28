@@ -54,6 +54,7 @@ interface WorkflowStepViewProps {
   onRetryFromStep: (stepId: string) => void;
   onSkipStep: (stepId: string) => void;
   isFirstStep: boolean;
+  allSteps?: ProjectWorkflowStep[];
 }
 
 const statusLabels: Record<string, { label: string; variant: 'default' | 'secondary' | 'destructive' | 'outline' }> = {
@@ -94,6 +95,7 @@ export const WorkflowStepView: React.FC<WorkflowStepViewProps> = ({
   onRetryFromStep,
   onSkipStep,
   isFirstStep,
+  allSteps = [],
 }) => {
   const [editedContent, setEditedContent] = useState<string | null>(null);
   const [inputText, setInputText] = useState('');
@@ -363,6 +365,38 @@ export const WorkflowStepView: React.FC<WorkflowStepViewProps> = ({
     return att as { file_path: string; file_name: string; file_type: string; file_size: number }[];
   }, [step.input_data]);
 
+  // Attachments inherited from previous steps in the same workflow run.
+  // Aggregated from output_data.attachments and input_data.attachments of any step
+  // with step_order < current. Excludes those already attached directly to this step.
+  const inheritedAttachments = useMemo(() => {
+    const map = new Map<string, { file_path: string; file_name: string; file_size?: number }>();
+    for (const s of allSteps) {
+      if (!s || s.id === step.id) continue;
+      if ((s.step_order ?? 0) >= (step.step_order ?? 0)) continue;
+      const buckets: unknown[] = [
+        (s.output_data as Record<string, unknown> | null)?.attachments,
+        (s.input_data as Record<string, unknown> | null)?.attachments,
+        (s.approved_output as Record<string, unknown> | null)?.attachments,
+        (s.user_edited_output as Record<string, unknown> | null)?.attachments,
+      ];
+      for (const b of buckets) {
+        if (!Array.isArray(b)) continue;
+        for (const a of b as Record<string, unknown>[]) {
+          const fp = a?.file_path;
+          if (typeof fp === 'string' && !map.has(fp)) {
+            map.set(fp, {
+              file_path: fp,
+              file_name: String(a.file_name || fp),
+              file_size: typeof a.file_size === 'number' ? a.file_size : undefined,
+            });
+          }
+        }
+      }
+    }
+    for (const a of existingAttachments) map.delete(a.file_path);
+    return Array.from(map.values());
+  }, [allSteps, step.id, step.step_order, existingAttachments]);
+
   const handleRemoveAttachment = useCallback(async (filePath: string) => {
     try {
       await supabase.storage.from('chat-attachments').remove([filePath]);
@@ -563,6 +597,32 @@ export const WorkflowStepView: React.FC<WorkflowStepViewProps> = ({
         </div>
       )}
 
+      {/* Inherited attachments from previous steps */}
+      {inheritedAttachments.length > 0 && (
+        <div className="mx-4 mt-2 rounded-md border bg-muted/20 px-3 py-2">
+          <div className="flex items-center gap-1.5 text-[11px] font-medium text-muted-foreground">
+            <Paperclip className="h-3 w-3" />
+            Документы из предыдущих этапов ({inheritedAttachments.length}) — переданы агенту
+          </div>
+          <div className="mt-1.5 flex flex-wrap gap-1.5">
+            {inheritedAttachments.map((a) => (
+              <div
+                key={a.file_path}
+                className="flex items-center gap-1.5 rounded-md border bg-background px-2 py-0.5 text-[11px]"
+              >
+                <FileText className="h-3 w-3 shrink-0 text-muted-foreground" />
+                <span className="truncate max-w-[200px]">{a.file_name}</span>
+                {typeof a.file_size === 'number' && (
+                  <span className="text-[9px] text-muted-foreground">
+                    {formatFileSize(a.file_size)}
+                  </span>
+                )}
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
       {/* Main content: chat-first layout with tabs */}
       {hasOutput ? (
         <Tabs defaultValue="chat" className="flex-1 flex flex-col min-h-0 min-w-0 overflow-x-hidden">
@@ -609,6 +669,7 @@ export const WorkflowStepView: React.FC<WorkflowStepViewProps> = ({
                 onSendMessage={(msg) => onExecute(step.id, msg)}
                 isExecuting={isExecuting}
                 streamingContent={streamingContent}
+                inheritedAttachments={inheritedAttachments}
               />
             </div>
             {/* Existing attachments list */}

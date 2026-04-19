@@ -178,6 +178,7 @@ export const WorkflowPanel: React.FC<WorkflowPanelProps> = ({ projectId, userId 
           onRetryFromStep={retryFromStep}
           onSkipStep={skipStep}
           isFirstStep={activeStep.step_order === (steps[0]?.step_order ?? 0)}
+          allSteps={steps}
         />
       ) : null}
     </div>
