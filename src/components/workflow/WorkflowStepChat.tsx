@@ -86,6 +86,29 @@ export const WorkflowStepChat: React.FC<WorkflowStepChatProps> = ({
 
   return (
     <div className="flex min-h-0 h-full min-w-0 flex-col overflow-hidden rounded-md border">
+      {inheritedAttachments.length > 0 && (
+        <div className="shrink-0 border-b bg-muted/30 px-3 py-2 text-xs">
+          <button
+            type="button"
+            onClick={() => setShowInherited((v) => !v)}
+            className="flex w-full items-center gap-1.5 text-muted-foreground hover:text-foreground transition"
+          >
+            <Paperclip className="h-3 w-3" />
+            <span>К шагу подключено документов: {inheritedAttachments.length}</span>
+            <ChevronDown className={cn('h-3 w-3 transition-transform ml-auto', showInherited && 'rotate-180')} />
+          </button>
+          {showInherited && (
+            <div className="mt-2 space-y-1">
+              {inheritedAttachments.map((a) => (
+                <div key={a.file_path} className="flex items-center gap-1.5 text-[11px] text-foreground/80">
+                  <FileText className="h-3 w-3 shrink-0 text-muted-foreground" />
+                  <span className="truncate">{a.file_name}</span>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
       <div
         ref={scrollContainerRef}
         onScroll={handleScroll}
