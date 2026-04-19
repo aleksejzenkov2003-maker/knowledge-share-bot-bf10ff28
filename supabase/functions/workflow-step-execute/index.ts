@@ -356,7 +356,7 @@ serve(async (req) => {
     }
 
     const supabase = createClient(supabaseUrl, supabaseServiceKey);
-    const { step_id, message, additional_context } = await req.json();
+    const { step_id, message, additional_context, attachments: requestAttachments } = await req.json();
 
     if (!step_id) {
       return new Response(JSON.stringify({ error: 'step_id is required' }), {
