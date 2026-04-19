@@ -1045,6 +1045,11 @@ serve(async (req) => {
             raw_output.internal_report = internalReport || '';
           }
 
+          // Persist attachments in output_data so downstream steps inherit them
+          if (dedupedAttachments.length > 0) {
+            raw_output.attachments = dedupedAttachments;
+          }
+
           const humanReadable = (parsedResult?.human_readable as Record<string, unknown>) || {
             title: 'Результат агента',
             summary: clientKp || fullContent.slice(0, 1200),
