@@ -643,6 +643,7 @@ export const WorkflowStepView: React.FC<WorkflowStepViewProps> = ({
                 onSendMessage={(msg) => onExecute(step.id, msg)}
                 isExecuting={isExecuting}
                 streamingContent={streamingContent}
+                inheritedAttachments={inheritedAttachments}
               />
             </div>
             {/* Existing attachments list */}
