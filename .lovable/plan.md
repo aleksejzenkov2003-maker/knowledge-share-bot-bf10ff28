@@ -1,64 +1,62 @@
 
-## Контекст
+## Проблема
 
-Пользователь хочет, чтобы в воркфлоу проектов на каждом шаге (на этапе ввода данных и в чате обсуждения шага) можно было загружать документы (PDF, DOC, DOCX, MD и др.) — как в обычном чате — и чтобы LLM их анализировала как контекст.
+Пользователь загружает документ на 1-м шаге (input), но на следующих шагах агент его «не видит» — нет визуального подтверждения, что вложение доступно агенту, и фактически оно теряется по цепочке шагов.
 
-## Что уже есть
+## Аудит (что нужно посмотреть)
 
-1. **Чат с проектами** (`WorkflowStepChat.tsx`) — обсуждение шага. Нужно проверить, поддерживает ли он вложения.
-2. **Форма ввода шага** (`WorkflowStepView.tsx` + `InputNodeConfig` `form_config.fields` с типом `file`) — поле `file` уже декларировано, но надо проверить, реально ли загружает и передаёт файлы в `workflow-step-execute`.
-3. **Извлечение текста из файлов** уже отработано:
-   - На фронте: `useAttachmentTextExtractor.ts` (PDF через pdfjs, DOCX через JSZip, plain text)
-   - На бэке: `chat-stream` имеет unified text extraction layer (mem: ai-provider-text-extraction-v2)
-4. **Storage bucket** `project-documents` существует.
-5. **Edge function `workflow-step-execute`** — основной исполнитель шагов; нужно проверить, принимает ли он вложения и как пробрасывает их в LLM.
+1. `WorkflowStepView.tsx` — как сейчас сохраняются `attachments` в `input_data` шага и отображаются ли они после сохранения.
+2. `workflow-step-execute/index.ts` — как `attachments` собираются из предыдущих шагов:
+   - сейчас берутся из `requestAttachments`, `step.input_data.attachments`, `workingInput.attachments`;
+   - **проблема**: `workingInput` строится через `buildInputPayloadFromEdges` + `mapping`, и если в маппинге ребра нет ключа `attachments` — они НЕ пробрасываются.
+3. `workflowGraphRuntime.ts` (`buildInputPayloadFromEdges`) — маппинг по `targetPath`/`sourcePath`; `attachments` теряются если их явно не указали в edge mapping.
+4. `WorkflowStepChat.tsx` / `WorkflowStepView.tsx` — есть ли индикатор «к шагу подключено N файлов из предыдущих шагов».
 
-## Что нужно изучить (быстрый аудит)
+## Решение
 
-- `WorkflowStepView.tsx` — как рендерится поле `file` в форме старта
-- `WorkflowStepChat.tsx` — есть ли там `ChatInput` с поддержкой вложений
-- `workflow-step-execute/index.ts` — принимает ли `attachments`, передаёт ли их в LLM (multimodal или text extraction)
-- `useProjectWorkflow.ts` — как payload отправляется
+### 1. Бэкенд: автопроброс attachments по всей цепочке (`workflow-step-execute`)
 
-## План реализации
+Изменить логику сборки `attachments` так, чтобы они **всегда** наследовались от всех предков шага, независимо от edge mapping:
 
-### 1. Загрузка файлов на этапе ввода (форма старта)
-- В `WorkflowStepView.tsx` для полей `type: 'file'` сделать полноценный uploader (drag&drop, до 10МБ × 5 файлов, как в чате — соответствует `file-upload-system`).
-- Загружать файлы в bucket `project-documents` по пути `{projectId}/workflow/{stepId}/{uuid}_{filename}`.
-- В payload шага сохранять массив `{ file_path, file_name, file_type, file_size }`.
+- После определения `incoming edges` для текущего шага — отдельно пройтись по всем источникам (предыдущим шагам) и собрать их `approved_output.attachments` + `input_data.attachments`.
+- Объединить с текущими (request + step.input_data) и дедуплицировать по `file_path`, лимит 5.
+- Дополнительно: записывать список вложений в `output_data.attachments` каждого шага (чтобы `getApprovedPayload` их сохранял для следующих).
 
-### 2. Загрузка файлов в чате обсуждения шага
-- В `WorkflowStepChat.tsx` подключить ту же логику вложений, что и в `ChatInputEnhanced`/обычном чате (если ещё не подключена) — кнопка скрепки, превью, лимит 5×10МБ.
-- Сохранять вложения в `metadata.attachments` сообщения чата шага (по аналогии с `ProjectChatMessage`).
+### 2. Сохранение attachments в результат шага
 
-### 3. Передача файлов в LLM (бэкенд `workflow-step-execute`)
-- Принимать массив `attachments` в payload шага и в чате шага.
-- Для каждого файла:
-  - Скачать из storage через `service_role`.
-  - Если AI multimodal (Gemini/Claude/GPT-4o) и файл — изображение/PDF, передавать как inline_data/image_url.
-  - Иначе — извлекать текст (PDF → pdfjs, DOCX → JSZip, txt/md/csv → as-is) с лимитом 50k символов и подмешивать в system prompt блоком `=== ВЛОЖЕНИЯ ПОЛЬЗОВАТЕЛЯ ===`.
-- Переиспользовать существующий unified text extraction layer (тот же, что в `chat-stream`).
+В `workflow-step-execute` при финальной записи `output_data` шага:
+```ts
+output_data: { ...llmResult, attachments: dedupedAttachments }
+```
+Это гарантирует, что вложения «живут» в payload шага и видны как для UI, так и для следующих узлов.
 
-### 4. UI-индикаторы
-- В превью результата шага показывать список загруженных файлов (имя + размер + кнопка скачать через signed URL).
-- В сообщениях чата шага — `AttachmentPreview` (компонент уже есть).
+### 3. UI: показать «Подключённые документы» на каждом шаге
 
-## Технические детали
+В `WorkflowStepView.tsx`:
+- Перед формой ввода добавить блок **«Документы из предыдущих шагов»** — список файлов, унаследованных от предков (имя + размер + значок 📎).
+- В превью результата шага показывать список `output_data.attachments` (как уже использует AttachmentPreview).
+- В `WorkflowStepChat.tsx` — в шапке чата шага показывать «К шагу подключено: N документов» с раскрывающимся списком.
 
-- **Лимиты**: 10МБ × 5 файлов на одно действие (соответствует core-правилу).
-- **Поддерживаемые типы для извлечения текста**: PDF, DOC/DOCX, MD, TXT, CSV, JSON, XML, HTML, RTF.
-- **Multimodal**: PNG/JPG/WEBP — напрямую модели; PDF для Gemini/Claude — как document; иначе — текстовая экстракция.
-- **Storage path**: `project-documents/{projectId}/workflow-inputs/{stepRunId}/{uuid}_{name}` и `project-documents/{projectId}/workflow-chat/{stepId}/{uuid}_{name}`.
-- **Безопасность**: RLS на bucket по `is_project_member(projectId, auth.uid())`.
+Источник для UI: новое поле `inheritedAttachments`, которое фронт может вычислить либо запросом к предыдущим шагам run'а через `useProjectWorkflow`, либо через RPC.
+
+### 4. Хук `useProjectWorkflow.ts`
+
+Добавить вычисление `inheritedAttachments` для каждого шага (агрегировать `output_data.attachments` всех завершённых предыдущих шагов run'а) и пробрасывать в `WorkflowStepView`/`WorkflowStepChat`.
 
 ## Файлы к изменению
 
-- `src/components/workflow/WorkflowStepView.tsx` — uploader в форме старта
-- `src/components/workflow/WorkflowStepChat.tsx` — вложения в чате шага
-- `src/hooks/useProjectWorkflow.ts` — пробросить attachments в payload
-- `supabase/functions/workflow-step-execute/index.ts` — приём вложений + extraction/multimodal
-- (опц.) миграция RLS-политик для `storage.objects` bucket `project-documents`, если ещё не настроены под workflow-пути.
+- `supabase/functions/workflow-step-execute/index.ts` — автонаследование attachments из всех предков + запись в `output_data`.
+- `src/hooks/useProjectWorkflow.ts` — вычисление `inheritedAttachments` per step.
+- `src/components/workflow/WorkflowStepView.tsx` — UI блок «Документы из предыдущих шагов» + отображение в превью результата.
+- `src/components/workflow/WorkflowStepChat.tsx` — индикатор подключённых документов в шапке чата шага.
+
+## Технические детали
+
+- Лимит 5 файлов на шаг сохраняется (после дедупликации по `file_path`).
+- Передача в LLM остаётся через `chat-stream` (multimodal или text extraction — уже работает).
+- Никаких миграций БД не требуется: `attachments` хранятся в существующих JSONB-полях `input_data`/`output_data`.
+- Бэкенд логирует количество унаследованных вложений в edge logs для отладки.
 
 ## Что подтвердить
 
-Готово ли двигаться в таком объёме (форма старта + чат шага + бэкенд приём + текстовая экстракция/multimodal), или ограничиться только формой старта на первом этапе?
+Двигаемся в таком объёме (бэкенд автонаследование + UI «подключённые документы» на форме шага и в чате шага)?
