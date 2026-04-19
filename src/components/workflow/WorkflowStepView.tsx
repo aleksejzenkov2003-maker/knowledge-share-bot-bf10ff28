@@ -267,37 +267,58 @@ export const WorkflowStepView: React.FC<WorkflowStepViewProps> = ({
     );
   };
 
-  // File upload handler
+  // File upload handler — uploads to chat-attachments bucket so chat-stream can read them
+  const MAX_FILE_SIZE = 10 * 1024 * 1024; // 10MB
+  const MAX_FILES_PER_UPLOAD = 5;
+
   const handleFileUpload = useCallback(async (files: FileList | null) => {
     if (!files || files.length === 0) return;
+    const fileArr = Array.from(files).slice(0, MAX_FILES_PER_UPLOAD);
+    const oversized = fileArr.filter((f) => f.size > MAX_FILE_SIZE);
+    if (oversized.length > 0) {
+      toast.error(`Файлы больше 10МБ: ${oversized.map((f) => f.name).join(', ')}`);
+      return;
+    }
     setIsUploading(true);
     try {
-      const uploadedFiles: { name: string; path: string; size: number; type: string }[] = [];
-      for (const file of Array.from(files)) {
-        const path = `${projectId}/${step.id}/${Date.now()}_${file.name}`;
+      const { data: { user } } = await supabase.auth.getUser();
+      if (!user) {
+        toast.error('Не авторизован');
+        return;
+      }
+      const uploadedAttachments: { file_path: string; file_name: string; file_type: string; file_size: number }[] = [];
+      for (const file of fileArr) {
+        // Path under user.id so chat-attachments RLS allows it
+        const path = `${user.id}/workflow/${step.id}/${Date.now()}_${file.name}`;
         const { error } = await supabase.storage
-          .from('node-artifacts')
-          .upload(path, file);
+          .from('chat-attachments')
+          .upload(path, file, { contentType: file.type || 'application/octet-stream' });
         if (error) {
           console.error('Upload error:', error);
           toast.error(`Ошибка загрузки ${file.name}`);
           continue;
         }
-        uploadedFiles.push({ name: file.name, path, size: file.size, type: file.type });
+        uploadedAttachments.push({
+          file_path: path,
+          file_name: file.name,
+          file_type: file.type || 'application/octet-stream',
+          file_size: file.size,
+        });
       }
-      if (uploadedFiles.length > 0) {
-        // Add uploaded files to step input_data
+      if (uploadedAttachments.length > 0) {
         const currentInput = (step.input_data || {}) as Record<string, unknown>;
-        const existingFiles = (currentInput.uploaded_files as unknown[] || []);
+        const existing = Array.isArray(currentInput.attachments)
+          ? (currentInput.attachments as unknown[])
+          : [];
         const newInput = {
           ...currentInput,
-          uploaded_files: [...existingFiles, ...uploadedFiles],
+          attachments: [...existing, ...uploadedAttachments],
         };
         await supabase
           .from('project_workflow_steps')
           .update({ input_data: newInput } as never)
           .eq('id', step.id);
-        toast.success(`Загружено файлов: ${uploadedFiles.length}`);
+        toast.success(`Загружено файлов: ${uploadedAttachments.length}`);
       }
     } catch (e) {
       console.error(e);
@@ -306,7 +327,32 @@ export const WorkflowStepView: React.FC<WorkflowStepViewProps> = ({
       setIsUploading(false);
       if (fileInputRef.current) fileInputRef.current.value = '';
     }
-  }, [projectId, step.id, step.input_data]);
+  }, [step.id, step.input_data]);
+
+  // Existing attachments list (from step.input_data.attachments)
+  const existingAttachments = useMemo(() => {
+    const inp = (step.input_data || {}) as Record<string, unknown>;
+    const att = inp.attachments;
+    if (!Array.isArray(att)) return [];
+    return att as { file_path: string; file_name: string; file_type: string; file_size: number }[];
+  }, [step.input_data]);
+
+  const handleRemoveAttachment = useCallback(async (filePath: string) => {
+    try {
+      await supabase.storage.from('chat-attachments').remove([filePath]);
+      const currentInput = (step.input_data || {}) as Record<string, unknown>;
+      const remaining = (Array.isArray(currentInput.attachments) ? currentInput.attachments : [])
+        .filter((a: any) => a?.file_path !== filePath);
+      await supabase
+        .from('project_workflow_steps')
+        .update({ input_data: { ...currentInput, attachments: remaining } } as never)
+        .eq('id', step.id);
+      toast.success('Файл удалён');
+    } catch (e) {
+      console.error(e);
+      toast.error('Не удалось удалить файл');
+    }
+  }, [step.id, step.input_data]);
 
   // First step pending: input form
   const [showIngestTool, setShowIngestTool] = React.useState(false);
