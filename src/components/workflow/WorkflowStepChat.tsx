@@ -53,8 +53,10 @@ export const WorkflowStepChat: React.FC<WorkflowStepChatProps> = ({
   onSendMessage,
   isExecuting,
   streamingContent,
+  inheritedAttachments = [],
 }) => {
   const [inputValue, setInputValue] = React.useState('');
+  const [showInherited, setShowInherited] = React.useState(false);
   const scrollContainerRef = React.useRef<HTMLDivElement>(null);
   const isUserNearBottomRef = React.useRef(true);
 
