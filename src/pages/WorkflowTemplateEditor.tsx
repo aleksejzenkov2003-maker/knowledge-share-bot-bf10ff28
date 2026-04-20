@@ -245,13 +245,42 @@ const WorkflowTemplateEditor: React.FC<WorkflowTemplateEditorProps> = ({
             <Tooltip>
               <TooltipTrigger asChild>
                 <span>
-                  <AddNodeMenu onAdd={handleAddNode} />
+                  <AddNodeMenu
+                    onAdd={handleAddNode}
+                    onAddStage={() => {
+                      const name = window.prompt('Название этапа:', 'Новый этап');
+                      if (!name?.trim()) return;
+                      toast.success(
+                        `Этап «${name.trim()}» создаётся при первом шаге, привязанном к нему. Откройте шаг и выберите этот этап в поле «Этап».`,
+                      );
+                    }}
+                  />
                 </span>
               </TooltipTrigger>
               <TooltipContent className="max-w-xs">
-                Добавить шаг процесса: ввод данных, AI-агент, условие, проверка, скрипт или итог.
+                Добавить шаг процесса или новый этап-группу.
               </TooltipContent>
             </Tooltip>
+          </div>
+          <div className="flex items-center gap-0.5 rounded-md border bg-muted/40 p-0.5">
+            <Button
+              variant={viewMode === 'editor' ? 'secondary' : 'ghost'}
+              size="sm"
+              className="h-7 px-2 text-xs gap-1"
+              onClick={() => setViewMode('editor')}
+            >
+              <Pencil className="h-3.5 w-3.5" />
+              Редактор
+            </Button>
+            <Button
+              variant={viewMode === 'map' ? 'secondary' : 'ghost'}
+              size="sm"
+              className="h-7 px-2 text-xs gap-1"
+              onClick={() => setViewMode('map')}
+            >
+              <Map className="h-3.5 w-3.5" />
+              Карта
+            </Button>
           </div>
           <span className="text-xs text-muted-foreground">{steps.length} узлов</span>
           <Tooltip>
