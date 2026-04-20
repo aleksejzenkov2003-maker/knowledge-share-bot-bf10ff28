@@ -8,6 +8,7 @@ import { workflowQueryKeys } from './useProjectWorkflow';
 import { validateWorkflowGraph } from './useWorkflowValidation';
 import type { Node, Edge, Connection } from '@xyflow/react';
 import type { Json } from '@/integrations/supabase/types';
+import { isPassthroughEdge } from '@/lib/workflowAutoFix';
 
 export const workflowEdgeQueryKey = (templateId: string) =>
   ['workflow-template-edges', templateId] as const;
