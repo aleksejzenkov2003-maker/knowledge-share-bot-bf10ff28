@@ -269,6 +269,7 @@ export function useWorkflowEditor(templateId: string | null) {
         else if (sh === 'branch_false') branchLabel = 'Нет';
         else if (sh === 'branch_pass') branchLabel = 'Ок';
         else if (sh === 'branch_fail') branchLabel = 'Не ок';
+        const passthrough = isPassthroughEdge(e.mapping);
         return {
           id: e.id,
           source: e.source_node_id,
@@ -282,6 +283,7 @@ export function useWorkflowEditor(templateId: string | null) {
             mappingCount: e.mapping?.length ?? 0,
             hasConditions: (e.conditions?.length ?? 0) > 0,
             branchLabel,
+            isPassthrough: passthrough,
           },
         };
       }),
