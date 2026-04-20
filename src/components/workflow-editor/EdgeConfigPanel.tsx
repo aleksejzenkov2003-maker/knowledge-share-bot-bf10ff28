@@ -4,8 +4,15 @@ import type { EdgeMapping, EdgeCondition, EdgeConditionOperator } from '@/types/
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
+import { Switch } from '@/components/ui/switch';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { Separator } from '@/components/ui/separator';
+import {
+  Accordion,
+  AccordionContent,
+  AccordionItem,
+  AccordionTrigger,
+} from '@/components/ui/accordion';
 import {
   Select,
   SelectContent,
@@ -13,13 +20,16 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select';
-import { X, Trash2, Plus, Save } from 'lucide-react';
+import { X, Trash2, Plus, Save, ArrowRight, Info } from 'lucide-react';
+import { isPassthroughEdge, DEFAULT_PASSTHROUGH_MAPPING } from '@/lib/workflowAutoFix';
 
 function schemaKeys(schema: Record<string, unknown>): string[] {
   const p = schema?.properties;
   if (p && typeof p === 'object') return Object.keys(p as Record<string, unknown>);
   return ['content', 'result'];
 }
+
+type WhenMode = 'always' | 'if_truthy' | 'custom';
 
 interface EdgeConfigPanelProps {
   edge: WorkflowGraphEdge;
@@ -40,13 +50,31 @@ export const EdgeConfigPanel: React.FC<EdgeConfigPanelProps> = ({
 }) => {
   const [mapping, setMapping] = useState<EdgeMapping[]>(edge.mapping || []);
   const [conditions, setConditions] = useState<EdgeCondition[]>(edge.conditions || []);
+  const [passAll, setPassAll] = useState(isPassthroughEdge(edge.mapping));
   const [dirty, setDirty] = useState(false);
+
+  // Determine "when" mode from existing conditions
+  const initialWhen: WhenMode = useMemo(() => {
+    const c = edge.conditions || [];
+    if (c.length === 0) return 'always';
+    if (
+      c.length === 1 &&
+      (c[0].operator === 'truthy' || c[0].operator === 'not_empty') &&
+      (c[0].field === '' || c[0].field === '$' || c[0].field === 'content')
+    ) {
+      return 'if_truthy';
+    }
+    return 'custom';
+  }, [edge.conditions]);
+  const [when, setWhen] = useState<WhenMode>(initialWhen);
 
   useEffect(() => {
     setMapping(edge.mapping || []);
     setConditions(edge.conditions || []);
+    setPassAll(isPassthroughEdge(edge.mapping));
+    setWhen(initialWhen);
     setDirty(false);
-  }, [edge.id, edge.mapping, edge.conditions]);
+  }, [edge.id, edge.mapping, edge.conditions, initialWhen]);
 
   const sourceKeys = useMemo(
     () => schemaKeys((sourceStep?.output_schema as Record<string, unknown>) || {}),
@@ -57,18 +85,26 @@ export const EdgeConfigPanel: React.FC<EdgeConfigPanelProps> = ({
     [targetStep]
   );
 
-  const previewExpr = useMemo(() => {
-    const nk = sourceStep?.node_key || sourceStep?.name?.slice(0, 8) || 'upstream';
-    return `{{node.${nk}.approved_output.<field>}}`;
-  }, [sourceStep]);
-
   const handleSave = () => {
-    onUpdate(edge.id, { mapping, conditions });
+    let nextMapping = mapping;
+    if (passAll) {
+      nextMapping = DEFAULT_PASSTHROUGH_MAPPING;
+    }
+    let nextConditions: EdgeCondition[] = [];
+    if (when === 'if_truthy') {
+      nextConditions = [{ field: 'content', operator: 'not_empty' }];
+    } else if (when === 'custom') {
+      nextConditions = conditions;
+    }
+    onUpdate(edge.id, { mapping: nextMapping, conditions: nextConditions });
     setDirty(false);
   };
 
   const addMapping = () => {
-    setMapping((m) => [...m, { sourcePath: sourceKeys[0] || '', targetPath: targetKeys[0] || '', transform: 'passthrough' }]);
+    setMapping((m) => [
+      ...m,
+      { sourcePath: sourceKeys[0] || '', targetPath: targetKeys[0] || '', transform: 'passthrough' },
+    ]);
     setDirty(true);
   };
 
@@ -87,193 +123,224 @@ export const EdgeConfigPanel: React.FC<EdgeConfigPanelProps> = ({
       </div>
 
       <ScrollArea className="flex-1 p-3">
-        <p className="text-xs text-muted-foreground mb-3">
-          {sourceStep?.name || '?'} → {targetStep?.name || '?'}
-        </p>
-
-        <div className="rounded-md bg-muted/40 p-2 mb-3">
-          <Label className="text-[10px] text-muted-foreground">Шаблон ссылки</Label>
-          <code className="text-[10px] block break-all mt-1">{previewExpr}</code>
+        <div className="flex items-center gap-2 mb-3 text-xs">
+          <span className="font-medium truncate">{sourceStep?.name || '?'}</span>
+          <ArrowRight className="h-3.5 w-3.5 text-muted-foreground shrink-0" />
+          <span className="font-medium truncate">{targetStep?.name || '?'}</span>
         </div>
 
-        <Separator className="my-3" />
-
-        <div className="flex items-center justify-between mb-2">
-          <Label className="text-xs">Маппинг полей</Label>
-          <Button type="button" variant="outline" size="sm" className="h-7 text-xs" onClick={addMapping}>
-            <Plus className="h-3 w-3 mr-1" />
-            Строка
-          </Button>
+        <div className="rounded-md border bg-muted/30 p-2.5 mb-3 flex gap-2 text-[11px] text-muted-foreground">
+          <Info className="h-3.5 w-3.5 mt-0.5 shrink-0" />
+          <p>
+            По умолчанию весь подтверждённый результат предыдущего шага автоматически попадает в следующий.
+            Вмешиваться нужно только если хотите фильтровать данные или ставить условия.
+          </p>
         </div>
-        <div className="space-y-2">
-          {mapping.map((row, i) => (
-            <div key={i} className="grid grid-cols-12 gap-1 items-center border rounded p-2">
-              <div className="col-span-5">
-                <Select
-                  value={row.sourcePath || '__empty__'}
-                  onValueChange={(v) => {
-                    const next = [...mapping];
-                    next[i] = { ...row, sourcePath: v === '__empty__' ? '' : v };
-                    setMapping(next);
-                    setDirty(true);
-                  }}
-                >
-                  <SelectTrigger className="h-7 text-[10px]">
-                    <SelectValue placeholder="из" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="__empty__">(весь объект)</SelectItem>
-                    {sourceKeys.filter(Boolean).map((k) => (
-                      <SelectItem key={k} value={k}>
-                        {k}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-              </div>
-              <div className="col-span-5">
-                <Select
-                  value={row.targetPath || '__empty__'}
-                  onValueChange={(v) => {
-                    const next = [...mapping];
-                    next[i] = { ...row, targetPath: v === '__empty__' ? '' : v };
-                    setMapping(next);
-                    setDirty(true);
-                  }}
-                >
-                  <SelectTrigger className="h-7 text-[10px]">
-                    <SelectValue placeholder="в" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="__empty__">(корень)</SelectItem>
-                    {targetKeys.filter(Boolean).map((k) => (
-                      <SelectItem key={k} value={k}>
-                        {k}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-              </div>
-              <div className="col-span-2 flex justify-end">
-                <Button
-                  type="button"
-                  variant="ghost"
-                  size="icon"
-                  className="h-7 w-7"
-                  onClick={() => {
-                    setMapping(mapping.filter((_, j) => j !== i));
-                    setDirty(true);
-                  }}
-                >
-                  <Trash2 className="h-3.5 w-3.5" />
+
+        {/* Передавать всё */}
+        <div className="rounded-md border p-3 mb-3">
+          <div className="flex items-center justify-between gap-2">
+            <div className="space-y-0.5">
+              <Label className="text-xs font-medium">Передавать всё</Label>
+              <p className="text-[10px] text-muted-foreground">
+                Весь результат предыдущего шага без преобразований
+              </p>
+            </div>
+            <Switch
+              checked={passAll}
+              onCheckedChange={(v) => {
+                setPassAll(v);
+                if (v) setMapping(DEFAULT_PASSTHROUGH_MAPPING);
+                setDirty(true);
+              }}
+            />
+          </div>
+        </div>
+
+        {/* Когда переходить */}
+        <div className="rounded-md border p-3 mb-3 space-y-2">
+          <Label className="text-xs font-medium">Когда переходить</Label>
+          <Select
+            value={when}
+            onValueChange={(v) => {
+              setWhen(v as WhenMode);
+              setDirty(true);
+            }}
+          >
+            <SelectTrigger className="h-8 text-xs">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="always">Всегда</SelectItem>
+              <SelectItem value="if_truthy">Если предыдущий шаг дал результат</SelectItem>
+              <SelectItem value="custom">По условию (свои правила)</SelectItem>
+            </SelectContent>
+          </Select>
+
+          {when === 'custom' && (
+            <div className="space-y-2 pt-2">
+              <div className="flex items-center justify-between">
+                <span className="text-[10px] text-muted-foreground">
+                  Все правила должны выполняться
+                </span>
+                <Button type="button" variant="outline" size="sm" className="h-7 text-xs" onClick={addCondition}>
+                  <Plus className="h-3 w-3 mr-1" />
+                  Правило
                 </Button>
               </div>
-              <div className="col-span-12">
-                <Select
-                  value={row.transform || 'passthrough'}
-                  onValueChange={(v) => {
-                    const next = [...mapping];
-                    next[i] = { ...row, transform: v as EdgeMapping['transform'] };
-                    setMapping(next);
-                    setDirty(true);
-                  }}
-                >
-                  <SelectTrigger className="h-7 text-[10px]">
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="passthrough">passthrough</SelectItem>
-                    <SelectItem value="json_stringify">json_stringify</SelectItem>
-                  </SelectContent>
-                </Select>
-              </div>
+              {conditions.map((row, i) => (
+                <div key={i} className="flex gap-1 items-center border rounded p-2">
+                  <Input
+                    className="h-7 text-xs flex-1"
+                    placeholder="поле"
+                    value={row.field}
+                    onChange={(e) => {
+                      const next = [...conditions];
+                      next[i] = { ...row, field: e.target.value };
+                      setConditions(next);
+                      setDirty(true);
+                    }}
+                  />
+                  <Select
+                    value={row.operator}
+                    onValueChange={(v) => {
+                      const next = [...conditions];
+                      next[i] = { ...row, operator: v as EdgeConditionOperator };
+                      setConditions(next);
+                      setDirty(true);
+                    }}
+                  >
+                    <SelectTrigger className="h-7 text-xs w-28">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="exists">Есть</SelectItem>
+                      <SelectItem value="not_exists">Нет</SelectItem>
+                      <SelectItem value="not_empty">Заполнено</SelectItem>
+                      <SelectItem value="empty">Пусто</SelectItem>
+                      <SelectItem value="eq">=</SelectItem>
+                      <SelectItem value="neq">≠</SelectItem>
+                      <SelectItem value="contains">Содержит</SelectItem>
+                      <SelectItem value="gt">&gt;</SelectItem>
+                      <SelectItem value="lt">&lt;</SelectItem>
+                    </SelectContent>
+                  </Select>
+                  <Input
+                    className="h-7 text-xs w-20"
+                    placeholder="value"
+                    value={row.value != null ? String(row.value) : ''}
+                    onChange={(e) => {
+                      const next = [...conditions];
+                      next[i] = { ...row, value: e.target.value };
+                      setConditions(next);
+                      setDirty(true);
+                    }}
+                  />
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="icon"
+                    className="h-7 w-7 shrink-0"
+                    onClick={() => {
+                      setConditions(conditions.filter((_, j) => j !== i));
+                      setDirty(true);
+                    }}
+                  >
+                    <Trash2 className="h-3.5 w-3.5" />
+                  </Button>
+                </div>
+              ))}
             </div>
-          ))}
+          )}
         </div>
+
+        {/* Эксперт: ручной маппинг */}
+        {!passAll && (
+          <Accordion type="single" collapsible defaultValue="expert">
+            <AccordionItem value="expert" className="border-none">
+              <AccordionTrigger className="text-xs py-2 hover:no-underline">
+                Эксперт: маппинг полей
+              </AccordionTrigger>
+              <AccordionContent className="space-y-2">
+                <div className="flex items-center justify-between">
+                  <p className="text-[10px] text-muted-foreground">
+                    Точечно перенаправить поля результата
+                  </p>
+                  <Button type="button" variant="outline" size="sm" className="h-7 text-xs" onClick={addMapping}>
+                    <Plus className="h-3 w-3 mr-1" />
+                    Строка
+                  </Button>
+                </div>
+                {mapping.map((row, i) => (
+                  <div key={i} className="grid grid-cols-12 gap-1 items-center border rounded p-2">
+                    <div className="col-span-5">
+                      <Select
+                        value={row.sourcePath || '__empty__'}
+                        onValueChange={(v) => {
+                          const next = [...mapping];
+                          next[i] = { ...row, sourcePath: v === '__empty__' ? '' : v };
+                          setMapping(next);
+                          setDirty(true);
+                        }}
+                      >
+                        <SelectTrigger className="h-7 text-[10px]">
+                          <SelectValue placeholder="из" />
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="__empty__">(весь объект)</SelectItem>
+                          {sourceKeys.filter(Boolean).map((k) => (
+                            <SelectItem key={k} value={k}>
+                              {k}
+                            </SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                    </div>
+                    <div className="col-span-5">
+                      <Select
+                        value={row.targetPath || '__empty__'}
+                        onValueChange={(v) => {
+                          const next = [...mapping];
+                          next[i] = { ...row, targetPath: v === '__empty__' ? '' : v };
+                          setMapping(next);
+                          setDirty(true);
+                        }}
+                      >
+                        <SelectTrigger className="h-7 text-[10px]">
+                          <SelectValue placeholder="в" />
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="__empty__">(корень)</SelectItem>
+                          {targetKeys.filter(Boolean).map((k) => (
+                            <SelectItem key={k} value={k}>
+                              {k}
+                            </SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                    </div>
+                    <div className="col-span-2 flex justify-end">
+                      <Button
+                        type="button"
+                        variant="ghost"
+                        size="icon"
+                        className="h-7 w-7"
+                        onClick={() => {
+                          setMapping(mapping.filter((_, j) => j !== i));
+                          setDirty(true);
+                        }}
+                      >
+                        <Trash2 className="h-3.5 w-3.5" />
+                      </Button>
+                    </div>
+                  </div>
+                ))}
+              </AccordionContent>
+            </AccordionItem>
+          </Accordion>
+        )}
 
         <Separator className="my-3" />
-
-        <p className="text-[10px] text-muted-foreground mb-2">
-          Условия на ребре (дополнительно к ветке IF/Проверка): переход только если все ниже выполняются над данными
-          предыдущего шага после подтверждения.
-        </p>
-
-        <div className="flex items-center justify-between mb-2">
-          <Label className="text-xs">Условия ребра</Label>
-          <Button type="button" variant="outline" size="sm" className="h-7 text-xs" onClick={addCondition}>
-            <Plus className="h-3 w-3 mr-1" />
-            Условие
-          </Button>
-        </div>
-        <div className="space-y-2">
-          {conditions.map((row, i) => (
-            <div key={i} className="flex gap-1 items-center border rounded p-2">
-              <Input
-                className="h-7 text-xs flex-1"
-                placeholder="field"
-                value={row.field}
-                onChange={(e) => {
-                  const next = [...conditions];
-                  next[i] = { ...row, field: e.target.value };
-                  setConditions(next);
-                  setDirty(true);
-                }}
-              />
-              <Select
-                value={row.operator}
-                onValueChange={(v) => {
-                  const next = [...conditions];
-                  next[i] = { ...row, operator: v as EdgeConditionOperator };
-                  setConditions(next);
-                  setDirty(true);
-                }}
-              >
-                <SelectTrigger className="h-7 text-xs w-24">
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="eq">Равно</SelectItem>
-                  <SelectItem value="neq">Не равно</SelectItem>
-                  <SelectItem value="exists">Есть поле</SelectItem>
-                  <SelectItem value="not_exists">Нет поля</SelectItem>
-                  <SelectItem value="truthy">ИСТИНА</SelectItem>
-                  <SelectItem value="falsy">ЛОЖЬ</SelectItem>
-                  <SelectItem value="empty">Пусто</SelectItem>
-                  <SelectItem value="not_empty">Заполнено</SelectItem>
-                  <SelectItem value="contains">Содержит текст</SelectItem>
-                  <SelectItem value="not_contains">Не содержит</SelectItem>
-                  <SelectItem value="gt">Число &gt;</SelectItem>
-                  <SelectItem value="gte">Число ≥</SelectItem>
-                  <SelectItem value="lt">Число &lt;</SelectItem>
-                  <SelectItem value="lte">Число ≤</SelectItem>
-                </SelectContent>
-              </Select>
-              <Input
-                className="h-7 text-xs flex-1"
-                placeholder="value"
-                value={row.value != null ? String(row.value) : ''}
-                onChange={(e) => {
-                  const next = [...conditions];
-                  next[i] = { ...row, value: e.target.value };
-                  setConditions(next);
-                  setDirty(true);
-                }}
-              />
-              <Button
-                type="button"
-                variant="ghost"
-                size="icon"
-                className="h-7 w-7 shrink-0"
-                onClick={() => {
-                  setConditions(conditions.filter((_, j) => j !== i));
-                  setDirty(true);
-                }}
-              >
-                <Trash2 className="h-3.5 w-3.5" />
-              </Button>
-            </div>
-          ))}
-        </div>
       </ScrollArea>
 
       <div className="p-3 border-t flex items-center justify-between gap-2">
