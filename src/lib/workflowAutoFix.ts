@@ -14,6 +14,20 @@ export const DEFAULT_PASSTHROUGH_MAPPING: EdgeMapping[] = [
 ];
 
 /**
+ * "Simple mode" edge: empty mapping, or single $→$ row, or single empty row
+ * (legacy seed). For these edges the engine implicitly passes whole approved
+ * output of the source as input of the target — no manual mapping needed.
+ */
+export function isPassthroughEdge(mapping: EdgeMapping[] | null | undefined): boolean {
+  if (!mapping || mapping.length === 0) return true;
+  if (mapping.length !== 1) return false;
+  const m = mapping[0];
+  const sp = (m.sourcePath || '').trim();
+  const tp = (m.targetPath || '').trim();
+  return (sp === '' || sp === '$') && (tp === '' || tp === '$');
+}
+
+/**
  * Build a suggested mapping for an edge based on source.output_schema and
  * target.input_schema / form_config. Falls back to passthrough when there
  * is nothing specific to match.
