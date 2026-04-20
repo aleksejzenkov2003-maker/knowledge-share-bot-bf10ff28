@@ -340,11 +340,11 @@ const WorkflowTemplateEditor: React.FC<WorkflowTemplateEditorProps> = ({
           <WorkflowCanvas
             initialNodes={nodes}
             initialEdges={edges}
-            onNodeClick={handleNodeClick}
-            onEdgeClick={handleEdgeClick}
-            onNodeDragStop={handleNodeDragStop}
+            onNodeClick={viewMode === 'map' ? () => {} : handleNodeClick}
+            onEdgeClick={viewMode === 'map' ? () => {} : handleEdgeClick}
+            onNodeDragStop={viewMode === 'map' ? () => {} : handleNodeDragStop}
             onPaneClick={handlePaneClick}
-            onConnect={onConnect}
+            onConnect={viewMode === 'map' ? () => {} : onConnect}
           />
           {isEmpty && (
             <WorkflowEditorEmptyHint
@@ -354,8 +354,13 @@ const WorkflowTemplateEditor: React.FC<WorkflowTemplateEditorProps> = ({
               onOpenAIArchitect={onOpenAIArchitect}
             />
           )}
+          {viewMode === 'map' && !isEmpty && (
+            <div className="absolute top-3 left-1/2 -translate-x-1/2 rounded-full border bg-card/95 px-3 py-1 text-[11px] font-medium shadow-sm text-muted-foreground backdrop-blur">
+              Режим «Карта» — только просмотр потока
+            </div>
+          )}
         </div>
-        {selectedEdge && (
+        {viewMode === 'editor' && selectedEdge && (
           <div data-tour="workflow-editor-edge-panel">
             <EdgeConfigPanel
               edge={selectedEdge}
@@ -371,7 +376,7 @@ const WorkflowTemplateEditor: React.FC<WorkflowTemplateEditorProps> = ({
             />
           </div>
         )}
-        {selectedStep && !selectedEdge && (
+        {viewMode === 'editor' && selectedStep && !selectedEdge && (
           <div data-tour="workflow-editor-node-panel">
             <WorkflowNodeConfigPanel
               step={selectedStep}
