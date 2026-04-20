@@ -11,7 +11,7 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Badge } from '@/components/ui/badge';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
-import { Loader2, ArrowLeft, Rocket, HelpCircle } from 'lucide-react';
+import { Loader2, ArrowLeft, Rocket, HelpCircle, Map, Pencil } from 'lucide-react';
 import { useTour } from '@/components/tour/TourProvider';
 import { workflowEditorTourSteps } from '@/components/tour/tourSteps';
 import type { Node } from '@xyflow/react';
@@ -66,6 +66,7 @@ const WorkflowTemplateEditor: React.FC<WorkflowTemplateEditorProps> = ({
   const { startTour } = useTour();
 
   const [templateName, setTemplateName] = React.useState('');
+  const [viewMode, setViewMode] = React.useState<'editor' | 'map'>('editor');
   const availableStageGroups = React.useMemo(
     () =>
       Array.from(
