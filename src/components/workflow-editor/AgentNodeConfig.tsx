@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useMemo } from 'react';
 import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
 import { Switch } from '@/components/ui/switch';
@@ -10,12 +10,48 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select';
+import {
+  Accordion,
+  AccordionContent,
+  AccordionItem,
+  AccordionTrigger,
+} from '@/components/ui/accordion';
 import { SchemaEditor } from './SchemaEditor';
 import { Badge } from '@/components/ui/badge';
 import { cn } from '@/lib/utils';
 
 const TOOL_OPTIONS = ['rag_docs', 'web_search', 'classifier', 'deep_research'] as const;
 const MODEL_OPTIONS = ['gpt-4o', 'gpt-4o-mini', 'gpt-5.4', 'claude-4-sonnet'] as const;
+
+type OutputPreset = 'text' | 'markdown' | 'structured' | 'custom';
+
+const PRESET_SCHEMAS: Record<Exclude<OutputPreset, 'custom'>, Record<string, unknown>> = {
+  text: {
+    type: 'object',
+    properties: { content: { type: 'string', description: 'Текстовый ответ агента' } },
+  },
+  markdown: {
+    type: 'object',
+    properties: {
+      markdown: { type: 'string', description: 'Документ в формате Markdown' },
+      title: { type: 'string', description: 'Заголовок документа (опционально)' },
+    },
+  },
+  structured: {
+    type: 'object',
+    properties: {},
+  },
+};
+
+function detectPreset(schema: Record<string, unknown>): OutputPreset {
+  const props = (schema as { properties?: Record<string, unknown> })?.properties;
+  if (!props || typeof props !== 'object') return 'text';
+  const keys = Object.keys(props).sort().join(',');
+  if (keys === 'content') return 'text';
+  if (keys === 'markdown,title' || keys === 'title,markdown') return 'markdown';
+  if (Object.keys(props).length === 0) return 'text';
+  return 'custom';
+}
 
 interface AgentNodeConfigProps {
   stepId: string;
@@ -49,12 +85,22 @@ export const AgentNodeConfig: React.FC<AgentNodeConfigProps> = ({
   onChange,
 }) => {
   const toolSet = new Set(tools);
+  const currentPreset = useMemo(() => detectPreset(outputSchema), [outputSchema]);
 
   const toggleTool = (t: string) => {
     const next = new Set(toolSet);
     if (next.has(t)) next.delete(t);
     else next.add(t);
     onChange({ tools: [...next] });
+  };
+
+  const applyPreset = (p: OutputPreset) => {
+    if (p === 'custom') {
+      // Switch to structured editor; keep current schema if present, else seed empty object
+      onChange({ output_schema: outputSchema && Object.keys(outputSchema).length > 0 ? outputSchema : PRESET_SCHEMAS.structured });
+      return;
+    }
+    onChange({ output_schema: PRESET_SCHEMAS[p] });
   };
 
   return (
@@ -103,6 +149,23 @@ export const AgentNodeConfig: React.FC<AgentNodeConfigProps> = ({
       </div>
 
       <div className="space-y-1.5">
+        <Label className="text-xs">Формат результата</Label>
+        <Select value={currentPreset} onValueChange={(v) => applyPreset(v as OutputPreset)}>
+          <SelectTrigger className="h-8 text-xs">
+            <SelectValue />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="text">Текстовый ответ</SelectItem>
+            <SelectItem value="markdown">Документ Markdown</SelectItem>
+            <SelectItem value="custom">Структурированные данные…</SelectItem>
+          </SelectContent>
+        </Select>
+        <p className="text-[10px] text-muted-foreground">
+          Влияет на схему выхода. Для большинства шагов подходит «Текстовый ответ».
+        </p>
+      </div>
+
+      <div className="space-y-1.5">
         <Label className="text-xs">Инструменты</Label>
         <div className="flex flex-wrap gap-1">
           {TOOL_OPTIONS.map((t) => (
@@ -123,18 +186,27 @@ export const AgentNodeConfig: React.FC<AgentNodeConfigProps> = ({
         <Switch checked={requireApproval} onCheckedChange={(v) => onChange({ require_approval: v })} />
       </div>
 
-      <SchemaEditor
-        resetKey={stepId}
-        label="Input schema"
-        value={inputSchema}
-        onChange={(s) => onChange({ input_schema: s })}
-      />
-      <SchemaEditor
-        resetKey={stepId}
-        label="Output schema"
-        value={outputSchema}
-        onChange={(s) => onChange({ output_schema: s })}
-      />
+      <Accordion type="single" collapsible>
+        <AccordionItem value="advanced" className="border-none">
+          <AccordionTrigger className="text-xs py-2 hover:no-underline">
+            Дополнительно (продвинутые поля)
+          </AccordionTrigger>
+          <AccordionContent className="space-y-3 pt-1">
+            <SchemaEditor
+              resetKey={stepId}
+              label="Input schema"
+              value={inputSchema}
+              onChange={(s) => onChange({ input_schema: s })}
+            />
+            <SchemaEditor
+              resetKey={stepId}
+              label="Output schema"
+              value={outputSchema}
+              onChange={(s) => onChange({ output_schema: s })}
+            />
+          </AccordionContent>
+        </AccordionItem>
+      </Accordion>
     </div>
   );
 };
