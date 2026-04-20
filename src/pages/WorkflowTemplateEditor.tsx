@@ -11,7 +11,7 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Badge } from '@/components/ui/badge';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
-import { Loader2, ArrowLeft, Rocket, HelpCircle } from 'lucide-react';
+import { Loader2, ArrowLeft, Rocket, HelpCircle, Map, Pencil } from 'lucide-react';
 import { useTour } from '@/components/tour/TourProvider';
 import { workflowEditorTourSteps } from '@/components/tour/tourSteps';
 import type { Node } from '@xyflow/react';
@@ -66,6 +66,7 @@ const WorkflowTemplateEditor: React.FC<WorkflowTemplateEditorProps> = ({
   const { startTour } = useTour();
 
   const [templateName, setTemplateName] = React.useState('');
+  const [viewMode, setViewMode] = React.useState<'editor' | 'map'>('editor');
   const availableStageGroups = React.useMemo(
     () =>
       Array.from(
@@ -244,13 +245,42 @@ const WorkflowTemplateEditor: React.FC<WorkflowTemplateEditorProps> = ({
             <Tooltip>
               <TooltipTrigger asChild>
                 <span>
-                  <AddNodeMenu onAdd={handleAddNode} />
+                  <AddNodeMenu
+                    onAdd={handleAddNode}
+                    onAddStage={() => {
+                      const name = window.prompt('Название этапа:', 'Новый этап');
+                      if (!name?.trim()) return;
+                      toast.success(
+                        `Этап «${name.trim()}» создаётся при первом шаге, привязанном к нему. Откройте шаг и выберите этот этап в поле «Этап».`,
+                      );
+                    }}
+                  />
                 </span>
               </TooltipTrigger>
               <TooltipContent className="max-w-xs">
-                Добавить шаг процесса: ввод данных, AI-агент, условие, проверка, скрипт или итог.
+                Добавить шаг процесса или новый этап-группу.
               </TooltipContent>
             </Tooltip>
+          </div>
+          <div className="flex items-center gap-0.5 rounded-md border bg-muted/40 p-0.5">
+            <Button
+              variant={viewMode === 'editor' ? 'secondary' : 'ghost'}
+              size="sm"
+              className="h-7 px-2 text-xs gap-1"
+              onClick={() => setViewMode('editor')}
+            >
+              <Pencil className="h-3.5 w-3.5" />
+              Редактор
+            </Button>
+            <Button
+              variant={viewMode === 'map' ? 'secondary' : 'ghost'}
+              size="sm"
+              className="h-7 px-2 text-xs gap-1"
+              onClick={() => setViewMode('map')}
+            >
+              <Map className="h-3.5 w-3.5" />
+              Карта
+            </Button>
           </div>
           <span className="text-xs text-muted-foreground">{steps.length} узлов</span>
           <Tooltip>
@@ -310,11 +340,11 @@ const WorkflowTemplateEditor: React.FC<WorkflowTemplateEditorProps> = ({
           <WorkflowCanvas
             initialNodes={nodes}
             initialEdges={edges}
-            onNodeClick={handleNodeClick}
-            onEdgeClick={handleEdgeClick}
-            onNodeDragStop={handleNodeDragStop}
+            onNodeClick={viewMode === 'map' ? () => {} : handleNodeClick}
+            onEdgeClick={viewMode === 'map' ? () => {} : handleEdgeClick}
+            onNodeDragStop={viewMode === 'map' ? () => {} : handleNodeDragStop}
             onPaneClick={handlePaneClick}
-            onConnect={onConnect}
+            onConnect={viewMode === 'map' ? () => {} : onConnect}
           />
           {isEmpty && (
             <WorkflowEditorEmptyHint
@@ -324,8 +354,13 @@ const WorkflowTemplateEditor: React.FC<WorkflowTemplateEditorProps> = ({
               onOpenAIArchitect={onOpenAIArchitect}
             />
           )}
+          {viewMode === 'map' && !isEmpty && (
+            <div className="absolute top-3 left-1/2 -translate-x-1/2 rounded-full border bg-card/95 px-3 py-1 text-[11px] font-medium shadow-sm text-muted-foreground backdrop-blur">
+              Режим «Карта» — только просмотр потока
+            </div>
+          )}
         </div>
-        {selectedEdge && (
+        {viewMode === 'editor' && selectedEdge && (
           <div data-tour="workflow-editor-edge-panel">
             <EdgeConfigPanel
               edge={selectedEdge}
@@ -341,7 +376,7 @@ const WorkflowTemplateEditor: React.FC<WorkflowTemplateEditorProps> = ({
             />
           </div>
         )}
-        {selectedStep && !selectedEdge && (
+        {viewMode === 'editor' && selectedStep && !selectedEdge && (
           <div data-tour="workflow-editor-node-panel">
             <WorkflowNodeConfigPanel
               step={selectedStep}

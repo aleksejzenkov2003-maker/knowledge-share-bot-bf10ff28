@@ -8,6 +8,7 @@ import { workflowQueryKeys } from './useProjectWorkflow';
 import { validateWorkflowGraph } from './useWorkflowValidation';
 import type { Node, Edge, Connection } from '@xyflow/react';
 import type { Json } from '@/integrations/supabase/types';
+import { isPassthroughEdge } from '@/lib/workflowAutoFix';
 
 export const workflowEdgeQueryKey = (templateId: string) =>
   ['workflow-template-edges', templateId] as const;
@@ -269,6 +270,7 @@ export function useWorkflowEditor(templateId: string | null) {
         else if (sh === 'branch_false') branchLabel = 'Нет';
         else if (sh === 'branch_pass') branchLabel = 'Ок';
         else if (sh === 'branch_fail') branchLabel = 'Не ок';
+        const passthrough = isPassthroughEdge(e.mapping);
         return {
           id: e.id,
           source: e.source_node_id,
@@ -282,6 +284,7 @@ export function useWorkflowEditor(templateId: string | null) {
             mappingCount: e.mapping?.length ?? 0,
             hasConditions: (e.conditions?.length ?? 0) > 0,
             branchLabel,
+            isPassthrough: passthrough,
           },
         };
       }),
