@@ -340,6 +340,8 @@ export const ChatMessage = React.memo(ChatMessageComponent, (prevProps, nextProp
     prev.piiTokensCount === next.piiTokensCount &&
     prev.reputationResults?.length === next.reputationResults?.length &&
     prev.reputationCompanyData === next.reputationCompanyData &&
+    prev.fallbackUsed === next.fallbackUsed &&
+    prev.actualModel === next.actualModel &&
     prevProps.onEditMessage === nextProps.onEditMessage &&
     prevProps.onRegenerateResponse === nextProps.onRegenerateResponse &&
     prevProps.onRetryMessage === nextProps.onRetryMessage &&
