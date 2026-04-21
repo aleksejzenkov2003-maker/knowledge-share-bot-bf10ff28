@@ -1083,9 +1083,14 @@ serve(async (req) => {
             completed_at: new Date().toISOString(),
           }).eq('id', step_id);
 
+          // Если удалось распарсить JSON — пишем в чат именно валидный JSON,
+          // чтобы фронт всегда мог его красиво отрендерить (без прозы вокруг).
+          const chatContent = parsedResult
+            ? JSON.stringify(parsedResult, null, 2)
+            : fullContent;
           await supabase.from('project_step_messages').insert({
             step_id, user_id: user.id, message_role: 'assistant',
-            content: fullContent, metadata: metadata as any,
+            content: chatContent, metadata: metadata as any,
           });
 
           // ── Quality check agent (if configured) ──

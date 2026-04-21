@@ -159,7 +159,7 @@ export const WorkflowStepView: React.FC<WorkflowStepViewProps> = ({
         ? editedContent
         : compareRaw
           ? outputContent
-          : userEditsContent || hr?.summary || outputContent;
+          : userEditsContent || outputContent || hr?.summary || '';
 
   const statusInfo = statusLabels[step.status] || statusLabels.pending;
   const isEditable = step.template_step?.is_user_editable !== false;
