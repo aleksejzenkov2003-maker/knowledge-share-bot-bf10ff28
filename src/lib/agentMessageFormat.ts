@@ -97,43 +97,75 @@ function renderStructured(parsed: any): string {
   return parts.filter(Boolean).join('\n\n');
 }
 
+function decodeJsonString(value: string): string {
+  try {
+    return JSON.parse(`"${value}"`);
+  } catch {
+    return value.replace(/\\n/g, '\n').replace(/\\"/g, '"');
+  }
+}
+
+function extractStringField(raw: string, key: string): string | undefined {
+  const match = raw.match(new RegExp(`"${key}"\\s*:\\s*"((?:\\\\.|[^"\\\\])*)"`, 'i'));
+  return match?.[1] ? decodeJsonString(match[1]).trim() : undefined;
+}
+
+function extractStringArray(raw: string, key: string): string[] {
+  const match = raw.match(new RegExp(`"${key}"\\s*:\\s*\\[([\\s\\S]*?)]`, 'i'));
+  if (!match?.[1]) return [];
+  return Array.from(match[1].matchAll(/"((?:\\.|[^"\\])*)"/g)).map((m) => decodeJsonString(m[1]).trim()).filter(Boolean);
+}
+
+function looksLikeAgentJson(raw: string): boolean {
+  const trimmed = raw.trim();
+  if (trimmed.startsWith('{') || trimmed.startsWith('[')) return true;
+  return /"(agent|title|output|qc|input)"\s*:/.test(trimmed);
+}
+
+function renderLooseAgentJson(raw: string): string {
+  const title = extractStringField(raw, 'title') || extractStringField(raw, 'agent') || 'Структурированный ответ агента';
+  const summary = extractStringField(raw, 'summary') || extractStringField(raw, 'use_summary') || extractStringField(raw, 'status_summary');
+  const qc = extractStringArray(raw, 'qc');
+  const input = extractStringArray(raw, 'input');
+  const parts = [`### ${title}`];
+  if (summary) parts.push(summary);
+  if (qc.length) parts.push(`**Проверки:**\n${qc.map((item) => `- ${item}`).join('\n')}`);
+  if (input.length) parts.push(`**Входные данные:**\n${input.map((item) => `- ${item}`).join('\n')}`);
+  if (!summary && !qc.length && !input.length) parts.push('Ответ получен в структурированном формате. Откройте «Показать JSON», если нужны технические поля.');
+  return parts.join('\n\n');
+}
+
 /**
  * Делит контент сообщения агента на «человеческий» markdown и сырой JSON.
- * Поддерживает:
- *  1. Чистый JSON (объект/массив) — рендерим структурированно.
- *  2. Markdown + ```json``` — показываем markdown, JSON сворачиваем.
- *  3. Обычный markdown/текст — отдаём как есть.
+ * Сырой JSON никогда не возвращается как display: даже неполный/кривой JSON получает человекочитаемый fallback.
  */
 export function splitAgentMessage(raw: string): AgentMessageRender {
   const trimmed = (raw ?? '').trim();
   if (!trimmed) return { display: raw ?? '' };
 
-  // Markdown с ```json ... ```
   const fenceMatch = trimmed.match(/```json\s*([\s\S]*?)```/i);
   if (fenceMatch) {
     const before = trimmed.slice(0, fenceMatch.index ?? 0).trim();
     const after = trimmed.slice((fenceMatch.index ?? 0) + fenceMatch[0].length).trim();
-    let pretty = fenceMatch[1].trim();
-    let parsed: any = null;
+    const jsonRaw = fenceMatch[1].trim();
     try {
-      parsed = JSON.parse(pretty);
-      pretty = JSON.stringify(parsed, null, 2);
-    } catch { /* keep as is */ }
-    const human = [before, after].filter(Boolean).join('\n\n');
-    const structured = parsed ? renderStructured(parsed) : '';
-    const display = [human, structured].filter(Boolean).join('\n\n')
-      || '_(см. структурированный ответ ниже)_';
-    return { display, json: pretty };
+      const parsed = JSON.parse(jsonRaw);
+      const display = [before, after, renderStructured(parsed)].filter(Boolean).join('\n\n') || '_(структурированный ответ агента)_';
+      return { display, json: JSON.stringify(parsed, null, 2) };
+    } catch {
+      const display = [before, after, renderLooseAgentJson(jsonRaw)].filter(Boolean).join('\n\n');
+      return { display, json: jsonRaw };
+    }
   }
 
-  // Чистый JSON
-  if ((trimmed.startsWith('{') && trimmed.endsWith('}')) ||
-      (trimmed.startsWith('[') && trimmed.endsWith(']'))) {
+  if (looksLikeAgentJson(trimmed)) {
     try {
       const parsed = JSON.parse(trimmed);
       const display = renderStructured(parsed) || '_(структурированный ответ агента)_';
       return { display, json: JSON.stringify(parsed, null, 2) };
-    } catch { /* not valid JSON */ }
+    } catch {
+      return { display: renderLooseAgentJson(trimmed), json: trimmed };
+    }
   }
 
   return { display: raw };
