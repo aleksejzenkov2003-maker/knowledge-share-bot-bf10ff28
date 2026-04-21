@@ -19,6 +19,7 @@ import {
   TooltipTrigger,
 } from '@/components/ui/tooltip';
 import { ChevronRight } from 'lucide-react';
+import { splitAgentMessage } from '@/lib/agentMessageFormat';
 
 const MAX_FILE_SIZE = 10 * 1024 * 1024;
 const MAX_FILES = 5;
