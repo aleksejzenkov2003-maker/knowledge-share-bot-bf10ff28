@@ -1,9 +1,11 @@
 import React from 'react';
 import { Button } from '@/components/ui/button';
 import { Card } from '@/components/ui/card';
-import { Save, Loader2 } from 'lucide-react';
+import { Save, Loader2, ChevronRight } from 'lucide-react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
+import { cn } from '@/lib/utils';
+import { splitAgentMessage } from '@/lib/agentMessageFormat';
 
 interface WorkflowResultEditorProps {
   content: string;
@@ -40,6 +42,8 @@ export const WorkflowResultEditor: React.FC<WorkflowResultEditorProps> = ({
   hasUnsavedChanges,
 }) => {
   const [isEditing, setIsEditing] = React.useState(false);
+  const [showJson, setShowJson] = React.useState(false);
+  const { display, json } = React.useMemo(() => splitAgentMessage(content), [content]);
 
   if (isStreaming) {
     return (
@@ -83,6 +87,7 @@ export const WorkflowResultEditor: React.FC<WorkflowResultEditorProps> = ({
     );
   }
 
+
   return (
     <Card className="mt-3 flex min-h-full min-w-0 flex-col p-4">
       {isEditable && (
@@ -95,9 +100,26 @@ export const WorkflowResultEditor: React.FC<WorkflowResultEditorProps> = ({
       <div className="min-w-0 flex-1 overflow-auto">
         <div className="prose prose-sm dark:prose-invert max-w-none min-w-0 break-words [overflow-wrap:anywhere]">
           <ReactMarkdown remarkPlugins={[remarkGfm]} components={markdownComponents}>
-            {content}
+            {display}
           </ReactMarkdown>
         </div>
+        {json && (
+          <div className="not-prose mt-3">
+            <button
+              type="button"
+              onClick={() => setShowJson((v) => !v)}
+              className="inline-flex items-center gap-1 text-xs font-medium text-muted-foreground hover:text-foreground transition"
+            >
+              <ChevronRight className={cn('h-3 w-3 transition-transform', showJson && 'rotate-90')} />
+              {showJson ? 'Скрыть JSON' : 'Показать JSON'}
+            </button>
+            {showJson && (
+              <pre className="mt-2 max-h-96 overflow-auto rounded-md border bg-muted/40 p-3 text-xs font-mono leading-snug whitespace-pre-wrap break-words">
+                {json}
+              </pre>
+            )}
+          </div>
+        )}
       </div>
     </Card>
   );
