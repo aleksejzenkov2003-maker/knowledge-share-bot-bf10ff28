@@ -279,16 +279,25 @@ export function useOptimizedChat(userId: string | undefined, departmentId: strin
     try {
       // ВСЕГДА передаём историю сообщений для поддержания контекста
       // Включаем attachments из каждого сообщения для персистентного контекста документов
-      const messageHistory = [...messages, userMessage].map(m => ({
-        role: m.role,
-        content: m.content,
-        attachments: m.attachments?.filter(a => a.status === 'uploaded' && a.file_path).map(a => ({
-          file_path: a.file_path!,
-          file_name: a.file_name,
-          file_type: a.file_type,
-          file_size: a.file_size,
-        })) || [],
-      }));
+      const NOISE_MARKERS = [
+        'Глубокое исследование недоступно',
+        'Превышено время CPU',
+        '[Генерация остановлена]',
+        'Выполняется глубокое исследование',
+      ];
+      const isNoise = (c: string) => NOISE_MARKERS.some(m => c.includes(m));
+      const fullHistory = [...messages, userMessage]
+        .filter(m => m.content && !isNoise(m.content))
+        .map(m => ({
+          role: m.role,
+          content: m.content,
+          attachments: m.attachments?.filter(a => a.status === 'uploaded' && a.file_path).map(a => ({
+            file_path: a.file_path!,
+            file_name: a.file_name,
+            file_type: a.file_type,
+            file_size: a.file_size,
+          })) || [],
+        }));
 
       const { data: sessionData } = await supabase.auth.getSession();
       const token = sessionData.session?.access_token;
@@ -305,6 +314,17 @@ export function useOptimizedChat(userId: string | undefined, departmentId: strin
         const mc = roleConfig?.model_config as { model?: string } | null;
         isDeepResearch = mc?.model?.includes('deep-research') === true;
       }
+
+      // For deep-research, send a compact history: last 4 turns max,
+      // assistant entries trimmed to 1500 chars, no big prior reports.
+      const messageHistory = isDeepResearch
+        ? fullHistory.slice(-4).map(m => ({
+            ...m,
+            content: m.role === 'assistant' && m.content.length > 1500
+              ? m.content.slice(0, 1500) + '…'
+              : m.content,
+          }))
+        : fullHistory;
 
       const endpoint = isDeepResearch ? 'deep-research' : 'chat-stream';
       // Deep research can take up to 5 minutes
@@ -407,6 +427,8 @@ export function useOptimizedChat(userId: string | undefined, departmentId: strin
                     stop_reason: parsed.stop_reason,
                     reputation_results: parsed.reputation_results,
                     reputation_company_data: parsed.reputation_company_data,
+                    fallback_used: parsed.fallback_used,
+                    model: parsed.model,
                   };
                 }
               } catch {
@@ -474,6 +496,8 @@ export function useOptimizedChat(userId: string | undefined, departmentId: strin
               stopReason: metadata.stop_reason,
               reputationResults: metadata.reputation_results,
               reputationCompanyData: metadata.reputation_company_data,
+              fallbackUsed: metadata.fallback_used,
+              actualModel: metadata.model,
             }
           : m
       ));

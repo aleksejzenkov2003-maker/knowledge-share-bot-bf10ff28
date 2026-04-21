@@ -81,6 +81,8 @@ export interface Message {
   piiTokensCount?: number; // Number of PII tokens in the message
   reputationResults?: ReputationSearchResult[]; // Multiple company results for user selection
   reputationCompanyData?: any; // Structured company data for card rendering
+  fallbackUsed?: string | null; // Name of fallback model if primary failed (e.g. 'sonar-reasoning-pro')
+  actualModel?: string; // Actual model that produced the answer (overrides role's default)
 }
 
 export interface ReputationSearchResult {

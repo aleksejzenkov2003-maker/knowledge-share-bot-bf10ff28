@@ -277,18 +277,44 @@ serve(async (req) => {
       throw new Error('Perplexity API key not configured');
     }
 
-    // Build full history (used for fallback) and last-user-only (used for deep-research).
-    const fullHistory: { role: string; content: string }[] = [];
+    // Build history. For deep-research we want a CLEAN, COMPACT input:
+    // - drop service/fallback notices
+    // - drop massive previous assistant research reports (they bloat context
+    //   and cause the next run to stall)
+    // For the fallback (sonar-reasoning-pro) we keep more history but still
+    // trim noise.
+    const NOISE_MARKERS = [
+      'Глубокое исследование недоступно',
+      'Превышено время CPU',
+      '[Генерация остановлена]',
+      'Выполняется глубокое исследование',
+    ];
+    const isNoise = (c: string) => NOISE_MARKERS.some(m => c.includes(m));
+
+    const cleanedHistory: { role: string; content: string }[] = [];
     if (message_history && message_history.length > 0) {
       for (const m of message_history) {
-        fullHistory.push({ role: m.role === 'assistant' ? 'assistant' : 'user', content: m.content });
+        const content = (m.content || '').trim();
+        if (!content) continue;
+        if (isNoise(content)) continue;
+        cleanedHistory.push({ role: m.role === 'assistant' ? 'assistant' : 'user', content });
       }
-    } else {
-      fullHistory.push({ role: 'user', content: message });
     }
+    if (cleanedHistory.length === 0) {
+      cleanedHistory.push({ role: 'user', content: message });
+    }
+
+    // For the fallback path: keep last ~6 turns and cap each assistant
+    // message to ~2000 chars so we never resend a full prior research report.
+    const tailHistory = cleanedHistory.slice(-6).map(m => ({
+      role: m.role,
+      content: m.role === 'assistant' && m.content.length > 2000
+        ? m.content.slice(0, 2000) + '…'
+        : m.content,
+    }));
     // Alternate roles
-    const alternated: typeof fullHistory = [];
-    for (const msg of fullHistory) {
+    const alternated: typeof tailHistory = [];
+    for (const msg of tailHistory) {
       if (alternated.length > 0 && alternated[alternated.length - 1].role === msg.role) {
         alternated[alternated.length - 1].content += '\n\n' + msg.content;
       } else {
@@ -327,8 +353,13 @@ serve(async (req) => {
         };
         const flusher = setInterval(flushPending, 250);
 
+        let lastUsefulContentAt: number | null = null;
         const onContent = (delta: string) => {
           if (firstContentAt === null) firstContentAt = Date.now();
+          // Count only non-whitespace useful text as "progress"
+          if (delta && delta.trim().length > 0) {
+            lastUsefulContentAt = Date.now();
+          }
           fullContent += delta;
           pendingDelta += delta;
         };
@@ -338,23 +369,26 @@ serve(async (req) => {
 
         try {
           const abortController = new AbortController();
-          const hardTimeout = setTimeout(() => abortController.abort(), 350000);
+          // Hard wall-clock cap close to platform CPU limit.
+          const hardTimeout = setTimeout(() => {
+            console.warn('Primary deep-research hit hard wall-clock cap (300s) — aborting');
+            try { abortController.abort(); } catch { /* noop */ }
+          }, 300000);
 
-          // Если deep-research тянется слишком долго, Lovable Cloud может убить
-          // функцию по CPU раньше, чем мы дойдём до catch. Поэтому прерываем
-          // primary-попытку заранее и гарантированно уходим на fallback.
-          const isPrimaryDeepResearch = primaryModel.includes('deep-research');
-          const primaryBudgetTimeout = isPrimaryDeepResearch
-            ? setTimeout(() => {
-                console.warn('Primary deep-research exceeded safe wall-clock budget — aborting for fallback');
-                try { abortController.abort(); } catch { /* noop */ }
-              }, 30000)
-            : null;
-
-          // Watchdog: if no content arrives in 60s, abort the primary attempt.
+          // Smart watchdog: only abort the primary attempt when there is
+          // genuinely no useful progress. We do NOT abort just because some
+          // arbitrary fixed time elapsed while the model is still streaming.
           const noContentWatchdog = setInterval(() => {
-            if (firstContentAt === null && (Date.now() - startTime) > 60000) {
-              console.warn('Primary deep-research produced no content within 60s — aborting for fallback');
+            const now = Date.now();
+            // Case 1: no first content within 90s → likely stalled, fall back.
+            if (firstContentAt === null && (now - startTime) > 90000) {
+              console.warn('Primary deep-research produced no content within 90s — aborting for fallback');
+              try { abortController.abort(); } catch { /* noop */ }
+              return;
+            }
+            // Case 2: had content, but stream stalled (no useful tokens) for 75s → fall back.
+            if (lastUsefulContentAt !== null && (now - lastUsefulContentAt) > 75000) {
+              console.warn('Primary deep-research stalled (>75s no useful tokens) — aborting for fallback');
               try { abortController.abort(); } catch { /* noop */ }
             }
           }, 5000);
@@ -401,7 +435,6 @@ serve(async (req) => {
             }
           } finally {
             clearTimeout(hardTimeout);
-            if (primaryBudgetTimeout) clearTimeout(primaryBudgetTimeout);
             clearInterval(noContentWatchdog);
           }
 
