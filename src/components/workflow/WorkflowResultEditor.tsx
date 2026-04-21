@@ -54,7 +54,7 @@ export const WorkflowResultEditor: React.FC<WorkflowResultEditorProps> = ({
         </div>
         <div className="prose prose-sm dark:prose-invert max-w-none min-w-0 break-words [overflow-wrap:anywhere]">
           <ReactMarkdown remarkPlugins={[remarkGfm]} components={markdownComponents}>
-            {content}
+            {display}
           </ReactMarkdown>
         </div>
       </Card>
