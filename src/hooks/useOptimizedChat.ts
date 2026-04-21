@@ -176,6 +176,7 @@ export function useOptimizedChat(userId: string | undefined, departmentId: strin
       role_id?: string;
       web_search_citations?: string[];
       web_search_used?: boolean;
+      interrupted?: boolean;
     }
   ) => {
     try {

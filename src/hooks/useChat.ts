@@ -200,6 +200,7 @@ export function useChat(userId: string | undefined) {
       rag_context?: string[]; 
       semantic_search?: boolean;
       attachments?: { file_path: string; file_name: string; file_type: string; file_size: number }[];
+      interrupted?: boolean;
     }
   ) => {
     try {
