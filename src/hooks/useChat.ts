@@ -537,6 +537,8 @@ export function useChat(userId: string | undefined) {
                       rag_context: parsed.rag_context,
                       citations: parsed.citations,
                       smart_search: parsed.smart_search,
+                      fallback_used: parsed.fallback_used,
+                      model: parsed.model,
                     };
                   }
                 } catch {
