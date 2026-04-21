@@ -824,7 +824,7 @@ export const WorkflowStepView: React.FC<WorkflowStepViewProps> = ({
                 <WorkflowResultEditor
                   content={displayContent}
                   isEditable={isEditable && step.status === 'completed'}
-                  isStreaming={isExecuting}
+                  isStreaming={isExecuting && step.status === 'running'}
                   onChange={setEditedContent}
                   onSave={handleSaveEdits}
                   hasUnsavedChanges={editedContent !== null}
