@@ -356,14 +356,18 @@ export const WorkflowStepChat: React.FC<WorkflowStepChatProps> = ({
                     'p-3 text-sm min-w-0 w-full',
                     msg.message_role === 'user' ? 'bg-primary text-primary-foreground' : 'bg-muted'
                   )}>
-                    <div className="prose prose-sm dark:prose-invert max-w-none break-words min-w-0 [overflow-wrap:anywhere]">
-                      <ReactMarkdown
-                        remarkPlugins={[remarkGfm]}
-                        components={chatMarkdownComponents}
-                      >
-                        {msg.content}
-                      </ReactMarkdown>
-                    </div>
+                    {msg.message_role === 'assistant' ? (
+                      <AssistantMessageBody content={msg.content} />
+                    ) : (
+                      <div className="prose prose-sm dark:prose-invert max-w-none break-words min-w-0 [overflow-wrap:anywhere]">
+                        <ReactMarkdown
+                          remarkPlugins={[remarkGfm]}
+                          components={chatMarkdownComponents}
+                        >
+                          {msg.content}
+                        </ReactMarkdown>
+                      </div>
+                    )}
                   </Card>
                   {msg.message_role === 'assistant' && (
                     <div className="flex items-center gap-1.5 px-1">
@@ -406,14 +410,7 @@ export const WorkflowStepChat: React.FC<WorkflowStepChatProps> = ({
                 <Bot className="h-3 w-3 text-primary" />
               </div>
               <Card className="p-3 max-w-[80%] text-sm bg-muted min-w-0">
-                <div className="prose prose-sm dark:prose-invert max-w-none break-words min-w-0 [overflow-wrap:anywhere]">
-                  <ReactMarkdown
-                    remarkPlugins={[remarkGfm]}
-                    components={chatMarkdownComponents}
-                  >
-                    {streamingContent}
-                  </ReactMarkdown>
-                </div>
+                <AssistantMessageBody content={streamingContent} />
               </Card>
             </div>
           )}
