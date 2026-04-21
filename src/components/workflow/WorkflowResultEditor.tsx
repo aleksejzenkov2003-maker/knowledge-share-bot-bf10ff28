@@ -1,9 +1,11 @@
 import React from 'react';
 import { Button } from '@/components/ui/button';
 import { Card } from '@/components/ui/card';
-import { Save, Loader2 } from 'lucide-react';
+import { Save, Loader2, ChevronRight } from 'lucide-react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
+import { cn } from '@/lib/utils';
+import { splitAgentMessage } from '@/lib/agentMessageFormat';
 
 interface WorkflowResultEditorProps {
   content: string;
