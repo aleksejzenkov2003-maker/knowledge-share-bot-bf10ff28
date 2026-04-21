@@ -18,6 +18,7 @@ import {
   TooltipProvider,
   TooltipTrigger,
 } from '@/components/ui/tooltip';
+import { ChevronRight } from 'lucide-react';
 
 const MAX_FILE_SIZE = 10 * 1024 * 1024;
 const MAX_FILES = 5;
@@ -95,6 +96,80 @@ function sanitizeForStorage(name: string): string {
   const safeExt = ext.replace(/[^\w.]+/g, '');
   return `${safeBase}${safeExt}`;
 }
+
+/**
+ * Делит контент сообщения агента на «человеческий» текст и сырой JSON.
+ * Поддерживает три формата:
+ *  1. Чистый JSON-объект — извлекаем текстовые поля (summary/_stream_text/content/...).
+ *  2. Markdown + блок ```json``` — показываем markdown без блока, JSON сворачиваем.
+ *  3. Обычный markdown/текст — отдаём как есть.
+ */
+function splitAgentMessage(raw: string): { display: string; json?: string } {
+  const trimmed = raw.trim();
+  if (!trimmed) return { display: raw };
+
+  // Markdown с ```json ... ```
+  const fenceMatch = trimmed.match(/```json\s*([\s\S]*?)```/i);
+  if (fenceMatch) {
+    const before = trimmed.slice(0, fenceMatch.index ?? 0).trim();
+    const after = trimmed.slice((fenceMatch.index ?? 0) + fenceMatch[0].length).trim();
+    const display = [before, after].filter(Boolean).join('\n\n');
+    let pretty = fenceMatch[1].trim();
+    try {
+      pretty = JSON.stringify(JSON.parse(pretty), null, 2);
+    } catch { /* keep as is */ }
+    return { display: display || '_(см. структурированный ответ ниже)_', json: pretty };
+  }
+
+  // Чистый JSON (объект или массив)
+  if ((trimmed.startsWith('{') && trimmed.endsWith('}')) ||
+      (trimmed.startsWith('[') && trimmed.endsWith(']'))) {
+    try {
+      const parsed = JSON.parse(trimmed);
+      const textCandidates = [
+        parsed?.human_readable?.summary,
+        parsed?.summary,
+        parsed?._stream_text,
+        parsed?.content,
+        parsed?.text,
+        parsed?.message,
+      ].filter((v): v is string => typeof v === 'string' && v.trim().length > 0);
+      const display = textCandidates[0] || '_(структурированный ответ агента)_';
+      return { display, json: JSON.stringify(parsed, null, 2) };
+    } catch { /* not valid JSON, fall through */ }
+  }
+
+  return { display: raw };
+}
+
+const AssistantMessageBody: React.FC<{ content: string }> = ({ content }) => {
+  const [expanded, setExpanded] = useState(false);
+  const { display, json } = React.useMemo(() => splitAgentMessage(content), [content]);
+  return (
+    <div className="prose prose-sm dark:prose-invert max-w-none break-words min-w-0 [overflow-wrap:anywhere]">
+      <ReactMarkdown remarkPlugins={[remarkGfm]} components={chatMarkdownComponents}>
+        {display}
+      </ReactMarkdown>
+      {json && (
+        <div className="not-prose mt-2">
+          <button
+            type="button"
+            onClick={() => setExpanded((v) => !v)}
+            className="inline-flex items-center gap-1 text-[11px] font-medium text-muted-foreground hover:text-foreground transition"
+          >
+            <ChevronRight className={cn('h-3 w-3 transition-transform', expanded && 'rotate-90')} />
+            {expanded ? 'Скрыть JSON' : 'Показать JSON'}
+          </button>
+          {expanded && (
+            <pre className="mt-1.5 max-h-80 overflow-auto rounded-md border bg-background/60 p-2 text-[11px] font-mono leading-snug whitespace-pre-wrap break-words">
+              {json}
+            </pre>
+          )}
+        </div>
+      )}
+    </div>
+  );
+};
 
 export const WorkflowStepChat: React.FC<WorkflowStepChatProps> = ({
   stepId,
