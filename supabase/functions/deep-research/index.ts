@@ -13,6 +13,38 @@ interface ChatRequest {
   message_history?: { role: string; content: string }[];
 }
 
+function stripThinkContent(chunk: string, state: { insideThinkBlock: boolean }) {
+  let remaining = chunk;
+  let cleaned = '';
+
+  while (remaining.length > 0) {
+    const lowered = remaining.toLowerCase();
+
+    if (state.insideThinkBlock) {
+      const closeIndex = lowered.indexOf('</think>');
+      if (closeIndex === -1) {
+        return cleaned;
+      }
+
+      remaining = remaining.slice(closeIndex + 8);
+      state.insideThinkBlock = false;
+      continue;
+    }
+
+    const openIndex = lowered.indexOf('<think>');
+    if (openIndex === -1) {
+      cleaned += remaining;
+      break;
+    }
+
+    cleaned += remaining.slice(0, openIndex);
+    remaining = remaining.slice(openIndex + 7);
+    state.insideThinkBlock = true;
+  }
+
+  return cleaned;
+}
+
 serve(async (req) => {
   if (req.method === 'OPTIONS') {
     return new Response(null, { headers: corsHeaders });
@@ -120,6 +152,7 @@ serve(async (req) => {
 
         let fullContent = '';
         const citationsSet = new Set<string>();
+        const thinkState = { insideThinkBlock: false };
 
         try {
           const abortController = new AbortController();
@@ -129,7 +162,7 @@ serve(async (req) => {
             model: selectedModel,
             messages: [{ role: 'system', content: systemPrompt }, ...alternated],
             stream: true,
-            max_tokens: 8000,
+            max_tokens: selectedModel.includes('deep-research') ? 4000 : 8000,
           };
           // For deep-research speed up massively
           if (selectedModel.includes('deep-research')) {
@@ -177,8 +210,11 @@ serve(async (req) => {
                 const delta: string | undefined = json.choices?.[0]?.delta?.content
                   ?? json.choices?.[0]?.message?.content;
                 if (delta) {
-                  fullContent += delta;
-                  controller.enqueue(encoder.encode(`data: ${JSON.stringify({ type: 'content', content: delta, append: true })}\n\n`));
+                  const cleanedDelta = stripThinkContent(delta, thinkState);
+                  if (cleanedDelta) {
+                    fullContent += cleanedDelta;
+                    controller.enqueue(encoder.encode(`data: ${JSON.stringify({ type: 'content', content: cleanedDelta, append: true })}\n\n`));
+                  }
                 }
                 const cits: string[] | undefined = json.citations || json.choices?.[0]?.message?.citations;
                 if (Array.isArray(cits)) for (const c of cits) if (c) citationsSet.add(c);
@@ -189,7 +225,10 @@ serve(async (req) => {
           }
 
           // Strip <think> blocks from final content for log; do not re-emit (already streamed).
-          const cleanedForLog = fullContent.replace(/<think>[\s\S]*?<\/think>\s*/gi, '').trim();
+          const cleanedForLog = fullContent.trim();
+          if (!cleanedForLog) {
+            throw new Error('Исследование не вернуло текст ответа');
+          }
           const responseTimeMs = Date.now() - startTime;
           const citations = Array.from(citationsSet);
           console.log(`Deep research streamed in ${responseTimeMs}ms, length=${fullContent.length}, citations=${citations.length}`);

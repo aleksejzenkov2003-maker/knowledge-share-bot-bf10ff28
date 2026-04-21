@@ -176,6 +176,7 @@ export function useOptimizedChat(userId: string | undefined, departmentId: strin
       role_id?: string;
       web_search_citations?: string[];
       web_search_used?: boolean;
+      interrupted?: boolean;
     }
   ) => {
     try {
@@ -447,7 +448,11 @@ export function useOptimizedChat(userId: string | undefined, departmentId: strin
         }
       }
 
-      const finalContent = streamingContentRef.current || "Нет ответа";
+      const finalContent = streamingContentRef.current?.trim()
+        ? streamingContentRef.current
+        : (metadata.stop_reason
+            ? "Исследование завершилось без текста ответа. Попробуйте сузить запрос или повторить ещё раз."
+            : "Ошибка исследования: сервер прервал выполнение до получения ответа. Попробуйте более короткий запрос.");
       
       // Final message update
       setLocalMessages(prev => prev.map(m =>
@@ -471,6 +476,7 @@ export function useOptimizedChat(userId: string | undefined, departmentId: strin
 
       await saveMessage(conversationId, "assistant", finalContent, {
         ...metadata,
+        interrupted: !streamingContentRef.current?.trim(),
         role_id: selectedRoleId || undefined,
       });
 
