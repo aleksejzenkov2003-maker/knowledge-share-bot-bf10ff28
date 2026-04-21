@@ -353,8 +353,10 @@ serve(async (req) => {
               model: primaryModel,
               systemPrompt,
               messages: isDeepResearch ? deepResearchMessages : alternated,
-              maxTokens: isDeepResearch ? 2500 : 8000,
-              reasoningEffort: isDeepResearch ? 'low' : undefined,
+              // 8000 токенов на финальный отчёт (промежуточный <think> в лимит не входит у клиента, но Perplexity режет общий output).
+              maxTokens: 8000,
+              // 'medium' даёт полный отчёт; 'low' обрывал текст на полуслове.
+              reasoningEffort: isDeepResearch ? 'medium' : undefined,
               signal: abortController.signal,
               onContent,
               onCitations,
