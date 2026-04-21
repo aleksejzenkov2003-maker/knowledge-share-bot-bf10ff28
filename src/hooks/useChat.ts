@@ -574,7 +574,9 @@ export function useChat(userId: string | undefined) {
             m.id === assistantMessageId
               ? {
                   ...m,
-                  content: fullContent || "Нет ответа",
+                  content: fullContent?.trim()
+                    ? fullContent
+                    : "Ошибка исследования: сервер прервал выполнение до получения ответа. Попробуйте более короткий запрос.",
                   isStreaming: false,
                   responseTime: metadata.response_time_ms,
                   ragContext: metadata.rag_context,
@@ -585,7 +587,14 @@ export function useChat(userId: string | undefined) {
           )
         );
 
-        await saveMessage(conversationId, "assistant", fullContent || "Нет ответа", metadata);
+        await saveMessage(
+          conversationId,
+          "assistant",
+          fullContent?.trim()
+            ? fullContent
+            : "Ошибка исследования: сервер прервал выполнение до получения ответа. Попробуйте более короткий запрос.",
+          { ...metadata, interrupted: !fullContent?.trim() }
+        );
       }
 
       // Update conversation timestamp
