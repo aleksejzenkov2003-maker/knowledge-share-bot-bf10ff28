@@ -13,36 +13,162 @@ interface ChatRequest {
   message_history?: { role: string; content: string }[];
 }
 
+// Lightweight extractor: pulls out the "content" delta from a Perplexity SSE
+// `data:` JSON line WITHOUT a full JSON.parse. This dramatically lowers CPU
+// usage on long deep-research streams that contain massive <think> blocks.
+//
+// Returns the raw delta string (still un-unescaped JSON-string contents) or null.
+function fastExtractContent(payload: string): string | null {
+  // Look for the first occurrence of "content":"..."
+  const key = '"content":"';
+  const start = payload.indexOf(key);
+  if (start === -1) return null;
+  let i = start + key.length;
+  let out = '';
+  while (i < payload.length) {
+    const ch = payload.charCodeAt(i);
+    if (ch === 92 /* \ */) {
+      // Escape sequence: copy the next character verbatim (handles \", \\, \n, etc.)
+      const next = payload[i + 1];
+      if (next === undefined) break;
+      if (next === 'n') out += '\n';
+      else if (next === 't') out += '\t';
+      else if (next === 'r') out += '\r';
+      else if (next === 'u') {
+        // \uXXXX
+        const hex = payload.slice(i + 2, i + 6);
+        if (hex.length === 4) {
+          const code = parseInt(hex, 16);
+          if (!isNaN(code)) out += String.fromCharCode(code);
+          i += 6;
+          continue;
+        }
+        i += 2;
+        continue;
+      } else {
+        out += next;
+      }
+      i += 2;
+      continue;
+    }
+    if (ch === 34 /* " */) return out;
+    out += payload[i];
+    i++;
+  }
+  return out || null;
+}
+
+function fastExtractCitations(payload: string): string[] | null {
+  const key = '"citations":[';
+  const start = payload.indexOf(key);
+  if (start === -1) return null;
+  const end = payload.indexOf(']', start + key.length);
+  if (end === -1) return null;
+  const arr = payload.slice(start + key.length, end);
+  const out: string[] = [];
+  const re = /"((?:[^"\\]|\\.)*)"/g;
+  let m: RegExpExecArray | null;
+  while ((m = re.exec(arr)) !== null) {
+    if (m[1]) out.push(m[1].replace(/\\"/g, '"').replace(/\\\\/g, '\\'));
+  }
+  return out.length ? out : null;
+}
+
+// Stream <think> tags out of the stream. Stateful across calls.
 function stripThinkContent(chunk: string, state: { insideThinkBlock: boolean }) {
   let remaining = chunk;
   let cleaned = '';
-
   while (remaining.length > 0) {
-    const lowered = remaining.toLowerCase();
-
     if (state.insideThinkBlock) {
-      const closeIndex = lowered.indexOf('</think>');
-      if (closeIndex === -1) {
-        return cleaned;
-      }
-
+      const closeIndex = remaining.indexOf('</think>');
+      if (closeIndex === -1) return cleaned;
       remaining = remaining.slice(closeIndex + 8);
       state.insideThinkBlock = false;
       continue;
     }
-
-    const openIndex = lowered.indexOf('<think>');
+    const openIndex = remaining.indexOf('<think>');
     if (openIndex === -1) {
       cleaned += remaining;
       break;
     }
-
     cleaned += remaining.slice(0, openIndex);
     remaining = remaining.slice(openIndex + 7);
     state.insideThinkBlock = true;
   }
-
   return cleaned;
+}
+
+interface RunStreamOptions {
+  apiKey: string;
+  model: string;
+  systemPrompt: string;
+  messages: { role: string; content: string }[];
+  maxTokens: number;
+  reasoningEffort?: 'low' | 'medium' | 'high';
+  signal: AbortSignal;
+  onContent: (delta: string) => void;
+  onCitations: (cits: string[]) => void;
+}
+
+async function runPerplexityStream(opts: RunStreamOptions): Promise<{ contentLength: number }> {
+  const body: Record<string, unknown> = {
+    model: opts.model,
+    messages: [{ role: 'system', content: opts.systemPrompt }, ...opts.messages],
+    stream: true,
+    max_tokens: opts.maxTokens,
+  };
+  if (opts.reasoningEffort) body.reasoning_effort = opts.reasoningEffort;
+
+  const response = await fetch('https://api.perplexity.ai/chat/completions', {
+    method: 'POST',
+    signal: opts.signal,
+    headers: {
+      'Authorization': `Bearer ${opts.apiKey}`,
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify(body),
+  });
+
+  if (!response.ok || !response.body) {
+    const errBody = await response.text().catch(() => '');
+    console.error(`Perplexity error model=${opts.model}, status=${response.status}, body=${errBody.slice(0, 300)}`);
+    throw new Error(`Perplexity API error: ${response.status}`);
+  }
+
+  const reader = response.body.getReader();
+  const decoder = new TextDecoder();
+  const thinkState = { insideThinkBlock: false };
+  let buffer = '';
+  let contentLength = 0;
+
+  while (true) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    buffer += decoder.decode(value, { stream: true });
+
+    let nlIdx = buffer.indexOf('\n');
+    while (nlIdx !== -1) {
+      const line = buffer.slice(0, nlIdx).trimEnd();
+      buffer = buffer.slice(nlIdx + 1);
+      nlIdx = buffer.indexOf('\n');
+
+      if (!line.startsWith('data:')) continue;
+      const payload = line.slice(5).trim();
+      if (!payload || payload === '[DONE]') continue;
+
+      const rawDelta = fastExtractContent(payload);
+      if (rawDelta) {
+        const cleaned = stripThinkContent(rawDelta, thinkState);
+        if (cleaned) {
+          contentLength += cleaned.length;
+          opts.onContent(cleaned);
+        }
+      }
+      const cits = fastExtractCitations(payload);
+      if (cits) opts.onCitations(cits);
+    }
+  }
+  return { contentLength };
 }
 
 serve(async (req) => {
@@ -76,9 +202,8 @@ serve(async (req) => {
     const { message, role_id, message_history } = await req.json() as ChatRequest;
     console.log(`Deep research request from user ${userId}, role_id=${role_id}`);
 
-    // Defaults
     let systemPrompt = 'Ты — исследовательский ассистент. Проводи глубокий анализ и исследование по запросу пользователя.';
-    let selectedModel = 'sonar-deep-research';
+    let primaryModel = 'sonar-deep-research';
     let deptId: string | null = null;
     let selectedProviderId: string | null = null;
 
@@ -95,12 +220,8 @@ serve(async (req) => {
           systemPrompt = role.system_prompt.prompt_text;
         }
         const modelConfig = role.model_config as { provider_id?: string; model?: string } | null;
-        if (modelConfig?.model) {
-          selectedModel = modelConfig.model;
-        }
-        if (modelConfig?.provider_id) {
-          selectedProviderId = modelConfig.provider_id;
-        }
+        if (modelConfig?.model) primaryModel = modelConfig.model;
+        if (modelConfig?.provider_id) selectedProviderId = modelConfig.provider_id;
       }
     }
 
@@ -112,37 +233,39 @@ serve(async (req) => {
         .eq('id', selectedProviderId)
         .eq('is_active', true)
         .single();
-      if (provider?.api_key) {
-        apiKey = provider.api_key;
-      }
+      if (provider?.api_key) apiKey = provider.api_key;
     }
 
     if (!apiKey) {
       throw new Error('Perplexity API key not configured');
     }
 
-    // Build messages w/ alternation
-    const simpleMessages: { role: string; content: string }[] = [];
+    // Build full history (used for fallback) and last-user-only (used for deep-research).
+    const fullHistory: { role: string; content: string }[] = [];
     if (message_history && message_history.length > 0) {
       for (const m of message_history) {
-        simpleMessages.push({ role: m.role === 'assistant' ? 'assistant' : 'user', content: m.content });
+        fullHistory.push({ role: m.role === 'assistant' ? 'assistant' : 'user', content: m.content });
       }
     } else {
-      simpleMessages.push({ role: 'user', content: message });
+      fullHistory.push({ role: 'user', content: message });
     }
-    const alternated: typeof simpleMessages = [];
-    for (const msg of simpleMessages) {
+    // Alternate roles
+    const alternated: typeof fullHistory = [];
+    for (const msg of fullHistory) {
       if (alternated.length > 0 && alternated[alternated.length - 1].role === msg.role) {
         alternated[alternated.length - 1].content += '\n\n' + msg.content;
       } else {
         alternated.push({ ...msg });
       }
     }
-
-    console.log(`Calling Perplexity (streaming): model=${selectedModel}, messages=${alternated.length}`);
+    // Find last user message for deep-research input shrinking.
+    let lastUserMessage = message;
+    for (let i = alternated.length - 1; i >= 0; i--) {
+      if (alternated[i].role === 'user') { lastUserMessage = alternated[i].content; break; }
+    }
+    const deepResearchMessages = [{ role: 'user', content: lastUserMessage }];
 
     const encoder = new TextEncoder();
-    const decoder = new TextDecoder();
 
     const stream = new ReadableStream({
       async start(controller) {
@@ -150,94 +273,105 @@ serve(async (req) => {
           try { controller.enqueue(encoder.encode(': hb\n\n')); } catch { /* noop */ }
         }, 10000);
 
+        // Batch content emissions to ~250ms ticks so we don't flood the SSE channel.
+        let pendingDelta = '';
         let fullContent = '';
         const citationsSet = new Set<string>();
-        const thinkState = { insideThinkBlock: false };
+        let fallbackUsed: string | null = null;
+        let firstContentAt: number | null = null;
+
+        const flushPending = () => {
+          if (!pendingDelta) return;
+          const chunk = pendingDelta;
+          pendingDelta = '';
+          try {
+            controller.enqueue(encoder.encode(`data: ${JSON.stringify({ type: 'content', content: chunk, append: true })}\n\n`));
+          } catch { /* noop */ }
+        };
+        const flusher = setInterval(flushPending, 250);
+
+        const onContent = (delta: string) => {
+          if (firstContentAt === null) firstContentAt = Date.now();
+          fullContent += delta;
+          pendingDelta += delta;
+        };
+        const onCitations = (cits: string[]) => {
+          for (const c of cits) if (c) citationsSet.add(c);
+        };
 
         try {
           const abortController = new AbortController();
           const hardTimeout = setTimeout(() => abortController.abort(), 350000);
 
-          const body: Record<string, unknown> = {
-            model: selectedModel,
-            messages: [{ role: 'system', content: systemPrompt }, ...alternated],
-            stream: true,
-            max_tokens: selectedModel.includes('deep-research') ? 4000 : 8000,
-          };
-          // For deep-research speed up massively
-          if (selectedModel.includes('deep-research')) {
-            body.reasoning_effort = 'low';
-          }
-
-          const response = await fetch('https://api.perplexity.ai/chat/completions', {
-            method: 'POST',
-            signal: abortController.signal,
-            headers: {
-              'Authorization': `Bearer ${apiKey}`,
-              'Content-Type': 'application/json',
-            },
-            body: JSON.stringify(body),
-          });
-
-          clearTimeout(hardTimeout);
-
-          if (!response.ok || !response.body) {
-            const errBody = await response.text().catch(() => '');
-            console.error(`Perplexity error: status=${response.status}, body=${errBody.slice(0, 500)}`);
-            throw new Error(`Perplexity API error: ${response.status}`);
-          }
-
-          const reader = response.body.getReader();
-          let buffer = '';
-
-          while (true) {
-            const { done, value } = await reader.read();
-            if (done) break;
-            buffer += decoder.decode(value, { stream: true });
-
-            // Split by SSE message boundary
-            const parts = buffer.split('\n\n');
-            buffer = parts.pop() || '';
-
-            for (const part of parts) {
-              const line = part.trim();
-              if (!line.startsWith('data:')) continue;
-              const payload = line.slice(5).trim();
-              if (payload === '[DONE]') continue;
-
-              try {
-                const json = JSON.parse(payload);
-                const delta: string | undefined = json.choices?.[0]?.delta?.content
-                  ?? json.choices?.[0]?.message?.content;
-                if (delta) {
-                  const cleanedDelta = stripThinkContent(delta, thinkState);
-                  if (cleanedDelta) {
-                    fullContent += cleanedDelta;
-                    controller.enqueue(encoder.encode(`data: ${JSON.stringify({ type: 'content', content: cleanedDelta, append: true })}\n\n`));
-                  }
-                }
-                const cits: string[] | undefined = json.citations || json.choices?.[0]?.message?.citations;
-                if (Array.isArray(cits)) for (const c of cits) if (c) citationsSet.add(c);
-              } catch (e) {
-                console.warn('SSE parse error', e);
-              }
+          // Watchdog: if no content arrives in 60s, abort the primary attempt.
+          const noContentWatchdog = setInterval(() => {
+            if (firstContentAt === null && (Date.now() - startTime) > 60000) {
+              console.warn('Primary deep-research produced no content within 60s — aborting for fallback');
+              try { abortController.abort(); } catch { /* noop */ }
             }
+          }, 5000);
+
+          try {
+            const isDeepResearch = primaryModel.includes('deep-research');
+            await runPerplexityStream({
+              apiKey,
+              model: primaryModel,
+              systemPrompt,
+              messages: isDeepResearch ? deepResearchMessages : alternated,
+              maxTokens: isDeepResearch ? 2500 : 8000,
+              reasoningEffort: isDeepResearch ? 'low' : undefined,
+              signal: abortController.signal,
+              onContent,
+              onCitations,
+            });
+          } catch (primaryErr) {
+            console.error('Primary deep-research failed, attempting fallback:', primaryErr);
+            // Notify the user we're switching modes.
+            const notice = (fullContent ? '\n\n' : '') + '_⚠️ Глубокое исследование недоступно, переключаюсь на быстрый анализ с веб-поиском..._\n\n';
+            fullContent += notice;
+            pendingDelta += notice;
+            flushPending();
+
+            fallbackUsed = 'sonar-reasoning-pro';
+            const fallbackAbort = new AbortController();
+            const fallbackTimeout = setTimeout(() => fallbackAbort.abort(), 120000);
+            try {
+              await runPerplexityStream({
+                apiKey,
+                model: 'sonar-reasoning-pro',
+                systemPrompt,
+                messages: alternated,
+                maxTokens: 4000,
+                signal: fallbackAbort.signal,
+                onContent,
+                onCitations,
+              });
+            } finally {
+              clearTimeout(fallbackTimeout);
+            }
+          } finally {
+            clearTimeout(hardTimeout);
+            clearInterval(noContentWatchdog);
           }
 
-          // Strip <think> blocks from final content for log; do not re-emit (already streamed).
+          flushPending();
+
           const cleanedForLog = fullContent.trim();
           if (!cleanedForLog) {
-            throw new Error('Исследование не вернуло текст ответа');
+            throw new Error('Превышено время CPU у функции исследования. Попробуйте сузить запрос.');
           }
+
           const responseTimeMs = Date.now() - startTime;
           const citations = Array.from(citationsSet);
-          console.log(`Deep research streamed in ${responseTimeMs}ms, length=${fullContent.length}, citations=${citations.length}`);
+          console.log(`Deep research streamed in ${responseTimeMs}ms, length=${fullContent.length}, citations=${citations.length}, fallback=${fallbackUsed || 'none'}`);
 
           controller.enqueue(encoder.encode(`data: ${JSON.stringify({
             type: 'metadata',
             response_time_ms: responseTimeMs,
             web_search_citations: citations.length > 0 ? citations : undefined,
             web_search_used: citations.length > 0,
+            fallback_used: fallbackUsed,
+            model: fallbackUsed || primaryModel,
           })}\n\n`));
           controller.enqueue(encoder.encode('data: [DONE]\n\n'));
 
@@ -249,28 +383,32 @@ serve(async (req) => {
             response: cleanedForLog,
             response_time_ms: responseTimeMs,
             metadata: {
-              model: selectedModel,
+              model: fallbackUsed || primaryModel,
               provider_type: 'perplexity',
               role_id,
               deep_research: true,
               streaming: true,
+              fallback_used: fallbackUsed,
             },
           });
         } catch (err) {
+          flushPending();
           console.error('Deep research error:', err);
           const errorMsg = err instanceof Error ? err.message : 'Unknown error';
           controller.enqueue(encoder.encode(`data: ${JSON.stringify({
             type: 'content',
-            content: `\n\n⚠️ Ошибка исследования: ${errorMsg}. Попробуйте упростить запрос или повторить позже.`,
+            content: `\n\n⚠️ Ошибка исследования: ${errorMsg}`,
             append: true,
           })}\n\n`));
           controller.enqueue(encoder.encode(`data: ${JSON.stringify({
             type: 'metadata',
             response_time_ms: Date.now() - startTime,
+            fallback_used: fallbackUsed,
           })}\n\n`));
           controller.enqueue(encoder.encode('data: [DONE]\n\n'));
         } finally {
           clearInterval(heartbeat);
+          clearInterval(flusher);
           try { controller.close(); } catch { /* noop */ }
         }
       },

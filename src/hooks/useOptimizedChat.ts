@@ -362,6 +362,8 @@ export function useOptimizedChat(userId: string | undefined, departmentId: strin
         stop_reason?: string;
         reputation_results?: any[];
         reputation_company_data?: any;
+        fallback_used?: string | null;
+        model?: string;
       } = {};
 
       if (reader) {
@@ -433,6 +435,8 @@ export function useOptimizedChat(userId: string | undefined, departmentId: strin
                     stop_reason: parsed.stop_reason,
                     reputation_results: parsed.reputation_results,
                     reputation_company_data: parsed.reputation_company_data,
+                    fallback_used: parsed.fallback_used,
+                    model: parsed.model,
                   };
               }
             } catch {
@@ -452,7 +456,7 @@ export function useOptimizedChat(userId: string | undefined, departmentId: strin
         ? streamingContentRef.current
         : (metadata.stop_reason
             ? "Исследование завершилось без текста ответа. Попробуйте сузить запрос или повторить ещё раз."
-            : "Ошибка исследования: сервер прервал выполнение до получения ответа. Попробуйте более короткий запрос.");
+            : "⚠️ Превышено время CPU у функции исследования. Попробуйте сузить запрос или повторить позже.");
       
       // Final message update
       setLocalMessages(prev => prev.map(m =>

@@ -498,7 +498,7 @@ export function useChat(userId: string | undefined) {
         const reader = response.body?.getReader();
         const decoder = new TextDecoder();
         let fullContent = "";
-        let metadata: { response_time_ms?: number; rag_context?: string[]; citations?: { index: number; document: string; section?: string; article?: string; relevance: number }[]; smart_search?: boolean } = {};
+        let metadata: { response_time_ms?: number; rag_context?: string[]; citations?: { index: number; document: string; section?: string; article?: string; relevance: number }[]; smart_search?: boolean; fallback_used?: string | null; model?: string } = {};
 
         if (reader) {
           let buffer = ''; // Buffer for incomplete SSE chunks
@@ -560,6 +560,8 @@ export function useChat(userId: string | undefined) {
                     rag_context: parsed.rag_context,
                     citations: parsed.citations,
                     smart_search: parsed.smart_search,
+                    fallback_used: parsed.fallback_used,
+                    model: parsed.model,
                   };
                 }
               } catch {
@@ -577,7 +579,7 @@ export function useChat(userId: string | undefined) {
                   ...m,
                   content: fullContent?.trim()
                     ? fullContent
-                    : "Ошибка исследования: сервер прервал выполнение до получения ответа. Попробуйте более короткий запрос.",
+                    : "⚠️ Превышено время CPU у функции исследования. Попробуйте сузить запрос или повторить позже.",
                   isStreaming: false,
                   responseTime: metadata.response_time_ms,
                   ragContext: metadata.rag_context,
@@ -593,7 +595,7 @@ export function useChat(userId: string | undefined) {
           "assistant",
           fullContent?.trim()
             ? fullContent
-            : "Ошибка исследования: сервер прервал выполнение до получения ответа. Попробуйте более короткий запрос.",
+            : "⚠️ Превышено время CPU у функции исследования. Попробуйте сузить запрос или повторить позже.",
           { ...metadata, interrupted: !fullContent?.trim() }
         );
       }
