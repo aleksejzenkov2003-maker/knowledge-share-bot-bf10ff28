@@ -277,18 +277,44 @@ serve(async (req) => {
       throw new Error('Perplexity API key not configured');
     }
 
-    // Build full history (used for fallback) and last-user-only (used for deep-research).
-    const fullHistory: { role: string; content: string }[] = [];
+    // Build history. For deep-research we want a CLEAN, COMPACT input:
+    // - drop service/fallback notices
+    // - drop massive previous assistant research reports (they bloat context
+    //   and cause the next run to stall)
+    // For the fallback (sonar-reasoning-pro) we keep more history but still
+    // trim noise.
+    const NOISE_MARKERS = [
+      'Глубокое исследование недоступно',
+      'Превышено время CPU',
+      '[Генерация остановлена]',
+      'Выполняется глубокое исследование',
+    ];
+    const isNoise = (c: string) => NOISE_MARKERS.some(m => c.includes(m));
+
+    const cleanedHistory: { role: string; content: string }[] = [];
     if (message_history && message_history.length > 0) {
       for (const m of message_history) {
-        fullHistory.push({ role: m.role === 'assistant' ? 'assistant' : 'user', content: m.content });
+        const content = (m.content || '').trim();
+        if (!content) continue;
+        if (isNoise(content)) continue;
+        cleanedHistory.push({ role: m.role === 'assistant' ? 'assistant' : 'user', content });
       }
-    } else {
-      fullHistory.push({ role: 'user', content: message });
     }
+    if (cleanedHistory.length === 0) {
+      cleanedHistory.push({ role: 'user', content: message });
+    }
+
+    // For the fallback path: keep last ~6 turns and cap each assistant
+    // message to ~2000 chars so we never resend a full prior research report.
+    const tailHistory = cleanedHistory.slice(-6).map(m => ({
+      role: m.role,
+      content: m.role === 'assistant' && m.content.length > 2000
+        ? m.content.slice(0, 2000) + '…'
+        : m.content,
+    }));
     // Alternate roles
-    const alternated: typeof fullHistory = [];
-    for (const msg of fullHistory) {
+    const alternated: typeof tailHistory = [];
+    for (const msg of tailHistory) {
       if (alternated.length > 0 && alternated[alternated.length - 1].role === msg.role) {
         alternated[alternated.length - 1].content += '\n\n' + msg.content;
       } else {
