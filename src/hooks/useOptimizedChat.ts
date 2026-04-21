@@ -362,6 +362,8 @@ export function useOptimizedChat(userId: string | undefined, departmentId: strin
         stop_reason?: string;
         reputation_results?: any[];
         reputation_company_data?: any;
+        fallback_used?: string | null;
+        model?: string;
       } = {};
 
       if (reader) {

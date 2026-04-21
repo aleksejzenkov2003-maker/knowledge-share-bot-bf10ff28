@@ -498,7 +498,7 @@ export function useChat(userId: string | undefined) {
         const reader = response.body?.getReader();
         const decoder = new TextDecoder();
         let fullContent = "";
-        let metadata: { response_time_ms?: number; rag_context?: string[]; citations?: { index: number; document: string; section?: string; article?: string; relevance: number }[]; smart_search?: boolean } = {};
+        let metadata: { response_time_ms?: number; rag_context?: string[]; citations?: { index: number; document: string; section?: string; article?: string; relevance: number }[]; smart_search?: boolean; fallback_used?: string | null; model?: string } = {};
 
         if (reader) {
           let buffer = ''; // Buffer for incomplete SSE chunks
