@@ -42,6 +42,8 @@ export const WorkflowResultEditor: React.FC<WorkflowResultEditorProps> = ({
   hasUnsavedChanges,
 }) => {
   const [isEditing, setIsEditing] = React.useState(false);
+  const [showJson, setShowJson] = React.useState(false);
+  const { display, json } = React.useMemo(() => splitAgentMessage(content), [content]);
 
   if (isStreaming) {
     return (
