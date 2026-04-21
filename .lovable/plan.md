@@ -1,87 +1,67 @@
 
 
-## Сверка шаблона «Отказы по ТЗ v7» с регламентом
+## Проблема
 
-### Соответствие шагов ТЗ → узлам шаблона
+В чате и в «Результате» project workflow рендерятся только верхнеуровневые поля JSON (`title`, `qc`, `input`), а основной блок `output` (owners, qualification и т.п.) пропадает.
 
-| ТЗ шаг | Регламент | Узел в шаблоне | Статус |
-|---|---|---|---|
-| 1 | Приём и загрузка материалов (КО+ПО) | `intake` + `qc_intake` | ✅ |
-| 2 | Формальная проверка уведомления | `oa_parse` + `qc_formal` | ✅ |
-| 3 | Заявитель и доказательства использования | `applicant_profile` | ✅ |
-| 4 | Классификация оснований отказа | `grounds_classifier` | ✅ |
-| 5 | Анализ обозначения и перечня МКТУ | `designation_scope` | ✅ |
-| 6 | Юр. квалификация позиции экспертизы | `protectability` | ⚠️ переименовать |
-| 7 | **Выгрузка/верификация противопоставленных ТЗ** | — | ❌ **отсутствует** |
-| 8 | Сравнительный анализ обозначений и однородности | `similarity` | ✅ |
-| 9 | Статус и активность правообладателей | `cited_status` | ✅ |
-| 10 | Практика СИП/ППС/Роспатента | `case_law` | ✅ |
-| 11 | Правовые блоки (9 полей) | `legal_blocks` + `qc_argumentation` | ✅ |
-| 12 | Стратегия A/B/C + матрица + дорожная карта | `strategy` | ✅ |
-| Итог | 2 документа: заключение + возражение | `internal_opinion` + `rospatent_objection` + `final_result` | ✅ |
+### Причина
 
-### Что нужно доработать
+`splitAgentMessage` пытается распарсить контент как JSON, но падает в двух типичных случаях:
 
-**1. Добавить недостающий шаг 7 — «Выгрузка и верификация противопоставленных ТЗ»**
-- Новый узел `cited_marks_dossier` в этапе «4. Квалификация», между `grounds_classifier` и `similarity`.
-- Агент: `(ТЗ-отказ 5) Статус противопоставлений` уже подходит, но регламент шага 7 — это **досье** (номер, приоритет, регистрация, правообладатель, статус, изображение, перечень), а шаг 9 — **активность правообладателя**. Нужны два разных агента.
-- Создать новый агент **«(ТЗ-отказ 7) Досье противопоставлений»** (модель `claude-sonnet-4-6` + web-search) с промптом «собрать обязательные поля по каждому знаку из официальных данных Роспатента».
-- Перевести существующий `cited_status` строго на «активность правообладателя в ЕГРЮЛ/ЕГРИП + признаки использования» (это шаг 9 регламента).
+1. **В чате** (`project_step_messages.content`) хранится **сырой стрим** агента (`fullContent`) — часто с прозой/префиксом перед `{...}` («Вот результат:\n{…}»). `JSON.parse(trimmed)` падает → срабатывает `renderLooseAgentJson`, который через regex достаёт только `title/summary/qc/input`, а **`output` не вытаскивает вовсе**.
+2. **В «Результате»** для не‑KP узлов `displayContent` берётся из `hr.summary`, который backend (`workflow-step-execute` строка ~1075) формирует как `fullContent.slice(0, 1200)` — обрезанный JSON, который тоже не парсится.
 
-**2. Уточнить промпт `protectability` под шаг 6 регламента**
-- Сейчас узел называется «Эксперт охраноспособности», но по регламенту шаг 6 = «Юридическая квалификация позиции экспертизы»: соотнесение с пунктами ст. 1483, ссылки на адресные разделы Руководства Роспатента, перечень уязвимостей правовой позиции.
-- Переименовать узел в «Юр. квалификация позиции экспертизы», обновить системный промпт под чёткий выход: `[{ground, norm, guideline_section, weakness, evidence_gap}]`.
+В обычных чатах/чатах отдела такой проблемы нет, потому что там агенты возвращают чистый markdown, без обёртки в JSON-схему.
 
-**3. Привести handoff-связи в соответствие с регламентом**
-По ТЗ после шага 2 идёт **параллельный** запуск шагов 3 и 4. После шага 4 «карта оснований» уходит в шаги 5, 6, 8, 10. Сейчас в шаблоне это последовательно. Нужно:
-- ребро `oa_parse → applicant_profile` (параллельно с `oa_parse → grounds_classifier`);
-- ребро `grounds_classifier → designation_scope` и `grounds_classifier → case_law` (карта оснований как структурообразующий вход);
-- ребро `cited_marks_dossier → similarity` и `cited_marks_dossier → cited_status`.
+### Что чинить
 
-**4. Обновить правила эскалации QC-нод** под раздел «Правила эскалации» регламента (7 условий)
-В `script_config` всех QC-нод добавить триггеры эскалации:
-- `ocr_quality<0.7` → return на `intake`;
-- `classification_confidence<0.6` → return на `grounds_classifier`;
-- `practice_conflict==true` → escalation flag в `final_result`;
-- `client_priorities=missing` → блокировать `strategy`;
-- `evidence_strength=low` → флаг в `legal_blocks`;
-- `procedural_anomalies=true` → флаг в `oa_parse`;
-- `cited_marks_data=missing` → return на `cited_marks_dossier`.
+**1. `src/lib/agentMessageFormat.ts` — устойчивый парсер**
+- Перед `JSON.parse(trimmed)` извлекать первый сбалансированный `{...}` блок (как делает backend на строке 1054), чтобы отрезать любую прозу до/после JSON.
+- Добавить очистку: trailing commas, ```` ```json ```` обёртки, control‑chars (по мотивам snippet'а из stack-overflow).
+- В `renderStructured` приоритет:
+  - если есть `client_kp` (string) → возвращать его как markdown (это уже готовый КП, не нужно ничего разбирать);
+  - иначе — заголовок (`title` → `agent`), summary (`human_readable.summary` → `summary` → `_stream_text` first 300 chars), затем `output`/`result`/`data` через `renderValue`, плюс блоки `qc` и `input` отдельными секциями в конце (как сейчас в loose).
+- В `renderLooseAgentJson` (fallback при битом JSON) добавить grep‑извлечение блока `"output": { ... }` с балансировкой скобок и прогон через `renderValue`, чтобы owners/qualification всё-таки отрисовывались.
 
-**5. Привести `output_schema` всех agent-узлов к JSON-структуре из регламента (раздел «Формат данных единой карточки шага»)**
-```json
-{
-  "step_id", "title", "agent",
-  "input": [...], "actions": [...],
-  "output": "...",
-  "qc": [...],
-  "escalation": "...",
-  "handoff_to": "..."
-}
-```
-Сейчас схемы у узлов произвольные — это мешает сборщикам шагов 11/12 и финальной сборке.
+**2. `src/components/workflow/WorkflowStepView.tsx` — приоритет полного output над обрезанным summary**
+- Изменить `displayContent` для не‑KP узлов: вместо `userEditsContent || hr?.summary || outputContent` использовать `userEditsContent || outputContent` (т.е. полный `raw_output` вместо обрезанных 1200 символов из `hr.summary`). `hr.summary` оставить только как fallback, если `outputContent` пустой.
+- Это даст `WorkflowResultEditor` валидный JSON целиком, и новый парсер корректно отрендерит вложенный `output`.
 
-**6. Уточнить `internal_opinion` под структуру финального заключения**
-Регламент жёстко перечисляет 10 разделов внутреннего заключения (реквизиты, карта оснований, заявитель, досье, сравнение, практика, блоки, стратегия, оценка перспектив с %, приложения). Прописать это в системном промпте как обязательный шаблон `## Раздел N. ...`.
+**3. `supabase/functions/workflow-step-execute/index.ts` — чистый контент в чат-сообщения** (опционально, но желательно)
+- При `parsedResult` найден — записывать в `project_step_messages.content` именно `JSON.stringify(parsedResult, null, 2)` (валидный JSON), а не сырой `fullContent` с прозой. Это гарантирует, что чат всегда получает парсимый JSON.
+- Для случаев без `parsedResult` оставить `fullContent` как есть (это и есть markdown).
 
-**7. Уточнить `rospatent_objection`** — добавить в промпт обязательное условие: «использовать готовые блоки из шага 11 без переписывания, добавлять только связки и процессуальное оформление».
+### Технические детали
 
-### Файлы для изменений
-- `supabase/migrations/<ts>_refusals_workflow_v8_alignment.sql`
-  - INSERT нового агента «Досье противопоставлений» в `chat_roles` и `system_prompts`;
-  - INSERT нового узла `cited_marks_dossier` в `workflow_template_steps`;
-  - UPDATE системных промптов 6 и 9 (через `system_prompts.body`);
-  - UPDATE `output_schema` всех agent-узлов к единой JSON-схеме;
-  - UPDATE `script_config` QC-нод правилами эскалации;
-  - UPDATE/INSERT рёбер `workflow_template_edges` (параллельные ветки 3↔4, фан-аут от карты оснований);
-  - UPDATE промптов `internal_opinion` и `rospatent_objection`;
-  - бамп `workflow_templates.version` до 8.
+- Новая функция `extractBalancedJson(raw: string): string | null` — ищет первое `{` или `[`, идёт со счётчиком скобок (с учётом строк/escape), возвращает сбалансированную подстроку.
+- `renderStructured` распознаёт `client_kp` / `internal_report` и для них пропускает structured-рендер (отдаёт markdown как есть).
+- Тест‑кейсы (mental): JSON в фенсе, JSON с prefix‑прозой, JSON с trailing comma, обрезанный JSON (до закрывающей `}`), валидный JSON со вложенным `output.owners[]`, payload с `client_kp` строкой.
 
 ### Без изменений
-- Edge function `workflow-step-execute` уже поддерживает фан-аут и фан-ин (см. memory `workflow-execution-logic`).
-- Frontend и Stepper — без изменений (новый узел встаёт в существующий `stage_group` «4. Квалификация»).
-- БД-схема не меняется, миграций структуры нет.
+
+- UI компоненты `WorkflowStepChat` и `WorkflowResultEditor` — продолжают использовать `splitAgentMessage` без знания о деталях.
+- Схема БД, migrations.
+- Логика QC/branching/orchestration.
 
 ### Результат
-После применения шаблон будет один-в-один соответствовать всем 12 шагам регламента + матрице ролей + правилам эскалации + форматам выходных документов.
+
+В чате и в «Результате» проектов появятся читаемые блоки вида:
+```
+### Активность правообладателя
+
+**Owners:**
+1. **Owner:** Матяш Сергей Викторович
+   **Sources:**
+   - https://egrul.nalog.ru
+   - https://www.rusprofile.ru
+   **Legal Status:** действует
+   **Signs Of Use:** Обнаружены признаки отсутствия выявленного…
+   **Evidence Strength:** low
+
+**Проверки:**
+- legal_status_set
+- evidence_strength_set
+```
+
+JSON по‑прежнему доступен через «Показать JSON».
 
