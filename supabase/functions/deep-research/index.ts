@@ -340,6 +340,17 @@ serve(async (req) => {
           const abortController = new AbortController();
           const hardTimeout = setTimeout(() => abortController.abort(), 350000);
 
+          // Если deep-research тянется слишком долго, Lovable Cloud может убить
+          // функцию по CPU раньше, чем мы дойдём до catch. Поэтому прерываем
+          // primary-попытку заранее и гарантированно уходим на fallback.
+          const isPrimaryDeepResearch = primaryModel.includes('deep-research');
+          const primaryBudgetTimeout = isPrimaryDeepResearch
+            ? setTimeout(() => {
+                console.warn('Primary deep-research exceeded safe wall-clock budget — aborting for fallback');
+                try { abortController.abort(); } catch { /* noop */ }
+              }, 30000)
+            : null;
+
           // Watchdog: if no content arrives in 60s, abort the primary attempt.
           const noContentWatchdog = setInterval(() => {
             if (firstContentAt === null && (Date.now() - startTime) > 60000) {
@@ -390,6 +401,7 @@ serve(async (req) => {
             }
           } finally {
             clearTimeout(hardTimeout);
+            if (primaryBudgetTimeout) clearTimeout(primaryBudgetTimeout);
             clearInterval(noContentWatchdog);
           }
 
