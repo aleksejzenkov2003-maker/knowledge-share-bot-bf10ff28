@@ -570,6 +570,7 @@ export function useProjectWorkflow(projectId: string | null, userId: string | un
       workflowId: activeWorkflowId,
       stepId,
       approvedPayload: approved,
+      forceQualityPass: step.template_step?.node_type === 'quality_check',
     });
 
     if ('error' in r) {
