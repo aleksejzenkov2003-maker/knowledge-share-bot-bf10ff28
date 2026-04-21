@@ -87,8 +87,6 @@ export const WorkflowResultEditor: React.FC<WorkflowResultEditorProps> = ({
     );
   }
 
-  const { display, json } = React.useMemo(() => splitAgentMessage(content), [content]);
-  const [showJson, setShowJson] = React.useState(false);
 
   return (
     <Card className="mt-3 flex min-h-full min-w-0 flex-col p-4">
