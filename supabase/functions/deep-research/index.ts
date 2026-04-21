@@ -25,7 +25,6 @@ serve(async (req) => {
     const supabaseKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!;
     const PERPLEXITY_API_KEY = Deno.env.get('PERPLEXITY_API_KEY') || '';
 
-    // Auth check
     const authHeader = req.headers.get('Authorization');
     if (!authHeader?.startsWith('Bearer ')) {
       return new Response(JSON.stringify({ error: 'Unauthorized' }), { status: 401, headers: corsHeaders });
@@ -42,10 +41,10 @@ serve(async (req) => {
     }
     const userId = claimsData.claims.sub;
 
-    const { message, role_id, conversation_id, message_history } = await req.json() as ChatRequest;
+    const { message, role_id, message_history } = await req.json() as ChatRequest;
     console.log(`Deep research request from user ${userId}, role_id=${role_id}`);
 
-    // Get role config
+    // Defaults
     let systemPrompt = 'Ты — исследовательский ассистент. Проводи глубокий анализ и исследование по запросу пользователя.';
     let selectedModel = 'sonar-deep-research';
     let deptId: string | null = null;
@@ -73,7 +72,6 @@ serve(async (req) => {
       }
     }
 
-    // Get API key from provider or env
     let apiKey = PERPLEXITY_API_KEY;
     if (selectedProviderId) {
       const { data: provider } = await supabase
@@ -91,7 +89,7 @@ serve(async (req) => {
       throw new Error('Perplexity API key not configured');
     }
 
-    // Build messages
+    // Build messages w/ alternation
     const simpleMessages: { role: string; content: string }[] = [];
     if (message_history && message_history.length > 0) {
       for (const m of message_history) {
@@ -100,8 +98,6 @@ serve(async (req) => {
     } else {
       simpleMessages.push({ role: 'user', content: message });
     }
-
-    // Ensure role alternation for Perplexity
     const alternated: typeof simpleMessages = [];
     for (const msg of simpleMessages) {
       if (alternated.length > 0 && alternated[alternated.length - 1].role === msg.role) {
@@ -111,27 +107,34 @@ serve(async (req) => {
       }
     }
 
-    console.log(`Calling Perplexity: model=${selectedModel}, messages=${alternated.length}`);
+    console.log(`Calling Perplexity (streaming): model=${selectedModel}, messages=${alternated.length}`);
 
-    // Use SSE streaming to keep the connection alive via heartbeats
-    // while we wait for the deep-research response
     const encoder = new TextEncoder();
+    const decoder = new TextDecoder();
 
     const stream = new ReadableStream({
       async start(controller) {
-        // Heartbeat every 10 seconds to keep connection alive
         const heartbeat = setInterval(() => {
-          try {
-            controller.enqueue(encoder.encode(': heartbeat\n\n'));
-          } catch {
-            clearInterval(heartbeat);
-          }
+          try { controller.enqueue(encoder.encode(': hb\n\n')); } catch { /* noop */ }
         }, 10000);
 
+        let fullContent = '';
+        const citationsSet = new Set<string>();
+
         try {
-          // Make the actual Perplexity API call (non-streaming, deep-research doesn't support streaming)
           const abortController = new AbortController();
-          const timeout = setTimeout(() => abortController.abort(), 300000); // 5 min timeout
+          const hardTimeout = setTimeout(() => abortController.abort(), 350000);
+
+          const body: Record<string, unknown> = {
+            model: selectedModel,
+            messages: [{ role: 'system', content: systemPrompt }, ...alternated],
+            stream: true,
+            max_tokens: 8000,
+          };
+          // For deep-research speed up massively
+          if (selectedModel.includes('deep-research')) {
+            body.reasoning_effort = 'low';
+          }
 
           const response = await fetch('https://api.perplexity.ai/chat/completions', {
             method: 'POST',
@@ -140,60 +143,78 @@ serve(async (req) => {
               'Authorization': `Bearer ${apiKey}`,
               'Content-Type': 'application/json',
             },
-            body: JSON.stringify({
-              model: selectedModel,
-              messages: [{ role: 'system', content: systemPrompt }, ...alternated],
-              max_tokens: 12000,
-              stream: false,
-            }),
+            body: JSON.stringify(body),
           });
 
-          clearTimeout(timeout);
+          clearTimeout(hardTimeout);
 
-          if (!response.ok) {
-            const errBody = await response.text();
-            console.error(`Perplexity error: status=${response.status}, body=${errBody}`);
+          if (!response.ok || !response.body) {
+            const errBody = await response.text().catch(() => '');
+            console.error(`Perplexity error: status=${response.status}, body=${errBody.slice(0, 500)}`);
             throw new Error(`Perplexity API error: ${response.status}`);
           }
 
-          const jsonResponse = await response.json();
-          let content = jsonResponse.choices?.[0]?.message?.content || '';
+          const reader = response.body.getReader();
+          let buffer = '';
 
-          // Strip <think> blocks
-          content = content.replace(/<think>[\s\S]*?<\/think>\s*/gi, '').trim();
+          while (true) {
+            const { done, value } = await reader.read();
+            if (done) break;
+            buffer += decoder.decode(value, { stream: true });
 
-          // Capture citations
-          const webSearchCitations = jsonResponse.citations || [];
+            // Split by SSE message boundary
+            const parts = buffer.split('\n\n');
+            buffer = parts.pop() || '';
 
+            for (const part of parts) {
+              const line = part.trim();
+              if (!line.startsWith('data:')) continue;
+              const payload = line.slice(5).trim();
+              if (payload === '[DONE]') continue;
+
+              try {
+                const json = JSON.parse(payload);
+                const delta: string | undefined = json.choices?.[0]?.delta?.content
+                  ?? json.choices?.[0]?.message?.content;
+                if (delta) {
+                  fullContent += delta;
+                  controller.enqueue(encoder.encode(`data: ${JSON.stringify({ type: 'content', content: delta, append: true })}\n\n`));
+                }
+                const cits: string[] | undefined = json.citations || json.choices?.[0]?.message?.citations;
+                if (Array.isArray(cits)) for (const c of cits) if (c) citationsSet.add(c);
+              } catch (e) {
+                console.warn('SSE parse error', e);
+              }
+            }
+          }
+
+          // Strip <think> blocks from final content for log; do not re-emit (already streamed).
+          const cleanedForLog = fullContent.replace(/<think>[\s\S]*?<\/think>\s*/gi, '').trim();
           const responseTimeMs = Date.now() - startTime;
-          console.log(`Deep research completed in ${responseTimeMs}ms, content length: ${content.length}, citations: ${webSearchCitations.length}`);
+          const citations = Array.from(citationsSet);
+          console.log(`Deep research streamed in ${responseTimeMs}ms, length=${fullContent.length}, citations=${citations.length}`);
 
-          // Send content
-          controller.enqueue(encoder.encode(`data: ${JSON.stringify({ type: 'content', content })}\n\n`));
-
-          // Send metadata
           controller.enqueue(encoder.encode(`data: ${JSON.stringify({
             type: 'metadata',
             response_time_ms: responseTimeMs,
-            web_search_citations: webSearchCitations.length > 0 ? webSearchCitations : undefined,
-            web_search_used: webSearchCitations.length > 0,
+            web_search_citations: citations.length > 0 ? citations : undefined,
+            web_search_used: citations.length > 0,
           })}\n\n`));
-
           controller.enqueue(encoder.encode('data: [DONE]\n\n'));
 
-          // Log
           await supabase.from('chat_logs').insert({
             user_id: userId,
             department_id: deptId,
             provider_id: selectedProviderId || null,
             prompt: message,
-            response: content,
+            response: cleanedForLog,
             response_time_ms: responseTimeMs,
             metadata: {
               model: selectedModel,
               provider_type: 'perplexity',
               role_id,
               deep_research: true,
+              streaming: true,
             },
           });
         } catch (err) {
@@ -201,7 +222,8 @@ serve(async (req) => {
           const errorMsg = err instanceof Error ? err.message : 'Unknown error';
           controller.enqueue(encoder.encode(`data: ${JSON.stringify({
             type: 'content',
-            content: `Ошибка исследования: ${errorMsg}. Попробуйте упростить запрос или повторить позже.`,
+            content: `\n\n⚠️ Ошибка исследования: ${errorMsg}. Попробуйте упростить запрос или повторить позже.`,
+            append: true,
           })}\n\n`));
           controller.enqueue(encoder.encode(`data: ${JSON.stringify({
             type: 'metadata',
@@ -210,7 +232,7 @@ serve(async (req) => {
           controller.enqueue(encoder.encode('data: [DONE]\n\n'));
         } finally {
           clearInterval(heartbeat);
-          controller.close();
+          try { controller.close(); } catch { /* noop */ }
         }
       },
     });
@@ -221,6 +243,7 @@ serve(async (req) => {
         'Content-Type': 'text/event-stream',
         'Cache-Control': 'no-cache',
         'Connection': 'keep-alive',
+        'X-Accel-Buffering': 'no',
       },
     });
 
