@@ -137,15 +137,26 @@ async function runPerplexityStream(opts: RunStreamOptions): Promise<{ contentLen
 
   const reader = response.body.getReader();
   const decoder = new TextDecoder();
-  const thinkState = { insideThinkBlock: false };
+  // Track last full chunk for delta-vs-cumulative detection by longest
+  // common prefix. This is robust to mid-stream rewrites that Perplexity
+  // sometimes emits inside reasoning chunks.
+  let lastRawFull = '';
   let buffer = '';
   let contentLength = 0;
-  // Perplexity sonar-deep-research streams CUMULATIVE content (each chunk
-  // contains the full text so far), not deltas. We track the previously
-  // emitted cleaned content and only forward the new suffix.
-  let prevCleanedFull = '';
-  // Detect cumulative vs delta mode on the first non-empty chunk.
   let modeDetected: 'delta' | 'cumulative' | null = null;
+
+  // Compute the new suffix that must be emitted given a previous and a
+  // current snapshot. If `current` starts with `previous` it's pure
+  // cumulative (just slice). Otherwise we drop only the common prefix —
+  // this handles the rare case where the model rewrote a tail token.
+  const diffSuffix = (prev: string, curr: string): string => {
+    if (!prev) return curr;
+    if (curr.startsWith(prev)) return curr.slice(prev.length);
+    let i = 0;
+    const max = Math.min(prev.length, curr.length);
+    while (i < max && prev.charCodeAt(i) === curr.charCodeAt(i)) i++;
+    return curr.slice(i);
+  };
 
   while (true) {
     const { done, value } = await reader.read();
@@ -163,35 +174,26 @@ async function runPerplexityStream(opts: RunStreamOptions): Promise<{ contentLen
       if (!payload || payload === '[DONE]') continue;
 
       const rawDelta = fastExtractContent(payload);
-      if (rawDelta) {
-        // For cumulative mode we must NOT keep think-state across chunks
-        // (each chunk re-contains <think>...). Use a fresh state per chunk
-        // once we know we're in cumulative mode.
-        let cleaned: string;
-        if (modeDetected === 'cumulative') {
-          cleaned = stripThinkContent(rawDelta, { insideThinkBlock: false });
-        } else {
-          cleaned = stripThinkContent(rawDelta, thinkState);
-        }
-        if (!cleaned) continue;
-
-        // Auto-detect cumulative streaming: if the new chunk fully starts
-        // with what we previously emitted, it's cumulative.
-        if (modeDetected === null) {
-          if (prevCleanedFull && cleaned.startsWith(prevCleanedFull) && cleaned.length > prevCleanedFull.length) {
-            modeDetected = 'cumulative';
-          } else if (prevCleanedFull && !cleaned.startsWith(prevCleanedFull.slice(0, Math.min(50, prevCleanedFull.length)))) {
-            modeDetected = 'delta';
-          }
+      if (rawDelta !== null) {
+        // Auto-detect mode on the second chunk: if the new raw payload
+        // starts with the previous full payload, this stream is cumulative.
+        if (modeDetected === null && lastRawFull) {
+          modeDetected = rawDelta.startsWith(lastRawFull) ? 'cumulative' : 'delta';
         }
 
         let toEmit: string;
-        if (modeDetected === 'cumulative' || (modeDetected === null && cleaned.startsWith(prevCleanedFull))) {
-          toEmit = cleaned.slice(prevCleanedFull.length);
-          prevCleanedFull = cleaned;
+        if (modeDetected === 'cumulative') {
+          // Each chunk contains everything so far. Diff against last full
+          // payload, then strip <think>…</think> from the diff with a
+          // fresh state (because <think> blocks live entirely inside the
+          // cumulative payload, never split across chunks here).
+          const newRaw = diffSuffix(lastRawFull, rawDelta);
+          lastRawFull = rawDelta;
+          toEmit = stripThinkContent(newRaw, { insideThinkBlock: false });
         } else {
-          toEmit = cleaned;
-          prevCleanedFull += cleaned;
+          // Pure delta stream OR first chunk: append.
+          lastRawFull += rawDelta;
+          toEmit = stripThinkContent(rawDelta, { insideThinkBlock: false });
         }
 
         if (toEmit) {
