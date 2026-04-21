@@ -50,9 +50,11 @@ export async function confirmProjectWorkflowStep(
     stepId: string;
     /** После подтверждения этим payload фильтруются рёбра */
     approvedPayload: Record<string, unknown>;
+    /** Ручное подтверждение QC означает «пропустить дальше», даже если авто-QC вернул fail. */
+    forceQualityPass?: boolean;
   }
 ): Promise<{ targetTemplateIds: string[] } | { error: string }> {
-  const { workflowId, stepId, approvedPayload } = params;
+  const { workflowId, stepId, forceQualityPass = false } = params;
 
   const { data: stepRow, error: stepErr } = await supabase
     .from('project_workflow_steps')
@@ -88,6 +90,10 @@ export async function confirmProjectWorkflowStep(
     .maybeSingle();
 
   const sourceNodeType = (tmplStep?.node_type as string) || 'agent';
+  const approvedPayload =
+    forceQualityPass && sourceNodeType === 'quality_check'
+      ? { ...params.approvedPayload, quality_passed: true, quality_errors: [] }
+      : params.approvedPayload;
 
   const { data: allProjSteps, error: psErr } = await supabase
     .from('project_workflow_steps')
