@@ -39,25 +39,34 @@ Deno.serve(async (req) => {
 
     const userId = claimsData.claims.sub;
 
-    // Check admin role
-    const { data: roleData } = await anonClient
+    // Service role client for admin operations (also used for role check to bypass RLS)
+    const adminClient = createClient(
+      Deno.env.get("SUPABASE_URL")!,
+      Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!
+    );
+
+    // Check admin role using service role to bypass any RLS issues
+    const { data: roleRows, error: roleErr } = await adminClient
       .from("user_roles")
       .select("role")
-      .eq("user_id", userId)
-      .single();
+      .eq("user_id", userId);
 
-    if (!roleData || roleData.role !== "admin") {
+    if (roleErr) {
+      console.error("Role lookup error:", roleErr);
+      return new Response(JSON.stringify({ error: "Role lookup failed: " + roleErr.message }), {
+        status: 500,
+        headers: { ...corsHeaders, "Content-Type": "application/json" },
+      });
+    }
+
+    const isAdmin = (roleRows ?? []).some((r) => r.role === "admin");
+    if (!isAdmin) {
+      console.warn("Forbidden: user", userId, "roles:", roleRows);
       return new Response(JSON.stringify({ error: "Forbidden: admin only" }), {
         status: 403,
         headers: { ...corsHeaders, "Content-Type": "application/json" },
       });
     }
-
-    // Service role client for admin operations
-    const adminClient = createClient(
-      Deno.env.get("SUPABASE_URL")!,
-      Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!
-    );
 
     const body = await req.json();
     const { action } = body;
