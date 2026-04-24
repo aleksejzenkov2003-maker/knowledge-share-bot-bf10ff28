@@ -308,8 +308,8 @@ export function useOptimizedChat(userId: string | undefined, departmentId: strin
 
       // Check if selected role uses deep-research model or any sonar (Perplexity) model
       const effectiveRoleId = overrideRoleId || selectedRoleId;
-      let isDeepResearch = false;
-      let isPerplexityModel = false;
+      isDeepResearch = false;
+      isPerplexityModel = false;
       if (effectiveRoleId) {
         const { data: roleConfig } = await supabase
           .from('chat_roles')
