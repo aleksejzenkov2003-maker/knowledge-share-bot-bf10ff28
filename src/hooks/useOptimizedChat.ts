@@ -346,8 +346,8 @@ export function useOptimizedChat(userId: string | undefined, departmentId: strin
         : fullHistory;
 
       const endpoint = isDeepResearch ? 'deep-research' : 'chat-stream';
-      // Deep research can take up to 5 minutes
-      const clientTimeout = isDeepResearch ? 360000 : undefined;
+      // Deep research can take up to 5 min; sonar-pro models up to 150s
+      const clientTimeout = isDeepResearch ? 360000 : (isPerplexityModel ? 150000 : undefined);
 
       abortControllerRef.current = new AbortController();
       if (clientTimeout) {
