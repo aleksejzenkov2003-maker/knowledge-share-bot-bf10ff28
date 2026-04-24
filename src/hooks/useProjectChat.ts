@@ -334,58 +334,103 @@
        attachments: m.metadata?.attachments || [],
      }));
  
-     try {
-       abortControllerRef.current = new AbortController();
-       const { data: { session } } = await supabase.auth.getSession();
- 
-       const requestBody: Record<string, unknown> = {
-         message: cleanText,
-         role_id: agentId,
-         message_history: historyForContext,
-         project_id: projectId,
-       };
- 
-       if (contextFolderIds.length > 0) {
-         requestBody.context_folder_ids = contextFolderIds;
-       }
- 
-       if (projectMemory.length > 0) {
-         requestBody.project_memory = projectMemory.map(m => ({
-           type: m.memory_type,
-           content: m.content,
-         }));
-       }
- 
-       if (attachmentsMetadata.length > 0) {
-         requestBody.attachments = attachmentsMetadata;
-       }
- 
-       if (replyTo) {
-         requestBody.reply_to = {
-           content: replyTo.content,
-           author_name: replyTo.message_role === 'assistant' 
-             ? replyTo.metadata?.agent_name 
-             : replyTo.metadata?.user_name,
-           message_role: replyTo.message_role
-         };
-       }
- 
-       const response = await fetch(
-         `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/chat-stream`,
-         {
-           method: 'POST',
-           headers: {
-             'Content-Type': 'application/json',
-             'Authorization': `Bearer ${session?.access_token}`,
-           },
-           body: JSON.stringify(requestBody),
-           signal: abortControllerRef.current.signal
-         }
-       );
- 
-       if (!response.ok) {
-         throw new Error(`HTTP error! status: ${response.status}`);
-       }
+      try {
+        abortControllerRef.current = new AbortController();
+        let { data: { session } } = await supabase.auth.getSession();
+
+        // Detect Perplexity / deep-research model for the agent
+        let isPerplexityModel = false;
+        let isDeepResearch = false;
+        try {
+          const { data: roleConfig } = await supabase
+            .from('chat_roles')
+            .select('model_config')
+            .eq('id', agentId)
+            .single();
+          const mc = roleConfig?.model_config as { model?: string } | null;
+          isDeepResearch = mc?.model?.includes('deep-research') === true;
+          isPerplexityModel = mc?.model?.includes('sonar') === true;
+        } catch { /* non-fatal */ }
+
+        // Proactive token refresh
+        const expiresAt = session?.expires_at ?? 0;
+        const secondsLeft = expiresAt - Math.floor(Date.now() / 1000);
+        if (isPerplexityModel || isDeepResearch || secondsLeft < 600) {
+          try {
+            const { data: refreshed } = await supabase.auth.refreshSession();
+            if (refreshed.session) session = refreshed.session;
+          } catch (e) {
+            console.warn('[useProjectChat] Token refresh failed', e);
+          }
+        }
+
+        const clientTimeoutMs = isDeepResearch ? 360000 : (isPerplexityModel ? 150000 : 0);
+        if (clientTimeoutMs > 0) {
+          setTimeout(() => abortControllerRef.current?.abort(), clientTimeoutMs);
+        }
+
+        const requestBody: Record<string, unknown> = {
+          message: cleanText,
+          role_id: agentId,
+          message_history: historyForContext,
+          project_id: projectId,
+        };
+
+        if (contextFolderIds.length > 0) {
+          requestBody.context_folder_ids = contextFolderIds;
+        }
+
+        if (projectMemory.length > 0) {
+          requestBody.project_memory = projectMemory.map(m => ({
+            type: m.memory_type,
+            content: m.content,
+          }));
+        }
+
+        if (attachmentsMetadata.length > 0) {
+          requestBody.attachments = attachmentsMetadata;
+        }
+
+        if (replyTo) {
+          requestBody.reply_to = {
+            content: replyTo.content,
+            author_name: replyTo.message_role === 'assistant' 
+              ? replyTo.metadata?.agent_name 
+              : replyTo.metadata?.user_name,
+            message_role: replyTo.message_role
+          };
+        }
+
+        const doFetch = (tok: string | undefined) => fetch(
+          `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/chat-stream`,
+          {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+              'Authorization': `Bearer ${tok}`,
+            },
+            body: JSON.stringify(requestBody),
+            signal: abortControllerRef.current!.signal
+          }
+        );
+
+        let response = await doFetch(session?.access_token);
+
+        if (response.status === 401) {
+          try {
+            const { data: refreshed } = await supabase.auth.refreshSession();
+            if (refreshed.session) {
+              session = refreshed.session;
+              response = await doFetch(session.access_token);
+            }
+          } catch (e) {
+            console.error('[useProjectChat] Refresh-on-401 failed', e);
+          }
+        }
+
+        if (!response.ok) {
+          throw new Error(`HTTP error! status: ${response.status}`);
+        }
  
        const reader = response.body?.getReader();
        if (!reader) throw new Error('No reader available');

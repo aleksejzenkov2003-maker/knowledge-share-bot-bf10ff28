@@ -232,9 +232,16 @@ serve(async (req) => {
     const token = authHeader.replace('Bearer ', '');
     const { data: claimsData, error: claimsError } = await supabase.auth.getClaims(token);
     if (claimsError || !claimsData?.claims) {
-      return new Response(JSON.stringify({ error: 'Unauthorized' }), { status: 401, headers: corsHeaders });
+      console.error('[deep-research] JWT validation failed:', claimsError?.message || 'no claims');
+      return new Response(
+        JSON.stringify({ error: 'TOKEN_EXPIRED', message: 'Сессия истекла, обновите страницу' }),
+        { status: 401, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+      );
     }
     const userId = claimsData.claims.sub;
+    const jwtExp = (claimsData.claims as any).exp as number | undefined;
+    const secondsToExpiry = jwtExp ? jwtExp - Math.floor(Date.now() / 1000) : null;
+    console.log(`[deep-research] JWT valid for user=${userId}, expires in ${secondsToExpiry}s`);
 
     const { message, role_id, message_history } = await req.json() as ChatRequest;
     console.log(`Deep research request from user ${userId}, role_id=${role_id}`);

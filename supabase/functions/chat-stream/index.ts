@@ -271,8 +271,11 @@ serve(async (req) => {
     let userId: string | null = null;
     if (authHeader) {
       const token = authHeader.replace('Bearer ', '');
-      const { data: { user } } = await supabase.auth.getUser(token);
+      const { data: { user }, error: userErr } = await supabase.auth.getUser(token);
       userId = user?.id || null;
+      if (userErr || !user) {
+        console.warn('[chat-stream] auth.getUser failed:', userErr?.message || 'no user — possibly expired JWT');
+      }
     }
 
     const reqBody: ChatRequest & { system_prompt_append?: string; context_folder_ids?: string[]; reputation_query?: string; force_provider?: string; force_model?: string } = await req.json();

@@ -276,6 +276,10 @@ export function useOptimizedChat(userId: string | undefined, departmentId: strin
     setLocalMessages(prev => [...prev, assistantMessage]);
     streamingContentRef.current = "";
 
+    // Hoisted so the catch block can use them for friendly error messages
+    let isDeepResearch = false;
+    let isPerplexityModel = false;
+
     try {
       // ВСЕГДА передаём историю сообщений для поддержания контекста
       // Включаем attachments из каждого сообщения для персистентного контекста документов
@@ -299,12 +303,13 @@ export function useOptimizedChat(userId: string | undefined, departmentId: strin
           })) || [],
         }));
 
-      const { data: sessionData } = await supabase.auth.getSession();
-      const token = sessionData.session?.access_token;
+      let { data: sessionData } = await supabase.auth.getSession();
+      let token = sessionData.session?.access_token;
 
-      // Check if selected role uses deep-research model
+      // Check if selected role uses deep-research model or any sonar (Perplexity) model
       const effectiveRoleId = overrideRoleId || selectedRoleId;
-      let isDeepResearch = false;
+      isDeepResearch = false;
+      isPerplexityModel = false;
       if (effectiveRoleId) {
         const { data: roleConfig } = await supabase
           .from('chat_roles')
@@ -313,6 +318,24 @@ export function useOptimizedChat(userId: string | undefined, departmentId: strin
           .single();
         const mc = roleConfig?.model_config as { model?: string } | null;
         isDeepResearch = mc?.model?.includes('deep-research') === true;
+        isPerplexityModel = mc?.model?.includes('sonar') === true;
+      }
+
+      // Proactive token refresh for long-running requests (Perplexity / deep-research)
+      // or when current token is close to expiry (< 10 min). This guarantees the JWT
+      // survives the entire request + post-stream save operations.
+      const expiresAt = sessionData.session?.expires_at ?? 0;
+      const secondsLeft = expiresAt - Math.floor(Date.now() / 1000);
+      if (isPerplexityModel || isDeepResearch || secondsLeft < 600) {
+        try {
+          const { data: refreshed } = await supabase.auth.refreshSession();
+          if (refreshed.session?.access_token) {
+            token = refreshed.session.access_token;
+            sessionData = { session: refreshed.session };
+          }
+        } catch (e) {
+          console.warn('[useOptimizedChat] Token refresh failed, continuing with existing token', e);
+        }
       }
 
       // For deep-research, send a compact history: last 4 turns max,
@@ -327,8 +350,8 @@ export function useOptimizedChat(userId: string | undefined, departmentId: strin
         : fullHistory;
 
       const endpoint = isDeepResearch ? 'deep-research' : 'chat-stream';
-      // Deep research can take up to 5 minutes
-      const clientTimeout = isDeepResearch ? 360000 : undefined;
+      // Deep research can take up to 5 min; sonar-pro models up to 150s
+      const clientTimeout = isDeepResearch ? 360000 : (isPerplexityModel ? 150000 : undefined);
 
       abortControllerRef.current = new AbortController();
       if (clientTimeout) {
@@ -344,30 +367,55 @@ export function useOptimizedChat(userId: string | undefined, departmentId: strin
         ));
       }
       
-      const response = await fetch(
+      const requestBody = JSON.stringify({
+        message: trimmedInput,
+        role_id: effectiveRoleId || undefined,
+        conversation_id: conversationId,
+        message_history: messageHistory,
+        attachments: uploadedAttachments.length > 0 ? uploadedAttachments.map((ua, i) => ({
+          ...ua,
+          contains_pii: attachments[i]?.containsPii || false,
+        })) : undefined,
+      });
+
+      const doFetch = (authToken: string | undefined) => fetch(
         `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/${endpoint}`,
         {
           method: 'POST',
           headers: {
             'Content-Type': 'application/json',
-            'Authorization': `Bearer ${token}`,
+            'Authorization': `Bearer ${authToken}`,
           },
-          body: JSON.stringify({
-            message: trimmedInput,
-            role_id: effectiveRoleId || undefined,
-            conversation_id: conversationId,
-            message_history: messageHistory,
-            attachments: uploadedAttachments.length > 0 ? uploadedAttachments.map((ua, i) => ({
-              ...ua,
-              contains_pii: attachments[i]?.containsPii || false,
-            })) : undefined,
-          }),
-          signal: abortControllerRef.current.signal,
+          body: requestBody,
+          signal: abortControllerRef.current!.signal,
         }
       );
 
+      let response = await doFetch(token);
+
+      // One-time retry on 401: refresh session and retry
+      if (response.status === 401) {
+        console.warn('[useOptimizedChat] Got 401, refreshing session and retrying once');
+        try {
+          const { data: refreshed } = await supabase.auth.refreshSession();
+          if (refreshed.session?.access_token) {
+            token = refreshed.session.access_token;
+            response = await doFetch(token);
+          }
+        } catch (e) {
+          console.error('[useOptimizedChat] Refresh-on-401 failed', e);
+        }
+      }
+
       if (!response.ok) {
-        throw new Error(`HTTP ${response.status}`);
+        // Try to read explicit error code from edge function
+        let errBody: any = null;
+        try { errBody = await response.json(); } catch { /* ignore */ }
+        const errCode = errBody?.error || errBody?.code;
+        if (response.status === 401 || errCode === 'TOKEN_EXPIRED') {
+          throw new Error('Сессия истекла. Перезагрузите страницу и попробуйте снова.');
+        }
+        throw new Error(`HTTP ${response.status}${errCode ? `: ${errCode}` : ''}`);
       }
 
       const reader = response.body?.getReader();
@@ -502,6 +550,12 @@ export function useOptimizedChat(userId: string | undefined, departmentId: strin
           : m
       ));
 
+      // Refresh session before post-stream DB writes — the stream may have run
+      // 100s+ for Perplexity, so the original token can be near-expiry now.
+      try {
+        await supabase.auth.getSession(); // triggers internal refresh if needed
+      } catch { /* non-fatal */ }
+
       await saveMessage(conversationId, "assistant", finalContent, {
         ...metadata,
         interrupted: !streamingContentRef.current?.trim(),
@@ -523,53 +577,66 @@ export function useOptimizedChat(userId: string | undefined, departmentId: strin
         clearInterval(updateIntervalRef.current);
         updateIntervalRef.current = null;
       }
-      
+
+      const partialContent = streamingContentRef.current;
+      const hasPartial = !!partialContent && partialContent.trim().length > 0;
+      const errMsg = String(error?.message || error?.name || '');
+      const isNetwork = /Load failed|Failed to fetch|NetworkError|TypeError/i.test(errMsg);
+
       // Handle abort - save partial content
       if (error.name === 'AbortError') {
         console.log('Request aborted, saving partial content');
-        const partialContent = streamingContentRef.current;
-        
-        if (partialContent && partialContent.trim()) {
+
+        if (hasPartial) {
           const stoppedContent = partialContent + "\n\n_[Генерация остановлена]_";
-          
-          // Update local state
           setLocalMessages(prev => prev.map(m =>
-            m.id === assistantMessageId
-              ? {
-                  ...m,
-                  content: stoppedContent,
-                  isStreaming: false,
-                }
-              : m
+            m.id === assistantMessageId ? { ...m, content: stoppedContent, isStreaming: false } : m
           ));
-          
-          // Save to database
-          await saveMessage(conversationId, "assistant", stoppedContent, {
-            role_id: selectedRoleId || undefined,
-          });
-          
-          // Update conversation timestamp
-          await supabase
-            .from("conversations")
-            .update({ updated_at: new Date().toISOString() })
-            .eq("id", conversationId);
-          
-          // Invalidate queries to sync
-          queryClient.invalidateQueries({ queryKey: chatQueryKeys.messages(conversationId) });
+          try {
+            await saveMessage(conversationId, "assistant", stoppedContent, { role_id: selectedRoleId || undefined });
+            await supabase.from("conversations").update({ updated_at: new Date().toISOString() }).eq("id", conversationId);
+            queryClient.invalidateQueries({ queryKey: chatQueryKeys.messages(conversationId) });
+          } catch (e) {
+            console.error('Failed to save partial content on abort', e);
+          }
         }
         return;
       }
-      
+
       console.error("Error sending message:", error);
-      toast.error(error.message || "Ошибка отправки сообщения");
-      
+
+      // Save partial content even on non-abort errors (rescue Perplexity/deep-research answer
+      // when the stream completed but the post-save failed due to network blip / token expiry)
+      if (hasPartial) {
+        try {
+          // Try to refresh token before save (errors here often == token expired mid-flight)
+          await supabase.auth.refreshSession().catch(() => {});
+          await saveMessage(conversationId, "assistant", partialContent, { role_id: selectedRoleId || undefined });
+          await supabase.from("conversations").update({ updated_at: new Date().toISOString() }).eq("id", conversationId);
+          queryClient.invalidateQueries({ queryKey: chatQueryKeys.messages(conversationId) });
+
+          setLocalMessages(prev => prev.map(m =>
+            m.id === assistantMessageId ? { ...m, content: partialContent, isStreaming: false } : m
+          ));
+
+          toast.warning("Ответ получен, но соединение прервалось при сохранении. Сообщение сохранено.");
+          return;
+        } catch (e) {
+          console.error('Rescue-save failed', e);
+        }
+      }
+
+      const friendlyMsg = isNetwork
+        ? (isPerplexityModel || isDeepResearch
+            ? "Сервер Perplexity не ответил вовремя. Попробуйте ещё раз или сократите запрос."
+            : "Соединение прервано. Проверьте интернет и попробуйте снова.")
+        : (errMsg || "Не удалось получить ответ");
+
+      toast.error(friendlyMsg);
+
       setLocalMessages(prev => prev.map(m =>
         m.id === assistantMessageId
-          ? {
-              ...m,
-              content: `Ошибка: ${error.message || "Не удалось получить ответ"}`,
-              isStreaming: false,
-            }
+          ? { ...m, content: `Ошибка: ${friendlyMsg}`, isStreaming: false }
           : m
       ));
     } finally {

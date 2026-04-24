@@ -410,11 +410,12 @@ export function useChat(userId: string | undefined) {
       }
 
       // Get auth token
-      const { data: sessionData } = await supabase.auth.getSession();
-      const token = sessionData.session?.access_token;
+      let { data: sessionData } = await supabase.auth.getSession();
+      let token = sessionData.session?.access_token;
 
-      // Check if selected role uses deep-research model
+      // Check if selected role uses deep-research or any sonar (Perplexity) model
       let isDeepResearch = false;
+      let isPerplexityModel = false;
       if (selectedRoleId) {
         const { data: roleConfig } = await supabase
           .from('chat_roles')
@@ -423,14 +424,33 @@ export function useChat(userId: string | undefined) {
           .single();
         const mc = roleConfig?.model_config as { model?: string } | null;
         isDeepResearch = mc?.model?.includes('deep-research') === true;
+        isPerplexityModel = mc?.model?.includes('sonar') === true;
+      }
+
+      // Proactive token refresh for long-running Perplexity / deep-research
+      const expiresAt = sessionData.session?.expires_at ?? 0;
+      const secondsLeft = expiresAt - Math.floor(Date.now() / 1000);
+      if (isPerplexityModel || isDeepResearch || secondsLeft < 600) {
+        try {
+          const { data: refreshed } = await supabase.auth.refreshSession();
+          if (refreshed.session?.access_token) {
+            token = refreshed.session.access_token;
+            sessionData = { session: refreshed.session };
+          }
+        } catch (e) {
+          console.warn('[useChat] Token refresh failed', e);
+        }
       }
 
       const endpoint = isDeepResearch ? 'deep-research' : 'chat-stream';
-      
+
       abortControllerRef.current = new AbortController();
-      // Deep research can take up to 5 minutes
+      // Deep research up to 5 min, sonar-pro up to 150s
+      const clientTimeoutMs = isDeepResearch ? 360000 : (isPerplexityModel ? 150000 : 0);
+      if (clientTimeoutMs > 0) {
+        setTimeout(() => abortControllerRef.current?.abort(), clientTimeoutMs);
+      }
       if (isDeepResearch) {
-        setTimeout(() => abortControllerRef.current?.abort(), 360000);
         setMessages((prev) =>
           prev.map((m) =>
             m.id === assistantMessageId
@@ -440,7 +460,7 @@ export function useChat(userId: string | undefined) {
         );
       }
       
-      const response = await fetch(
+      let response = await fetch(
         `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/${endpoint}`,
         {
           method: 'POST',
@@ -458,6 +478,33 @@ export function useChat(userId: string | undefined) {
           signal: abortControllerRef.current.signal,
         }
       );
+
+      // One-time retry on 401: refresh and retry
+      if (response.status === 401) {
+        try {
+          const { data: refreshed } = await supabase.auth.refreshSession();
+          if (refreshed.session?.access_token) {
+            token = refreshed.session.access_token;
+            response = await fetch(
+              `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/${endpoint}`,
+              {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
+                body: JSON.stringify({
+                  message: trimmedInput,
+                  role_id: selectedRoleId || undefined,
+                  conversation_id: conversationId,
+                  message_history: messageHistory,
+                  attachments: uploadedAttachments.length > 0 ? uploadedAttachments : undefined,
+                }),
+                signal: abortControllerRef.current.signal,
+              }
+            );
+          }
+        } catch (e) {
+          console.error('[useChat] Refresh-on-401 failed', e);
+        }
+      }
       if (!response.ok) {
         // Fallback to non-streaming if stream endpoint fails
         const fallbackResponse = await supabase.functions.invoke("chat", {
@@ -613,16 +660,23 @@ export function useChat(userId: string | undefined) {
         console.log('Request aborted');
         return;
       }
-      
+
       console.error("Error sending message:", error);
-      toast.error(error.message || "Ошибка отправки сообщения");
-      
+
+      const errMsg = String(error?.message || error?.name || '');
+      const isNetwork = /Load failed|Failed to fetch|NetworkError|TypeError/i.test(errMsg);
+      const friendlyMsg = isNetwork
+        ? "Сервер не ответил вовремя. Попробуйте ещё раз или сократите запрос."
+        : (errMsg || "Не удалось получить ответ");
+
+      toast.error(friendlyMsg);
+
       setMessages((prev) =>
         prev.map((m) =>
           m.id === assistantMessageId
             ? {
                 ...m,
-                content: `Ошибка: ${error.message || "Не удалось получить ответ"}`,
+                content: `Ошибка: ${friendlyMsg}`,
                 isStreaming: false,
               }
             : m

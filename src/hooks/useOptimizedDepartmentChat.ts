@@ -418,7 +418,39 @@ export function useOptimizedDepartmentChat(userId: string | undefined, departmen
     try {
       abortControllerRef.current = new AbortController();
 
-      const { data: { session } } = await supabase.auth.getSession();
+      let { data: { session } } = await supabase.auth.getSession();
+
+      // Detect Perplexity / deep-research model for the chosen agent
+      let isPerplexityModel = false;
+      let isDeepResearch = false;
+      if (agentId) {
+        const { data: roleConfig } = await supabase
+          .from('chat_roles')
+          .select('model_config')
+          .eq('id', agentId)
+          .single();
+        const mc = roleConfig?.model_config as { model?: string } | null;
+        isDeepResearch = mc?.model?.includes('deep-research') === true;
+        isPerplexityModel = mc?.model?.includes('sonar') === true;
+      }
+
+      // Proactive token refresh
+      const expiresAt = session?.expires_at ?? 0;
+      const secondsLeft = expiresAt - Math.floor(Date.now() / 1000);
+      if (isPerplexityModel || isDeepResearch || secondsLeft < 600) {
+        try {
+          const { data: refreshed } = await supabase.auth.refreshSession();
+          if (refreshed.session) session = refreshed.session;
+        } catch (e) {
+          console.warn('[useOptimizedDepartmentChat] Token refresh failed', e);
+        }
+      }
+
+      // Apply timeout for long-running models
+      const clientTimeoutMs = isDeepResearch ? 360000 : (isPerplexityModel ? 150000 : 0);
+      if (clientTimeoutMs > 0) {
+        setTimeout(() => abortControllerRef.current?.abort(), clientTimeoutMs);
+      }
 
       const requestBody: any = {
         message: cleanText,
@@ -453,18 +485,33 @@ export function useOptimizedDepartmentChat(userId: string | undefined, departmen
         };
       }
 
-      const response = await fetch(
+      const doFetch = (tok: string | undefined) => fetch(
         `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/chat-stream`,
         {
           method: 'POST',
           headers: {
             'Content-Type': 'application/json',
-            'Authorization': `Bearer ${session?.access_token}`,
+            'Authorization': `Bearer ${tok}`,
           },
           body: JSON.stringify(requestBody),
-          signal: abortControllerRef.current.signal
+          signal: abortControllerRef.current!.signal
         }
       );
+
+      let response = await doFetch(session?.access_token);
+
+      // One-time retry on 401
+      if (response.status === 401) {
+        try {
+          const { data: refreshed } = await supabase.auth.refreshSession();
+          if (refreshed.session) {
+            session = refreshed.session;
+            response = await doFetch(session.access_token);
+          }
+        } catch (e) {
+          console.error('[useOptimizedDepartmentChat] Refresh-on-401 failed', e);
+        }
+      }
 
       if (!response.ok) {
         throw new Error(`HTTP error! status: ${response.status}`);
