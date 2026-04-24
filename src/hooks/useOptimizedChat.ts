@@ -299,12 +299,13 @@ export function useOptimizedChat(userId: string | undefined, departmentId: strin
           })) || [],
         }));
 
-      const { data: sessionData } = await supabase.auth.getSession();
-      const token = sessionData.session?.access_token;
+      let { data: sessionData } = await supabase.auth.getSession();
+      let token = sessionData.session?.access_token;
 
-      // Check if selected role uses deep-research model
+      // Check if selected role uses deep-research model or any sonar (Perplexity) model
       const effectiveRoleId = overrideRoleId || selectedRoleId;
       let isDeepResearch = false;
+      let isPerplexityModel = false;
       if (effectiveRoleId) {
         const { data: roleConfig } = await supabase
           .from('chat_roles')
@@ -313,6 +314,24 @@ export function useOptimizedChat(userId: string | undefined, departmentId: strin
           .single();
         const mc = roleConfig?.model_config as { model?: string } | null;
         isDeepResearch = mc?.model?.includes('deep-research') === true;
+        isPerplexityModel = mc?.model?.includes('sonar') === true;
+      }
+
+      // Proactive token refresh for long-running requests (Perplexity / deep-research)
+      // or when current token is close to expiry (< 10 min). This guarantees the JWT
+      // survives the entire request + post-stream save operations.
+      const expiresAt = sessionData.session?.expires_at ?? 0;
+      const secondsLeft = expiresAt - Math.floor(Date.now() / 1000);
+      if (isPerplexityModel || isDeepResearch || secondsLeft < 600) {
+        try {
+          const { data: refreshed } = await supabase.auth.refreshSession();
+          if (refreshed.session?.access_token) {
+            token = refreshed.session.access_token;
+            sessionData = { session: refreshed.session };
+          }
+        } catch (e) {
+          console.warn('[useOptimizedChat] Token refresh failed, continuing with existing token', e);
+        }
       }
 
       // For deep-research, send a compact history: last 4 turns max,
