@@ -4,6 +4,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { Send, Loader2, Paperclip } from "lucide-react";
 import { Attachment } from "@/types/chat";
 import { AttachmentPreview } from "./AttachmentPreview";
+import { VoiceInputButton } from "./VoiceInputButton";
 import { toast } from "sonner";
 
 const MAX_FILE_SIZE = 10 * 1024 * 1024; // 10MB
@@ -129,6 +130,11 @@ export function ChatInput({
             accept="*/*"
             className="hidden"
             onChange={handleFileChange}
+          />
+
+          <VoiceInputButton
+            onTranscript={(t) => onChange(value ? `${value} ${t}` : t)}
+            disabled={isLoading || disabled}
           />
 
           <Textarea
