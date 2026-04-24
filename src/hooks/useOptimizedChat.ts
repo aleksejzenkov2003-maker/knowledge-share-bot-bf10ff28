@@ -276,6 +276,10 @@ export function useOptimizedChat(userId: string | undefined, departmentId: strin
     setLocalMessages(prev => [...prev, assistantMessage]);
     streamingContentRef.current = "";
 
+    // Hoisted so the catch block can use them for friendly error messages
+    let isDeepResearch = false;
+    let isPerplexityModel = false;
+
     try {
       // ВСЕГДА передаём историю сообщений для поддержания контекста
       // Включаем attachments из каждого сообщения для персистентного контекста документов
