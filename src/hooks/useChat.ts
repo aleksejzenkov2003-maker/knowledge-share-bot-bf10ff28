@@ -660,16 +660,23 @@ export function useChat(userId: string | undefined) {
         console.log('Request aborted');
         return;
       }
-      
+
       console.error("Error sending message:", error);
-      toast.error(error.message || "Ошибка отправки сообщения");
-      
+
+      const errMsg = String(error?.message || error?.name || '');
+      const isNetwork = /Load failed|Failed to fetch|NetworkError|TypeError/i.test(errMsg);
+      const friendlyMsg = isNetwork
+        ? "Сервер не ответил вовремя. Попробуйте ещё раз или сократите запрос."
+        : (errMsg || "Не удалось получить ответ");
+
+      toast.error(friendlyMsg);
+
       setMessages((prev) =>
         prev.map((m) =>
           m.id === assistantMessageId
             ? {
                 ...m,
-                content: `Ошибка: ${error.message || "Не удалось получить ответ"}`,
+                content: `Ошибка: ${friendlyMsg}`,
                 isStreaming: false,
               }
             : m
