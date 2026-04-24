@@ -1,67 +1,67 @@
 
+## Голосовой ввод во все чаты и проекты
 
-## Проблема
+Добавлю кнопку микрофона рядом с полем ввода во всех чат-интерфейсах. По нажатию — запись с микрофона, отправка в наш существующий `audio-transcribe` (Whisper-1), полученный текст вставляется в поле ввода. Пользователь может отредактировать и отправить как обычно.
 
-В чате и в «Результате» project workflow рендерятся только верхнеуровневые поля JSON (`title`, `qc`, `input`), а основной блок `output` (owners, qualification и т.п.) пропадает.
+### Что появится в UI
 
-### Причина
+В каждом поле ввода — иконка микрофона рядом с «скрепкой»:
+- **Idle** 🎤 — клик начинает запись
+- **Recording** 🔴 (пульсация) + таймер `0:12` — клик останавливает и отправляет в Whisper
+- **Transcribing** ⏳ — спиннер пока идёт распознавание
+- **Готово** — текст подставляется в поле (если там уже есть текст — добавляется через пробел)
 
-`splitAgentMessage` пытается распарсить контент как JSON, но падает в двух типичных случаях:
+Где появится:
+1. Обычный чат (`ChatInput.tsx`)
+2. Чат отдела (`MentionInput.tsx`) — он же используется в проектах
+3. Расширенный чат (`ChatInputEnhanced.tsx`)
+4. Bitrix-чаты (персональный, отдела, защищённый)
 
-1. **В чате** (`project_step_messages.content`) хранится **сырой стрим** агента (`fullContent`) — часто с прозой/префиксом перед `{...}` («Вот результат:\n{…}»). `JSON.parse(trimmed)` падает → срабатывает `renderLooseAgentJson`, который через regex достаёт только `title/summary/qc/input`, а **`output` не вытаскивает вовсе**.
-2. **В «Результате»** для не‑KP узлов `displayContent` берётся из `hr.summary`, который backend (`workflow-step-execute` строка ~1075) формирует как `fullContent.slice(0, 1200)` — обрезанный JSON, который тоже не парсится.
+### Технически
 
-В обычных чатах/чатах отдела такой проблемы нет, потому что там агенты возвращают чистый markdown, без обёртки в JSON-схему.
+**Новый хук** `src/hooks/useVoiceInput.ts`:
+- `MediaRecorder` API (webm/opus, mono, 16kHz)
+- Проверка/запрос разрешения микрофона с понятным toast при отказе
+- Лимит 60 сек записи (автостоп) + индикатор оставшегося времени
+- При остановке → blob → FormData → `supabase.functions.invoke('audio-transcribe', { body: formData })`
+- Возврат `{ isRecording, isTranscribing, duration, start, stop, cancel }`
 
-### Что чинить
+**Новый компонент** `src/components/chat/VoiceInputButton.tsx`:
+- Принимает `onTranscript: (text: string) => void` и `disabled`
+- Использует хук, рисует иконку с состоянием, таймер
+- Toast-ошибки: «Нет доступа к микрофону», «Не удалось распознать»
 
-**1. `src/lib/agentMessageFormat.ts` — устойчивый парсер**
-- Перед `JSON.parse(trimmed)` извлекать первый сбалансированный `{...}` блок (как делает backend на строке 1054), чтобы отрезать любую прозу до/после JSON.
-- Добавить очистку: trailing commas, ```` ```json ```` обёртки, control‑chars (по мотивам snippet'а из stack-overflow).
-- В `renderStructured` приоритет:
-  - если есть `client_kp` (string) → возвращать его как markdown (это уже готовый КП, не нужно ничего разбирать);
-  - иначе — заголовок (`title` → `agent`), summary (`human_readable.summary` → `summary` → `_stream_text` first 300 chars), затем `output`/`result`/`data` через `renderValue`, плюс блоки `qc` и `input` отдельными секциями в конце (как сейчас в loose).
-- В `renderLooseAgentJson` (fallback при битом JSON) добавить grep‑извлечение блока `"output": { ... }` с балансировкой скобок и прогон через `renderValue`, чтобы owners/qualification всё-таки отрисовывались.
+**Edge function `audio-transcribe`** — уже существует и работает (используется в `/audio-analysis`). Дополнительно проверю/добавлю:
+- Поддержку коротких webm-фрагментов (≤25 МБ — лимит Whisper)
+- ASCII-санитайзинг имени файла (уже сделано для аудио-анализа, переиспользую)
+- `language: 'ru'` параметр для лучшего качества русского
 
-**2. `src/components/workflow/WorkflowStepView.tsx` — приоритет полного output над обрезанным summary**
-- Изменить `displayContent` для не‑KP узлов: вместо `userEditsContent || hr?.summary || outputContent` использовать `userEditsContent || outputContent` (т.е. полный `raw_output` вместо обрезанных 1200 символов из `hr.summary`). `hr.summary` оставить только как fallback, если `outputContent` пустой.
-- Это даст `WorkflowResultEditor` валидный JSON целиком, и новый парсер корректно отрендерит вложенный `output`.
-
-**3. `supabase/functions/workflow-step-execute/index.ts` — чистый контент в чат-сообщения** (опционально, но желательно)
-- При `parsedResult` найден — записывать в `project_step_messages.content` именно `JSON.stringify(parsedResult, null, 2)` (валидный JSON), а не сырой `fullContent` с прозой. Это гарантирует, что чат всегда получает парсимый JSON.
-- Для случаев без `parsedResult` оставить `fullContent` как есть (это и есть markdown).
-
-### Технические детали
-
-- Новая функция `extractBalancedJson(raw: string): string | null` — ищет первое `{` или `[`, идёт со счётчиком скобок (с учётом строк/escape), возвращает сбалансированную подстроку.
-- `renderStructured` распознаёт `client_kp` / `internal_report` и для них пропускает structured-рендер (отдаёт markdown как есть).
-- Тест‑кейсы (mental): JSON в фенсе, JSON с prefix‑прозой, JSON с trailing comma, обрезанный JSON (до закрывающей `}`), валидный JSON со вложенным `output.owners[]`, payload с `client_kp` строкой.
-
-### Без изменений
-
-- UI компоненты `WorkflowStepChat` и `WorkflowResultEditor` — продолжают использовать `splitAgentMessage` без знания о деталях.
-- Схема БД, migrations.
-- Логика QC/branching/orchestration.
-
-### Результат
-
-В чате и в «Результате» проектов появятся читаемые блоки вида:
+**Интеграция в инпуты** (минимальная правка по 1 файлу на каждый):
 ```
-### Активность правообладателя
-
-**Owners:**
-1. **Owner:** Матяш Сергей Викторович
-   **Sources:**
-   - https://egrul.nalog.ru
-   - https://www.rusprofile.ru
-   **Legal Status:** действует
-   **Signs Of Use:** Обнаружены признаки отсутствия выявленного…
-   **Evidence Strength:** low
-
-**Проверки:**
-- legal_status_set
-- evidence_strength_set
+<VoiceInputButton 
+  onTranscript={(t) => onChange(value ? value + ' ' + t : t)}
+  disabled={isLoading}
+/>
 ```
+Кнопка ставится между «скрепкой» и `Textarea`.
 
-JSON по‑прежнему доступен через «Показать JSON».
+### Что НЕ делаю
 
+- Не использую realtime-стриминг (overkill, и Whisper-1 не стримящий) — обычная запись→отправка
+- Не трогаю мобильную верстку отдельно — кнопка маленькая, влезает
+- Не добавляю настройку выбора микрофона — берётся системный по умолчанию
+
+### Файлы
+
+**Создать:**
+- `src/hooks/useVoiceInput.ts`
+- `src/components/chat/VoiceInputButton.tsx`
+
+**Отредактировать:**
+- `src/components/chat/ChatInput.tsx`
+- `src/components/chat/ChatInputEnhanced.tsx`
+- `src/components/chat/MentionInput.tsx` (это же покрывает проекты и чаты отделов)
+- При необходимости — Bitrix-варианты (`BitrixChat*`), если они используют свои инпуты
+
+**Проверить (не менять без необходимости):**
+- `supabase/functions/audio-transcribe/index.ts` — добавить `language='ru'` и убедиться что webm принимается
