@@ -546,6 +546,12 @@ export function useOptimizedChat(userId: string | undefined, departmentId: strin
           : m
       ));
 
+      // Refresh session before post-stream DB writes — the stream may have run
+      // 100s+ for Perplexity, so the original token can be near-expiry now.
+      try {
+        await supabase.auth.getSession(); // triggers internal refresh if needed
+      } catch { /* non-fatal */ }
+
       await saveMessage(conversationId, "assistant", finalContent, {
         ...metadata,
         interrupted: !streamingContentRef.current?.trim(),
