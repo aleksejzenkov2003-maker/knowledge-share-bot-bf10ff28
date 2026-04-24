@@ -363,30 +363,55 @@ export function useOptimizedChat(userId: string | undefined, departmentId: strin
         ));
       }
       
-      const response = await fetch(
+      const requestBody = JSON.stringify({
+        message: trimmedInput,
+        role_id: effectiveRoleId || undefined,
+        conversation_id: conversationId,
+        message_history: messageHistory,
+        attachments: uploadedAttachments.length > 0 ? uploadedAttachments.map((ua, i) => ({
+          ...ua,
+          contains_pii: attachments[i]?.containsPii || false,
+        })) : undefined,
+      });
+
+      const doFetch = (authToken: string | undefined) => fetch(
         `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/${endpoint}`,
         {
           method: 'POST',
           headers: {
             'Content-Type': 'application/json',
-            'Authorization': `Bearer ${token}`,
+            'Authorization': `Bearer ${authToken}`,
           },
-          body: JSON.stringify({
-            message: trimmedInput,
-            role_id: effectiveRoleId || undefined,
-            conversation_id: conversationId,
-            message_history: messageHistory,
-            attachments: uploadedAttachments.length > 0 ? uploadedAttachments.map((ua, i) => ({
-              ...ua,
-              contains_pii: attachments[i]?.containsPii || false,
-            })) : undefined,
-          }),
-          signal: abortControllerRef.current.signal,
+          body: requestBody,
+          signal: abortControllerRef.current!.signal,
         }
       );
 
+      let response = await doFetch(token);
+
+      // One-time retry on 401: refresh session and retry
+      if (response.status === 401) {
+        console.warn('[useOptimizedChat] Got 401, refreshing session and retrying once');
+        try {
+          const { data: refreshed } = await supabase.auth.refreshSession();
+          if (refreshed.session?.access_token) {
+            token = refreshed.session.access_token;
+            response = await doFetch(token);
+          }
+        } catch (e) {
+          console.error('[useOptimizedChat] Refresh-on-401 failed', e);
+        }
+      }
+
       if (!response.ok) {
-        throw new Error(`HTTP ${response.status}`);
+        // Try to read explicit error code from edge function
+        let errBody: any = null;
+        try { errBody = await response.json(); } catch { /* ignore */ }
+        const errCode = errBody?.error || errBody?.code;
+        if (response.status === 401 || errCode === 'TOKEN_EXPIRED') {
+          throw new Error('Сессия истекла. Перезагрузите страницу и попробуйте снова.');
+        }
+        throw new Error(`HTTP ${response.status}${errCode ? `: ${errCode}` : ''}`);
       }
 
       const reader = response.body?.getReader();
