@@ -5,6 +5,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { Send, Loader2, Paperclip, ChevronDown, Bot, X, StopCircle, BookOpen, AtSign } from "lucide-react";
 import { Attachment } from "@/types/chat";
 import { AttachmentPreview } from "./AttachmentPreview";
+import { VoiceInputButton } from "./VoiceInputButton";
 import { ReplyPreview } from "./ReplyPreview";
 import { KnowledgeBaseSelector } from "./KnowledgeBaseSelector";
 import { KnowledgeBaseDocument } from "@/types/knowledgeBase";
@@ -467,6 +468,13 @@ export function ChatInputEnhanced({
                   )}
                 </Button>
               )}
+
+              {/* Voice Input Button */}
+              <VoiceInputButton
+                size="sm"
+                onTranscript={(t) => onChange(value ? `${value} ${t}` : t)}
+                disabled={isLoading || disabled}
+              />
 
               {/* @ Mention Button - only for department chats */}
               {hasMentionSupport && (

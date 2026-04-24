@@ -5,6 +5,7 @@ import { Send, Square, AtSign, Paperclip, Loader2 } from 'lucide-react';
 import { AgentMention } from '@/types/departmentChat';
 import { Attachment } from '@/types/chat';
 import { AttachmentPreview } from './AttachmentPreview';
+import { VoiceInputButton } from './VoiceInputButton';
 import { cn } from '@/lib/utils';
 import { toast } from 'sonner';
 
@@ -286,6 +287,11 @@ export const MentionInput: React.FC<MentionInputProps> = ({
             />
           </>
         )}
+
+        <VoiceInputButton
+          onTranscript={(t) => setValue((prev) => (prev ? `${prev} ${t}` : t))}
+          disabled={isGenerating}
+        />
 
         <div className="flex-1 relative">
           <Textarea
