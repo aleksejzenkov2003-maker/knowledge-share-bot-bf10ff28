@@ -573,53 +573,66 @@ export function useOptimizedChat(userId: string | undefined, departmentId: strin
         clearInterval(updateIntervalRef.current);
         updateIntervalRef.current = null;
       }
-      
+
+      const partialContent = streamingContentRef.current;
+      const hasPartial = !!partialContent && partialContent.trim().length > 0;
+      const errMsg = String(error?.message || error?.name || '');
+      const isNetwork = /Load failed|Failed to fetch|NetworkError|TypeError/i.test(errMsg);
+
       // Handle abort - save partial content
       if (error.name === 'AbortError') {
         console.log('Request aborted, saving partial content');
-        const partialContent = streamingContentRef.current;
-        
-        if (partialContent && partialContent.trim()) {
+
+        if (hasPartial) {
           const stoppedContent = partialContent + "\n\n_[Генерация остановлена]_";
-          
-          // Update local state
           setLocalMessages(prev => prev.map(m =>
-            m.id === assistantMessageId
-              ? {
-                  ...m,
-                  content: stoppedContent,
-                  isStreaming: false,
-                }
-              : m
+            m.id === assistantMessageId ? { ...m, content: stoppedContent, isStreaming: false } : m
           ));
-          
-          // Save to database
-          await saveMessage(conversationId, "assistant", stoppedContent, {
-            role_id: selectedRoleId || undefined,
-          });
-          
-          // Update conversation timestamp
-          await supabase
-            .from("conversations")
-            .update({ updated_at: new Date().toISOString() })
-            .eq("id", conversationId);
-          
-          // Invalidate queries to sync
-          queryClient.invalidateQueries({ queryKey: chatQueryKeys.messages(conversationId) });
+          try {
+            await saveMessage(conversationId, "assistant", stoppedContent, { role_id: selectedRoleId || undefined });
+            await supabase.from("conversations").update({ updated_at: new Date().toISOString() }).eq("id", conversationId);
+            queryClient.invalidateQueries({ queryKey: chatQueryKeys.messages(conversationId) });
+          } catch (e) {
+            console.error('Failed to save partial content on abort', e);
+          }
         }
         return;
       }
-      
+
       console.error("Error sending message:", error);
-      toast.error(error.message || "Ошибка отправки сообщения");
-      
+
+      // Save partial content even on non-abort errors (rescue Perplexity/deep-research answer
+      // when the stream completed but the post-save failed due to network blip / token expiry)
+      if (hasPartial) {
+        try {
+          // Try to refresh token before save (errors here often == token expired mid-flight)
+          await supabase.auth.refreshSession().catch(() => {});
+          await saveMessage(conversationId, "assistant", partialContent, { role_id: selectedRoleId || undefined });
+          await supabase.from("conversations").update({ updated_at: new Date().toISOString() }).eq("id", conversationId);
+          queryClient.invalidateQueries({ queryKey: chatQueryKeys.messages(conversationId) });
+
+          setLocalMessages(prev => prev.map(m =>
+            m.id === assistantMessageId ? { ...m, content: partialContent, isStreaming: false } : m
+          ));
+
+          toast.warning("Ответ получен, но соединение прервалось при сохранении. Сообщение сохранено.");
+          return;
+        } catch (e) {
+          console.error('Rescue-save failed', e);
+        }
+      }
+
+      const friendlyMsg = isNetwork
+        ? (isPerplexityModel || isDeepResearch
+            ? "Сервер Perplexity не ответил вовремя. Попробуйте ещё раз или сократите запрос."
+            : "Соединение прервано. Проверьте интернет и попробуйте снова.")
+        : (errMsg || "Не удалось получить ответ");
+
+      toast.error(friendlyMsg);
+
       setLocalMessages(prev => prev.map(m =>
         m.id === assistantMessageId
-          ? {
-              ...m,
-              content: `Ошибка: ${error.message || "Не удалось получить ответ"}`,
-              isStreaming: false,
-            }
+          ? { ...m, content: `Ошибка: ${friendlyMsg}`, isStreaming: false }
           : m
       ));
     } finally {
