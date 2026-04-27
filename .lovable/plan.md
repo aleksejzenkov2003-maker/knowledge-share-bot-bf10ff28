@@ -1,81 +1,75 @@
+## Проблема
 
-## Диагностика и фикс «Sonar / Perplexity барахлит»
+Запрос «Исследование (1)» от 27.04 в 07:22 на сонаре **отработал успешно**:
+- В `chat_logs` есть ответ — 3952 символа, 101 секунда, fallback на `sonar-reasoning-pro`
+- В `messages` (id `4d0dfbe7…`) **тот же ответ сохранён** в чат
+- Но в интерфейсе ответа не видно — пусто/«нет ответа»
 
-### Что сейчас на самом деле происходит
+Значит ломается **только UI-отображение** после возврата ответа, не сам стрим и не сохранение.
 
-1. **`sonar-deep-research`** (роли «Исследование», «(2-2) Подбор нормативки») — идёт через `deep-research` edge function. На скриншоте было видно: ответ реально приходит (112с, 10 источников), но всплывает красный **«Load failed»**.
-2. **`sonar-pro`** (Поиск PRO, Поиск бренда, Поисковик, Досье-аналитик и др., 7 ролей) — идёт через обычный `chat-stream`. На скриншоте видно «Загрузка не удалась» — и тоже после длительного ожидания.
+## Корневая причина
 
-### Корневая причина (3 связанных бага)
-
-**A. JWT истекает за время длинного запроса.** 
-Access-token живёт ~1 час, но в `useOptimizedChat.ts` (строка 302–303) токен берётся **один раз** перед `fetch`. После 60+ секунд деep-research запрос ещё идёт, но дальнейшие операции после стрима — `saveMessage()` (505), `update conversations` (512), `invalidateQueries` (519) — могут стрелять с истёкшим токеном → 401 → toast «Load failed».
-
-**B. Сам HTTP-запрос на edge function.** 
-`fetch(...)` к Supabase Edge Function использует тот же Bearer-токен. Если на момент **отправки** токен жив, но **процесс длится 100+ секунд**, то на стороне Supabase Edge Runtime валидация может сработать у границы периода ротации. Особенно если пользователь только что вернулся в таб и `autoRefreshToken` едва успел отработать (видно в логах: `token_revoked` при refresh — старый токен сразу инвалидируется).
-
-**C. У `sonar-pro` (не deep-research) в `useOptimizedChat` нет client-side таймаута** (строка 331: `clientTimeout = isDeepResearch ? 360000 : undefined`). Если Perplexity подвис — браузер ждёт системный таймаут (обычно ~120с в Safari/iOS) и кидает generic «Load failed» от `fetch`. Запись в БД при этом не падает — теряется только UI.
-
-### Что чиню
-
-#### 1. Принудительный refresh токена прямо перед длинным запросом
-В `useOptimizedChat.ts` (и `useChat.ts` для парности) — если до истечения токена < 5 минут или это deep-research / perplexity-роль, делать `supabase.auth.refreshSession()` перед `fetch`. Так свежий JWT проживёт 60 минут с момента старта запроса — гарантированно покроет 5-минутный deep-research + последующие save/update.
-
+В `useOptimizedChat.ts` строка 69:
 ```ts
-// перед получением token
-const { data: sessionData } = await supabase.auth.getSession();
-const expiresAt = sessionData.session?.expires_at ?? 0;
-const secondsLeft = expiresAt - Math.floor(Date.now() / 1000);
-const isPerplexity = isDeepResearch || roleConfig?.model_config?.model?.includes('sonar');
-if (secondsLeft < 600 || isPerplexity) {
-  const { data: refreshed } = await supabase.auth.refreshSession();
-  token = refreshed.session?.access_token ?? token;
-}
+const messages = isLoading ? localMessages : (dbMessages || localMessages);
 ```
 
-#### 2. Повторное получение токена для post-stream операций
-После окончания стрима (строки 505–519) делать ещё один `getSession()` — чтобы `saveMessage` / `conversations.update` шли со свежим JWT, а не со 100-секундной давности.
+После завершения стрима хук делает в таком порядке:
+1. `setLocalMessages(...)` — обновляет UI с финальным контентом ✅
+2. `saveMessage(...)` в БД ✅
+3. `await queryClient.invalidateQueries(...)` — перезагружает `dbMessages`
+4. `finally { setIsLoading(false) }` — переключает UI на `dbMessages`
 
-#### 3. Client-side таймаут для Perplexity не-deep моделей
-`sonar-pro`, `sonar-reasoning-pro` тоже бывают долгими (30–90с). Поднять таймаут до **150с** (вместо системного):
+**Гонка:** `invalidateQueries` стартует refetch, но `setIsLoading(false)` срабатывает **раньше**, чем приходит свежий `dbMessages`. В этот момент `messages = dbMessages` — а там ещё **старая версия без ответа ассистента** (или с пустым плейсхолдером, который мы вставили в начале как `assistantMessageId`). Локальное состояние `localMessages` с правильным контентом игнорируется.
+
+Дополнительно: для `sonar-reasoning-pro` (fallback от deep-research) timeout 360с не срабатывает, но клиент закрывает соединение **сразу после** получения last byte. Если в этот момент `dbMessages` ещё не подтянулись — UI пустой.
+
+## Что исправлю
+
+В `src/hooks/useOptimizedChat.ts`:
+
+**1. Дождаться появления сохранённого сообщения в `dbMessages` перед снятием `isLoading`.**
+Заменить простой `invalidateQueries` на `refetchQueries` + проверку, что в свежих данных есть assistant-сообщение со свежим контентом:
+
 ```ts
-const isPerplexityModel = isDeepResearch || mc?.model?.includes('sonar');
-const clientTimeout = isDeepResearch ? 360000 : (isPerplexityModel ? 150000 : undefined);
+await queryClient.refetchQueries({ queryKey: chatQueryKeys.messages(conversationId) });
+// гарантирует что dbMessages уже содержит финальный ответ к моменту isLoading=false
 ```
 
-#### 4. Понятный текст ошибки вместо «Load failed»
-Перехватывать `TypeError: Load failed` / `Failed to fetch` в catch (строки 521–574) и показывать:
-- «Ответ от модели получен, но соединение оборвалось при сохранении. Перезагрузите чат — сообщение должно быть на месте.» — если streamingContentRef не пустой,
-- «Сервер Perplexity не ответил вовремя. Попробуйте ещё раз или сократите запрос.» — если пусто.
+**2. Если refetch почему-то не вернул сообщение — НЕ переключать UI на dbMessages.**
+Изменить условие в строке 69 на:
+```ts
+const lastLocalAssistant = localMessages[localMessages.length - 1];
+const lastDbAssistant = dbMessages?.[dbMessages.length - 1];
+const dbHasLatest = lastDbAssistant && lastLocalAssistant 
+  && lastDbAssistant.role === lastLocalAssistant.role
+  && lastDbAssistant.content === lastLocalAssistant.content;
+const messages = isLoading || !dbHasLatest 
+  ? (localMessages.length ? localMessages : (dbMessages || []))
+  : (dbMessages || localMessages);
+```
 
-И главное — **сохранять частичный контент** даже на не-Abort ошибках (сейчас это делается только для AbortError, строка 528). Это спасёт ответ deep-research, который пришёл полностью, но упал save.
+Это страхует: если refetch отстал — показываем localMessages (где ответ точно есть).
 
-#### 5. На бэкенде — двойная проверка
-В `deep-research/index.ts` уже есть `getClaims(token)` (строка 233). Добавлю log с временем валидации, чтобы в следующий раз сразу было видно — это JWT-401 или что-то ещё. Плюс если `claimsError` — возвращать `error: 'TOKEN_EXPIRED'` явным текстом, чтобы фронт мог сделать refresh + retry автоматически.
+**3. Применить аналогичные правки в:**
+- `src/hooks/useChat.ts`
+- `src/hooks/useOptimizedDepartmentChat.ts`  
+- `src/hooks/useProjectChat.ts`
 
-#### 6. Проверить и единый retry-on-401 в фронте
-Если первый `fetch` к edge function вернул 401 — попробовать `refreshSession()` и повторить **один раз**. Это уберёт случайные ошибки из-за гонки рефреша.
+(во всех та же конструкция `isLoading ? localMessages : dbMessages`)
 
-### Файлы для правки
+**4. Не сбрасывать `streamingContentRef.current = ""` в `finally`** — он уже не сбрасывается (только в начале), это ок. Но добавлю явное **обнуление** в самом начале нового запроса — на всякий, чтобы старые данные не подмешивались.
 
-**Frontend:**
-- `src/hooks/useOptimizedChat.ts` — refresh токена до и после, таймаут для sonar-pro, спасение partial content на ошибках, retry on 401, понятные тексты ошибок
-- `src/hooks/useChat.ts` — то же самое (используется в Bitrix-чатах)
-- `src/hooks/useOptimizedDepartmentChat.ts` — гляну, скорее всего та же история
-- `src/hooks/useProjectChat.ts` — аналогично
+## Как проверим
+- Запустить «Исследование (1)» с тем же запросом — ответ должен появиться в чате сразу после окончания, без перезагрузки страницы.
+- Проверить, что после F5 ответ остаётся (он уже сохранён — это главное).
+- Тест на других чатах (department, project) — UI обновляется так же стабильно.
 
-**Backend:**
-- `supabase/functions/deep-research/index.ts` — явный код ошибки `TOKEN_EXPIRED`, чуть больше логов (роль, модель, время до истечения JWT)
-- `supabase/functions/chat-stream/index.ts` — то же для sonar-веток (не трогаю остальную логику)
+## Файлы
+- `src/hooks/useOptimizedChat.ts` — основной фикс
+- `src/hooks/useChat.ts`, `src/hooks/useOptimizedDepartmentChat.ts`, `src/hooks/useProjectChat.ts` — те же правки
 
-### Чего НЕ делаю
-
-- Не перевожу на queue-based (overkill, основная боль — JWT, а не лимит CPU; deep-research уже укладывается в 300с)
-- Не меняю модели и промпты Perplexity-ролей
-- Не трогаю SSE-парсинг и watchdog'и — они работают, ответ-то реально приходит
-
-### Как проверим что починилось
-
-1. Запустить `sonar-deep-research` роль с долгим вопросом — должен дойти ответ + сохраниться + НЕ показать «Load failed».
-2. Запустить `sonar-pro` (например «Поиск PRO») — таймаут 150с, понятная ошибка если Perplexity молчит.
-3. Если в момент запроса токен близок к истечению (можно искусственно подождать ~55 минут) — должен автоматом обновиться без ошибок.
+## Чего НЕ трогаю
+- Edge functions (`deep-research`, `chat-stream`) — они работают, ответ доходит и сохраняется
+- Логику refresh-токена и retry-on-401 — она тоже работает
+- Парсинг SSE и сохранение в БД
