@@ -2311,7 +2311,9 @@ ${goldenExamples.join('\n\n---\n\n')}
           body: JSON.stringify({
             model: finalModel,
             messages: [{ role: 'system', content: enhancedSystemPrompt }, ...simpleMessages],
-            max_tokens: 12000,
+            // 12000 резало длинные ответы (исследовательские запросы дают 10-15 тыс знаков ≈ 5-7к токенов плюс рассуждения).
+            // Sonar-pro поддерживает до 32k output — ставим 16000 с запасом.
+            max_tokens: 16000,
             // Deep research doesn't support streaming; reasoning models work better non-streaming too
             stream: !(isDeepResearch || isReasoningModel),
           }),
