@@ -407,8 +407,9 @@ serve(async (req) => {
               model: primaryModel,
               systemPrompt,
               messages: isDeepResearch ? deepResearchMessages : alternated,
-              // 8000 токенов на финальный отчёт (промежуточный <think> в лимит не входит у клиента, но Perplexity режет общий output).
-              maxTokens: 8000,
+              // Финальный отчёт может быть длинным (10-15 тыс знаков). 8000 токенов резало текст на полуслове —
+              // поднимаем до 16000, чтобы дать модели договорить. Perplexity sonar-deep-research поддерживает до 32k output.
+              maxTokens: 16000,
               // 'medium' даёт полный отчёт; 'low' обрывал текст на полуслове.
               reasoningEffort: isDeepResearch ? 'medium' : undefined,
               signal: abortController.signal,
@@ -432,7 +433,7 @@ serve(async (req) => {
                 model: 'sonar-reasoning-pro',
                 systemPrompt,
                 messages: alternated,
-                maxTokens: 4000,
+                maxTokens: 8000,
                 signal: fallbackAbort.signal,
                 onContent,
                 onCitations,
