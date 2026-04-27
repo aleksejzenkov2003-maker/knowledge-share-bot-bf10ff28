@@ -583,8 +583,9 @@ export function useOptimizedChat(userId: string | undefined, departmentId: strin
         .eq("id", conversationId);
 
       // Wait for queries to refetch before clearing isLoading,
-      // otherwise the component switches to stale dbMessages showing empty content
-      await queryClient.invalidateQueries({ queryKey: chatQueryKeys.messages(conversationId) });
+      // otherwise the component switches to stale dbMessages showing empty content.
+      // Use refetchQueries (not invalidateQueries) to actually await the network call.
+      await queryClient.refetchQueries({ queryKey: chatQueryKeys.messages(conversationId) });
 
     } catch (error: any) {
       if (updateIntervalRef.current) {
