@@ -65,8 +65,22 @@ export function useOptimizedChat(userId: string | undefined, departmentId: strin
   const deleteConversationMutation = useDeleteConversation(userId);
   const pinConversationMutation = usePinConversation(userId);
 
-  // Sync dbMessages to localMessages when not streaming
-  const messages = isLoading ? localMessages : (dbMessages || localMessages);
+  // Sync dbMessages → localMessages when not streaming, so we can fall back
+  // to localMessages if dbMessages refetch lags after a long Perplexity stream.
+  useEffect(() => {
+    if (dbMessages && !isLoading) {
+      setLocalMessages(dbMessages);
+    }
+  }, [dbMessages, isLoading]);
+
+  // Prefer localMessages while loading; otherwise use the freshest of the two
+  // (whichever has more messages — protects against stale dbMessages right
+  // after a long-running stream completes).
+  const messages = isLoading
+    ? localMessages
+    : ((dbMessages?.length ?? 0) >= localMessages.length
+        ? (dbMessages || localMessages)
+        : localMessages);
 
   // Set initial role when roles load - use useEffect to avoid render-loop
   useEffect(() => {
