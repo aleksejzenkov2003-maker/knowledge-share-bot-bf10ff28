@@ -145,6 +145,7 @@ const walkHtmlFiles = async (rootDir) => {
 
   for (const yearDir of years) {
     if (!yearDir.isDirectory() || !/^\d{4}$/.test(yearDir.name)) continue;
+    if (YEAR_FILTER && yearDir.name !== String(YEAR_FILTER)) continue;
     const year = Number(yearDir.name);
     const yearPath = path.join(rootDir, yearDir.name);
     const sections = await fs.readdir(yearPath, { withFileTypes: true });
@@ -157,8 +158,19 @@ const walkHtmlFiles = async (rootDir) => {
 
       for (const file of files) {
         if (!file.isFile() || !file.name.toLowerCase().endsWith(".html")) continue;
+        const absPath = path.join(sectionPath, file.name);
+
+        if (SINCE_TS) {
+          try {
+            const stat = await fs.stat(absPath);
+            if (stat.mtimeMs < SINCE_TS) continue;
+          } catch {
+            continue;
+          }
+        }
+
         out.push({
-          absPath: path.join(sectionPath, file.name),
+          absPath,
           relPath: path.posix.join(yearDir.name, sectionCode, file.name),
           year,
           sectionCode,
