@@ -194,6 +194,12 @@ const decodeHtml = (buffer) => {
 
 const main = async () => {
   console.log(`Scanning: ${ROOT_DIR}`);
+  if (SINCE_TS) {
+    console.log(`Incremental mode: only files modified since ${new Date(SINCE_TS).toISOString()}`);
+  }
+  if (YEAR_FILTER) {
+    console.log(`Year filter: ${YEAR_FILTER}`);
+  }
   const files = await walkHtmlFiles(ROOT_DIR);
   console.log(`Found HTML files: ${files.length}`);
 
