@@ -38,6 +38,8 @@ import SbisReport from "./pages/SbisReport";
 import Trademarks from "./pages/Trademarks";
 import AudioAnalysis from "./pages/AudioAnalysis";
 import WorkflowTemplates from "./pages/WorkflowTemplates";
+import FipsApplications from "./pages/FipsApplications";
+import FipsApplicationDetails from "./pages/FipsApplicationDetails";
 import NotFound from "./pages/NotFound";
 
 const queryClient = new QueryClient();
@@ -181,6 +183,16 @@ const App = () => (
             <Route path="/workflow-templates" element={
               <ProtectedRoute allowedRoles={['admin']}>
                 <AdminLayout><WorkflowTemplates /></AdminLayout>
+              </ProtectedRoute>
+            } />
+            <Route path="/fips-applications" element={
+              <ProtectedRoute allowedRoles={['admin', 'moderator']}>
+                <AdminLayout><FipsApplications /></AdminLayout>
+              </ProtectedRoute>
+            } />
+            <Route path="/fips-applications/:id" element={
+              <ProtectedRoute allowedRoles={['admin', 'moderator']}>
+                <AdminLayout><FipsApplicationDetails /></AdminLayout>
               </ProtectedRoute>
             } />
             <Route path="*" element={<NotFound />} />
