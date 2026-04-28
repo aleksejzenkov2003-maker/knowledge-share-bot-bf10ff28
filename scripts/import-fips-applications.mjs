@@ -17,6 +17,23 @@ const LIMIT = Number(args.get("limit") ?? process.env.IMPORT_LIMIT ?? "0");
 const BATCH_SIZE = Number(args.get("batch") ?? process.env.IMPORT_BATCH ?? "200");
 const DRY_RUN = args.get("dry-run") === "true";
 
+// Incremental mode:
+//   --since=2026-04-20            — only files with mtime >= this date
+//   --mtime-days=1                — only files modified in last N days (e.g. for daily cron)
+//   --year=2026                   — limit walk to a specific year directory
+const SINCE_RAW = args.get("since") ?? process.env.IMPORT_SINCE ?? null;
+const MTIME_DAYS = Number(args.get("mtime-days") ?? process.env.IMPORT_MTIME_DAYS ?? "0");
+const YEAR_FILTER = args.get("year") ?? process.env.IMPORT_YEAR ?? null;
+
+let SINCE_TS = null;
+if (SINCE_RAW) {
+  const parsed = new Date(SINCE_RAW).getTime();
+  if (!Number.isNaN(parsed)) SINCE_TS = parsed;
+}
+if (!SINCE_TS && MTIME_DAYS > 0) {
+  SINCE_TS = Date.now() - MTIME_DAYS * 24 * 60 * 60 * 1000;
+}
+
 const SUPABASE_URL = process.env.SUPABASE_URL;
 const SUPABASE_SERVICE_ROLE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY;
 
