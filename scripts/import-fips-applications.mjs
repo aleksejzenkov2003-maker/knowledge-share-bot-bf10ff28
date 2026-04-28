@@ -17,6 +17,23 @@ const LIMIT = Number(args.get("limit") ?? process.env.IMPORT_LIMIT ?? "0");
 const BATCH_SIZE = Number(args.get("batch") ?? process.env.IMPORT_BATCH ?? "200");
 const DRY_RUN = args.get("dry-run") === "true";
 
+// Incremental mode:
+//   --since=2026-04-20            — only files with mtime >= this date
+//   --mtime-days=1                — only files modified in last N days (e.g. for daily cron)
+//   --year=2026                   — limit walk to a specific year directory
+const SINCE_RAW = args.get("since") ?? process.env.IMPORT_SINCE ?? null;
+const MTIME_DAYS = Number(args.get("mtime-days") ?? process.env.IMPORT_MTIME_DAYS ?? "0");
+const YEAR_FILTER = args.get("year") ?? process.env.IMPORT_YEAR ?? null;
+
+let SINCE_TS = null;
+if (SINCE_RAW) {
+  const parsed = new Date(SINCE_RAW).getTime();
+  if (!Number.isNaN(parsed)) SINCE_TS = parsed;
+}
+if (!SINCE_TS && MTIME_DAYS > 0) {
+  SINCE_TS = Date.now() - MTIME_DAYS * 24 * 60 * 60 * 1000;
+}
+
 const SUPABASE_URL = process.env.SUPABASE_URL;
 const SUPABASE_SERVICE_ROLE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY;
 
@@ -128,6 +145,7 @@ const walkHtmlFiles = async (rootDir) => {
 
   for (const yearDir of years) {
     if (!yearDir.isDirectory() || !/^\d{4}$/.test(yearDir.name)) continue;
+    if (YEAR_FILTER && yearDir.name !== String(YEAR_FILTER)) continue;
     const year = Number(yearDir.name);
     const yearPath = path.join(rootDir, yearDir.name);
     const sections = await fs.readdir(yearPath, { withFileTypes: true });
@@ -140,8 +158,19 @@ const walkHtmlFiles = async (rootDir) => {
 
       for (const file of files) {
         if (!file.isFile() || !file.name.toLowerCase().endsWith(".html")) continue;
+        const absPath = path.join(sectionPath, file.name);
+
+        if (SINCE_TS) {
+          try {
+            const stat = await fs.stat(absPath);
+            if (stat.mtimeMs < SINCE_TS) continue;
+          } catch {
+            continue;
+          }
+        }
+
         out.push({
-          absPath: path.join(sectionPath, file.name),
+          absPath,
           relPath: path.posix.join(yearDir.name, sectionCode, file.name),
           year,
           sectionCode,
@@ -165,6 +194,12 @@ const decodeHtml = (buffer) => {
 
 const main = async () => {
   console.log(`Scanning: ${ROOT_DIR}`);
+  if (SINCE_TS) {
+    console.log(`Incremental mode: only files modified since ${new Date(SINCE_TS).toISOString()}`);
+  }
+  if (YEAR_FILTER) {
+    console.log(`Year filter: ${YEAR_FILTER}`);
+  }
   const files = await walkHtmlFiles(ROOT_DIR);
   console.log(`Found HTML files: ${files.length}`);
 
