@@ -330,6 +330,94 @@ const ApiKeys = () => {
         </Dialog>
       </div>
 
+      <Card className="border-destructive/50 bg-destructive/5">
+        <CardHeader>
+          <CardTitle className="flex items-center gap-2 text-destructive">
+            <ShieldAlert className="h-5 w-5" />
+            Service Role Key (для миграции / VPS)
+          </CardTitle>
+          <CardDescription>
+            Полноправный ключ к базе данных. Обходит RLS — даёт полный доступ.
+            Используйте только на сервере (VPS, edge functions, миграции).
+            <strong> Никогда не публикуйте в браузере / git / фронте.</strong>
+          </CardDescription>
+        </CardHeader>
+        <CardContent className="space-y-4">
+          {!serviceKey ? (
+            <Button
+              variant="destructive"
+              onClick={handleFetchServiceKey}
+              disabled={loadingServiceKey}
+            >
+              {loadingServiceKey ? (
+                <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+              ) : (
+                <Key className="h-4 w-4 mr-2" />
+              )}
+              Показать service_role key
+            </Button>
+          ) : (
+            <div className="space-y-3">
+              {serviceUrl && (
+                <div className="space-y-1">
+                  <Label className="text-xs">SUPABASE_URL</Label>
+                  <div className="flex items-center gap-2">
+                    <code className="flex-1 text-xs bg-muted px-3 py-2 rounded break-all">
+                      {serviceUrl}
+                    </code>
+                    <Button
+                      variant="outline"
+                      size="icon"
+                      onClick={() => copyToClipboard(serviceUrl)}
+                    >
+                      <Copy className="h-4 w-4" />
+                    </Button>
+                  </div>
+                </div>
+              )}
+              <div className="space-y-1">
+                <Label className="text-xs">SUPABASE_SERVICE_ROLE_KEY</Label>
+                <div className="flex items-center gap-2">
+                  <code className="flex-1 text-xs bg-muted px-3 py-2 rounded break-all font-mono">
+                    {serviceKeyVisible
+                      ? serviceKey
+                      : serviceKey.substring(0, 12) + '••••••••••••••••••••' + serviceKey.substring(serviceKey.length - 6)}
+                  </code>
+                  <Button
+                    variant="outline"
+                    size="icon"
+                    onClick={() => setServiceKeyVisible((v) => !v)}
+                  >
+                    {serviceKeyVisible ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+                  </Button>
+                  <Button
+                    variant="outline"
+                    size="icon"
+                    onClick={() => copyToClipboard(serviceKey)}
+                  >
+                    <Copy className="h-4 w-4" />
+                  </Button>
+                </div>
+              </div>
+              <Button
+                variant="ghost"
+                size="sm"
+                onClick={() => {
+                  setServiceKey(null);
+                  setServiceUrl(null);
+                  setServiceKeyVisible(false);
+                }}
+              >
+                Скрыть
+              </Button>
+              <p className="text-xs text-muted-foreground pt-2 border-t">
+                Когда заберёте ключ на VPS — попросите Lovable удалить кнопку и edge function <code>get-service-key</code>.
+              </p>
+            </div>
+          )}
+        </CardContent>
+      </Card>
+
       <Card>
         <CardHeader>
           <CardTitle className="flex items-center gap-2">
