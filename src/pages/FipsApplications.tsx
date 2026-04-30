@@ -56,24 +56,40 @@ export default function FipsApplications() {
   const [statusFilter, setStatusFilter] = useState("all");
   const [page, setPage] = useState(0);
 
+  // Debounce search input so we don't issue a query on every keystroke
+  const [debouncedSearch, setDebouncedSearch] = useState(search);
+  useEffect(() => {
+    const t = setTimeout(() => setDebouncedSearch(search.trim()), 350);
+    return () => clearTimeout(t);
+  }, [search]);
+
   const { data, isLoading } = useQuery({
-    queryKey: ["fips-applications", search, yearFilter, statusFilter, page],
+    queryKey: ["fips-applications", debouncedSearch, yearFilter, statusFilter, page],
     queryFn: async () => {
+      // Use planned count instead of exact — exact count on 70k+ rows with ILIKE is the
+      // main reason the page was slow. Planned is ~instant and good enough for pagination.
       let query = supabase
         .from("fips_applications")
         .select(
           "id, application_number, registration_number, title, applicant_name, applicant_inn, applicant_ogrn, file_name, year, section_code, status, submitted_at, thumbnail_url, created_at",
-          { count: "exact" },
+          { count: "planned" },
         )
         .order("submitted_at", { ascending: false, nullsFirst: false })
         .order("created_at", { ascending: false })
         .range(page * PAGE_SIZE, (page + 1) * PAGE_SIZE - 1);
 
-      if (search.trim()) {
-        const q = search.trim();
-        query = query.or(
-          `application_number.ilike.%${q}%,registration_number.ilike.%${q}%,title.ilike.%${q}%,applicant_name.ilike.%${q}%,file_name.ilike.%${q}%`,
-        );
+      if (debouncedSearch) {
+        const q = debouncedSearch;
+        // If query looks like a number, search number columns only (much faster than 5-way OR ILIKE)
+        if (/^\d{4,}$/.test(q)) {
+          query = query.or(
+            `application_number.ilike.%${q}%,registration_number.ilike.%${q}%`,
+          );
+        } else {
+          query = query.or(
+            `title.ilike.%${q}%,applicant_name.ilike.%${q}%,file_name.ilike.%${q}%`,
+          );
+        }
       }
 
       if (yearFilter !== "all") query = query.eq("year", Number(yearFilter));
@@ -83,6 +99,7 @@ export default function FipsApplications() {
       if (error) throw error;
       return { rows: (rows ?? []) as FipsApplication[], count: count ?? 0 };
     },
+    placeholderData: (prev) => prev,
   });
 
   const years = useMemo(() => {
