@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { useQuery } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
@@ -52,28 +52,36 @@ const statusLabel = (status: string | null) => {
 export default function FipsApplications() {
   const navigate = useNavigate();
   const [search, setSearch] = useState("");
+  const [debouncedSearch, setDebouncedSearch] = useState("");
   const [yearFilter, setYearFilter] = useState("all");
   const [statusFilter, setStatusFilter] = useState("all");
   const [page, setPage] = useState(0);
 
+  useEffect(() => {
+    const t = setTimeout(() => setDebouncedSearch(search.trim()), 350);
+    return () => clearTimeout(t);
+  }, [search]);
+
   const { data, isLoading } = useQuery({
-    queryKey: ["fips-applications", search, yearFilter, statusFilter, page],
+    queryKey: ["fips-applications", debouncedSearch, yearFilter, statusFilter, page],
     queryFn: async () => {
       let query = supabase
         .from("fips_applications")
         .select(
           "id, application_number, registration_number, title, applicant_name, applicant_inn, applicant_ogrn, file_name, year, section_code, status, submitted_at, thumbnail_url, created_at",
-          { count: "exact" },
+          { count: "planned" },
         )
         .order("submitted_at", { ascending: false, nullsFirst: false })
         .order("created_at", { ascending: false })
         .range(page * PAGE_SIZE, (page + 1) * PAGE_SIZE - 1);
 
-      if (search.trim()) {
-        const q = search.trim();
-        query = query.or(
-          `application_number.ilike.%${q}%,registration_number.ilike.%${q}%,title.ilike.%${q}%,applicant_name.ilike.%${q}%,file_name.ilike.%${q}%`,
-        );
+      if (debouncedSearch) {
+        const q = debouncedSearch;
+        if (/^\d{4,}$/.test(q)) {
+          query = query.or(`application_number.ilike.%${q}%,registration_number.ilike.%${q}%`);
+        } else {
+          query = query.or(`title.ilike.%${q}%,applicant_name.ilike.%${q}%,file_name.ilike.%${q}%`);
+        }
       }
 
       if (yearFilter !== "all") query = query.eq("year", Number(yearFilter));
@@ -83,6 +91,7 @@ export default function FipsApplications() {
       if (error) throw error;
       return { rows: (rows ?? []) as FipsApplication[], count: count ?? 0 };
     },
+    placeholderData: (prev) => prev,
   });
 
   const years = useMemo(() => {

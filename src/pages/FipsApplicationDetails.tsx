@@ -36,6 +36,17 @@ const formatDate = (value: string | null) => {
   return date.toLocaleString("ru-RU");
 };
 
+const FIELD_LABELS: Record<string, string> = {
+  submitted_date_raw: "Дата поступления заявки (raw)",
+  publication_date_raw: "Дата публикации",
+  applicant_raw: "Заявитель (raw)",
+  correspondence_address_raw: "Адрес для переписки",
+  unprotected_elements_raw: "Неохраняемые элементы",
+  color_specification_raw: "Указание цвета",
+  classes_raw: "Классы МКТУ",
+  processing_status_raw: "Статус делопроизводства",
+};
+
 export default function FipsApplicationDetails() {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
@@ -59,13 +70,15 @@ export default function FipsApplicationDetails() {
     const payload = data?.parsed_data;
     if (!payload || typeof payload !== "object") return [];
 
-    return Object.entries(payload).filter(([, value]) => {
+    return Object.entries(payload)
+      .filter(([key]) => key !== "raw_preview")
+      .filter(([, value]) => {
       if (value === null || value === undefined) return false;
       if (typeof value === "string") return value.trim().length > 0;
       if (Array.isArray(value)) return value.length > 0;
       if (typeof value === "object") return Object.keys(value).length > 0;
       return true;
-    });
+      });
   }, [data?.parsed_data]);
 
   if (isLoading) {
@@ -148,17 +161,17 @@ export default function FipsApplicationDetails() {
 
       <Card>
         <CardHeader>
-          <CardTitle>Автоподтянутые поля из парсера</CardTitle>
+          <CardTitle>Структурированные поля из парсера</CardTitle>
         </CardHeader>
         <CardContent>
           {autoFields.length === 0 ? (
             <p className="text-sm text-muted-foreground">Дополнительные поля не найдены.</p>
           ) : (
-            <div className="space-y-3">
+            <div className="grid gap-3 md:grid-cols-2">
               {autoFields.map(([key, value]) => (
-                <div key={key}>
-                  <p className="text-xs text-muted-foreground">{key}</p>
-                  <p className="text-sm font-medium break-words">
+                <div key={key} className="rounded border bg-muted/20 p-3">
+                  <p className="text-xs text-muted-foreground">{FIELD_LABELS[key] || key}</p>
+                  <p className="text-sm font-medium break-words whitespace-pre-wrap">
                     {typeof value === "string" ? value : JSON.stringify(value)}
                   </p>
                 </div>

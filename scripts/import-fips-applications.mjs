@@ -72,6 +72,20 @@ const extractOgrn = (text) => {
   return match?.[1] ?? null;
 };
 
+const extractTrademarkImage = (html) => {
+  // Prefer trademark image from the FIPS image storage.
+  const directTmImage =
+    html.match(/src="(https?:\/\/fips\.ru\/Image\/RUTMAP_Images\/[^"]+)"/i) ||
+    html.match(/src="(https?:\/\/fips\.ru\/Image\/[^"]+)"/i);
+  if (directTmImage?.[1]) return directTmImage[1];
+
+  // Fallback: look for mini image but skip state logo.
+  const mini = html.match(/<img[^>]+class="mini"[^>]+src="([^"]+)"/i);
+  if (mini?.[1] && !mini[1].includes("RFP_LOGO.gif")) return mini[1];
+
+  return null;
+};
+
 const parseRecord = ({ html, filePath, year, sectionCode, fileName }) => {
   const plain = htmlToPlainText(html);
   const applicationNumber = extractFirst(plain, [
@@ -95,8 +109,22 @@ const parseRecord = ({ html, filePath, year, sectionCode, fileName }) => {
     /\(200\)\s*Дата поступления заявки:\s*(\d{2}\.\d{2}\.\d{4})/i,
     /\(220\)\s*Дата подачи заявки:\s*(\d{2}\.\d{2}\.\d{4})/i,
   ]);
+  const publicationDateRaw = extractFirst(plain, [/\(441\)\s*Опубликовано:\s*(\d{2}\.\d{2}\.\d{4})/i]);
+  const correspondenceAddressRaw = extractFirst(plain, [
+    /\(750\)\s*Адрес для переписки:\s*(.*?)(?:\(\d{3}\)|$)/i,
+  ]);
+  const unprotectedElementsRaw = extractFirst(plain, [
+    /\(526\)\s*Неохраняемые элементы товарного знака:\s*(.*?)(?:\(\d{3}\)|$)/i,
+  ]);
+  const colorSpecificationRaw = extractFirst(plain, [
+    /\(591\)\s*Указание цвета или цветового сочетания:\s*(.*?)(?:\(\d{3}\)|$)/i,
+  ]);
+  const classesRaw = extractFirst(plain, [/\(511\)\s*Классы МКТУ[^:]*:\s*(.*)$/i]);
+  const processingStatusRaw = extractFirst(plain, [
+    /Состояние делопроизводства:\s*(.*?)(?:Заявки на товарные знаки|\(\d{3}\)|$)/i,
+  ]);
 
-  const imageMatch = html.match(/<img[^>]+class="mini"[^>]+src="([^"]+)"/i) || html.match(/<img[^>]+src="([^"]+)"/i);
+  const imageUrl = extractTrademarkImage(html);
   const hrefMatch = html.match(/<a[^>]+title="Ссылка на реестр[^"]*"[^>]+href="([^"]+)"/i) || html.match(/<a[^>]+href="([^"]+)"/i);
 
   return {
@@ -114,9 +142,16 @@ const parseRecord = ({ html, filePath, year, sectionCode, fileName }) => {
     section_code: sectionCode,
     status: "active",
     submitted_at: parseDate(submittedDateRaw),
-    thumbnail_url: imageMatch?.[1] ?? null,
+    thumbnail_url: imageUrl,
     parsed_data: {
       submitted_date_raw: submittedDateRaw,
+      publication_date_raw: publicationDateRaw,
+      applicant_raw: applicantName,
+      correspondence_address_raw: correspondenceAddressRaw,
+      unprotected_elements_raw: unprotectedElementsRaw,
+      color_specification_raw: colorSpecificationRaw,
+      classes_raw: classesRaw,
+      processing_status_raw: processingStatusRaw,
       raw_preview: plain.slice(0, 2500),
     },
   };
@@ -156,8 +191,21 @@ const walkHtmlFiles = async (rootDir) => {
 };
 
 const decodeHtml = (buffer) => {
+  // Detect encoding from raw bytes (meta tags are ASCII-safe in HTML head).
+  const headSlice = buffer.subarray(0, Math.min(buffer.length, 4096));
+  const headAscii = Buffer.from(headSlice).toString("latin1").toLowerCase();
+
+  const isWin1251 =
+    headAscii.includes("charset=windows-1251") ||
+    headAscii.includes('charset="windows-1251"') ||
+    headAscii.includes("charset=cp1251") ||
+    headAscii.includes("windows-1251");
+
+  if (isWin1251) return decoderWin1251.decode(buffer);
+
   const utf8 = decoderUtf8.decode(buffer);
-  if (/charset\s*=\s*windows-1251/i.test(utf8) || utf8.includes("����")) {
+  // Fallback heuristic for common cp1251 mojibake in UTF-8 decode.
+  if (utf8.includes("����") || /Р[А-Яа-яЁё]/.test(utf8.slice(0, 2000))) {
     return decoderWin1251.decode(buffer);
   }
   return utf8;
@@ -185,7 +233,22 @@ const main = async () => {
     const { error } = await supabase
       .from("fips_applications")
       .upsert(batch, { onConflict: "file_path", ignoreDuplicates: false });
-    if (error) throw error;
+    if (error) {
+      // Some environments may miss unique index for ON CONFLICT(file_path).
+      // Fallback to plain insert for initial bulk load.
+      if (String(error.message || "").includes("no unique or exclusion constraint")) {
+        const { error: insertError } = await supabase.from("fips_applications").insert(batch);
+        // If rerun happened after partial import, ignore duplicate key violations
+        // and continue with the rest of the dataset.
+        if (insertError && String(insertError.message || "").includes("duplicate key value")) {
+          batch.length = 0;
+          return;
+        }
+        if (insertError) throw insertError;
+      } else {
+        throw error;
+      }
+    }
     inserted += batch.length;
     batch.length = 0;
   };
