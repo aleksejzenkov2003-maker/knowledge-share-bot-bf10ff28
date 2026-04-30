@@ -10,7 +10,7 @@ import { Badge } from '@/components/ui/badge';
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle, DialogTrigger } from '@/components/ui/dialog';
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger } from '@/components/ui/alert-dialog';
 import { useToast } from '@/hooks/use-toast';
-import { Plus, Copy, Trash2, Key, RefreshCw, Eye, EyeOff } from 'lucide-react';
+import { Plus, Copy, Trash2, Key, RefreshCw, Eye, EyeOff, ShieldAlert, Loader2 } from 'lucide-react';
 import { format } from 'date-fns';
 import { ru } from 'date-fns/locale';
 
@@ -42,7 +42,31 @@ const ApiKeys = () => {
   const [portalDomain, setPortalDomain] = useState('');
   const [createdKey, setCreatedKey] = useState<string | null>(null);
   const [visibleKeys, setVisibleKeys] = useState<Set<string>>(new Set());
+  const [serviceKey, setServiceKey] = useState<string | null>(null);
+  const [serviceUrl, setServiceUrl] = useState<string | null>(null);
+  const [serviceKeyVisible, setServiceKeyVisible] = useState(false);
+  const [loadingServiceKey, setLoadingServiceKey] = useState(false);
   const { toast } = useToast();
+
+  const handleFetchServiceKey = async () => {
+    setLoadingServiceKey(true);
+    try {
+      const { data, error } = await supabase.functions.invoke('get-service-key');
+      if (error) throw error;
+      if (!data?.service_role_key) throw new Error('Ключ не получен');
+      setServiceKey(data.service_role_key);
+      setServiceUrl(data.url);
+      toast({ title: 'Получено', description: 'Ключ загружен. Скопируйте и закройте окно.' });
+    } catch (e: any) {
+      toast({
+        title: 'Ошибка',
+        description: e?.message || 'Не удалось получить ключ. Доступно только админам.',
+        variant: 'destructive',
+      });
+    } finally {
+      setLoadingServiceKey(false);
+    }
+  };
 
   useEffect(() => {
     fetchData();
@@ -305,6 +329,94 @@ const ApiKeys = () => {
           </DialogContent>
         </Dialog>
       </div>
+
+      <Card className="border-destructive/50 bg-destructive/5">
+        <CardHeader>
+          <CardTitle className="flex items-center gap-2 text-destructive">
+            <ShieldAlert className="h-5 w-5" />
+            Service Role Key (для миграции / VPS)
+          </CardTitle>
+          <CardDescription>
+            Полноправный ключ к базе данных. Обходит RLS — даёт полный доступ.
+            Используйте только на сервере (VPS, edge functions, миграции).
+            <strong> Никогда не публикуйте в браузере / git / фронте.</strong>
+          </CardDescription>
+        </CardHeader>
+        <CardContent className="space-y-4">
+          {!serviceKey ? (
+            <Button
+              variant="destructive"
+              onClick={handleFetchServiceKey}
+              disabled={loadingServiceKey}
+            >
+              {loadingServiceKey ? (
+                <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+              ) : (
+                <Key className="h-4 w-4 mr-2" />
+              )}
+              Показать service_role key
+            </Button>
+          ) : (
+            <div className="space-y-3">
+              {serviceUrl && (
+                <div className="space-y-1">
+                  <Label className="text-xs">SUPABASE_URL</Label>
+                  <div className="flex items-center gap-2">
+                    <code className="flex-1 text-xs bg-muted px-3 py-2 rounded break-all">
+                      {serviceUrl}
+                    </code>
+                    <Button
+                      variant="outline"
+                      size="icon"
+                      onClick={() => copyToClipboard(serviceUrl)}
+                    >
+                      <Copy className="h-4 w-4" />
+                    </Button>
+                  </div>
+                </div>
+              )}
+              <div className="space-y-1">
+                <Label className="text-xs">SUPABASE_SERVICE_ROLE_KEY</Label>
+                <div className="flex items-center gap-2">
+                  <code className="flex-1 text-xs bg-muted px-3 py-2 rounded break-all font-mono">
+                    {serviceKeyVisible
+                      ? serviceKey
+                      : serviceKey.substring(0, 12) + '••••••••••••••••••••' + serviceKey.substring(serviceKey.length - 6)}
+                  </code>
+                  <Button
+                    variant="outline"
+                    size="icon"
+                    onClick={() => setServiceKeyVisible((v) => !v)}
+                  >
+                    {serviceKeyVisible ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+                  </Button>
+                  <Button
+                    variant="outline"
+                    size="icon"
+                    onClick={() => copyToClipboard(serviceKey)}
+                  >
+                    <Copy className="h-4 w-4" />
+                  </Button>
+                </div>
+              </div>
+              <Button
+                variant="ghost"
+                size="sm"
+                onClick={() => {
+                  setServiceKey(null);
+                  setServiceUrl(null);
+                  setServiceKeyVisible(false);
+                }}
+              >
+                Скрыть
+              </Button>
+              <p className="text-xs text-muted-foreground pt-2 border-t">
+                Когда заберёте ключ на VPS — попросите Lovable удалить кнопку и edge function <code>get-service-key</code>.
+              </p>
+            </div>
+          )}
+        </CardContent>
+      </Card>
 
       <Card>
         <CardHeader>
