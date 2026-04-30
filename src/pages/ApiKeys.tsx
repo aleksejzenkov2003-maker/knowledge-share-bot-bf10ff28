@@ -10,7 +10,7 @@ import { Badge } from '@/components/ui/badge';
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle, DialogTrigger } from '@/components/ui/dialog';
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger } from '@/components/ui/alert-dialog';
 import { useToast } from '@/hooks/use-toast';
-import { Plus, Copy, Trash2, Key, RefreshCw, Eye, EyeOff } from 'lucide-react';
+import { Plus, Copy, Trash2, Key, RefreshCw, Eye, EyeOff, ShieldAlert, Loader2 } from 'lucide-react';
 import { format } from 'date-fns';
 import { ru } from 'date-fns/locale';
 
@@ -42,7 +42,31 @@ const ApiKeys = () => {
   const [portalDomain, setPortalDomain] = useState('');
   const [createdKey, setCreatedKey] = useState<string | null>(null);
   const [visibleKeys, setVisibleKeys] = useState<Set<string>>(new Set());
+  const [serviceKey, setServiceKey] = useState<string | null>(null);
+  const [serviceUrl, setServiceUrl] = useState<string | null>(null);
+  const [serviceKeyVisible, setServiceKeyVisible] = useState(false);
+  const [loadingServiceKey, setLoadingServiceKey] = useState(false);
   const { toast } = useToast();
+
+  const handleFetchServiceKey = async () => {
+    setLoadingServiceKey(true);
+    try {
+      const { data, error } = await supabase.functions.invoke('get-service-key');
+      if (error) throw error;
+      if (!data?.service_role_key) throw new Error('Ключ не получен');
+      setServiceKey(data.service_role_key);
+      setServiceUrl(data.url);
+      toast({ title: 'Получено', description: 'Ключ загружен. Скопируйте и закройте окно.' });
+    } catch (e: any) {
+      toast({
+        title: 'Ошибка',
+        description: e?.message || 'Не удалось получить ключ. Доступно только админам.',
+        variant: 'destructive',
+      });
+    } finally {
+      setLoadingServiceKey(false);
+    }
+  };
 
   useEffect(() => {
     fetchData();
