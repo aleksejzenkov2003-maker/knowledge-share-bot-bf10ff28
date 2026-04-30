@@ -25,6 +25,7 @@ async function fetchRolesData(userId: string, departmentId: string | null): Prom
     .from("chat_roles")
     .select("id, name, description, slug, is_active, is_project_mode, department_ids")
     .eq("is_active", true)
+    .eq("is_project_mode", false)
     .order("name");
 
   if (error) throw error;
