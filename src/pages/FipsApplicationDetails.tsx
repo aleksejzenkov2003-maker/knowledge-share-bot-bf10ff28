@@ -132,17 +132,6 @@ export default function FipsApplicationDetails() {
 
           <Info label="Адрес правообладателя" value={data.applicant_address} />
 
-          {data.source_url && (
-            <a
-              href={data.source_url}
-              target="_blank"
-              rel="noreferrer"
-              className="inline-flex items-center gap-2 text-sm text-primary hover:underline"
-            >
-              <ExternalLink className="h-4 w-4" />
-              Источник
-            </a>
-          )}
         </CardContent>
       </Card>
 
