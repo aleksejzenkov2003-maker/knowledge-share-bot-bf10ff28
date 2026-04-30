@@ -66,15 +66,16 @@ export default function FipsApplications() {
   const { data, isLoading } = useQuery({
     queryKey: ["fips-applications", debouncedSearch, yearFilter, statusFilter, page],
     queryFn: async () => {
-      // Use planned count instead of exact — exact count on 70k+ rows with ILIKE is the
-      // main reason the page was slow. Planned is ~instant and good enough for pagination.
+      // Use estimated count — exact count on 180k+ rows with ILIKE is the main reason
+      // the page was slow. Estimated is ~instant and good enough for pagination.
       let query = supabase
         .from("fips_applications")
         .select(
           "id, application_number, registration_number, title, applicant_name, applicant_inn, applicant_ogrn, file_name, year, section_code, status, submitted_at, thumbnail_url, created_at",
-          { count: "planned" },
+          { count: "estimated" },
         )
-        .order("submitted_at", { ascending: false, nullsFirst: false })
+        // submitted_at is currently NULL for all rows (parser doesn't extract it),
+        // so sort primarily by created_at to make sure rows actually show up.
         .order("created_at", { ascending: false })
         .range(page * PAGE_SIZE, (page + 1) * PAGE_SIZE - 1);
 
