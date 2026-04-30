@@ -184,9 +184,26 @@ const walkHtmlFiles = async (rootDir) => {
   return out;
 };
 
+// Detect charset by scanning the RAW bytes as ASCII (meta tags are ASCII-safe).
+// Decoding bytes as UTF-8 first is unsafe: cp1251 bytes form valid-but-garbled
+// cyrillic glyphs in UTF-8 (e.g. "Р РћРЎРЎ" instead of "РОСС"), so the check never trips.
 const decodeHtml = (buffer) => {
+  // Read first ~4KB as latin1 to safely look for the meta charset declaration.
+  const headSlice = buffer.subarray(0, Math.min(buffer.length, 4096));
+  const headAscii = Buffer.from(headSlice).toString("latin1").toLowerCase();
+
+  const isWin1251 =
+    headAscii.includes("charset=windows-1251") ||
+    headAscii.includes('charset="windows-1251"') ||
+    headAscii.includes("charset=cp1251") ||
+    headAscii.includes("windows-1251");
+
+  if (isWin1251) return decoderWin1251.decode(buffer);
+
+  // Fallback heuristic: try UTF-8, but if we still see the classic mojibake
+  // pattern of cp1251-as-utf8 ("Р " / "Рў" / "РЎ" sequences), re-decode as cp1251.
   const utf8 = decoderUtf8.decode(buffer);
-  if (/charset\s*=\s*windows-1251/i.test(utf8) || utf8.includes("����")) {
+  if (utf8.includes("����") || /Р [°-я]|РЎ[‚ѓ„…†‡€]/.test(utf8.slice(0, 2000))) {
     return decoderWin1251.decode(buffer);
   }
   return utf8;
