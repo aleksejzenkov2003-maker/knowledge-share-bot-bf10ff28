@@ -65,30 +65,49 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     let initialLoadComplete = false;
     let subscription: { unsubscribe: () => void } | null = null;
 
+    // Hard safety timeout: if backend (auth) is unreachable, don't block UI forever.
+    // Auth /token endpoint can hang on 504 for tens of seconds during Lovable Cloud
+    // outages, which would leave the app stuck on the loading spinner.
+    const safetyTimeout = setTimeout(() => {
+      if (isMounted && !initialLoadComplete) {
+        console.warn('Auth init safety timeout reached — releasing UI');
+        initialLoadComplete = true;
+        setIsLoading(false);
+      }
+    }, 8000);
+
     // Get initial session first, then set up listener
     const initializeAuth = async () => {
       try {
-        // Try to get session from storage first
-        const { data: { session: initialSession }, error: sessionError } = await supabase.auth.getSession();
-        
+        // Race getSession against a timeout so a hanging /token refresh
+        // doesn't keep the whole app on a blank loading screen.
+        const sessionPromise = supabase.auth.getSession();
+        const timeoutSession = new Promise<{ data: { session: Session | null }; error: Error | null }>((resolve) =>
+          setTimeout(() => resolve({ data: { session: null }, error: new Error('getSession timeout') }), 7000)
+        );
+        const { data: { session: initialSession }, error: sessionError } = await Promise.race([
+          sessionPromise,
+          timeoutSession,
+        ]) as { data: { session: Session | null }; error: Error | null };
+
         if (sessionError) {
           console.error('Error getting session:', sessionError);
         }
-        
+
         if (!isMounted) return;
 
         if (initialSession?.user) {
           console.log('Session restored for user:', initialSession.user.email);
           setSession(initialSession);
           setUser(initialSession.user);
-          
+
           // Load metadata in parallel with timeout
           try {
             const metadataPromise = loadUserMetadata(initialSession.user.id);
-            const timeoutPromise = new Promise<{ role: AppRole | null; departmentId: string | null }>((_, reject) => 
-              setTimeout(() => reject(new Error('Metadata load timeout')), 10000)
+            const timeoutPromise = new Promise<{ role: AppRole | null; departmentId: string | null }>((_, reject) =>
+              setTimeout(() => reject(new Error('Metadata load timeout')), 5000)
             );
-            
+
             const metadata = await Promise.race([metadataPromise, timeoutPromise]);
             if (isMounted) {
               setRole(metadata.role);
@@ -104,6 +123,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       } catch (error) {
         console.error('Error initializing auth:', error);
       } finally {
+        clearTimeout(safetyTimeout);
         if (isMounted) {
           initialLoadComplete = true;
           setIsLoading(false);
@@ -156,6 +176,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
     return () => {
       isMounted = false;
+      clearTimeout(safetyTimeout);
       subscription?.unsubscribe();
     };
   }, [loadUserMetadata]);
