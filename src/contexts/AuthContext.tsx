@@ -2,6 +2,19 @@ import React, { createContext, useContext, useEffect, useState, useCallback } fr
 import { User, Session } from '@supabase/supabase-js';
 import { supabase } from '@/integrations/supabase/client';
 
+const INITIAL_SESSION_TIMEOUT_MS = 7000;
+const LOGIN_TIMEOUT_MS = 10000;
+const SESSION_TIMEOUT_ERROR = 'getSession timeout';
+const LOGIN_TIMEOUT_ERROR = 'signIn timeout';
+
+const clearStoredAuthTokens = () => {
+  if (typeof window === 'undefined') return;
+
+  Object.keys(window.localStorage)
+    .filter((key) => key.startsWith('sb-') && key.includes('auth-token'))
+    .forEach((key) => window.localStorage.removeItem(key));
+};
+
 type AppRole = 'admin' | 'moderator' | 'employee';
 
 interface AuthContextType {
@@ -33,6 +46,14 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const [role, setRole] = useState<AppRole | null>(null);
   const [departmentId, setDepartmentId] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(true);
+
+  const resetLocalAuthState = useCallback(() => {
+    clearStoredAuthTokens();
+    setUser(null);
+    setSession(null);
+    setRole(null);
+    setDepartmentId(null);
+  }, []);
 
   // Memoized function to load user metadata (role + department) in parallel
   const loadUserMetadata = useCallback(async (userId: string) => {
@@ -83,7 +104,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         // doesn't keep the whole app on a blank loading screen.
         const sessionPromise = supabase.auth.getSession();
         const timeoutSession = new Promise<{ data: { session: Session | null }; error: Error | null }>((resolve) =>
-          setTimeout(() => resolve({ data: { session: null }, error: new Error('getSession timeout') }), 7000)
+          setTimeout(() => resolve({ data: { session: null }, error: new Error(SESSION_TIMEOUT_ERROR) }), INITIAL_SESSION_TIMEOUT_MS)
         );
         const { data: { session: initialSession }, error: sessionError } = await Promise.race([
           sessionPromise,
@@ -92,6 +113,9 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
         if (sessionError) {
           console.error('Error getting session:', sessionError);
+          if (sessionError.message === SESSION_TIMEOUT_ERROR) {
+            resetLocalAuthState();
+          }
         }
 
         if (!isMounted) return;
@@ -179,11 +203,34 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       clearTimeout(safetyTimeout);
       subscription?.unsubscribe();
     };
-  }, [loadUserMetadata]);
+  }, [loadUserMetadata, resetLocalAuthState]);
 
   const signIn = async (email: string, password: string) => {
-    const { error } = await supabase.auth.signInWithPassword({ email, password });
-    return { error: error as Error | null };
+    try {
+      resetLocalAuthState();
+
+      const timeoutPromise = new Promise<never>((_, reject) =>
+        setTimeout(() => reject(new Error(LOGIN_TIMEOUT_ERROR)), LOGIN_TIMEOUT_MS)
+      );
+
+      const { error } = await Promise.race([
+        supabase.auth.signInWithPassword({ email, password }),
+        timeoutPromise,
+      ]) as Awaited<ReturnType<typeof supabase.auth.signInWithPassword>>;
+
+      return { error: error as Error | null };
+    } catch (error) {
+      if (error instanceof Error && error.message === LOGIN_TIMEOUT_ERROR) {
+        resetLocalAuthState();
+        return {
+          error: new Error('Сессия зависла. Локальный токен сброшен, попробуйте войти ещё раз.'),
+        };
+      }
+
+      return {
+        error: error instanceof Error ? error : new Error('Не удалось выполнить вход'),
+      };
+    }
   };
 
   const signUp = async (email: string, password: string, fullName: string) => {
