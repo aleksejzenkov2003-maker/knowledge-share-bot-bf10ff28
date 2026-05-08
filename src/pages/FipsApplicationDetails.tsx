@@ -232,6 +232,29 @@ export default function FipsApplicationDetails() {
           </CardContent>
         </Card>
       )}
+
+      <Card>
+        <CardHeader>
+          <CardTitle className="text-base flex items-center gap-2">
+            Делопроизводство
+            {extraLoading && <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" />}
+          </CardTitle>
+        </CardHeader>
+        <CardContent>
+          {deloHtml ? (
+            <div
+              className="fips-delo overflow-x-auto text-sm [&_table]:w-full [&_table]:border-collapse [&_td]:border [&_td]:border-border [&_td]:px-3 [&_td]:py-2 [&_th]:border [&_th]:border-border [&_th]:px-3 [&_th]:py-2 [&_th]:bg-muted [&_b]:font-semibold"
+              dangerouslySetInnerHTML={{ __html: deloHtml }}
+            />
+          ) : extraLoading ? (
+            <p className="text-sm text-muted-foreground">Загружаем таблицу с сервера…</p>
+          ) : extraError ? (
+            <p className="text-sm text-destructive">Не удалось загрузить: {extraError}</p>
+          ) : (
+            <p className="text-sm text-muted-foreground">Таблица отсутствует в источнике.</p>
+          )}
+        </CardContent>
+      </Card>
     </div>
   );
 }
