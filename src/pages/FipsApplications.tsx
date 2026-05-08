@@ -14,7 +14,8 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { Badge } from "@/components/ui/badge";
-import { Search, ChevronLeft, ChevronRight, FileText, ImageOff } from "lucide-react";
+import { Search, ChevronLeft, ChevronRight, FileText, ImageOff, RefreshCw } from "lucide-react";
+import { toast } from "sonner";
 import { cn } from "@/lib/utils";
 
 interface FipsApplication {
@@ -61,6 +62,35 @@ export default function FipsApplications() {
   const [search, setSearch] = useState("");
   const [yearFilter, setYearFilter] = useState<number | "all">("all");
   const [page, setPage] = useState(0);
+  const [refreshing, setRefreshing] = useState(false);
+  const [refreshProgress, setRefreshProgress] = useState<string | null>(null);
+
+  const runRefresh = async () => {
+    if (refreshing) return;
+    setRefreshing(true);
+    setRefreshProgress("Запуск…");
+    try {
+      let totalUpdated = 0;
+      let iter = 0;
+      while (iter < 60) {
+        iter++;
+        const { data: r, error } = await supabase.functions.invoke("fips-app-refresh", {
+          body: { limit: 50, year: yearFilter === "all" ? null : yearFilter },
+        });
+        if (error) throw error;
+        if (!r?.success) throw new Error(r?.error || "unknown");
+        totalUpdated += r.updated || 0;
+        setRefreshProgress(`Обновлено: ${totalUpdated} · осталось пустых: ${r.remaining ?? "?"}`);
+        if ((r.processed || 0) === 0) break;
+      }
+      toast.success(`Готово. Восстановлено заявок: ${totalUpdated}`);
+    } catch (e) {
+      toast.error(`Ошибка: ${(e as Error).message}`);
+    } finally {
+      setRefreshing(false);
+      setTimeout(() => setRefreshProgress(null), 5000);
+    }
+  };
 
   const [debouncedSearch, setDebouncedSearch] = useState(search);
   useEffect(() => {
@@ -144,15 +174,24 @@ export default function FipsApplications() {
           </p>
         </div>
 
-        <div className="relative">
-          <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
-          <Input
-            className="pl-9"
-            placeholder="Номер заявки (например, 2024) или название правообладателя"
-            value={search}
-            onChange={(e) => { setSearch(e.target.value); setPage(0); }}
-          />
+        <div className="flex flex-col gap-2 sm:flex-row sm:items-start">
+          <div className="relative flex-1">
+            <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+            <Input
+              className="pl-9"
+              placeholder="Номер заявки (например, 2024) или название правообладателя"
+              value={search}
+              onChange={(e) => { setSearch(e.target.value); setPage(0); }}
+            />
+          </div>
+          <Button onClick={runRefresh} disabled={refreshing} variant="outline" className="shrink-0">
+            <RefreshCw className={cn("mr-2 h-4 w-4", refreshing && "animate-spin")} />
+            {refreshing ? (refreshProgress || "Восстановление…") : "Восстановить пустые"}
+          </Button>
         </div>
+        {refreshProgress && !refreshing && (
+          <p className="text-xs text-muted-foreground">{refreshProgress}</p>
+        )}
 
         <Card>
           <CardContent className="p-0">
