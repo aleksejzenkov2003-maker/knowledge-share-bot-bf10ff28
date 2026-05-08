@@ -113,10 +113,14 @@ Deno.serve(async (req) => {
     const limit = Math.min(Math.max(Number(body.limit) || 50, 1), 100);
     const year = body.year ? Number(body.year) : null;
 
+    // Skip rows we already tried in the last 3 days (no point hammering empty ones)
+    const cutoff = new Date(Date.now() - 3 * 24 * 3600 * 1000).toISOString();
     let q = sb
       .from("fips_applications")
-      .select("id, application_number, parsed_data, thumbnail_url")
+      .select("id, application_number, parsed_data, thumbnail_url, submitted_at")
       .is("applicant_name", null)
+      .or(`parsed_data->>refresh_attempted_at.is.null,parsed_data->>refresh_attempted_at.lt.${cutoff}`)
+      .order("application_number", { ascending: false })
       .limit(limit);
     if (year) q = q.eq("year", year);
 
