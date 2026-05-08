@@ -5,7 +5,36 @@ import { supabase } from "@/integrations/supabase/client";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
-import { ArrowLeft, ExternalLink } from "lucide-react";
+import { ArrowLeft, ExternalLink, ImageOff } from "lucide-react";
+
+const pickStr = (obj: Record<string, unknown> | null | undefined, key: string): string | null => {
+  if (!obj) return null;
+  const v = obj[key];
+  return typeof v === "string" && v.trim() ? v.trim() : null;
+};
+
+const yearFromNumber = (n: string | null): number | null => {
+  if (!n) return null;
+  const m = n.match(/^(\d{4})/);
+  return m ? Number(m[1]) : null;
+};
+
+const decodeUrl = (u: string | null): string | null => {
+  if (!u) return null;
+  let url = u.replace(/&amp;/g, "&");
+  if (url.startsWith("/")) url = `https://fips.ru${url}`;
+  return url;
+};
+
+const SKIP_KEYS = new Set([
+  "applicant_raw",
+  "classes_raw",
+  "color_specification_raw",
+  "correspondence_address_raw",
+  "publication_date_raw",
+  "submitted_date_raw",
+  "unprotected_elements_raw",
+]);
 
 interface FipsApplicationDetailsRow {
   id: string;
