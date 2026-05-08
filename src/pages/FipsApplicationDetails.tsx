@@ -84,19 +84,6 @@ export default function FipsApplicationDetails() {
     enabled: !!id,
   });
 
-  const autoFields = useMemo(() => {
-    const payload = data?.parsed_data;
-    if (!payload || typeof payload !== "object") return [];
-
-    return Object.entries(payload).filter(([, value]) => {
-      if (value === null || value === undefined) return false;
-      if (typeof value === "string") return value.trim().length > 0;
-      if (Array.isArray(value)) return value.length > 0;
-      if (typeof value === "object") return Object.keys(value).length > 0;
-      return true;
-    });
-  }, [data?.parsed_data]);
-
   const pd = data?.parsed_data || null;
   const applicant = data?.applicant_name || pickStr(pd, "applicant_raw");
   const address = data?.applicant_address || pickStr(pd, "correspondence_address_raw");
