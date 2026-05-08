@@ -90,12 +90,12 @@ export default function FipsApplicationDetails() {
   const [extraError, setExtraError] = useState<string | null>(null);
 
   useEffect(() => {
-    if (!data?.file_path) return;
+    if (!data?.application_number && !data?.file_path) return;
     let cancelled = false;
     setExtraLoading(true);
     setExtraError(null);
     supabase.functions
-      .invoke("fips-html-proxy", { body: { file_path: data.file_path } })
+      .invoke("fips-html-proxy", { body: { application_number: data.application_number, file_path: data.file_path } })
       .then(({ data: r, error }) => {
         if (cancelled) return;
         if (error) setExtraError(error.message);
@@ -105,7 +105,7 @@ export default function FipsApplicationDetails() {
       .catch((e) => !cancelled && setExtraError(e.message))
       .finally(() => !cancelled && setExtraLoading(false));
     return () => { cancelled = true; };
-  }, [data?.file_path]);
+  }, [data?.application_number, data?.file_path]);
 
   const pd = data?.parsed_data || null;
   const pick = (k: string) => pickStr(pd, k) || (extra && typeof extra[k] === "string" ? (extra[k] as string).trim() : null);
