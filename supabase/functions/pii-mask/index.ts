@@ -47,12 +47,25 @@ serve(async (req) => {
     return new Response(null, { headers: corsHeaders });
   }
 
-  // Auth check
+  // Auth check — validate JWT, not just header presence
   const authHeader = req.headers.get('Authorization');
   if (!authHeader?.startsWith('Bearer ')) {
     return new Response(JSON.stringify({ error: 'Unauthorized' }), {
       status: 401, headers: { ...corsHeaders, 'Content-Type': 'application/json' },
     });
+  }
+  {
+    const token = authHeader.replace('Bearer ', '');
+    const serviceRoleKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!;
+    if (token !== serviceRoleKey) {
+      const sbAuth = createClient(Deno.env.get('SUPABASE_URL')!, serviceRoleKey);
+      const { data: { user } } = await sbAuth.auth.getUser(token);
+      if (!user) {
+        return new Response(JSON.stringify({ error: 'Unauthorized' }), {
+          status: 401, headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+        });
+      }
+    }
   }
 
   try {
