@@ -36,6 +36,9 @@ verify_jwt = false
 [functions.fips-html-proxy]
 verify_jwt = false
 
+[functions.fips-app-refresh]
+verify_jwt = false
+
 [functions.admin-manage-users]
 verify_jwt = false
 
