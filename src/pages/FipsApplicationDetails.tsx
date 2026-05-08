@@ -1,11 +1,11 @@
-import { useMemo } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 import { useQuery } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
-import { ArrowLeft, ExternalLink, ImageOff } from "lucide-react";
+import { ArrowLeft, ExternalLink, ImageOff, Loader2 } from "lucide-react";
 
 const pickStr = (obj: Record<string, unknown> | null | undefined, key: string): string | null => {
   if (!obj) return null;
@@ -84,17 +84,42 @@ export default function FipsApplicationDetails() {
     enabled: !!id,
   });
 
+  // Fallback parsed на лету (для битых заявок где БД пуста)
+  const [extra, setExtra] = useState<Record<string, any> | null>(null);
+  const [extraLoading, setExtraLoading] = useState(false);
+  const [extraError, setExtraError] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (!data?.file_path) return;
+    let cancelled = false;
+    setExtraLoading(true);
+    setExtraError(null);
+    supabase.functions
+      .invoke("fips-html-proxy", { body: { file_path: data.file_path } })
+      .then(({ data: r, error }) => {
+        if (cancelled) return;
+        if (error) setExtraError(error.message);
+        else if (r?.success) setExtra(r.data);
+        else if (r?.error) setExtraError(r.error);
+      })
+      .catch((e) => !cancelled && setExtraError(e.message))
+      .finally(() => !cancelled && setExtraLoading(false));
+    return () => { cancelled = true; };
+  }, [data?.file_path]);
+
   const pd = data?.parsed_data || null;
-  const applicant = data?.applicant_name || pickStr(pd, "applicant_raw");
-  const address = data?.applicant_address || pickStr(pd, "correspondence_address_raw");
-  const classes = pickStr(pd, "classes_raw");
-  const colorSpec = pickStr(pd, "color_specification_raw");
-  const unprotected = pickStr(pd, "unprotected_elements_raw");
-  const publicationRaw = pickStr(pd, "publication_date_raw");
-  const submittedRaw = pickStr(pd, "submitted_date_raw");
-  const status = pickStr(pd, "processing_status_raw");
+  const pick = (k: string) => pickStr(pd, k) || (extra && typeof extra[k] === "string" ? (extra[k] as string).trim() : null);
+  const applicant = data?.applicant_name || pick("applicant_raw");
+  const address = data?.applicant_address || pick("correspondence_address_raw");
+  const classes = pick("classes_raw");
+  const colorSpec = pick("color_specification_raw");
+  const unprotected = pick("unprotected_elements_raw");
+  const publicationRaw = pick("publication_date_raw");
+  const submittedRaw = pick("submitted_date_raw");
+  const status = pick("processing_status_raw");
   const year = data?.year || yearFromNumber(data?.application_number || null);
   const sourceUrl = decodeUrl(data?.source_url || null);
+  const deloHtml = (extra?.delo_html as string | undefined) || null;
 
   const autoFields = useMemo(() => {
     if (!pd) return [] as [string, unknown][];
@@ -207,6 +232,29 @@ export default function FipsApplicationDetails() {
           </CardContent>
         </Card>
       )}
+
+      <Card>
+        <CardHeader>
+          <CardTitle className="text-base flex items-center gap-2">
+            Делопроизводство
+            {extraLoading && <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" />}
+          </CardTitle>
+        </CardHeader>
+        <CardContent>
+          {deloHtml ? (
+            <div
+              className="fips-delo overflow-x-auto text-sm [&_table]:w-full [&_table]:border-collapse [&_td]:border [&_td]:border-border [&_td]:px-3 [&_td]:py-2 [&_th]:border [&_th]:border-border [&_th]:px-3 [&_th]:py-2 [&_th]:bg-muted [&_b]:font-semibold"
+              dangerouslySetInnerHTML={{ __html: deloHtml }}
+            />
+          ) : extraLoading ? (
+            <p className="text-sm text-muted-foreground">Загружаем таблицу с сервера…</p>
+          ) : extraError ? (
+            <p className="text-sm text-destructive">Не удалось загрузить: {extraError}</p>
+          ) : (
+            <p className="text-sm text-muted-foreground">Таблица отсутствует в источнике.</p>
+          )}
+        </CardContent>
+      </Card>
     </div>
   );
 }
