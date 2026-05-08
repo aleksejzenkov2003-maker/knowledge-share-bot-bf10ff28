@@ -165,6 +165,7 @@ Deno.serve(async (req) => {
         }
       }
 
+      const nowIso = new Date().toISOString();
       const newParsed = {
         ...(row.parsed_data || {}),
         applicant_raw: applicantRaw,
@@ -173,7 +174,8 @@ Deno.serve(async (req) => {
         color_specification_raw: color,
         unprotected_elements_raw: unprot,
         submitted_date_raw: submittedRaw,
-        refreshed_at: new Date().toISOString(),
+        refreshed_at: nowIso,
+        refresh_attempted_at: nowIso,
       };
 
       const patch: Record<string, unknown> = { parsed_data: newParsed };
