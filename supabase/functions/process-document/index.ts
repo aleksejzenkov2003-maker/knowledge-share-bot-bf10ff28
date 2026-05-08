@@ -2011,7 +2011,7 @@ serve(async (req) => {
     return new Response(null, { headers: corsHeaders });
   }
 
-  // Auth check
+  // Auth check — validate JWT, not just header presence
   const authHeader = req.headers.get('Authorization');
   if (!authHeader?.startsWith('Bearer ')) {
     return new Response(JSON.stringify({ error: 'Unauthorized' }), {
@@ -2022,6 +2022,18 @@ serve(async (req) => {
   const supabaseUrl = Deno.env.get('SUPABASE_URL')!;
   const supabaseKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!;
   const supabase = createClient(supabaseUrl, supabaseKey);
+
+  {
+    const token = authHeader.replace('Bearer ', '');
+    if (token !== supabaseKey) {
+      const { data: { user } } = await supabase.auth.getUser(token);
+      if (!user) {
+        return new Response(JSON.stringify({ error: 'Unauthorized' }), {
+          status: 401, headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+        });
+      }
+    }
+  }
 
   try {
     const { document_id }: ProcessRequest = await req.json();
