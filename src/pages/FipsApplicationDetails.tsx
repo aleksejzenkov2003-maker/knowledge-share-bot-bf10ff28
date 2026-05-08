@@ -105,7 +105,7 @@ export default function FipsApplicationDetails() {
       .catch((e) => !cancelled && setExtraError(e.message))
       .finally(() => !cancelled && setExtraLoading(false));
     return () => { cancelled = true; };
-  }, [data?.file_path]);
+  }, [data?.application_number, data?.file_path]);
 
   const pd = data?.parsed_data || null;
   const pick = (k: string) => pickStr(pd, k) || (extra && typeof extra[k] === "string" ? (extra[k] as string).trim() : null);
