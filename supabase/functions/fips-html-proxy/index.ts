@@ -36,17 +36,11 @@ const grabAfterCode = (plain: string, code: string): string | null => {
 
 // Ищем именно "подвал" — таблицу делопроизводства с входящей/исходящей корреспонденцией.
 // В шапке HTML тоже есть слово "Делопроизводство", но это не она.
-const extractDeloTable = (html: string): string | null => {
-  // Якорь — "Исходящая корреспонденция" или "Входящая корреспонденция"
-  const anchor = html.search(/(Исходящая|Входящая)\s+корреспонденци/i);
-  if (anchor < 0) return null;
-
-  // Поднимаемся вверх — ищем заголовок "Делопроизводство" (тег с этим словом)
-  const before = html.slice(0, anchor);
-  // Берём самый ближайший <table перед anchor, и проверяем, что в окрестности есть слово "Делопроизводство"
-  const tableStart = before.lastIndexOf("<table");
+// Извлекает таблицу(ы) делопроизводства. На fips.ru "Исходящая" и "Входящая"
+// корреспонденция могут быть в РАЗНЫХ соседних таблицах — берём обе.
+const findEnclosingTable = (html: string, anchor: number): { start: number; end: number } | null => {
+  const tableStart = html.lastIndexOf("<table", anchor);
   if (tableStart < 0) return null;
-
   let depth = 0;
   const re = /<\/?table\b[^>]*>/gi;
   re.lastIndex = tableStart;
@@ -54,29 +48,33 @@ const extractDeloTable = (html: string): string | null => {
   while ((m = re.exec(html))) {
     if (m[0].toLowerCase().startsWith("</")) {
       depth--;
-      if (depth === 0) {
-        const tableHtml = html.slice(tableStart, m.index + m[0].length);
-        // Проверка: в этой таблице должна быть "Исходящая" или "Входящая" корреспонденция
-        if (/(Исходящая|Входящая)\s+корреспонденци/i.test(tableHtml)) {
-          // Часто заголовок "Делопроизводство" идёт перед таблицей в отдельном теге <b>/<p>.
-          // Захватим до 400 символов слева, если там встречается это слово.
-          const leftSlice = html.slice(Math.max(0, tableStart - 400), tableStart);
-          const titleIdx = leftSlice.lastIndexOf("Делопроизводство");
-          if (titleIdx >= 0) {
-            // найдём начало родительского тега заголовка
-            const absTitleIdx = Math.max(0, tableStart - 400) + titleIdx;
-            const tagStart = html.lastIndexOf("<", absTitleIdx);
-            if (tagStart > 0) {
-              return html.slice(tagStart, m.index + m[0].length);
-            }
-          }
-          return tableHtml;
-        }
-        return null;
-      }
+      if (depth === 0) return { start: tableStart, end: m.index + m[0].length };
     } else depth++;
   }
   return null;
+};
+
+const extractDeloTable = (html: string): string | null => {
+  const ranges: { start: number; end: number }[] = [];
+  const seen = new Set<number>();
+  const anchorRe = /(Исходящая|Входящая)\s+корреспонденци/gi;
+  let am: RegExpExecArray | null;
+  while ((am = anchorRe.exec(html))) {
+    const r = findEnclosingTable(html, am.index);
+    if (r && !seen.has(r.start)) {
+      seen.add(r.start);
+      ranges.push(r);
+    }
+  }
+  if (ranges.length === 0) return null;
+  ranges.sort((a, b) => a.start - b.start);
+
+  // Если все таблицы рядом — захватим один общий блок (включая разделители между ними).
+  const first = ranges[0];
+  const last = ranges[ranges.length - 1];
+  const block = html.slice(first.start, last.end);
+
+  return `<div class="fips-delo-block">${block}</div>`;
 };
 
 const fetchFipsByNumber = async (num: string): Promise<string | null> => {
