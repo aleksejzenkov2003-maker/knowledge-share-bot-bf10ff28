@@ -269,3 +269,47 @@ function Info({ label, value, multiline }: { label: string; value: string | null
     </div>
   );
 }
+
+function MktuClasses({ raw }: { raw: string }) {
+  // Разбиваем строку вида "16 - блокноты; ... 21 - банки... 29 - ветчина..." на классы.
+  // Класс начинается с числа 1..45, далее разделитель " - " или " – ".
+  const text = raw.replace(/\s+/g, " ").trim();
+  const parts: { cls: string; items: string[] }[] = [];
+  const re = /(?:^|\s)(\d{1,2})\s*[-–—]\s*/g;
+  const matches: { idx: number; cls: string; end: number }[] = [];
+  let m: RegExpExecArray | null;
+  while ((m = re.exec(text))) {
+    const n = Number(m[1]);
+    if (n >= 1 && n <= 45) matches.push({ idx: m.index, cls: m[1], end: re.lastIndex });
+  }
+  if (matches.length === 0) {
+    return <Info label="Классы МКТУ / перечень товаров и услуг" value={raw} multiline />;
+  }
+  for (let i = 0; i < matches.length; i++) {
+    const start = matches[i].end;
+    const end = i + 1 < matches.length ? matches[i + 1].idx : text.length;
+    const body = text.slice(start, end).trim().replace(/[;,\s]+$/, "");
+    const items = body.split(/\s*;\s*/).map((s) => s.trim()).filter(Boolean);
+    parts.push({ cls: matches[i].cls, items });
+  }
+  return (
+    <div>
+      <p className="text-xs text-muted-foreground mb-2">Классы МКТУ / перечень товаров и услуг</p>
+      <div className="space-y-3">
+        {parts.map((p) => (
+          <div key={p.cls} className="rounded border border-border bg-muted/30 p-3">
+            <div className="flex items-baseline gap-2 mb-1">
+              <span className="inline-flex items-center justify-center min-w-9 h-7 px-2 rounded bg-primary text-primary-foreground text-xs font-semibold">
+                {p.cls}
+              </span>
+              <span className="text-xs text-muted-foreground">класс — {p.items.length} поз.</span>
+            </div>
+            <p className="text-sm leading-relaxed break-words">
+              {p.items.join("; ")}
+            </p>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
