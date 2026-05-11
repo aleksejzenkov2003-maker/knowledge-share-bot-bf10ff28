@@ -207,7 +207,7 @@ export default function FipsApplicationDetails() {
           </div>
 
           <Info label="Адрес для переписки" value={address} multiline />
-          {classes && <Info label="Классы МКТУ / перечень товаров и услуг" value={classes} multiline />}
+          {classes && <MktuClasses raw={classes} />}
           {colorSpec && <Info label="Цветовое сочетание" value={colorSpec} multiline />}
           {unprotected && <Info label="Неохраняемые элементы" value={unprotected} multiline />}
         </CardContent>
