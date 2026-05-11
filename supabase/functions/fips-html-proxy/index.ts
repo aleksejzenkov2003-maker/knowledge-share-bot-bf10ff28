@@ -34,12 +34,19 @@ const grabAfterCode = (plain: string, code: string): string | null => {
   return m ? m[1].replace(/\s+/g, " ").trim() || null : null;
 };
 
+// Ищем именно "подвал" — таблицу делопроизводства с входящей/исходящей корреспонденцией.
+// В шапке HTML тоже есть слово "Делопроизводство", но это не она.
 const extractDeloTable = (html: string): string | null => {
-  const idx = html.search(/Делопроизводство/);
-  if (idx < 0) return null;
-  const before = html.slice(0, idx);
+  // Якорь — "Исходящая корреспонденция" или "Входящая корреспонденция"
+  const anchor = html.search(/(Исходящая|Входящая)\s+корреспонденци/i);
+  if (anchor < 0) return null;
+
+  // Поднимаемся вверх — ищем заголовок "Делопроизводство" (тег с этим словом)
+  const before = html.slice(0, anchor);
+  // Берём самый ближайший <table перед anchor, и проверяем, что в окрестности есть слово "Делопроизводство"
   const tableStart = before.lastIndexOf("<table");
-  if (tableStart < 0) return html.slice(idx, idx + 8000);
+  if (tableStart < 0) return null;
+
   let depth = 0;
   const re = /<\/?table\b[^>]*>/gi;
   re.lastIndex = tableStart;
@@ -47,7 +54,26 @@ const extractDeloTable = (html: string): string | null => {
   while ((m = re.exec(html))) {
     if (m[0].toLowerCase().startsWith("</")) {
       depth--;
-      if (depth === 0) return html.slice(tableStart, m.index + m[0].length);
+      if (depth === 0) {
+        const tableHtml = html.slice(tableStart, m.index + m[0].length);
+        // Проверка: в этой таблице должна быть "Исходящая" или "Входящая" корреспонденция
+        if (/(Исходящая|Входящая)\s+корреспонденци/i.test(tableHtml)) {
+          // Часто заголовок "Делопроизводство" идёт перед таблицей в отдельном теге <b>/<p>.
+          // Захватим до 400 символов слева, если там встречается это слово.
+          const leftSlice = html.slice(Math.max(0, tableStart - 400), tableStart);
+          const titleIdx = leftSlice.lastIndexOf("Делопроизводство");
+          if (titleIdx >= 0) {
+            // найдём начало родительского тега заголовка
+            const absTitleIdx = Math.max(0, tableStart - 400) + titleIdx;
+            const tagStart = html.lastIndexOf("<", absTitleIdx);
+            if (tagStart > 0) {
+              return html.slice(tagStart, m.index + m[0].length);
+            }
+          }
+          return tableHtml;
+        }
+        return null;
+      }
     } else depth++;
   }
   return null;
